@@ -1,7 +1,13 @@
 {#
 /**
  * @file
- * Canonical Room Editor shell.
+ * Canonical Room Editor shell with an embedded GM assistant.
+ *
+ * Layout contract: [author drawer] | [canvas] | [GM assistant panel].
+ * The GM assistant is the primary surface. Every manual authoring control
+ * (catalog, tool palette, inspector, validation) lives inside the collapsible
+ * author drawer, which starts collapsed so the freed real estate belongs to
+ * the assistant.
  *
  * Available variables:
  * - rooms: List of { room_id, name, publication_status, published_version_id }
@@ -16,6 +22,13 @@
 
     <header class="room-editor__header">
       <div class="room-editor__header-row">
+        <button type="button"
+                class="room-editor__button room-editor__drawer-toggle"
+                data-room-editor-action="toggle-author-drawer"
+                aria-expanded="false"
+                aria-controls="room-editor-author-drawer"
+                title="{{ 'Show or hide the manual authoring tools'|t }}">{{ 'Author Tools'|t }}</button>
+
         <div class="room-editor__field room-editor__field--inline">
           <label for="room-editor-room-select">{{ 'Room'|t }}</label>
           <select id="room-editor-room-select" data-room-editor-room-select>
@@ -61,9 +74,15 @@
       </div>
     </header>
 
-    <div class="game-shell__workspace room-editor__workspace">
+    <div class="game-shell__workspace room-editor__workspace" data-room-editor-workspace>
 
-      <aside class="game-shell__action-rail room-editor__catalog" data-room-editor-catalog aria-label="{{ 'Placeable object catalog'|t }}">
+      <aside id="room-editor-author-drawer"
+             class="room-editor__author-drawer"
+             data-room-editor-author-drawer
+             aria-label="{{ 'Manual authoring tools'|t }}"
+             hidden>
+
+      <section class="room-editor__drawer-section room-editor__catalog" data-room-editor-catalog aria-label="{{ 'Placeable object catalog'|t }}">
         <p class="room-editor__eyebrow">{{ 'Catalog'|t }}</p>
         <div class="room-editor__catalog-controls">
           <input type="search" data-room-editor-catalog-search placeholder="{{ 'Search catalog...'|t }}" aria-label="{{ 'Search catalog'|t }}">
@@ -81,9 +100,10 @@
         <ul class="room-editor__catalog-list" data-room-editor-catalog-list role="listbox" aria-label="{{ 'Placeable objects'|t }}"></ul>
         <p class="room-editor__catalog-empty" data-room-editor-catalog-empty hidden>{{ 'No matching objects.'|t }}</p>
         <button type="button" class="room-editor__button room-editor__catalog-more" data-room-editor-action="catalog-more" hidden>{{ 'Load more'|t }}</button>
-      </aside>
+      </section>
 
-      <div class="game-shell__content room-editor__center">
+      <section class="room-editor__drawer-section" aria-label="{{ 'Editing tools'|t }}">
+        <p class="room-editor__eyebrow">{{ 'Tools'|t }}</p>
         <div class="room-editor__toolbar" role="toolbar" data-room-editor-toolbar aria-label="{{ 'Editing tools'|t }}">
           <button type="button" data-room-editor-tool="select" aria-pressed="true">{{ 'Select'|t }}</button>
           <button type="button" data-room-editor-tool="add_hex" aria-pressed="false">{{ 'Add Hex'|t }}</button>
@@ -96,25 +116,80 @@
           <button type="button" data-room-editor-tool="entry_port" aria-pressed="false">{{ 'Entry Port'|t }}</button>
           <button type="button" data-room-editor-tool="exit_port" aria-pressed="false">{{ 'Exit Port'|t }}</button>
         </div>
+      </section>
 
+      <section class="room-editor__drawer-section room-editor__inspector" data-room-editor-inspector aria-label="{{ 'Inspector'|t }}">
+        <p class="room-editor__eyebrow">{{ 'Inspector'|t }}</p>
+        <div data-room-editor-inspector-body>
+          <p class="room-editor__hint">{{ 'Load or create a room to begin editing.'|t }}</p>
+        </div>
+      </section>
+
+      <section class="room-editor__drawer-section room-editor__validation" data-room-editor-validation aria-label="{{ 'Validation results'|t }}">
+        <p class="room-editor__eyebrow">{{ 'Validation'|t }}</p>
+        <ul class="room-editor__validation-list" data-room-editor-validation-list></ul>
+      </section>
+
+      </aside>
+
+      <div class="game-shell__content room-editor__center">
         <div class="hexmap-stage room-editor__stage">
           <div id="room-editor-canvas" class="hexmap-canvas-wrapper" data-room-editor-canvas></div>
         </div>
       </div>
 
-      <aside class="game-shell__action-rail room-editor__inspector" data-room-editor-inspector aria-label="{{ 'Inspector'|t }}">
-        <p class="room-editor__eyebrow">{{ 'Inspector'|t }}</p>
-        <div data-room-editor-inspector-body>
-          <p class="room-editor__hint">{{ 'Load or create a room to begin editing.'|t }}</p>
+      <aside class="room-editor__gm-panel" data-room-editor-gm-panel aria-label="{{ 'GM assistant'|t }}">
+        <header class="room-editor__gm-header">
+          <p class="room-editor__eyebrow">{{ 'GM Assistant'|t }}</p>
+          <span class="room-editor__gm-state" data-room-editor-gm-state role="status" aria-live="polite">{{ 'Idle'|t }}</span>
+        </header>
+
+        <section class="room-editor__gm-disclosure-group" aria-label="{{ 'Grounded editor context'|t }}">
+          <button type="button"
+                  class="room-editor__gm-disclosure"
+                  data-room-editor-action="gm-toggle-context"
+                  aria-expanded="false"
+                  aria-controls="room-editor-gm-context-body">{{ 'Grounded context'|t }}</button>
+          <div id="room-editor-gm-context-body" class="room-editor__gm-context-body" data-room-editor-gm-context hidden></div>
+        </section>
+
+        <section class="room-editor__gm-disclosure-group" aria-label="{{ 'Assistant toolset'|t }}">
+          <button type="button"
+                  class="room-editor__gm-disclosure"
+                  data-room-editor-action="gm-toggle-tools"
+                  aria-expanded="false"
+                  aria-controls="room-editor-gm-tools-body">{{ 'Toolset'|t }}</button>
+          <div id="room-editor-gm-tools-body" class="room-editor__gm-tools-body" data-room-editor-gm-tools hidden></div>
+        </section>
+
+        <ol class="room-editor__gm-transcript" data-room-editor-gm-transcript aria-label="{{ 'Assistant transcript'|t }}" aria-live="polite"></ol>
+
+        <div class="room-editor__gm-plan" data-room-editor-gm-plan hidden>
+          <p class="room-editor__eyebrow">{{ 'Proposed command plan'|t }}</p>
+          <ol class="room-editor__gm-plan-list" data-room-editor-gm-plan-list></ol>
+          <div class="room-editor__gm-plan-actions">
+            <button type="button" class="room-editor__button" data-room-editor-action="gm-preview-plan">{{ 'Preview'|t }}</button>
+            <button type="button" class="room-editor__button room-editor__button--primary" data-room-editor-action="gm-apply-plan">{{ 'Apply plan'|t }}</button>
+            <button type="button" class="room-editor__button" data-room-editor-action="gm-discard-plan">{{ 'Discard'|t }}</button>
+          </div>
         </div>
+
+        <form class="room-editor__gm-composer" data-room-editor-gm-form>
+          <label class="visually-hidden" for="room-editor-gm-input">{{ 'Message the GM assistant'|t }}</label>
+          <textarea id="room-editor-gm-input"
+                    data-room-editor-gm-input
+                    rows="3"
+                    placeholder="{{ 'Ask the GM assistant, or run a tool by name...'|t }}"></textarea>
+          <div class="room-editor__gm-composer-actions">
+            <label class="room-editor__gm-dry-run">
+              <input type="checkbox" data-room-editor-gm-dry-run> {{ 'Dry run'|t }}
+            </label>
+            <button type="submit" class="room-editor__button room-editor__button--primary" data-room-editor-action="gm-send">{{ 'Send'|t }}</button>
+          </div>
+        </form>
       </aside>
 
     </div>
-
-    <section class="room-editor__validation" data-room-editor-validation aria-label="{{ 'Validation results'|t }}">
-      <p class="room-editor__eyebrow">{{ 'Validation'|t }}</p>
-      <ul class="room-editor__validation-list" data-room-editor-validation-list></ul>
-    </section>
 
   </div>
 </div>

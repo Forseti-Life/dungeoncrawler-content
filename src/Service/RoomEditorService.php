@@ -285,6 +285,7 @@ class RoomEditorService {
     }
 
     $room = $draft['room'];
+    $this->assertStarterFixedDataContract($room);
     $room_id = (string) $room['room_id'];
     if ($room_id === '') {
       throw new \DomainException('room_id_required');
@@ -1162,6 +1163,87 @@ class RoomEditorService {
     return _dungeoncrawler_content_room_editor_legacy_aggregate($row);
   }
 
+  /**
+   * Projects an ordered command list against a draft without persisting it.
+   *
+   * Simulation reuses the same mutation and validation code as applyCommand(),
+   * so a previewed plan cannot diverge from what execution would actually do.
+   * Nothing is written: no revision bump, no command log entry, no draft row
+   * update.
+   */
+  public function simulateCommands(string $draft_id, array $commands, string $profile = 'editing'): array {
+    if ($commands === []) {
+      throw new \InvalidArgumentException('command_plan_empty');
+    }
+    $draft = $this->getDraft($draft_id);
+    if ($draft['status'] !== 'active') {
+      throw new \DomainException('draft_not_active');
+    }
+
+    $room = $draft['room'];
+    $steps = [];
+    foreach (array_values($commands) as $index => $command) {
+      $step = $index + 1;
+      if (!is_array($command)) {
+        throw new \InvalidArgumentException(sprintf('command_step_invalid:%d', $step));
+      }
+      $type = (string) ($command['type'] ?? '');
+      if ($type === '') {
+        throw new \InvalidArgumentException(sprintf('command_step_type_required:%d', $step));
+      }
+      $payload = $command['payload'] ?? NULL;
+      if (!is_array($payload)) {
+        throw new \InvalidArgumentException(sprintf('command_step_payload_invalid:%d', $step));
+      }
+      try {
+        $room = $this->mutate($room, $type, $payload, $draft_id);
+        $steps[] = ['step' => $step, 'command_type' => $type, 'applies' => TRUE, 'error' => NULL];
+      }
+      catch (\Throwable $exception) {
+        $steps[] = [
+          'step' => $step,
+          'command_type' => $type,
+          'applies' => FALSE,
+          'error' => $exception->getMessage(),
+        ];
+        break;
+      }
+    }
+
+    $blocked = array_values(array_filter($steps, static fn(array $s): bool => !$s['applies']));
+    $findings = $blocked === [] ? $this->validateAggregate($room, $profile) : ['errors' => [], 'warnings' => []];
+
+    return [
+      'draft_id' => $draft_id,
+      'base_revision' => (int) $draft['revision'],
+      'projected_revision' => (int) $draft['revision'] + count(array_filter($steps, static fn(array $s): bool => $s['applies'])),
+      'applies_cleanly' => $blocked === [],
+      'steps' => $steps,
+      'projected_room' => $room,
+      'validation' => [
+        'valid' => $blocked === [] && $findings['errors'] === [],
+        'profile' => $profile,
+        'errors' => $findings['errors'],
+        'warnings' => $findings['warnings'],
+      ],
+    ];
+  }
+
+  /**
+   * Returns the currently published canonical aggregate for one room.
+   */
+  public function publishedRoom(string $room_id): ?array {
+    if ($room_id === '') {
+      throw new \InvalidArgumentException('room_id_required');
+    }
+    $version_id = $this->database->select('dungeoncrawler_content_rooms', 'r')
+      ->fields('r', ['published_version_id'])
+      ->condition('room_id', $room_id)
+      ->execute()
+      ->fetchField();
+    return $this->loadPublishedPayload($version_id ?: NULL);
+  }
+
   private function loadPublishedPayload(?string $version_id): ?array {
     if (!$version_id) {
       return NULL;
@@ -1204,13 +1286,69 @@ class RoomEditorService {
     if (!is_array($hex) || !isset($hex['q'], $hex['r'])) {
       throw new \InvalidArgumentException('hex_invalid');
     }
-    return [
+    $normalized = [
       'q' => max(-1000, min(1000, (int) $hex['q'])),
       'r' => max(-1000, min(1000, (int) $hex['r'])),
       'terrain_type' => (string) ($hex['terrain_type'] ?? 'stone_floor'),
       'elevation_ft' => max(-50, min(200, (int) ($hex['elevation_ft'] ?? 0))),
       'lighting' => (string) ($hex['lighting'] ?? 'bright_light'),
     ];
+    foreach ([
+      'h3_index_res14',
+      'h3_index',
+      'lat',
+      'lng',
+      'is_entry',
+      'is_discovered',
+      'is_visible',
+      'movement_cost',
+      'elevation',
+      'objects',
+      'metadata',
+    ] as $field) {
+      if (array_key_exists($field, $hex)) {
+        $normalized[$field] = $hex[$field];
+      }
+    }
+    return $normalized;
+  }
+
+  /**
+   * Enforce hard starter-room fixed-data invariants at publication.
+   */
+  private function assertStarterFixedDataContract(array $room): void {
+    $room_id = trim((string) ($room['room_id'] ?? ''));
+    if ($room_id !== 'tavern_entrance' && $room_id !== 'tpl_room_absalom_streets') {
+      return;
+    }
+
+    $hexes = is_array($room['hexes'] ?? NULL) ? $room['hexes'] : [];
+    foreach ($hexes as $index => $hex) {
+      if (!is_array($hex)) {
+        throw new \DomainException('starter_room_hex_invalid');
+      }
+      $h3 = trim((string) ($hex['h3_index_res14'] ?? $hex['h3_index'] ?? ''));
+      if ($h3 === '') {
+        throw new \DomainException('starter_room_h3_required');
+      }
+    }
+
+    if ($room_id === 'tavern_entrance') {
+      $exit_ports = is_array($room['exit_ports'] ?? NULL) ? $room['exit_ports'] : [];
+      $has_absalom_streets_exit = FALSE;
+      foreach ($exit_ports as $port) {
+        if (!is_array($port)) {
+          continue;
+        }
+        if (trim((string) ($port['destination_hint'] ?? '')) === 'tpl_room_absalom_streets') {
+          $has_absalom_streets_exit = TRUE;
+          break;
+        }
+      }
+      if (!$has_absalom_streets_exit) {
+        throw new \DomainException('starter_room_exit_target_required');
+      }
+    }
   }
 
   private function normalizePort(array $port, bool $is_entry): array {

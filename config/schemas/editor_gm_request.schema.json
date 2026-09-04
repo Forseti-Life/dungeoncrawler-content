@@ -1,0 +1,95 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.forseti.life/schemas/editor_gm_request.schema.json",
+  "title": "Editor GM Harness Request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "tool_context",
+    "intent"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "editor-gm-request-v1"
+    },
+    "tool_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tool_id",
+        "draft_id",
+        "validation_profile"
+      ],
+      "properties": {
+        "tool_id": {
+          "enum": [
+            "room_editor"
+          ]
+        },
+        "draft_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "validation_profile": {
+          "enum": [
+            "editing",
+            "preview",
+            "publication"
+          ]
+        }
+      }
+    },
+    "intent": {
+      "type": "object",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "tool_name",
+            "arguments"
+          ],
+          "properties": {
+            "type": {
+              "const": "tool_call"
+            },
+            "tool_name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "arguments": {
+              "type": "object"
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "utterance"
+          ],
+          "properties": {
+            "type": {
+              "const": "natural_language"
+            },
+            "utterance": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            }
+          }
+        }
+      ]
+    },
+    "options": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dry_run": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

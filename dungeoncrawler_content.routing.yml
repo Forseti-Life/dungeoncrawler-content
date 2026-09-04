@@ -118,6 +118,24 @@ dungeoncrawler_content.room_editor_publish:
     _permission: 'publish canonical dungeoncrawler rooms'
     draft_id: '[0-9a-f-]{36}'
 
+dungeoncrawler_content.room_editor_gm_describe:
+  path: '/api/room-editor/drafts/{draft_id}/gm'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\EditorGmController::describe'
+  methods: [GET]
+  requirements:
+    _permission: 'edit canonical dungeoncrawler rooms'
+    draft_id: '[0-9a-f-]{36}'
+
+dungeoncrawler_content.room_editor_gm_execute:
+  path: '/api/room-editor/drafts/{draft_id}/gm'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\EditorGmController::execute'
+  methods: [POST]
+  requirements:
+    _permission: 'edit canonical dungeoncrawler rooms'
+    draft_id: '[0-9a-f-]{36}'
+
 dungeoncrawler_content.game_objects:
   path: '/dungeoncrawler/objects'
   defaults:

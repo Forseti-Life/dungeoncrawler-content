@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.forseti.life/schemas/editor_gm_command_plan.schema.json",
+  "title": "Editor GM Command Plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "draft_id", "base_revision", "steps"],
+  "properties": {
+    "schema_version": {"const": "editor-gm-command-plan-v1"},
+    "draft_id": {"type": "string", "format": "uuid"},
+    "base_revision": {"type": "integer", "minimum": 0},
+    "steps": {"type": "array", "items": {"$ref": "#/$defs/step"}}
+  },
+  "$defs": {
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["step", "command_type", "payload", "rationale"],
+      "properties": {
+        "step": {"type": "integer", "minimum": 1},
+        "command_type": {
+          "enum": [
+            "set_room_metadata",
+            "add_hex",
+            "remove_hex",
+            "set_hex_terrain",
+            "set_hex_elevation",
+            "place_object",
+            "move_object",
+            "rotate_object",
+            "update_object_overrides",
+            "duplicate_object",
+            "remove_object",
+            "add_entry_port",
+            "update_entry_port",
+            "remove_entry_port",
+            "add_exit_port",
+            "update_exit_port",
+            "remove_exit_port",
+            "undo",
+            "redo"
+          ]
+        },
+        "payload": {"type": "object"},
+        "rationale": {"type": "string"}
+      }
+    }
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.forseti.life/schemas/editor_gm_tool_definition.schema.json",
+  "title": "Editor GM Tool Definition",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "family", "summary", "mutating", "authority", "arguments"],
+  "properties": {
+    "name": {"type": "string", "minLength": 1},
+    "family": {
+      "enum": ["context", "validation", "planning", "execution", "definition"]
+    },
+    "summary": {"type": "string", "minLength": 1},
+    "mutating": {"type": "boolean"},
+    "authority": {"type": "string", "minLength": 1},
+    "arguments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "type", "required", "description"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "type": {"enum": ["string", "integer", "boolean", "object", "array"]},
+          "required": {"type": "boolean"},
+          "description": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

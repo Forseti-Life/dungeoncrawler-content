@@ -165,14 +165,239 @@
   background: color-mix(in srgb, var(--danger, #ef4444) 18%, transparent);
 }
 
+/* Layout contract: [author drawer] | [canvas] | [GM assistant panel].
+   The drawer column collapses to zero width so the assistant is the primary
+   surface and the canvas keeps the rest of the freed real estate. */
 .room-editor__workspace {
-  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(240px, 300px);
+  grid-template-columns: 0 minmax(0, 1fr) minmax(380px, 460px);
+  align-items: start;
+}
+
+.room-editor__workspace[data-author-drawer-open="true"] {
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr) minmax(360px, 440px);
+}
+
+.room-editor__author-drawer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4, 16px);
+  max-height: 78vh;
+  overflow-y: auto;
+  padding: var(--space-3, 12px);
+  background: var(--panel-bg, rgba(15, 23, 42, 0.6));
+  border: 1px solid var(--panel-border, rgba(148, 163, 184, 0.24));
+  border-radius: var(--radius-lg, 8px);
+}
+
+.room-editor__author-drawer[hidden] {
+  display: none;
+}
+
+.room-editor__drawer-section + .room-editor__drawer-section {
+  padding-top: var(--space-3, 12px);
+  border-top: 1px solid var(--panel-border, rgba(148, 163, 184, 0.24));
+}
+
+.room-editor__drawer-toggle[aria-expanded="true"] {
+  background: var(--accent-strong, #38bdf8);
+  border-color: var(--accent-strong, #38bdf8);
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.room-editor__gm-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3, 12px);
+  min-width: 0;
+  height: 78vh;
+  padding: var(--space-3, 12px);
+  background: var(--panel-bg, rgba(15, 23, 42, 0.6));
+  border: 1px solid var(--panel-border, rgba(148, 163, 184, 0.24));
+  border-radius: var(--radius-lg, 8px);
+}
+
+.room-editor__gm-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2, 8px);
+}
+
+.room-editor__gm-state {
+  font-size: var(--text-xs, 0.75em);
+  color: var(--accent-strong, #38bdf8);
+}
+
+.room-editor__gm-disclosure {
+  width: 100%;
+  text-align: left;
+  background: var(--overlay-white-04, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--panel-border, rgba(148, 163, 184, 0.24));
+  border-radius: var(--radius-md, 6px);
+  color: var(--text, #e2e8f0);
+  padding: 6px 10px;
+  font-size: var(--text-sm, 0.85em);
+  cursor: pointer;
+}
+
+.room-editor__gm-disclosure::before {
+  content: "▸ ";
+}
+
+.room-editor__gm-disclosure[aria-expanded="true"]::before {
+  content: "▾ ";
+}
+
+.room-editor__gm-context-body,
+.room-editor__gm-tools-body {
+  max-height: 220px;
+  overflow-y: auto;
+  margin-top: var(--space-2, 8px);
+  font-size: var(--text-xs, 0.75em);
+}
+
+.room-editor__gm-context-list,
+.room-editor__gm-tool-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.room-editor__gm-tool-family {
+  margin: var(--space-2, 8px) 0 2px;
+  color: var(--accent-strong, #38bdf8);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.room-editor__gm-tool {
+  background: none;
+  border: none;
+  color: var(--text, #e2e8f0);
+  text-align: left;
+  padding: 3px 6px;
+  border-radius: var(--radius-sm, 4px);
+  cursor: pointer;
+  font: inherit;
+}
+
+.room-editor__gm-tool:hover {
+  background: var(--overlay-white-06, rgba(255, 255, 255, 0.08));
+}
+
+.room-editor__gm-tool--mutating::after {
+  content: " •";
+  color: var(--warning, #f59e0b);
+}
+
+.room-editor__gm-transcript {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-2, 8px);
+  flex: 1 1 auto;
+  min-height: 120px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 8px);
+  background: var(--overlay-white-04, rgba(255, 255, 255, 0.04));
+  border-radius: var(--radius-md, 6px);
+}
+
+.room-editor__gm-message {
+  padding: 6px 10px;
+  border-radius: var(--radius-md, 6px);
+  font-size: var(--text-sm, 0.85em);
+  background: var(--overlay-white-06, rgba(255, 255, 255, 0.08));
+}
+
+.room-editor__gm-message--user {
+  border-left: 3px solid var(--accent-strong, #38bdf8);
+}
+
+.room-editor__gm-message--error {
+  border-left: 3px solid var(--danger, #ef4444);
+  color: var(--danger, #ef4444);
+}
+
+.room-editor__gm-message--success {
+  border-left: 3px solid var(--success, #22c55e);
+}
+
+.room-editor__gm-message--warning {
+  border-left: 3px solid var(--warning, #f59e0b);
+}
+
+.room-editor__gm-message--warning button {
+  margin-top: 6px;
+}
+
+.room-editor__gm-message pre {
+  margin: 4px 0 0;
+  max-height: 220px;
+  overflow: auto;
+  font-size: var(--text-xs, 0.75em);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.room-editor__gm-plan {
+  border: 1px solid var(--warning, #f59e0b);
+  border-radius: var(--radius-md, 6px);
+  padding: var(--space-2, 8px);
+}
+
+.room-editor__gm-plan-list {
+  margin: 0 0 var(--space-2, 8px);
+  padding-left: 18px;
+  font-size: var(--text-xs, 0.75em);
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.room-editor__gm-plan-actions {
+  display: flex;
+  gap: var(--space-2, 8px);
+}
+
+.room-editor__gm-composer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 8px);
+}
+
+.room-editor__gm-composer textarea {
+  width: 100%;
+  resize: vertical;
+  background: var(--overlay-white-04, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--panel-border, rgba(148, 163, 184, 0.24));
+  border-radius: var(--radius-md, 6px);
+  color: var(--text, #e2e8f0);
+  padding: 8px 10px;
+  font: inherit;
+}
+
+.room-editor__gm-composer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2, 8px);
+}
+
+.room-editor__gm-dry-run {
+  font-size: var(--text-xs, 0.75em);
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .room-editor__catalog,
 .room-editor__inspector {
-  max-height: 78vh;
-  overflow-y: auto;
+  min-width: 0;
 }
 
 .room-editor__catalog-controls {
@@ -453,8 +678,15 @@ body.room-editor__body--dragging {
 }
 
 @media (max-width: 1100px) {
-  .room-editor__workspace {
+  .room-editor__workspace,
+  .room-editor__workspace[data-author-drawer-open="true"] {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .room-editor__author-drawer,
+  .room-editor__gm-panel {
+    max-height: none;
+    height: auto;
   }
 
   .room-editor__catalog,

@@ -1,0 +1,102 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.forseti.life/schemas/editor_gm_response.schema.json",
+  "title": "Editor GM Harness Response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "tool_id",
+    "route_family",
+    "context_snapshot",
+    "tool_result",
+    "command_plan",
+    "validation",
+    "messages",
+    "errors"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "editor-gm-response-v1"
+    },
+    "tool_id": {
+      "enum": [
+        "room_editor"
+      ]
+    },
+    "route_family": {
+      "enum": [
+        "editor_context_snapshot",
+        "deterministic_editor_tool",
+        "editor_command_execution",
+        "editor_definition_authority",
+        "editor_publication",
+        "editor_intent_proposal"
+      ]
+    },
+    "context_snapshot": {
+      "type": "object"
+    },
+    "tool_result": {
+      "type": "object"
+    },
+    "command_plan": {
+      "type": "array",
+      "items": {
+        "$ref": "editor_gm_command_plan.schema.json#/$defs/step"
+      }
+    },
+    "validation": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "messages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "level",
+          "text"
+        ],
+        "properties": {
+          "level": {
+            "enum": [
+              "info",
+              "success",
+              "warning",
+              "error"
+            ]
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

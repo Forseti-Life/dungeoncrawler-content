@@ -45,6 +45,22 @@
       "schema": "room_editor_publication.schema.json",
       "description": "Room Editor publication request and result."
     },
+    "editor_gm_request": {
+      "schema": "editor_gm_request.schema.json",
+      "description": "Editor-scoped GM harness request envelope."
+    },
+    "editor_gm_response": {
+      "schema": "editor_gm_response.schema.json",
+      "description": "Editor-scoped GM harness response envelope."
+    },
+    "editor_gm_tool_definition": {
+      "schema": "editor_gm_tool_definition.schema.json",
+      "description": "Editor GM harness tool declaration."
+    },
+    "editor_gm_command_plan": {
+      "schema": "editor_gm_command_plan.schema.json",
+      "description": "Proposed editor command plan awaiting approval."
+    },
     "npc_sheet": {
       "schema": "npc_sheet.schema.json",
       "description": "Canonical generated NPC sheet payload."

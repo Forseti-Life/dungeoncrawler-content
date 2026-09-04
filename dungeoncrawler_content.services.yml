@@ -418,6 +418,34 @@ services:
     class: Drupal\dungeoncrawler_content\Service\RoomEditorService
     arguments: ['@database', '@current_user', '@uuid']
 
+  # Editor-embedded GM harness. Sibling of the runtime GM stack: it must never
+  # depend on game_master_subsystem or gm_tool_execution, and RoomEditorService
+  # must never depend on these services in return.
+  dungeoncrawler_content.editor_gm_tool_registry:
+    class: Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolRegistry
+    arguments: ['@uuid']
+
+  dungeoncrawler_content.room_editor_gm_context_assembler:
+    class: Drupal\dungeoncrawler_content\Service\EditorGm\RoomEditorGmContextAssembler
+    arguments:
+      - '@dungeoncrawler_content.editor_gm_tool_registry'
+      - '@dungeoncrawler_content.editor_gm_intent_parser'
+
+  dungeoncrawler_content.editor_gm_intent_parser:
+    class: Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmIntentParser
+    arguments:
+      - '@?ai_conversation.ai_api_service'
+      - '@dungeoncrawler_content.editor_gm_tool_registry'
+      - '@logger.factory'
+
+  dungeoncrawler_content.editor_gm_harness:
+    class: Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmHarnessService
+    arguments:
+      - '@dungeoncrawler_content.room_editor'
+      - '@dungeoncrawler_content.editor_gm_tool_registry'
+      - '@dungeoncrawler_content.room_editor_gm_context_assembler'
+      - '@dungeoncrawler_content.editor_gm_intent_parser'
+
   dungeoncrawler_content.content_query:
     class: Drupal\dungeoncrawler_content\Service\ContentQuery
     arguments: ['@database']

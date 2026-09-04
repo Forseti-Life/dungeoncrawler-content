@@ -1690,7 +1690,7 @@ class CampaignInitializationService {
       ->fetchAssoc();
 
     if (!is_array($record)) {
-      $this->logger->error('Starter room asset {room_id} not found in dungeoncrawler_content_rooms; packaged JSON fallbacks are disabled.', [
+      $this->logger->error('Starter room asset {room_id} not found in dungeoncrawler_content_rooms; campaign bootstrap aborted.', [
         'room_id' => $source_room_id,
       ]);
       return NULL;
@@ -2233,6 +2233,10 @@ class CampaignInitializationService {
         ));
       }
       $seen_content_ids[$content_id] = TRUE;
+      $npc = $this->hydrateStarterNpcSeedFromCanonicalRegistry(
+        is_array($npc) ? $npc : [],
+        $content_id
+      );
 
       $instance_id = 'npc_' . $content_id;
       $npc_stats = is_array($npc['stats'] ?? NULL) ? $npc['stats'] : [];
@@ -2957,6 +2961,72 @@ class CampaignInitializationService {
     }
 
     return trim($normalized);
+  }
+
+  /**
+   * Hydrate starter NPC payload from canonical registry when room seed is sparse.
+   */
+  private function hydrateStarterNpcSeedFromCanonicalRegistry(array $npc, string $content_id): array {
+    $content_id = $this->canonicalizeRoomNpcContentId($content_id);
+    if ($content_id === '') {
+      throw new \RuntimeException('Starter NPC hydration contract violation: content_id is required.');
+    }
+
+    $canonical_definition = [];
+    $row = $this->database->select('dungeoncrawler_content_registry', 'r')
+      ->fields('r', ['name', 'schema_data'])
+      ->condition('content_type', 'npc')
+      ->condition('content_id', $content_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (is_array($row)) {
+      $canonical_definition = json_decode((string) ($row['schema_data'] ?? '{}'), TRUE);
+      if (!is_array($canonical_definition)) {
+        $canonical_definition = [];
+      }
+      if (trim((string) ($npc['name'] ?? '')) === '') {
+        $npc['name'] = (string) ($row['name'] ?? '');
+      }
+    }
+
+    $npc['name'] = trim((string) ($npc['name'] ?? $canonical_definition['name'] ?? ''));
+    if ($npc['name'] === '') {
+      throw new \RuntimeException(sprintf(
+        'Starter room NPC contract violation: canonical name is required for content_id "%s".',
+        $content_id
+      ));
+    }
+    if (trim((string) ($npc['description'] ?? '')) === '') {
+      $npc['description'] = (string) ($canonical_definition['description'] ?? '');
+    }
+    if (trim((string) ($npc['role'] ?? '')) === '') {
+      $npc['role'] = (string) ($canonical_definition['role'] ?? 'npc');
+    }
+    if (trim((string) ($npc['class'] ?? '')) === '') {
+      $npc['class'] = (string) ($canonical_definition['class'] ?? 'npc');
+    }
+    if (trim((string) ($npc['ancestry'] ?? '')) === '') {
+      $npc['ancestry'] = (string) ($canonical_definition['ancestry'] ?? 'humanoid');
+    }
+    if (!is_numeric($npc['level'] ?? NULL) || (int) ($npc['level'] ?? 0) <= 0) {
+      $npc['level'] = max(1, (int) ($canonical_definition['level'] ?? 1));
+    }
+    if (!is_array($npc['stats'] ?? NULL)) {
+      $npc['stats'] = [];
+    }
+    $npc['stats']['ac'] = (int) ($npc['stats']['ac'] ?? $canonical_definition['stats']['ac'] ?? 0);
+    $npc['stats']['perception'] = (int) ($npc['stats']['perception'] ?? $canonical_definition['stats']['perception'] ?? 0);
+    $npc['stats']['fortitude'] = (int) ($npc['stats']['fortitude'] ?? $canonical_definition['stats']['fortitude'] ?? 0);
+    $npc['stats']['reflex'] = (int) ($npc['stats']['reflex'] ?? $canonical_definition['stats']['reflex'] ?? 0);
+    $npc['stats']['will'] = (int) ($npc['stats']['will'] ?? $canonical_definition['stats']['will'] ?? 0);
+    $npc['stats']['currentHp'] = max(0, (int) ($npc['stats']['currentHp'] ?? $canonical_definition['stats']['currentHp'] ?? 0));
+    $npc['stats']['maxHp'] = max(
+      (int) $npc['stats']['currentHp'],
+      (int) ($npc['stats']['maxHp'] ?? $canonical_definition['stats']['maxHp'] ?? 0)
+    );
+
+    return $npc;
   }
 
   /**

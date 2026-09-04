@@ -4636,6 +4636,23 @@ function _dungeoncrawler_content_room_editor_legacy_aggregate(array $row): array
       'elevation_ft' => (int) ($hex['elevation_ft'] ?? 0),
       'lighting' => $lighting,
     ];
+    foreach ([
+      'h3_index_res14',
+      'h3_index',
+      'lat',
+      'lng',
+      'is_entry',
+      'is_discovered',
+      'is_visible',
+      'movement_cost',
+      'elevation',
+      'objects',
+      'metadata',
+    ] as $field) {
+      if (array_key_exists($field, $hex)) {
+        $hexes[array_key_last($hexes)][$field] = $hex[$field];
+      }
+    }
     foreach ((array) ($hex['objects'] ?? []) as $object) {
       if (!is_array($object)) {
         continue;

@@ -103,6 +103,17 @@ function clearElement(el) {
   }
 }
 
+function makeEl(tag, className, text) {
+  const el = document.createElement(tag);
+  if (className) {
+    el.className = className;
+  }
+  if (text !== undefined && text !== null) {
+    el.textContent = text;
+  }
+  return el;
+}
+
 function makeOption(value, label, selected) {
   const option = document.createElement('option');
   option.value = value;
@@ -192,6 +203,8 @@ export class RoomEditorShell {
     this._bindToolbarEvents();
     this._bindCatalogEvents();
     this._bindInspectorEvents();
+    this._bindAuthorDrawerEvents();
+    this._bindGmEvents();
     this._initCanvas();
     this._setTool('select');
     this._renderInspector();
@@ -277,6 +290,24 @@ export class RoomEditorShell {
       catalogSelectedLabel: q('[data-room-editor-catalog-selected]'),
       inspectorBody: q('[data-room-editor-inspector-body]'),
       validationList: q('[data-room-editor-validation-list]'),
+      workspace: q('[data-room-editor-workspace]'),
+      authorDrawer: q('[data-room-editor-author-drawer]'),
+      authorDrawerToggle: q('[data-room-editor-action="toggle-author-drawer"]'),
+      gmPanel: q('[data-room-editor-gm-panel]'),
+      gmState: q('[data-room-editor-gm-state]'),
+      gmContext: q('[data-room-editor-gm-context]'),
+      gmContextToggle: q('[data-room-editor-action="gm-toggle-context"]'),
+      gmTools: q('[data-room-editor-gm-tools]'),
+      gmToolsToggle: q('[data-room-editor-action="gm-toggle-tools"]'),
+      gmTranscript: q('[data-room-editor-gm-transcript]'),
+      gmPlan: q('[data-room-editor-gm-plan]'),
+      gmPlanList: q('[data-room-editor-gm-plan-list]'),
+      gmApplyPlanBtn: q('[data-room-editor-action="gm-apply-plan"]'),
+      gmPreviewPlanBtn: q('[data-room-editor-action="gm-preview-plan"]'),
+      gmDiscardPlanBtn: q('[data-room-editor-action="gm-discard-plan"]'),
+      gmForm: q('[data-room-editor-gm-form]'),
+      gmInput: q('[data-room-editor-gm-input]'),
+      gmDryRun: q('[data-room-editor-gm-dry-run]'),
     };
     TERRAIN_TYPES.forEach((value) => {
       this._dom.terrainValue?.appendChild(makeOption(value, value.replace(/_/g, ' '), value === 'stone_floor'));
@@ -1279,6 +1310,7 @@ export class RoomEditorShell {
     if (statusMessage) {
       this._setStatus(statusMessage, 'success');
     }
+    this._refreshGmContext();
   }
 
   // ---------------------------------------------------------------------------
@@ -2140,7 +2172,7 @@ export class RoomEditorShell {
 
   _renderValidation(result) {
     const list = this._dom.validationList;
-    if (!list) {
+    if (!list || !result) {
       return;
     }
     clearElement(list);
@@ -2294,6 +2326,412 @@ export class RoomEditorShell {
       }
     }
     return null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Author drawer (manual tools) + embedded GM assistant
+  // ---------------------------------------------------------------------------
+
+  _bindAuthorDrawerEvents() {
+    this._setAuthorDrawerOpen(false);
+    this._dom.authorDrawerToggle?.addEventListener('click', () => {
+      const open = this._dom.authorDrawerToggle.getAttribute('aria-expanded') === 'true';
+      this._setAuthorDrawerOpen(!open);
+    });
+  }
+
+  _setAuthorDrawerOpen(open) {
+    if (this._dom.authorDrawer) {
+      this._dom.authorDrawer.hidden = !open;
+    }
+    this._dom.authorDrawerToggle?.setAttribute('aria-expanded', open ? 'true' : 'false');
+    this._dom.workspace?.setAttribute('data-author-drawer-open', open ? 'true' : 'false');
+    this.hexCanvas?.resizeToContainer();
+  }
+
+  _bindGmEvents() {
+    this._gm = { context: null, manifest: null, plan: null };
+
+    this._dom.gmContextToggle?.addEventListener('click', () => {
+      this._toggleDisclosure(this._dom.gmContextToggle, this._dom.gmContext);
+    });
+    this._dom.gmToolsToggle?.addEventListener('click', () => {
+      this._toggleDisclosure(this._dom.gmToolsToggle, this._dom.gmTools);
+    });
+    this._dom.gmForm?.addEventListener('submit', (event) => {
+      event.preventDefault();
+      this._submitGmMessage();
+    });
+    this._dom.gmInput?.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+        event.preventDefault();
+        this._submitGmMessage();
+      }
+    });
+    this._dom.gmTools?.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-gm-tool]');
+      if (!button || !this._dom.gmInput) {
+        return;
+      }
+      const template = button.getAttribute('data-gm-template') || '{}';
+      this._dom.gmInput.value = `${button.getAttribute('data-gm-tool')} ${template}`;
+      this._dom.gmInput.focus();
+    });
+    this._dom.gmDiscardPlanBtn?.addEventListener('click', () => this._setGmPlan(null));
+    this._dom.gmPreviewPlanBtn?.addEventListener('click', () => this._previewGmPlan());
+    this._dom.gmApplyPlanBtn?.addEventListener('click', () => this._applyGmPlan());
+
+    this._setGmState('Load or create a room to ground the assistant.');
+  }
+
+  _toggleDisclosure(button, body) {
+    const open = button.getAttribute('aria-expanded') === 'true';
+    button.setAttribute('aria-expanded', open ? 'false' : 'true');
+    if (body) {
+      body.hidden = open;
+    }
+  }
+
+  /**
+   * Refreshes the grounded editor context the assistant reasons over. The
+   * assistant never keeps its own copy of draft state: every turn is re-grounded
+   * from the same draft the manual tools mutate.
+   */
+  async _refreshGmContext() {
+    if (!this._gm || !this.draft?.draft_id || !this.urls.gm) {
+      return;
+    }
+    const profile = this._dom.validateProfile?.value || 'editing';
+    const url = `${this._urlFor('gm', this.draft.draft_id)}?profile=${encodeURIComponent(profile)}`;
+    try {
+      const result = await this._getJson(url);
+      this._gm.context = result?.data?.context_snapshot || null;
+      this._gm.manifest = this._gm.context?.tools || null;
+      this._renderGmContext();
+      this._renderGmToolset();
+      this._setGmState(`Grounded on revision ${this._gm.context?.draft?.revision ?? '?'}.`);
+    } catch (err) {
+      this._gm.context = null;
+      this._gm.manifest = null;
+      this._renderGmContext();
+      this._setGmState(`Context unavailable: ${err?.message || 'unknown error'}`, 'error');
+    }
+  }
+
+  _renderGmContext() {
+    const body = this._dom.gmContext;
+    if (!body) {
+      return;
+    }
+    body.textContent = '';
+    const context = this._gm.context;
+    if (!context) {
+      body.append(makeEl('p', 'room-editor__hint', 'No grounded context loaded.'));
+      return;
+    }
+    const list = makeEl('ul', 'room-editor__gm-context-list');
+    const rows = [
+      ['Room', `${context.room?.name || '(unnamed)'} [${context.draft?.room_id || 'unbound'}]`],
+      ['Revision', String(context.draft?.revision ?? '?')],
+      ['Status', String(context.draft?.status || '?')],
+      ['Hexes', String(context.room?.hex_count ?? 0)],
+      ['Placements', String(context.room?.placement_count ?? 0)],
+      ['Ports', `${context.room?.entry_port_count ?? 0} in / ${context.room?.exit_port_count ?? 0} out`],
+      ['Validation', `${context.validation_summary?.profile}: ${context.validation_summary?.error_count ?? 0} errors, ${context.validation_summary?.warning_count ?? 0} warnings`],
+      ['Published', context.publication?.has_published_version ? 'yes' : 'no'],
+      ['Authority', context.authority_boundary?.mutation_gateway || '?'],
+    ];
+    rows.forEach(([label, value]) => {
+      list.append(makeEl('li', null, `${label}: ${value}`));
+    });
+    body.append(list);
+  }
+
+  /**
+   * Renders the server-declared toolset. The manifest is authoritative: the
+   * panel never invents tool names, so assistant parity with the manual editor
+   * is always exactly what the harness registry exposes.
+   */
+  _renderGmToolset() {
+    const body = this._dom.gmTools;
+    if (!body) {
+      return;
+    }
+    body.textContent = '';
+    const manifest = this._gm.manifest;
+    if (!manifest) {
+      body.append(makeEl('p', 'room-editor__hint', 'Toolset unavailable.'));
+      return;
+    }
+    Object.keys(manifest.families || {}).forEach((family) => {
+      body.append(makeEl('p', 'room-editor__gm-tool-family', family));
+      const list = makeEl('ul', 'room-editor__gm-tool-list');
+      (manifest.families[family] || []).forEach((tool) => {
+        const item = makeEl('li');
+        const button = makeEl('button', `room-editor__gm-tool${tool.mutating ? ' room-editor__gm-tool--mutating' : ''}`, tool.name);
+        button.type = 'button';
+        button.title = `${tool.summary}\n${tool.authority}`;
+        button.setAttribute('data-gm-tool', tool.name);
+        const template = {};
+        (tool.arguments || []).filter((arg) => arg.required).forEach((arg) => {
+          template[arg.name] = arg.type === 'integer' ? 0 : (arg.type === 'array' ? [] : '');
+        });
+        button.setAttribute('data-gm-template', JSON.stringify(template));
+        item.append(button);
+        list.append(item);
+      });
+      body.append(list);
+    });
+  }
+
+  _setGmState(text, level = 'info') {
+    if (this._dom.gmState) {
+      this._dom.gmState.textContent = text;
+      this._dom.gmState.setAttribute('data-status-level', level);
+    }
+  }
+
+  _appendGmMessage(kind, text, detail) {
+    const list = this._dom.gmTranscript;
+    if (!list) {
+      return;
+    }
+    const item = makeEl('li', `room-editor__gm-message room-editor__gm-message--${kind}`, text);
+    if (detail !== undefined && detail !== null) {
+      const pre = makeEl('pre', null, typeof detail === 'string' ? detail : JSON.stringify(detail, null, 2));
+      item.append(pre);
+    }
+    list.append(item);
+    list.scrollTop = list.scrollHeight;
+  }
+
+  /**
+   * Classifies one composer submission.
+   *
+   * A message whose first token is a registered tool name is treated as an
+   * explicit tool call (`<tool_name> {json arguments}`). Anything else is sent
+   * as a natural-language intent, which the harness may only answer with a
+   * read-only tool run or an explicit proposal — it can never mutate directly.
+   */
+  _parseGmMessage(raw) {
+    const text = String(raw || '').trim();
+    if (!text) {
+      throw new Error('Enter a request, or a tool name to run directly.');
+    }
+    const match = text.match(/^([a-z][a-z0-9_]*)\s*([\s\S]*)$/);
+    if (!match || !this._isKnownGmTool(match[1])) {
+      return { kind: 'natural_language', utterance: text };
+    }
+    const rest = match[2].trim();
+    let args = {};
+    if (rest) {
+      let parsed = null;
+      try {
+        parsed = JSON.parse(rest);
+      } catch (_err) {
+        throw new Error('Tool arguments must be a JSON object.');
+      }
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('Tool arguments must be a JSON object.');
+      }
+      args = parsed;
+    }
+    return { kind: 'tool_call', toolName: match[1], args };
+  }
+
+  _isKnownGmTool(name) {
+    return !!this._gm.manifest
+      && Object.values(this._gm.manifest.families || {}).some((tools) => tools.some((t) => t.name === name));
+  }
+
+  async _submitGmMessage() {
+    const raw = this._dom.gmInput?.value || '';
+    let parsed = null;
+    try {
+      parsed = this._parseGmMessage(raw);
+    } catch (err) {
+      this._appendGmMessage('error', err.message);
+      return;
+    }
+    if (parsed.kind === 'natural_language' && !this._gm.context?.assistant?.natural_language_available) {
+      this._appendGmMessage(
+        'error',
+        'Natural-language requests are unavailable. Run a tool directly, e.g. "validate_draft".',
+      );
+      return;
+    }
+    this._appendGmMessage('user', raw.trim());
+    if (this._dom.gmInput) {
+      this._dom.gmInput.value = '';
+    }
+
+    if (parsed.kind === 'natural_language') {
+      await this._sendGmRequest(
+        { type: 'natural_language', utterance: parsed.utterance },
+        false,
+        'assistant',
+      );
+      return;
+    }
+    await this._invokeGmTool(parsed.toolName, parsed.args, !!this._dom.gmDryRun?.checked);
+  }
+
+  /**
+   * Executes one harness tool. Mutating tools go through the same
+   * RoomEditorService authority as manual editing, so the returned draft is
+   * pushed straight into the single shared draft state.
+   */
+  async _invokeGmTool(toolName, args, dryRun) {
+    return this._sendGmRequest(
+      { type: 'tool_call', tool_name: toolName, arguments: args || {} },
+      !!dryRun,
+      toolName,
+    );
+  }
+
+  /**
+   * Posts one request envelope and folds the response into shared editor state.
+   */
+  async _sendGmRequest(intent, dryRun, label) {
+    if (!this.draft?.draft_id) {
+      this._appendGmMessage('error', 'Load or create a room before using the assistant.');
+      return null;
+    }
+    if (!this.urls.gm) {
+      this._appendGmMessage('error', 'Editor GM harness endpoint is not configured.');
+      return null;
+    }
+    const profile = this._dom.validateProfile?.value || 'editing';
+    const url = this._urlFor('gm', this.draft.draft_id);
+    const body = {
+      schema_version: 'editor-gm-request-v1',
+      tool_context: {
+        tool_id: 'room_editor',
+        draft_id: this.draft.draft_id,
+        validation_profile: profile,
+      },
+      intent,
+      options: { dry_run: !!dryRun },
+    };
+    const toolName = label;
+
+    return this._runExclusive(async () => {
+      this._setGmState(`Running ${toolName}...`);
+      let envelope = null;
+      try {
+        const result = await this._postJson(url, body);
+        envelope = result?.data || {};
+      } catch (err) {
+        this._appendGmMessage('error', `${toolName} failed: ${err?.message || 'unknown error'}${err?.code ? ` (${err.code})` : ''}`);
+        this._setGmState('Last tool call failed.', 'error');
+        return null;
+      }
+      this._gm.context = envelope.context_snapshot || this._gm.context;
+      this._gm.manifest = this._gm.context?.tools || this._gm.manifest;
+      this._renderGmContext();
+      this._renderGmToolset();
+
+      const applied = envelope.tool_result?.draft;
+      if (applied) {
+        this._setDraft(applied, null);
+        this._setStatus(`Assistant applied ${toolName} (revision ${this.draft.revision}).`, 'success');
+      }
+      if (Array.isArray(envelope.command_plan) && envelope.command_plan.length) {
+        this._setGmPlan(envelope.command_plan);
+      }
+      this._renderValidation(envelope.validation);
+      this._appendGmMessage(dryRun ? 'info' : 'success', `${toolName} → ${envelope.route_family}`, envelope.tool_result);
+      this._renderGmProposal(envelope.tool_result);
+      (envelope.messages || []).forEach((message) => {
+        this._appendGmMessage(message.level === 'error' ? 'error' : 'info', message.text);
+      });
+      this._setGmState(`Grounded on revision ${this._gm.context?.draft?.revision ?? '?'}.`);
+      return envelope;
+    });
+  }
+
+  /**
+   * Renders an approval affordance for a mutating tool the assistant proposed
+   * but is not allowed to run. Approval re-sends the call as an explicit
+   * tool_call intent, so the mutation is always author-authorised.
+   */
+  _renderGmProposal(result) {
+    const proposal = result?.proposed_execution;
+    if (!proposal || result.intent !== 'proposed_execution') {
+      return;
+    }
+    const list = this._dom.gmTranscript;
+    if (!list) {
+      return;
+    }
+    const item = makeEl('li', 'room-editor__gm-message room-editor__gm-message--warning');
+    item.append(makeEl('span', null, `Proposed: ${proposal.tool_name} (${proposal.authority})`));
+    item.append(makeEl('pre', null, JSON.stringify(proposal.arguments || {}, null, 2)));
+    const approve = makeEl('button', 'button button--primary', 'Approve and run');
+    approve.type = 'button';
+    approve.addEventListener('click', () => {
+      approve.disabled = true;
+      this._invokeGmTool(proposal.tool_name, proposal.arguments || {}, false);
+    });
+    item.append(approve);
+    list.append(item);
+    list.scrollTop = list.scrollHeight;
+  }
+
+  _setGmPlan(plan) {
+    this._gm.plan = plan;
+    const panel = this._dom.gmPlan;
+    const list = this._dom.gmPlanList;
+    if (!panel || !list) {
+      return;
+    }
+    list.textContent = '';
+    if (!plan || !plan.length) {
+      panel.hidden = true;
+      return;
+    }
+    plan.forEach((step) => {
+      list.append(makeEl('li', null, `${step.command_type}: ${step.rationale || ''}`));
+    });
+    panel.hidden = false;
+  }
+
+  _gmPlanCommands() {
+    return (this._gm.plan || []).map((step) => ({
+      type: step.command_type,
+      payload: step.payload || {},
+      rationale: step.rationale || '',
+    }));
+  }
+
+  /**
+   * Projects the proposed plan through the harness without mutating the draft,
+   * so the author can approve on evidence rather than on the rationale text.
+   */
+  async _previewGmPlan() {
+    if (!this._gm.plan?.length) {
+      this._appendGmMessage('error', 'There is no proposed plan to preview.');
+      return;
+    }
+    await this._invokeGmTool('preview_command_plan', {
+      commands: this._gmPlanCommands(),
+      profile: this._dom.validateProfile?.value || 'editing',
+    }, false);
+  }
+
+  async _applyGmPlan() {
+    if (!this._gm.plan?.length) {
+      this._appendGmMessage('error', 'There is no proposed plan to apply.');
+      return;
+    }
+    const commands = this._gmPlanCommands().map(({ type, payload }) => ({ type, payload }));
+    const result = await this._invokeGmTool('apply_room_commands', {
+      expected_revision: this.draft?.revision,
+      commands,
+    }, false);
+    if (result) {
+      this._setGmPlan(null);
+    }
   }
 
   // ---------------------------------------------------------------------------
