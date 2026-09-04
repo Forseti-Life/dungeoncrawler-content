@@ -91,10 +91,28 @@
           <p class="room-editor__hint" data-dungeon-editor-placement-empty hidden>{{ 'This level has no placements.'|t }}</p>
         </section>
 
+        <section class="room-editor__drawer-section" data-dungeon-editor-links aria-label="{{ 'Port links'|t }}">
+          <p class="room-editor__eyebrow">{{ 'Links'|t }}</p>
+          <p class="room-editor__hint">{{ 'Click an unlinked exit port on the canvas, then a highlighted entry port across the shared edge. Esc cancels.'|t }}</p>
+          <ul class="dungeon-editor__link-list" data-dungeon-editor-link-list role="list"></ul>
+          <p class="room-editor__hint" data-dungeon-editor-link-empty hidden>{{ 'No links yet.'|t }}</p>
+        </section>
+
+        <section class="room-editor__drawer-section" data-dungeon-editor-regions aria-label="{{ 'Regions'|t }}">
+          <p class="room-editor__eyebrow">{{ 'Regions'|t }}</p>
+          <ul class="dungeon-editor__region-list" data-dungeon-editor-region-list role="list"></ul>
+          <p class="room-editor__hint" data-dungeon-editor-region-empty hidden>{{ 'No regions yet.'|t }}</p>
+          <form class="dungeon-editor__region-form" data-dungeon-editor-region-form>
+            <label class="room-editor__field">{{ 'Region id'|t }}<input type="text" name="region_id" maxlength="100" pattern="[a-z0-9][a-z0-9_\-]{0,99}" required placeholder="north-wing"></label>
+            <label class="room-editor__field">{{ 'Name'|t }}<input type="text" name="name" maxlength="200" required></label>
+            <button type="submit" class="room-editor__button">{{ 'Add region'|t }}</button>
+          </form>
+        </section>
+
         <section class="room-editor__drawer-section room-editor__inspector" data-dungeon-editor-inspector aria-label="{{ 'Inspector'|t }}">
           <p class="room-editor__eyebrow">{{ 'Inspector'|t }}</p>
           <div data-dungeon-editor-inspector-body>
-            <p class="room-editor__hint">{{ 'Select a placement to inspect it.'|t }}</p>
+            <p class="room-editor__hint">{{ 'Select a placement, link or region to inspect it.'|t }}</p>
           </div>
         </section>
 

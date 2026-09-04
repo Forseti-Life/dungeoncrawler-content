@@ -34,11 +34,10 @@ class DungeonEditorService {
   public const COMMAND_SCHEMA_FILE = 'dungeon_editor_command.schema.json';
 
   /**
-   * Command types the pipeline can execute today.
+   * Command types the pipeline can execute.
    *
-   * The command schema's enum is the full contract; a type in the enum but not
-   * here (links, regions) is refused with `dungeon_command_type_unsupported`
-   * until its slice lands. Nothing is partially handled.
+   * Mirrors the command schema's enum exactly (the contract test pins it); a
+   * type outside this list is refused with `dungeon_command_type_unsupported`.
    */
   public const SUPPORTED_COMMANDS = [
     'set_dungeon_metadata',
@@ -48,11 +47,19 @@ class DungeonEditorService {
     'remove_room_placement',
     'retarget_room_placement',
     'set_placement_metadata',
+    'link_ports',
+    'update_port_link',
+    'unlink_ports',
+    'add_region',
+    'update_region',
+    'remove_region',
     'undo',
     'redo',
   ];
   private const METADATA_KEYS = ['name', 'description', 'depth', 'theme'];
   private const PLACEMENT_METADATA_KEYS = ['label', 'tags', 'is_level_entrance'];
+  private const LINK_KEYS = ['kind', 'direction', 'default_state', 'travel_cost', 'requirements', 'description', 'tags'];
+  private const REGION_KEYS = ['name', 'placement_ids', 'description', 'environmental_effects', 'ambient_hazard_level'];
 
   private const ID_PATTERN = '/^[a-z0-9][a-z0-9_-]{0,99}$/';
 
@@ -538,7 +545,9 @@ class DungeonEditorService {
     $result = $this->validateAggregate(['draft_id' => $draft_id, 'revision' => $revision, 'dungeon' => $after], 'editing');
     $errors = array_values(array_filter($result['findings'], static fn(array $f): bool => $f['severity'] === 'error'));
     if ($errors !== []) {
-      throw new DungeonCommandRejectedException($errors[0]['code'], $result['findings']);
+      // Errors first: the rejecting finding leads, advisories follow.
+      $rest = array_values(array_filter($result['findings'], static fn(array $f): bool => $f['severity'] !== 'error'));
+      throw new DungeonCommandRejectedException($errors[0]['code'], array_merge($errors, $rest));
     }
   }
 
@@ -628,6 +637,76 @@ class DungeonEditorService {
         foreach ($changes as $key => $value) {
           $dungeon['room_placements'][$index][$key] = $value;
         }
+        break;
+
+      case 'link_ports':
+        foreach (['from', 'to'] as $end) {
+          $endpoint = $payload[$end];
+          if (!is_array($endpoint) || !is_string($endpoint['placement_id'] ?? NULL) || !is_string($endpoint['port_id'] ?? NULL) || count($endpoint) !== 2) {
+            throw new DungeonCommandPayloadException('dungeon_command_payload_invalid', [$this->payloadFinding('/' . $end, 'Endpoint must be {placement_id, port_id}.')]);
+          }
+        }
+        $extras = $this->optionalFields($payload, ['from', 'to', 'kind', 'direction', 'default_state'], self::LINK_KEYS);
+        $link_id = $this->uuid->generate();
+        $dungeon['port_links'][] = [
+          'link_id' => $link_id,
+          'from' => ['placement_id' => $payload['from']['placement_id'], 'port_id' => $payload['from']['port_id']],
+          'to' => ['placement_id' => $payload['to']['placement_id'], 'port_id' => $payload['to']['port_id']],
+          'kind' => $payload['kind'],
+          'direction' => $payload['direction'],
+          'default_state' => $payload['default_state'],
+          'travel_cost' => $extras['travel_cost'] ?? 0,
+          'requirements' => $extras['requirements'] ?? [],
+          'description' => $extras['description'] ?? '',
+          'tags' => $extras['tags'] ?? [],
+        ];
+        break;
+
+      case 'update_port_link':
+        $index = $this->requireLinkIndex($dungeon, $payload);
+        $changes = $this->requireChanges($payload, self::LINK_KEYS);
+        foreach ($changes as $key => $value) {
+          $dungeon['port_links'][$index][$key] = $value;
+        }
+        break;
+
+      case 'unlink_ports':
+        $index = $this->requireLinkIndex($dungeon, $payload);
+        array_splice($dungeon['port_links'], $index, 1);
+        break;
+
+      case 'add_region':
+        $region_id = $payload['region_id'];
+        if (!is_string($region_id) || !preg_match(self::ID_PATTERN, $region_id)) {
+          throw new DungeonCommandPayloadException('dungeon_command_payload_invalid', [$this->payloadFinding('/region_id', 'region_id must match ' . self::ID_PATTERN . '.')]);
+        }
+        foreach ($dungeon['regions'] as $region) {
+          if ($region['region_id'] === $region_id) {
+            throw new \DomainException('region_id_duplicate');
+          }
+        }
+        $extras = $this->optionalFields($payload, ['region_id', 'name', 'placement_ids'], self::REGION_KEYS);
+        $dungeon['regions'][] = [
+          'region_id' => $region_id,
+          'name' => $payload['name'],
+          'placement_ids' => $payload['placement_ids'],
+          'description' => $extras['description'] ?? '',
+          'environmental_effects' => $extras['environmental_effects'] ?? [],
+          'ambient_hazard_level' => $extras['ambient_hazard_level'] ?? 0,
+        ];
+        break;
+
+      case 'update_region':
+        $index = $this->requireRegionIndex($dungeon, $payload);
+        $changes = $this->requireChanges($payload, self::REGION_KEYS);
+        foreach ($changes as $key => $value) {
+          $dungeon['regions'][$index][$key] = $value;
+        }
+        break;
+
+      case 'remove_region':
+        $index = $this->requireRegionIndex($dungeon, $payload);
+        array_splice($dungeon['regions'], $index, 1);
         break;
 
       case 'undo':
@@ -725,6 +804,46 @@ class DungeonEditorService {
         }
       }
     }
+  }
+
+  /**
+   * Optional payload keys: anything beyond the required set must be in the
+   * allowed set. Values are checked by the aggregate schema afterwards.
+   */
+  private function optionalFields(array $payload, array $required, array $allowed): array {
+    $unknown = array_diff(array_keys($payload), $required, $allowed);
+    if ($unknown !== []) {
+      throw new DungeonCommandPayloadException('dungeon_command_payload_invalid', [
+        $this->payloadFinding('/' . reset($unknown), sprintf('Unknown key; allowed: %s.', implode(', ', array_merge($required, $allowed)))),
+      ]);
+    }
+    return array_intersect_key($payload, array_flip($allowed));
+  }
+
+  private function requireLinkIndex(array $dungeon, array $payload): int {
+    $link_id = $payload['link_id'] ?? NULL;
+    if (!is_string($link_id) || !$this->isUuid($link_id)) {
+      throw new DungeonCommandPayloadException('dungeon_command_payload_invalid', [$this->payloadFinding('/link_id', 'link_id must be a uuid.')]);
+    }
+    foreach ($dungeon['port_links'] as $index => $link) {
+      if ($link['link_id'] === $link_id) {
+        return $index;
+      }
+    }
+    throw new \DomainException('port_link_not_found');
+  }
+
+  private function requireRegionIndex(array $dungeon, array $payload): int {
+    $region_id = $payload['region_id'] ?? NULL;
+    if (!is_string($region_id)) {
+      throw new DungeonCommandPayloadException('dungeon_command_payload_invalid', [$this->payloadFinding('/region_id', 'region_id must be a string.')]);
+    }
+    foreach ($dungeon['regions'] as $index => $region) {
+      if ($region['region_id'] === $region_id) {
+        return $index;
+      }
+    }
+    throw new \DomainException('region_not_found');
   }
 
   private function requirePlacementIndex(array $dungeon, array $payload): int {
@@ -830,10 +949,11 @@ class DungeonEditorService {
   /**
    * Validates a draft's aggregate per dungeon_editor_validation_result.schema.json.
    *
-   * Slice 3 emits the findings that can be judged from placements alone:
-   * resolvable versions, overlap, and entrance cardinality. Link, reachability,
-   * and region findings arrive with their authoring commands. The code list is
-   * closed by the contract, so nothing outside it is ever emitted here.
+   * Implements the full rule table of 04-contracts.md "Validation rules by
+   * profile": editing is permissive about incompleteness (entrance,
+   * reachability, dangling exits) and strict about incorrectness (overlap,
+   * unresolved versions, illegal links, unresolved region references). The
+   * code list is closed by the contract, so nothing outside it is emitted.
    */
   public function validateAggregate(array $draft, string $profile = 'editing'): array {
     if (!in_array($profile, ['editing', 'publication'], TRUE)) {
@@ -845,8 +965,12 @@ class DungeonEditorService {
     $findings = [];
     $occupancy = [];
     $entrances = [];
+    // Level-space ports by "placement_id:port_id" for resolved placements.
+    $level_ports = [];
+    $resolved = [];
     foreach ($dungeon['room_placements'] as $placement) {
       $placement_id = $placement['placement_id'];
+      $resolved[$placement_id] = FALSE;
       if ($placement['is_level_entrance']) {
         $entrances[] = $placement_id;
       }
@@ -859,6 +983,7 @@ class DungeonEditorService {
         ), [['placement_id' => $placement_id]]);
         continue;
       }
+      $resolved[$placement_id] = TRUE;
       foreach ($this->roomFootprint($room) as $hex) {
         $level = RoomPlacementTransformer::toLevel($hex, $placement);
         if (abs($level['q']) > self::AXIAL_BOUND || abs($level['r']) > self::AXIAL_BOUND) {
@@ -866,6 +991,12 @@ class DungeonEditorService {
           throw new \RuntimeException('placement_origin_out_of_bounds:' . $placement_id);
         }
         $occupancy[RoomPlacementTransformer::hexKey($level)][] = $placement_id;
+      }
+      foreach ($this->roomPorts($room) as $port) {
+        $level_ports[$placement_id . ':' . $port['port_id']] = [
+          'kind' => $port['kind'],
+          'label' => $placement['label'],
+        ] + RoomPlacementTransformer::toLevelPort(['q' => $port['q'], 'r' => $port['r']], $port['edge'], $placement);
       }
     }
 
@@ -890,14 +1021,107 @@ class DungeonEditorService {
       ), array_map(static fn(string $id): array => ['placement_id' => $id], $ids), ['q' => $q, 'r' => $r]);
     }
 
-    if ($profile === 'publication' && $entrances === []) {
-      $findings[] = $this->finding('error', 'dungeon_entrance_missing', 'No placement is flagged as the level entrance.', []);
+    // Links: endpoints, direction, self reference, arity, sealed adjacency.
+    $exit_use = [];
+    $edges = [];
+    foreach ($dungeon['port_links'] as $link) {
+      $link_id = $link['link_id'];
+      $subject = [['link_id' => $link_id]];
+      $from_id = $link['from']['placement_id'];
+      $to_id = $link['to']['placement_id'];
+      if ($from_id === $to_id) {
+        $findings[] = $this->finding('error', 'port_link_self_reference', sprintf('Link %s joins placement %s to itself.', $link_id, $from_id), $subject);
+        continue;
+      }
+      $missing = FALSE;
+      foreach (['from' => $from_id, 'to' => $to_id] as $end => $pid) {
+        if (!array_key_exists($pid, $resolved)) {
+          $findings[] = $this->finding('error', 'port_link_endpoint_missing', sprintf('Link %s: %s placement %s does not exist.', $link_id, $end, $pid), $subject);
+          $missing = TRUE;
+        }
+        elseif ($resolved[$pid] && !isset($level_ports[$pid . ':' . $link[$end]['port_id']])) {
+          $findings[] = $this->finding('error', 'port_link_endpoint_missing', sprintf('Link %s: %s port "%s" does not exist on placement %s.', $link_id, $end, $link[$end]['port_id'], $pid), [['link_id' => $link_id], ['port_id' => $link[$end]['port_id']]]);
+          $missing = TRUE;
+        }
+      }
+      if ($missing || !$resolved[$from_id] || !$resolved[$to_id]) {
+        continue;
+      }
+      $a = $level_ports[$from_id . ':' . $link['from']['port_id']];
+      $b = $level_ports[$to_id . ':' . $link['to']['port_id']];
+      if ($a['kind'] !== 'exit' || $b['kind'] !== 'entry') {
+        $findings[] = $this->finding('error', 'port_link_direction_invalid', sprintf('Link %s must run from an exit port to an entry port (from is %s, to is %s).', $link_id, $a['kind'], $b['kind']), $subject);
+        continue;
+      }
+      $exit_key = $from_id . ':' . $link['from']['port_id'];
+      $exit_use[$exit_key][] = $link_id;
+      $expected_hex = RoomPlacementTransformer::neighbor(['q' => $a['q'], 'r' => $a['r']], $a['edge']);
+      $expected_edge = RoomPlacementTransformer::opposite($a['edge']);
+      if ($expected_hex['q'] !== $b['q'] || $expected_hex['r'] !== $b['r'] || $expected_edge !== $b['edge']) {
+        $findings[] = $this->finding('error', 'port_link_not_adjacent', sprintf(
+          'Link %s is not sealed: exit port at (%d, %d) faces edge %d, so the entry port must be at (%d, %d) facing edge %d; it is at (%d, %d) facing edge %d.',
+          $link_id, $a['q'], $a['r'], $a['edge'], $expected_hex['q'], $expected_hex['r'], $expected_edge, $b['q'], $b['r'], $b['edge']
+        ), $subject, ['q' => $a['q'], 'r' => $a['r']]);
+        continue;
+      }
+      $edges[$from_id][] = $to_id;
+      if ($link['direction'] === 'bidirectional') {
+        $edges[$to_id][] = $from_id;
+      }
+    }
+    foreach ($exit_use as $exit_key => $link_ids) {
+      if (count($link_ids) > 1) {
+        [$pid, $port_id] = explode(':', $exit_key, 2);
+        $findings[] = $this->finding('error', 'port_already_linked', sprintf('Exit port "%s" on placement %s is used by %d links; at most one is allowed.', $port_id, $pid, count($link_ids)),
+          array_merge([['placement_id' => $pid], ['port_id' => $port_id]], array_map(static fn(string $id): array => ['link_id' => $id], $link_ids)));
+      }
+    }
+    foreach ($level_ports as $key => $port) {
+      if ($port['kind'] === 'exit' && !isset($exit_use[$key])) {
+        [$pid, $port_id] = explode(':', $key, 2);
+        $findings[] = $this->finding($profile === 'publication' ? 'warning' : 'info', 'exit_port_dangling', sprintf('Exit port "%s" on "%s" is not linked.', $port_id, $port['label']), [['placement_id' => $pid], ['port_id' => $port_id]], ['q' => $port['q'], 'r' => $port['r']]);
+      }
+    }
+
+    // Entrance cardinality: incompleteness while editing, incorrectness at publication.
+    $structural = $profile === 'publication' ? 'error' : 'warning';
+    if ($entrances === [] && $dungeon['room_placements'] !== []) {
+      $findings[] = $this->finding($structural, 'dungeon_entrance_missing', 'No placement is flagged as the level entrance.', []);
     }
     if (count($entrances) > 1) {
-      $findings[] = $this->finding('error', 'dungeon_entrance_ambiguous', sprintf(
+      $findings[] = $this->finding($structural, 'dungeon_entrance_ambiguous', sprintf(
         '%d placements are flagged as the level entrance; exactly one is allowed.',
         count($entrances)
       ), array_map(static fn(string $id): array => ['placement_id' => $id], $entrances));
+    }
+
+    // Reachability from the single entrance over sealed links.
+    if (count($entrances) === 1) {
+      $seen = [$entrances[0] => TRUE];
+      $queue = [$entrances[0]];
+      while ($queue) {
+        $current = array_shift($queue);
+        foreach ($edges[$current] ?? [] as $next) {
+          if (!isset($seen[$next])) {
+            $seen[$next] = TRUE;
+            $queue[] = $next;
+          }
+        }
+      }
+      foreach ($dungeon['room_placements'] as $placement) {
+        if (!isset($seen[$placement['placement_id']])) {
+          $findings[] = $this->finding($structural, 'placement_unreachable', sprintf('"%s" cannot be reached from the level entrance.', $placement['label']), [['placement_id' => $placement['placement_id']]]);
+        }
+      }
+    }
+
+    // Regions reference placements that exist.
+    foreach ($dungeon['regions'] as $region) {
+      foreach ($region['placement_ids'] as $pid) {
+        if (!array_key_exists($pid, $resolved)) {
+          $findings[] = $this->finding('error', 'region_placement_unresolved', sprintf('Region "%s" references placement %s, which does not exist.', $region['region_id'], $pid), [['region_id' => $region['region_id']], ['placement_id' => $pid]]);
+        }
+      }
     }
 
     $counts = ['error' => 0, 'warning' => 0, 'info' => 0];

@@ -2,6 +2,7 @@
 
 namespace Drupal\Tests\dungeoncrawler_content\Unit\Schema;
 
+use Drupal\Component\Uuid\Php;
 use Drupal\Component\Uuid\UuidInterface;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Session\AccountProxyInterface;
@@ -49,7 +50,7 @@ class DungeonEditorShellContractTest extends TestCase {
     return new class(
       $this->createMock(Connection::class),
       $this->createMock(AccountProxyInterface::class),
-      $this->createMock(UuidInterface::class),
+      new Php(),
       new DefinitionSchemaValidator(),
       $this->createMock(CanonicalDefinitionService::class),
       $schema_dir,
@@ -154,7 +155,7 @@ class DungeonEditorShellContractTest extends TestCase {
       // Move the anchor one hex away: no overlap may remain.
       $dungeon['room_placements'][1]['origin'] = ['q' => $expected['q'] + 1, 'r' => $expected['r']];
       $result = $service->validateAggregate($this->draft($dungeon));
-      $this->assertSame([], $result['findings'], 'Vector ' . $index . ' must not overlap once displaced.');
+      $this->assertSame([], array_filter($result['findings'], static fn(array $f): bool => $f['severity'] === 'error'), 'Vector ' . $index . ' must not overlap once displaced.');
     }
   }
 
@@ -175,7 +176,11 @@ class DungeonEditorShellContractTest extends TestCase {
     sort($codes);
     $this->assertSame(['dungeon_entrance_ambiguous', 'placement_overlap', 'placement_version_unresolved'], $codes);
     $this->assertFalse($result['is_valid']);
-    $this->assertSame(['error' => 3, 'warning' => 0, 'info' => 0], $result['counts']);
+    // Two entrances is incompleteness while editing (warning), incorrectness
+    // at publication (error) - 04-contracts.md rule table.
+    $this->assertSame(['error' => 2, 'warning' => 1, 'info' => 0], $result['counts']);
+    $publication = $service->validateAggregate($this->draft($dungeon), 'publication');
+    $this->assertSame(['error' => 3, 'warning' => 0, 'info' => 0], $publication['counts']);
     $this->assertSame(self::uuid(999), $result['draft_id']);
     $this->assertSame(3, $result['revision']);
 
@@ -225,9 +230,12 @@ class DungeonEditorShellContractTest extends TestCase {
     $service = $this->service([$version => $this->room('one', [['q' => 0, 'r' => 0]])]);
     $dungeon = $this->aggregate([$this->placement(1, 'one', $version, ['q' => 0, 'r' => 0], 0, FALSE)]);
 
-    $this->assertTrue($service->validateAggregate($this->draft($dungeon), 'editing')['is_valid']);
+    $editing = $service->validateAggregate($this->draft($dungeon), 'editing');
+    $this->assertTrue($editing['is_valid']);
+    $this->assertSame(['warning'], array_column($editing['findings'], 'severity'));
     $publication = $service->validateAggregate($this->draft($dungeon), 'publication');
     $this->assertSame(['dungeon_entrance_missing'], array_column($publication['findings'], 'code'));
+    $this->assertFalse($publication['is_valid']);
   }
 
   /**
@@ -329,10 +337,7 @@ class DungeonEditorShellContractTest extends TestCase {
     foreach ($issued as $type) {
       $this->assertContains($type, DungeonEditorService::SUPPORTED_COMMANDS, 'Shell issues an unsupported command: ' . $type);
     }
-    foreach (['link_ports', 'update_port_link', 'unlink_ports', 'add_region', 'update_region', 'remove_region'] as $later) {
-      $this->assertContains($later, $enum);
-      $this->assertNotContains($later, DungeonEditorService::SUPPORTED_COMMANDS, $later . ' lands with its own slice.');
-    }
+    $this->assertSame([], array_diff($enum, DungeonEditorService::SUPPORTED_COMMANDS), 'Every command in the frozen enum is now executable.');
   }
 
   /**
@@ -456,6 +461,159 @@ class DungeonEditorShellContractTest extends TestCase {
       $this->assertSame('dungeon_command_payload_invalid', $exception->getMessage());
       $this->assertSame('/depth', $exception->getFindings()[0]['pointer']);
     }
+  }
+
+  /**
+   * Two one-hex rooms with facing ports; A's exit on edge 0 meets B's entry.
+   */
+  private function linkFixture(): array {
+    $va = self::uuid(1);
+    $vb = self::uuid(2);
+    $service = $this->service([
+      $va => array_merge($this->room('a', [['q' => 0, 'r' => 0]]), ['exit_ports' => [['port_id' => 'out', 'hex' => ['q' => 0, 'r' => 0], 'edge' => 0, 'kind' => 'door', 'direction' => 'east']]]),
+      $vb => array_merge($this->room('b', [['q' => 0, 'r' => 0]]), ['entry_ports' => [['port_id' => 'in', 'hex' => ['q' => 0, 'r' => 0], 'edge' => 3]]]),
+    ]);
+    // B sits across A's edge 0 with rotation 0, so its edge-3 entry faces A.
+    $neighbor = \Drupal\dungeoncrawler_content\Geometry\RoomPlacementTransformer::neighbor(['q' => 0, 'r' => 0], 0);
+    $dungeon = $this->aggregate([
+      $this->placement(1, 'a', $va, ['q' => 0, 'r' => 0], 0, TRUE),
+      $this->placement(2, 'b', $vb, $neighbor, 0),
+    ]);
+    return [$service, $dungeon];
+  }
+
+  private function link(array $from, array $to, string $direction = 'bidirectional'): array {
+    return ['from' => $from, 'to' => $to, 'kind' => 'door', 'direction' => $direction, 'default_state' => 'closed'];
+  }
+
+  /**
+   * Link legality is pure geometry and reachability follows the links.
+   */
+  public function testLinkRules(): void {
+    [$service, $dungeon] = $this->linkFixture();
+    $a = ['placement_id' => self::uuid(1), 'port_id' => 'out'];
+    $b = ['placement_id' => self::uuid(2), 'port_id' => 'in'];
+
+    // Unlinked: B unreachable (warning), A's exit dangling (info); still valid.
+    $before = $service->validateAggregate($this->draft($dungeon));
+    $this->assertTrue($before['is_valid']);
+    $this->assertEqualsCanonicalizing(['placement_unreachable', 'exit_port_dangling'], array_column($before['findings'], 'code'));
+    $this->assertFalse($service->validateAggregate($this->draft($dungeon), 'publication')['is_valid']);
+
+    // Sealed link: everything resolves, nothing dangles.
+    $linked = $this->transition($service, $dungeon, 'link_ports', $this->link($a, $b));
+    $this->assertCount(1, $linked['port_links']);
+    $this->assertSame(0, $linked['port_links'][0]['travel_cost']);
+    $this->assertSame([], $service->validateAggregate($this->draft($linked))['findings']);
+    $this->assertTrue($service->validateAggregate($this->draft($linked), 'publication')['is_valid']);
+
+    // Second use of the same exit port.
+    try {
+      $this->transition($service, $linked, 'link_ports', $this->link($a, $b));
+      $this->fail('port_already_linked expected.');
+    }
+    catch (DungeonCommandRejectedException $exception) {
+      $this->assertSame('port_already_linked', $exception->getMessage());
+    }
+
+    // Reversed direction: entry -> exit.
+    try {
+      $this->transition($service, $dungeon, 'link_ports', $this->link($b, $a));
+      $this->fail('port_link_direction_invalid expected.');
+    }
+    catch (DungeonCommandRejectedException $exception) {
+      $this->assertSame('port_link_direction_invalid', $exception->getMessage());
+    }
+
+    // Self reference.
+    try {
+      $this->transition($service, $dungeon, 'link_ports', $this->link($a, ['placement_id' => self::uuid(1), 'port_id' => 'out']));
+      $this->fail('port_link_self_reference expected.');
+    }
+    catch (DungeonCommandRejectedException $exception) {
+      $this->assertSame('port_link_self_reference', $exception->getMessage());
+    }
+
+    // Unknown port.
+    try {
+      $this->transition($service, $dungeon, 'link_ports', $this->link($a, ['placement_id' => self::uuid(2), 'port_id' => 'nope']));
+      $this->fail('port_link_endpoint_missing expected.');
+    }
+    catch (DungeonCommandRejectedException $exception) {
+      $this->assertSame('port_link_endpoint_missing', $exception->getMessage());
+    }
+
+    // Move B one hex away: the sealed link is broken and the move is refused
+    // with the exact geometry named. Nothing is nudged.
+    try {
+      $this->transition($service, $linked, 'move_room_placement', ['placement_id' => self::uuid(2), 'origin' => ['q' => 5, 'r' => 5]]);
+      $this->fail('port_link_not_adjacent expected.');
+    }
+    catch (DungeonCommandRejectedException $exception) {
+      $this->assertSame('port_link_not_adjacent', $exception->getMessage());
+      $this->assertStringContainsString('must be at (1, 0) facing edge 3', $exception->getFindings()[0]['message']);
+    }
+
+    // Rotating B breaks the facing edge even though the hex still touches.
+    try {
+      $this->transition($service, $linked, 'rotate_room_placement', ['placement_id' => self::uuid(2), 'rotation_steps' => 1]);
+      $this->fail('port_link_not_adjacent expected.');
+    }
+    catch (DungeonCommandRejectedException $exception) {
+      $this->assertSame('port_link_not_adjacent', $exception->getMessage());
+    }
+
+    // One-way link away from the entrance still reaches B; removing the link
+    // leaves B unreachable again.
+    $one_way = $this->transition($service, $dungeon, 'link_ports', $this->link($a, $b, 'one_way'));
+    $this->assertSame([], $service->validateAggregate($this->draft($one_way))['findings']);
+    $unlinked = $this->transition($service, $one_way, 'unlink_ports', ['link_id' => $one_way['port_links'][0]['link_id']]);
+    $this->assertSame([], $unlinked['port_links']);
+    $this->assertContains('placement_unreachable', array_column($service->validateAggregate($this->draft($unlinked))['findings'], 'code'));
+
+    // update_port_link accepts only link keys; the schema polices values.
+    $updated = $this->transition($service, $linked, 'update_port_link', ['link_id' => $linked['port_links'][0]['link_id'], 'changes' => ['default_state' => 'locked', 'travel_cost' => 5]]);
+    $this->assertSame('locked', $updated['port_links'][0]['default_state']);
+    $this->expectException(DungeonCommandPayloadException::class);
+    $this->transition($service, $linked, 'update_port_link', ['link_id' => $linked['port_links'][0]['link_id'], 'changes' => ['default_state' => 'ajar']]);
+  }
+
+  /**
+   * Regions reference placements and nothing else.
+   */
+  public function testRegionRules(): void {
+    [$service, $dungeon] = $this->linkFixture();
+    $added = $this->transition($service, $dungeon, 'add_region', ['region_id' => 'north-wing', 'name' => 'North Wing', 'placement_ids' => [self::uuid(1)]]);
+    $this->assertSame(['region_id' => 'north-wing', 'name' => 'North Wing', 'placement_ids' => [self::uuid(1)], 'description' => '', 'environmental_effects' => [], 'ambient_hazard_level' => 0], $added['regions'][0]);
+
+    try {
+      $this->transition($service, $added, 'add_region', ['region_id' => 'north-wing', 'name' => 'Again', 'placement_ids' => []]);
+      $this->fail('region_id_duplicate expected.');
+    }
+    catch (\DomainException $exception) {
+      $this->assertSame('region_id_duplicate', $exception->getMessage());
+    }
+
+    try {
+      $this->transition($service, $added, 'update_region', ['region_id' => 'north-wing', 'changes' => ['placement_ids' => [self::uuid(1), self::uuid(77)]]]);
+      $this->fail('region_placement_unresolved expected.');
+    }
+    catch (DungeonCommandRejectedException $exception) {
+      $this->assertSame('region_placement_unresolved', $exception->getMessage());
+    }
+
+    try {
+      $this->transition($service, $added, 'update_region', ['region_id' => 'north-wing', 'changes' => ['region_id' => 'renamed']]);
+      $this->fail('region_id is identity, not metadata.');
+    }
+    catch (DungeonCommandPayloadException $exception) {
+      $this->assertSame('/payload/changes/region_id', $exception->getFindings()[0]['pointer']);
+    }
+
+    $removed = $this->transition($service, $added, 'remove_region', ['region_id' => 'north-wing']);
+    $this->assertSame([], $removed['regions']);
+    $this->expectExceptionMessage('region_not_found');
+    $this->transition($service, $removed, 'remove_region', ['region_id' => 'north-wing']);
   }
 
   /**

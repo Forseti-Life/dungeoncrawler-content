@@ -127,3 +127,63 @@
   border-left: 3px solid var(--danger, #dc2626);
   padding-left: 6px;
 }
+
+/* Slice 5: links and regions. */
+.dungeon-editor__link-list,
+.dungeon-editor__region-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 200px;
+  overflow: auto;
+  display: grid;
+  gap: 2px;
+}
+
+.dungeon-editor__link-item,
+.dungeon-editor__region-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.dungeon-editor__link-item:hover,
+.dungeon-editor__region-item:hover {
+  background: rgba(148, 163, 184, 0.12);
+}
+
+.dungeon-editor__link-item[aria-selected="true"],
+.dungeon-editor__region-item[aria-selected="true"] {
+  background: rgba(96, 165, 250, 0.22);
+  outline: 1px solid rgba(96, 165, 250, 0.6);
+}
+
+.dungeon-editor__region-form {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.dungeon-editor__checklist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+  font-size: 12px;
+}
+
+.dungeon-editor__checklist label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.dungeon-editor[data-linking="true"] .hexmap-canvas-wrapper {
+  outline: 2px dashed rgba(250, 204, 21, 0.7);
+  outline-offset: -2px;
+}

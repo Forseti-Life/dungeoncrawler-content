@@ -21,13 +21,17 @@
  *   canvas:hex-hovered  — { q, r }
  *   canvas:hex-out      — { q, r }
  *   canvas:hex-clicked  — { q, r, button }
+ *   canvas:port-clicked — { placementId, portId, kind, q, r, edge, button }
+ *                         (level-map port markers only, see _renderMapAggregate)
  *   canvas:zoom-changed — { scale }
  *
  * Subscribes to bus events:
  *   room:changed               — regenerate hex grid for new room
  *   map:changed                — regenerate hex grid for a level map aggregate
  *                                ({ mapId, placements, ports, links, occupancy });
- *                                additive to room:changed, see _renderMapAggregate
+ *                                additive to room:changed, see _renderMapAggregate.
+ *                                A port may carry highlight: 'source' | 'legal'
+ *                                | 'illegal' for the linking gesture.
  *   canvas:coordinates-toggled — redraw grid labels
  *   canvas:grid-toggled        — redraw grid lines
  *   canvas:reset-view          — restore default camera transform
@@ -392,6 +396,10 @@ export class HexCanvas {
       overlay.moveTo(a.x, a.y);
       overlay.lineTo(b.x, b.y);
     });
+    this.propsContainer.addChild(overlay);
+
+    // Each port marker is its own hit target so the shell can drive the
+    // click-to-link gesture without hit-testing geometry itself.
     map.ports.forEach((port) => {
       const q = Number(port?.q);
       const r = Number(port?.r);
@@ -406,16 +414,37 @@ export class HexCanvas {
       const y = center.y + Math.sin(angle) * hexSize * 0.8;
       const isEntry = port?.kind === 'entry';
       const color = isEntry ? 0x38bdf8 : (port?.linked ? 0x22c55e : 0xf59e0b);
-      overlay.lineStyle(2, color, 1);
-      if (isEntry || port?.linked) {
-        overlay.beginFill(color, 0.9);
+      const marker = new PIXI.Graphics();
+      marker.name = 'mapPortMarker';
+      const highlight = MAP_PORT_HIGHLIGHT[port?.highlight] || null;
+      if (highlight) {
+        marker.lineStyle(3, highlight, 0.95);
+        marker.drawCircle(x, y, hexSize * 0.32);
       }
-      overlay.drawCircle(x, y, hexSize * 0.18);
+      marker.lineStyle(2, color, 1);
       if (isEntry || port?.linked) {
-        overlay.endFill();
+        marker.beginFill(color, 0.9);
+      } else {
+        marker.beginFill(color, 0.001);
       }
+      marker.drawCircle(x, y, hexSize * 0.18);
+      marker.endFill();
+      marker.hitArea = new PIXI.Circle(x, y, hexSize * 0.3);
+      marker.eventMode = 'static';
+      marker.cursor = 'pointer';
+      marker.on('pointerdown', (event) => {
+        this.bus.emit('canvas:port-clicked', {
+          placementId: port.placementId,
+          portId: port.portId,
+          kind: port.kind,
+          q,
+          r,
+          edge,
+          button: event.data?.button ?? 0,
+        });
+      });
+      this.propsContainer.addChild(marker);
     });
-    this.propsContainer.addChild(overlay);
   }
 
   /**
@@ -1141,6 +1170,8 @@ const DEFAULT_HEX_STYLE = {
   lineWidth: 1,
   showCoordinates: false,
 };
+
+const MAP_PORT_HIGHLIGHT = { source: 0xfacc15, legal: 0x22c55e, illegal: 0xef4444 };
 
 const MAP_OVERLAP_HEX_STYLE = {
   fillColor: 0xdc2626,

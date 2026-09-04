@@ -1,6 +1,6 @@
 /**
  * @file
- * Canonical Dungeon Editor browser shell (slice 4: placement authoring).
+ * Canonical Dungeon Editor browser shell (slices 3-5: placements, links, regions).
  *
  * Normative specification:
  * copilot-hq 20260904-dc-canonical-dungeon-editor-architecture/
@@ -22,8 +22,10 @@
  *   - the shell never does placement math outside placementTransform.js;
  *   - HexCanvas knows nothing about dungeons, drafts, or commands.
  *
- * Links, regions and publication are later slices; this file issues only the
- * slice 4 command types.
+ * Link legality is decided by the server; the shell only pre-computes the
+ * legal targets for highlighting with the same sealed-link geometry
+ * (10-placement-transform-spec.md §5: Hb == neighbor(Ha, Ea), Eb == opposite(Ea)).
+ * Publication is a later slice.
  */
 
 import { GameEventBus } from '../GameEventBus.js';
@@ -34,6 +36,10 @@ const transform = globalThis.DungeonCrawlerPlacementTransform;
 if (!transform) {
   throw new Error('placement_transform_unavailable');
 }
+
+const LINK_KINDS = ['hallway', 'archway', 'door', 'hatch', 'portcullis', 'secret_door', 'magical_barrier', 'collapsed', 'bridge', 'one_way_drop'];
+const LINK_DIRECTIONS = ['bidirectional', 'one_way'];
+const LINK_STATES = ['open', 'closed', 'locked', 'barred', 'trapped', 'triggered', 'destroyed'];
 
 const PLACEMENT_TINTS = [
   0x60a5fa, 0x34d399, 0xfbbf24, 0xf472b6, 0xa78bfa, 0xfb923c, 0x2dd4bf, 0xe879f9,
@@ -82,6 +88,17 @@ export class DungeonEditorShell {
     this.roomLibrary = [];
     /** @type {string|null} Selected placement_id. */
     this.selectedPlacementId = null;
+    /** @type {string|null} Selected link_id (exclusive with the others). */
+    this.selectedLinkId = null;
+    /** @type {string|null} Selected region_id (exclusive with the others). */
+    this.selectedRegionId = null;
+    /**
+     * Click-to-link gesture. from = the level-space exit port; legal = keys
+     * ("placementId:portId") of entry ports that satisfy the sealed-link
+     * rule; to = the chosen legal entry, awaiting kind/direction/state.
+     * @type {{from: object, legal: Set<string>, to: object|null}|null}
+     */
+    this._linking = null;
 
     this._dom = {};
     this._resizeObserver = null;
@@ -263,6 +280,11 @@ export class DungeonEditorShell {
       placementList: q('[data-dungeon-editor-placement-list]'),
       placementEmpty: q('[data-dungeon-editor-placement-empty]'),
       inspectorBody: q('[data-dungeon-editor-inspector-body]'),
+      linkList: q('[data-dungeon-editor-link-list]'),
+      linkEmpty: q('[data-dungeon-editor-link-empty]'),
+      regionList: q('[data-dungeon-editor-region-list]'),
+      regionEmpty: q('[data-dungeon-editor-region-empty]'),
+      regionForm: q('[data-dungeon-editor-region-form]'),
       validationList: q('[data-dungeon-editor-validation-list]'),
       gmState: q('[data-dungeon-editor-gm-state]'),
       gmContext: q('[data-dungeon-editor-gm-context]'),
@@ -293,6 +315,37 @@ export class DungeonEditorShell {
       if (item) {
         this._selectPlacement(item.getAttribute('data-placement-id'));
       }
+    });
+    this._dom.linkList?.addEventListener('click', (event) => {
+      const item = event.target.closest('[data-link-id]');
+      if (item) {
+        this._selectLink(item.getAttribute('data-link-id'));
+      }
+    });
+    this._dom.regionList?.addEventListener('click', (event) => {
+      const item = event.target.closest('[data-region-id]');
+      if (item) {
+        this._selectRegion(item.getAttribute('data-region-id'));
+      }
+    });
+    this._dom.regionForm?.addEventListener('submit', (event) => {
+      event.preventDefault();
+      if (!this.model) {
+        return;
+      }
+      const form = this._dom.regionForm;
+      const regionId = String(form.elements.region_id.value).trim();
+      const name = String(form.elements.name.value).trim();
+      if (!regionId || !name) {
+        this._setStatus('Region id and name are both required.', 'error');
+        return;
+      }
+      this.applyCommand('add_region', { region_id: regionId, name, placement_ids: [] }).then((result) => {
+        if (result) {
+          form.reset();
+          this._selectRegion(regionId);
+        }
+      });
     });
   }
 
@@ -375,6 +428,11 @@ export class DungeonEditorShell {
     if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)) {
       return;
     }
+    if (event.key === 'Escape' && this._linking) {
+      event.preventDefault();
+      this._cancelLinking('Linking cancelled.');
+      return;
+    }
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
       event.preventDefault();
       if (event.shiftKey) {
@@ -406,6 +464,14 @@ export class DungeonEditorShell {
   }
 
   _runInspectorAction(action) {
+    if (action.startsWith('link-')) {
+      this._runLinkAction(action);
+      return;
+    }
+    if (action.startsWith('region-')) {
+      this._runRegionAction(action);
+      return;
+    }
     const placement = this._selectedPlacement();
     if (!placement) {
       return;
@@ -437,6 +503,14 @@ export class DungeonEditorShell {
   }
 
   _runInspectorField(field, input) {
+    if (field.startsWith('link-')) {
+      this._runLinkField(field, input);
+      return;
+    }
+    if (field.startsWith('region-')) {
+      this._runRegionField(field, input);
+      return;
+    }
     const placement = this._selectedPlacement();
     if (!placement) {
       return;
@@ -604,6 +678,7 @@ export class DungeonEditorShell {
     });
     this.hexCanvas.init();
     this.bus.on('canvas:hex-clicked', ({ q, r, button, clientX, clientY }) => this._handleHexClick(q, r, button, clientX, clientY));
+    this.bus.on('canvas:port-clicked', (port) => this._handlePortClick(port));
 
     if (typeof ResizeObserver !== 'undefined') {
       this._resizeObserver = new ResizeObserver(() => {
@@ -617,6 +692,10 @@ export class DungeonEditorShell {
   }
 
   _handleHexClick(q, r, button = 0, clientX = null, clientY = null) {
+    if (this._linking) {
+      this._cancelLinking('Linking cancelled - click a highlighted entry port to link, Esc to cancel.');
+      return;
+    }
     const axial = { q: Number(q), r: Number(r) };
     const claimants = this.model?.occupancy?.[transform.hexKey(axial)];
     if (!Array.isArray(claimants) || !claimants.length) {
@@ -683,6 +762,7 @@ export class DungeonEditorShell {
       if (placement.resolved) {
         placement.room.ports.forEach((port) => {
           const level = transform.toLevelPort({ q: port.q, r: port.r }, port.edge, spec);
+          const key = `${placement.placement_id}:${port.port_id}`;
           const entry = {
             placementId: placement.placement_id,
             portId: port.port_id,
@@ -690,7 +770,8 @@ export class DungeonEditorShell {
             q: level.q,
             r: level.r,
             edge: level.edge,
-            linked: port.kind === 'exit' && linkedExitPorts.has(`${placement.placement_id}:${port.port_id}`),
+            linked: port.kind === 'exit' && linkedExitPorts.has(key),
+            highlight: this._portHighlight(key, port.kind),
           };
           ports.push(entry);
           portIndex.set(`${placement.placement_id}:${port.port_id}`, entry);
@@ -785,6 +866,18 @@ export class DungeonEditorShell {
     if (this.selectedPlacementId && !model.placements.some((p) => p.placement_id === this.selectedPlacementId)) {
       this.selectedPlacementId = null;
     }
+    if (this.selectedLinkId && !(model.port_links || []).some((l) => l.link_id === this.selectedLinkId)) {
+      this.selectedLinkId = null;
+    }
+    if (this.selectedRegionId && !(model.regions || []).some((r) => r.region_id === this.selectedRegionId)) {
+      this.selectedRegionId = null;
+    }
+    if (this._linking) {
+      // Geometry may have changed underneath the gesture; recompute or drop.
+      const from = this._levelPorts().find((p) => p.key === this._linking.from.key && p.kind === 'exit' && !p.linked);
+      this._linking = from ? { from, legal: this._legalEntryTargets(from), to: null } : null;
+      this.container.toggleAttribute('data-linking', !!this._linking);
+    }
     if (this._dom.revision) {
       this._dom.revision.textContent = `rev ${model.revision} · ${model.placements.length} rooms · ${(model.port_links || []).length} links`;
     }
@@ -792,6 +885,8 @@ export class DungeonEditorShell {
     this._fitMapToView();
     this._renderMetadataForm();
     this._renderPlacementList();
+    this._renderLinkList();
+    this._renderRegionList();
     this._renderInspector();
     this._renderValidation(model.validation);
     this._renderGmContext();
@@ -821,8 +916,292 @@ export class DungeonEditorShell {
 
   _selectPlacement(placementId) {
     this.selectedPlacementId = placementId || null;
+    this.selectedLinkId = null;
+    this.selectedRegionId = null;
+    this._renderSelection();
+  }
+
+  _selectLink(linkId) {
+    this.selectedLinkId = linkId || null;
+    this.selectedPlacementId = null;
+    this.selectedRegionId = null;
+    this._renderSelection();
+  }
+
+  _selectRegion(regionId) {
+    this.selectedRegionId = regionId || null;
+    this.selectedPlacementId = null;
+    this.selectedLinkId = null;
+    this._renderSelection();
+  }
+
+  _renderSelection() {
     this._renderPlacementList();
+    this._renderLinkList();
+    this._renderRegionList();
     this._renderInspector();
+  }
+
+  _selectedLink() {
+    return (this.model?.port_links || []).find((l) => l.link_id === this.selectedLinkId) || null;
+  }
+
+  _selectedRegion() {
+    return (this.model?.regions || []).find((r) => r.region_id === this.selectedRegionId) || null;
+  }
+
+  _placementLabel(placementId) {
+    return (this.model?.placements || []).find((p) => p.placement_id === placementId)?.label || placementId;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Click-to-link gesture (03-interface-design.md "Linking ports")
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Every resolved port in level space, keyed "placementId:portId".
+   */
+  _levelPorts() {
+    const linked = new Set((this.model?.port_links || []).map((l) => `${l.from.placement_id}:${l.from.port_id}`));
+    const ports = [];
+    (this.model?.placements || []).forEach((placement) => {
+      if (!placement.resolved) {
+        return;
+      }
+      const spec = { origin: placement.origin, rotation_steps: placement.rotation_steps };
+      placement.room.ports.forEach((port) => {
+        const level = transform.toLevelPort({ q: port.q, r: port.r }, port.edge, spec);
+        const key = `${placement.placement_id}:${port.port_id}`;
+        ports.push({
+          key,
+          placementId: placement.placement_id,
+          portId: port.port_id,
+          label: placement.label,
+          kind: port.kind,
+          q: level.q,
+          r: level.r,
+          edge: level.edge,
+          linked: port.kind === 'exit' && linked.has(key),
+        });
+      });
+    });
+    return ports;
+  }
+
+  /**
+   * Entry ports across the exit's shared edge: the sealed-link rule.
+   */
+  _legalEntryTargets(from) {
+    const target = transform.neighbor({ q: from.q, r: from.r }, from.edge);
+    const facing = transform.opposite(from.edge);
+    const legal = new Set();
+    this._levelPorts().forEach((port) => {
+      if (port.kind === 'entry' && port.placementId !== from.placementId && port.q === target.q && port.r === target.r && port.edge === facing) {
+        legal.add(port.key);
+      }
+    });
+    return legal;
+  }
+
+  _portHighlight(key, kind) {
+    if (!this._linking) {
+      return null;
+    }
+    if (key === this._linking.from.key) {
+      return 'source';
+    }
+    if (kind !== 'entry') {
+      return null;
+    }
+    return this._linking.legal.has(key) ? 'legal' : 'illegal';
+  }
+
+  _handlePortClick(port) {
+    if (!this.model || this._busy || this._drag || port.button !== 0) {
+      return;
+    }
+    const key = `${port.placementId}:${port.portId}`;
+    const level = this._levelPorts().find((p) => p.key === key);
+    if (!level) {
+      return;
+    }
+    if (!this._linking) {
+      if (level.kind !== 'exit') {
+        this._selectPlacement(level.placementId);
+        this._setStatus(`"${level.portId}" is an entry port. Start a link from an exit port.`, 'warning');
+        return;
+      }
+      if (level.linked) {
+        const link = (this.model.port_links || []).find((l) => l.from.placement_id === level.placementId && l.from.port_id === level.portId);
+        this._selectLink(link?.link_id || null);
+        return;
+      }
+      this._linking = { from: level, legal: this._legalEntryTargets(level), to: null };
+      this.container.setAttribute('data-linking', 'true');
+      this._emitMap();
+      const count = this._linking.legal.size;
+      this._setStatus(
+        count
+          ? `Linking from "${level.portId}" on ${level.label}: click one of ${count} highlighted entry port(s). Esc cancels.`
+          : `Linking from "${level.portId}" on ${level.label}: no entry port faces it. Move a room so its entry sits at (${transform.neighbor(level, level.edge).q}, ${transform.neighbor(level, level.edge).r}) facing edge ${transform.opposite(level.edge)}. Esc cancels.`,
+        count ? 'info' : 'warning',
+      );
+      return;
+    }
+    if (key === this._linking.from.key) {
+      this._cancelLinking('Linking cancelled.');
+      return;
+    }
+    if (level.kind !== 'entry') {
+      this._setStatus(`"${level.portId}" is an exit port; a link ends on an entry port.`, 'error');
+      return;
+    }
+    if (!this._linking.legal.has(key)) {
+      const from = this._linking.from;
+      const need = transform.neighbor({ q: from.q, r: from.r }, from.edge);
+      this._setStatus(
+        `"${level.portId}" on ${level.label} is at (${level.q}, ${level.r}) facing edge ${level.edge}; a link from "${from.portId}" must land at (${need.q}, ${need.r}) facing edge ${transform.opposite(from.edge)}.`,
+        'error',
+      );
+      return;
+    }
+    this._linking.to = level;
+    this.selectedPlacementId = null;
+    this.selectedLinkId = null;
+    this.selectedRegionId = null;
+    this._renderSelection();
+    this._setStatus('Choose the link kind, direction and default state, then create it.', 'info');
+  }
+
+  _cancelLinking(message) {
+    if (!this._linking) {
+      return;
+    }
+    this._linking = null;
+    this.container.removeAttribute('data-linking');
+    this._emitMap();
+    this._renderInspector();
+    if (message) {
+      this._setStatus(message, 'info');
+    }
+  }
+
+  _runLinkAction(action) {
+    if (action === 'link-cancel') {
+      this._cancelLinking('Linking cancelled.');
+      return;
+    }
+    if (action === 'link-create') {
+      const pending = this._linking;
+      if (!pending?.to) {
+        return;
+      }
+      const body = this._dom.inspectorBody;
+      const kind = body?.querySelector('[data-link-new="kind"]')?.value || '';
+      const direction = body?.querySelector('[data-link-new="direction"]')?.value || '';
+      const defaultState = body?.querySelector('[data-link-new="default_state"]')?.value || '';
+      if (!kind || !direction || !defaultState) {
+        this._setStatus('Kind, direction and default state are all required; nothing is assumed.', 'error');
+        return;
+      }
+      this.applyCommand('link_ports', {
+        from: { placement_id: pending.from.placementId, port_id: pending.from.portId },
+        to: { placement_id: pending.to.placementId, port_id: pending.to.portId },
+        kind,
+        direction,
+        default_state: defaultState,
+      }).then((result) => {
+        if (result) {
+          this._linking = null;
+          this.container.removeAttribute('data-linking');
+          const created = (result.model.port_links || []).find((l) => l.from.placement_id === pending.from.placementId && l.from.port_id === pending.from.portId);
+          this._selectLink(created?.link_id || null);
+          this._emitMap();
+        }
+      });
+      return;
+    }
+    const link = this._selectedLink();
+    if (!link) {
+      return;
+    }
+    if (action === 'link-unlink') {
+      this.applyCommand('unlink_ports', { link_id: link.link_id });
+    }
+  }
+
+  _runLinkField(field, input) {
+    const link = this._selectedLink();
+    if (!link) {
+      return;
+    }
+    const key = field.slice('link-'.length);
+    let value;
+    if (key === 'travel_cost') {
+      value = Number.parseInt(input.value, 10);
+      if (!Number.isInteger(value)) {
+        this._setStatus('Travel cost must be a whole number.', 'error');
+        input.value = String(link.travel_cost);
+        return;
+      }
+    } else if (key === 'tags') {
+      value = Array.from(new Set(String(input.value).split(',').map((t) => t.trim()).filter(Boolean)));
+    } else {
+      value = String(input.value);
+    }
+    if (JSON.stringify(value) === JSON.stringify(link[key])) {
+      return;
+    }
+    this.applyCommand('update_port_link', { link_id: link.link_id, changes: { [key]: value } }).then((result) => {
+      if (!result) {
+        this._renderInspector();
+      }
+    });
+  }
+
+  _runRegionAction(action) {
+    const region = this._selectedRegion();
+    if (!region) {
+      return;
+    }
+    if (action === 'region-remove') {
+      this.applyCommand('remove_region', { region_id: region.region_id });
+    }
+  }
+
+  _runRegionField(field, input) {
+    const region = this._selectedRegion();
+    if (!region) {
+      return;
+    }
+    const key = field.slice('region-'.length);
+    let value;
+    if (key === 'placement_ids') {
+      const boxes = this._dom.inspectorBody?.querySelectorAll('[data-inspector-field="region-placement_ids"]') || [];
+      value = Array.from(boxes).filter((box) => box.checked).map((box) => box.value);
+    } else if (key === 'ambient_hazard_level') {
+      value = Number.parseInt(input.value, 10);
+      if (!Number.isInteger(value)) {
+        this._setStatus('Hazard level must be a whole number.', 'error');
+        input.value = String(region.ambient_hazard_level);
+        return;
+      }
+    } else {
+      value = String(input.value);
+      if (key === 'name' && !value.trim()) {
+        this._setStatus('A region needs a name.', 'error');
+        input.value = region.name;
+        return;
+      }
+    }
+    if (JSON.stringify(value) === JSON.stringify(region[key])) {
+      return;
+    }
+    this.applyCommand('update_region', { region_id: region.region_id, changes: { [key]: value } }).then((result) => {
+      if (!result) {
+        this._renderInspector();
+      }
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -896,15 +1275,78 @@ export class DungeonEditorShell {
     });
   }
 
+  _renderLinkList() {
+    const list = this._dom.linkList;
+    if (!list) {
+      return;
+    }
+    clearElement(list);
+    const links = this.model?.port_links || [];
+    if (this._dom.linkEmpty) {
+      this._dom.linkEmpty.hidden = !this.model || links.length > 0;
+    }
+    links.forEach((link) => {
+      const item = makeEl('li', 'dungeon-editor__link-item');
+      item.setAttribute('data-link-id', link.link_id);
+      item.setAttribute('aria-selected', link.link_id === this.selectedLinkId ? 'true' : 'false');
+      const label = makeEl('span', null, `${this._placementLabel(link.from.placement_id)}:${link.from.port_id} → ${this._placementLabel(link.to.placement_id)}:${link.to.port_id}`);
+      const meta = makeEl('span', 'dungeon-editor__item-meta', `${link.kind} · ${link.direction} · ${link.default_state}`);
+      item.append(label, meta);
+      list.appendChild(item);
+    });
+  }
+
+  _renderRegionList() {
+    const list = this._dom.regionList;
+    if (!list) {
+      return;
+    }
+    clearElement(list);
+    const regions = this.model?.regions || [];
+    if (this._dom.regionEmpty) {
+      this._dom.regionEmpty.hidden = !this.model || regions.length > 0;
+    }
+    if (this._dom.regionForm) {
+      Array.from(this._dom.regionForm.elements).forEach((el) => { el.disabled = !this.model; });
+    }
+    regions.forEach((region) => {
+      const item = makeEl('li', 'dungeon-editor__region-item');
+      item.setAttribute('data-region-id', region.region_id);
+      item.setAttribute('aria-selected', region.region_id === this.selectedRegionId ? 'true' : 'false');
+      const label = makeEl('span', null, region.name);
+      const meta = makeEl('span', 'dungeon-editor__item-meta', `${region.region_id} · ${region.placement_ids.length} room(s)`);
+      item.append(label, meta);
+      list.appendChild(item);
+    });
+  }
+
   _renderInspector() {
     const body = this._dom.inspectorBody;
     if (!body) {
       return;
     }
     clearElement(body);
+    if (!this.model) {
+      body.appendChild(makeEl('p', 'room-editor__hint', 'Load or create a dungeon to begin.'));
+      return;
+    }
+    if (this._linking?.to) {
+      this._renderPendingLinkInspector(body);
+      return;
+    }
+    const link = this._selectedLink();
+    if (link) {
+      this._renderLinkInspector(body, link);
+      return;
+    }
+    const region = this._selectedRegion();
+    if (region) {
+      this._renderRegionInspector(body, region);
+      return;
+    }
     const placement = (this.model?.placements || []).find((p) => p.placement_id === this.selectedPlacementId);
     if (!placement) {
-      body.appendChild(makeEl('p', 'room-editor__hint', this.model ? 'Select a placement to inspect it.' : 'Load or create a dungeon to begin.'));
+      body.appendChild(makeEl('p', 'room-editor__hint', 'Select a placement, link or region to inspect it.'));
       return;
     }
     const dl = makeEl('dl', 'dungeon-editor__inspector-grid');
@@ -982,6 +1424,149 @@ export class DungeonEditorShell {
       actions.appendChild(action('retarget', 'Retarget to selected version'));
     }
     actions.appendChild(action('remove', 'Remove', 'room-editor__button--danger'));
+    body.appendChild(actions);
+  }
+
+  /**
+   * @param {string} attribute 'data-inspector-field' (edits fire commands on
+   *   change) or 'data-link-new' (collected only when "Create link" is pressed).
+   */
+  _inspectorSelect(attribute, field, options, selected, placeholder = null) {
+    const select = document.createElement('select');
+    select.setAttribute(attribute, field);
+    if (placeholder) {
+      const option = document.createElement('option');
+      option.value = '';
+      option.textContent = placeholder;
+      option.selected = true;
+      select.appendChild(option);
+    }
+    options.forEach((value) => {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = value.replace(/_/g, ' ');
+      option.selected = value === selected;
+      select.appendChild(option);
+    });
+    return select;
+  }
+
+  _inspectorField(labelText, control) {
+    const field = makeEl('label', 'room-editor__field', `${labelText} `);
+    field.appendChild(control);
+    return field;
+  }
+
+  _inspectorButton(name, text, extraClass = '') {
+    const btn = makeEl('button', `room-editor__button ${extraClass}`.trim(), text);
+    btn.type = 'button';
+    btn.setAttribute('data-inspector-action', name);
+    return btn;
+  }
+
+  /**
+   * Kind, direction and default state are required by the contract and have
+   * no defaults; the form starts empty and the server refuses guesses.
+   */
+  _renderPendingLinkInspector(body) {
+    const { from, to } = this._linking;
+    body.appendChild(makeEl('p', 'room-editor__eyebrow', 'New link'));
+    const dl = makeEl('dl', 'dungeon-editor__inspector-grid');
+    [
+      ['From', `${from.label} : ${from.portId} @ (${from.q}, ${from.r}) edge ${from.edge}`],
+      ['To', `${to.label} : ${to.portId} @ (${to.q}, ${to.r}) edge ${to.edge}`],
+    ].forEach(([term, value]) => {
+      dl.appendChild(makeEl('dt', null, term));
+      dl.appendChild(makeEl('dd', null, value));
+    });
+    body.appendChild(dl);
+    body.appendChild(this._inspectorField('Kind', this._inspectorSelect('data-link-new', 'kind', LINK_KINDS, null, '- choose -')));
+    body.appendChild(this._inspectorField('Direction', this._inspectorSelect('data-link-new', 'direction', LINK_DIRECTIONS, null, '- choose -')));
+    body.appendChild(this._inspectorField('Default state', this._inspectorSelect('data-link-new', 'default_state', LINK_STATES, null, '- choose -')));
+    const actions = makeEl('div', 'dungeon-editor__inspector-actions');
+    actions.append(this._inspectorButton('link-create', 'Create link'), this._inspectorButton('link-cancel', 'Cancel'));
+    body.appendChild(actions);
+  }
+
+  _renderLinkInspector(body, link) {
+    body.appendChild(makeEl('p', 'room-editor__eyebrow', 'Link'));
+    const dl = makeEl('dl', 'dungeon-editor__inspector-grid');
+    [
+      ['From', `${this._placementLabel(link.from.placement_id)} : ${link.from.port_id}`],
+      ['To', `${this._placementLabel(link.to.placement_id)} : ${link.to.port_id}`],
+      ['Link id', link.link_id],
+    ].forEach(([term, value]) => {
+      dl.appendChild(makeEl('dt', null, term));
+      dl.appendChild(makeEl('dd', null, value));
+    });
+    body.appendChild(dl);
+    body.appendChild(this._inspectorField('Kind', this._inspectorSelect('data-inspector-field', 'link-kind', LINK_KINDS, link.kind)));
+    body.appendChild(this._inspectorField('Direction', this._inspectorSelect('data-inspector-field', 'link-direction', LINK_DIRECTIONS, link.direction)));
+    body.appendChild(this._inspectorField('Default state', this._inspectorSelect('data-inspector-field', 'link-default_state', LINK_STATES, link.default_state)));
+    const cost = document.createElement('input');
+    cost.type = 'number';
+    cost.min = '0';
+    cost.max = '100';
+    cost.step = '1';
+    cost.value = String(link.travel_cost);
+    cost.setAttribute('data-inspector-field', 'link-travel_cost');
+    body.appendChild(this._inspectorField('Travel cost', cost));
+    const description = document.createElement('textarea');
+    description.rows = 2;
+    description.maxLength = 2000;
+    description.value = link.description;
+    description.setAttribute('data-inspector-field', 'link-description');
+    body.appendChild(this._inspectorField('Description', description));
+    const tags = document.createElement('input');
+    tags.type = 'text';
+    tags.value = link.tags.join(', ');
+    tags.setAttribute('data-inspector-field', 'link-tags');
+    body.appendChild(this._inspectorField('Tags (comma separated)', tags));
+    const actions = makeEl('div', 'dungeon-editor__inspector-actions');
+    actions.appendChild(this._inspectorButton('link-unlink', 'Unlink', 'room-editor__button--danger'));
+    body.appendChild(actions);
+  }
+
+  _renderRegionInspector(body, region) {
+    body.appendChild(makeEl('p', 'room-editor__eyebrow', `Region ${region.region_id}`));
+    const name = document.createElement('input');
+    name.type = 'text';
+    name.maxLength = 200;
+    name.value = region.name;
+    name.setAttribute('data-inspector-field', 'region-name');
+    body.appendChild(this._inspectorField('Name', name));
+    const description = document.createElement('textarea');
+    description.rows = 2;
+    description.maxLength = 4000;
+    description.value = region.description;
+    description.setAttribute('data-inspector-field', 'region-description');
+    body.appendChild(this._inspectorField('Description', description));
+    const hazard = document.createElement('input');
+    hazard.type = 'number';
+    hazard.min = '0';
+    hazard.max = '10';
+    hazard.step = '1';
+    hazard.value = String(region.ambient_hazard_level);
+    hazard.setAttribute('data-inspector-field', 'region-ambient_hazard_level');
+    body.appendChild(this._inspectorField('Ambient hazard level', hazard));
+
+    body.appendChild(makeEl('p', 'room-editor__hint', 'Rooms in this region'));
+    const list = makeEl('ul', 'dungeon-editor__checklist');
+    (this.model.placements || []).forEach((placement) => {
+      const item = makeEl('li');
+      const label = makeEl('label');
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.value = placement.placement_id;
+      box.checked = region.placement_ids.includes(placement.placement_id);
+      box.setAttribute('data-inspector-field', 'region-placement_ids');
+      label.append(box, makeEl('span', null, placement.label));
+      item.appendChild(label);
+      list.appendChild(item);
+    });
+    body.appendChild(list);
+    const actions = makeEl('div', 'dungeon-editor__inspector-actions');
+    actions.appendChild(this._inspectorButton('region-remove', 'Remove region', 'room-editor__button--danger'));
     body.appendChild(actions);
   }
 

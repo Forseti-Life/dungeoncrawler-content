@@ -193,6 +193,21 @@
   display: none;
 }
 
+/* Pin each panel to its column so the canvas keeps the 1fr track when the
+   drawer is hidden (display: none would otherwise auto-flow the canvas into
+   the collapsed first column). */
+.room-editor__workspace > .room-editor__author-drawer {
+  grid-column: 1;
+}
+
+.room-editor__workspace > .room-editor__center {
+  grid-column: 2;
+}
+
+.room-editor__workspace > .room-editor__gm-panel {
+  grid-column: 3;
+}
+
 .room-editor__drawer-section + .room-editor__drawer-section {
   padding-top: var(--space-3, 12px);
   border-top: 1px solid var(--panel-border, rgba(148, 163, 184, 0.24));
@@ -681,6 +696,12 @@ body.room-editor__body--dragging {
   .room-editor__workspace,
   .room-editor__workspace[data-author-drawer-open="true"] {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .room-editor__workspace > .room-editor__author-drawer,
+  .room-editor__workspace > .room-editor__center,
+  .room-editor__workspace > .room-editor__gm-panel {
+    grid-column: 1;
   }
 
   .room-editor__author-drawer,
