@@ -20,7 +20,7 @@ final class LoadCanonicalDefinitionTool implements EditorGmToolInterface {
       EditorGmToolDefinition::FAMILY_DEFINITION,
       'Load the full editable canonical definition record behind a placeable object.',
       FALSE,
-      'RoomEditorService::loadCanonicalEntry()',
+      'CanonicalDefinitionService::loadCanonicalEntry()',
       [
         EditorGmToolDefinition::argument('family', 'string', TRUE, 'Placeable family.'),
         EditorGmToolDefinition::argument('definition_id', 'string', TRUE, 'Canonical definition id.'),
@@ -31,7 +31,7 @@ final class LoadCanonicalDefinitionTool implements EditorGmToolInterface {
   public function execute(array $arguments, EditorGmToolContext $context): array {
     $family = EditorGmToolContext::requireString($arguments, 'family');
     $definition_id = EditorGmToolContext::requireString($arguments, 'definition_id');
-    return ['entry' => $context->roomEditor->loadCanonicalEntry($family, $definition_id)];
+    return ['entry' => $context->definitions->loadCanonicalEntry($family, $definition_id)];
   }
 
 }

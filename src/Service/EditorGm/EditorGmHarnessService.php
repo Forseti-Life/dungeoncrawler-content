@@ -2,6 +2,7 @@
 
 namespace Drupal\dungeoncrawler_content\Service\EditorGm;
 
+use Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService;
 use Drupal\dungeoncrawler_content\Service\RoomEditorService;
 
 /**
@@ -33,6 +34,7 @@ class EditorGmHarnessService {
     protected EditorGmToolRegistry $registry,
     protected RoomEditorGmContextAssembler $contextAssembler,
     protected EditorGmIntentParser $intentParser,
+    protected CanonicalDefinitionService $definitions,
   ) {}
 
   /**
@@ -253,7 +255,7 @@ class EditorGmHarnessService {
     if (!in_array($profile, self::VALIDATION_PROFILES, TRUE)) {
       throw new \InvalidArgumentException('validation_profile_invalid');
     }
-    return new EditorGmToolContext($draft_id, $profile, $this->roomEditor);
+    return new EditorGmToolContext($draft_id, $profile, $this->roomEditor, $this->definitions);
   }
 
   /**

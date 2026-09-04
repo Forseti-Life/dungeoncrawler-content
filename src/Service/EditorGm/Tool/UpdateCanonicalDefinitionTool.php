@@ -21,7 +21,7 @@ final class UpdateCanonicalDefinitionTool implements EditorGmToolInterface {
       EditorGmToolDefinition::FAMILY_DEFINITION,
       'Persist an approved edit to one canonical object definition.',
       TRUE,
-      'RoomEditorService::saveCanonicalEntry()',
+      'CanonicalDefinitionService::saveCanonicalEntry()',
       [
         EditorGmToolDefinition::argument('family', 'string', TRUE, 'Placeable family.'),
         EditorGmToolDefinition::argument('definition_id', 'string', TRUE, 'Canonical definition id.'),
@@ -37,9 +37,9 @@ final class UpdateCanonicalDefinitionTool implements EditorGmToolInterface {
     $name = EditorGmToolContext::requireString($arguments, 'name');
     $schema_data = EditorGmToolContext::requireArray($arguments, 'schema_data');
 
-    $before = $context->roomEditor->loadCanonicalEntry($family, $definition_id);
-    $context->roomEditor->saveCanonicalEntry($family, $definition_id, $name, $schema_data);
-    $after = $context->roomEditor->loadCanonicalEntry($family, $definition_id);
+    $before = $context->definitions->loadCanonicalEntry($family, $definition_id);
+    $context->definitions->saveCanonicalEntry($family, $definition_id, $name, $schema_data);
+    $after = $context->definitions->loadCanonicalEntry($family, $definition_id);
 
     return [
       'family' => $family,

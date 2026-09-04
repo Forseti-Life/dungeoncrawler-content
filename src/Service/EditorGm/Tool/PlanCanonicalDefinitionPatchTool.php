@@ -40,7 +40,7 @@ final class PlanCanonicalDefinitionPatchTool implements EditorGmToolInterface {
       throw new \InvalidArgumentException('definition_patch_empty');
     }
 
-    $entry = $context->roomEditor->loadCanonicalEntry($family, $definition_id);
+    $entry = $context->definitions->loadCanonicalEntry($family, $definition_id);
     $current_attributes = is_array($entry['schema_data'] ?? NULL) ? $entry['schema_data'] : [];
     $current_name = (string) ($entry['name'] ?? '');
     $proposed_name = isset($arguments['name']) ? EditorGmToolContext::requireString($arguments, 'name') : $current_name;

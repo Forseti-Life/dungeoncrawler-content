@@ -5,6 +5,7 @@ namespace Drupal\dungeoncrawler_content\Controller;
 use Drupal\Core\Access\CsrfRequestHeaderAccessCheck;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Url;
+use Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService;
 use Drupal\dungeoncrawler_content\Service\RoomEditorService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -19,6 +20,7 @@ class RoomEditorController extends ControllerBase {
   public function __construct(
     protected RoomEditorService $roomEditor,
     protected CsrfTokenGenerator $csrfToken,
+    protected CanonicalDefinitionService $definitions,
   ) {}
 
   /**
@@ -28,6 +30,7 @@ class RoomEditorController extends ControllerBase {
     return new static(
       $container->get('dungeoncrawler_content.room_editor'),
       $container->get('csrf_token'),
+      $container->get('dungeoncrawler_content.canonical_definitions'),
     );
   }
 
@@ -182,7 +185,7 @@ class RoomEditorController extends ControllerBase {
       $limit = (int) $request->query->get('limit', 100);
       $offset = (int) $request->query->get('offset', 0);
       return new JsonResponse([
-        'data' => $this->roomEditor->catalog($family, $search, $limit, $offset),
+        'data' => $this->definitions->catalog($family, $search, $limit, $offset),
       ]);
     }
     catch (\Throwable $exception) {
@@ -195,7 +198,7 @@ class RoomEditorController extends ControllerBase {
    */
   public function catalogEntry(string $family, string $definition_id): JsonResponse {
     try {
-      $entry = $this->roomEditor->catalogEntry($family, $definition_id);
+      $entry = $this->definitions->catalogEntry($family, $definition_id);
       if ($entry === NULL) {
         return new JsonResponse([
           'error' => ['code' => 'catalog_entry_not_found', 'message' => 'Catalog entry not found'],

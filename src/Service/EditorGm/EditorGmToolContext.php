@@ -2,15 +2,20 @@
 
 namespace Drupal\dungeoncrawler_content\Service\EditorGm;
 
+use Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService;
 use Drupal\dungeoncrawler_content\Service\RoomEditorService;
 
 /**
  * Grounded, memoized editor state handed to every harness tool.
  *
  * The context is the only way a tool reaches editor state. Tools never touch
- * the database directly; every read and write resolves through
- * RoomEditorService so draft, validation, and publication authority stay in one
- * place.
+ * the database directly; every read and write resolves through an authority
+ * service so draft, validation, publication and definition authority each stay
+ * in exactly one place.
+ *
+ * Room state resolves through RoomEditorService. Canonical object definitions
+ * resolve through CanonicalDefinitionService, which is the sole definition
+ * authority.
  */
 final class EditorGmToolContext {
 
@@ -23,6 +28,7 @@ final class EditorGmToolContext {
     public readonly string $draftId,
     public readonly string $validationProfile,
     public readonly RoomEditorService $roomEditor,
+    public readonly CanonicalDefinitionService $definitions,
   ) {}
 
   /**

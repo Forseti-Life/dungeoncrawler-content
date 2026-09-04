@@ -114,6 +114,7 @@ class RoomEditorContractTest extends UnitTestCase {
         '@dungeoncrawler_content.editor_gm_tool_registry',
         '@dungeoncrawler_content.room_editor_gm_context_assembler',
         '@dungeoncrawler_content.editor_gm_intent_parser',
+        '@dungeoncrawler_content.canonical_definitions',
       ],
       $services['dungeoncrawler_content.editor_gm_harness']['arguments']
     );
@@ -127,9 +128,9 @@ class RoomEditorContractTest extends UnitTestCase {
       'The intent parser must treat the model provider as optional and hard fail without it.'
     );
     $this->assertSame(
-      ['@database', '@current_user', '@uuid'],
+      ['@database', '@current_user', '@uuid', '@dungeoncrawler_content.canonical_definitions'],
       $services['dungeoncrawler_content.room_editor']['arguments'],
-      'RoomEditorService must not depend on the editor GM harness.'
+      'RoomEditorService may depend only on storage, identity and the definition authority. It must never depend on the editor GM harness.'
     );
 
     foreach ([

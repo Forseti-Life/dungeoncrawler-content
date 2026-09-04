@@ -5,7 +5,7 @@ namespace Drupal\dungeoncrawler_content\Form;
 use Drupal\Core\Form\FormBase;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Url;
-use Drupal\dungeoncrawler_content\Service\RoomEditorService;
+use Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
@@ -20,7 +20,7 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
 class CanonicalObjectEditForm extends FormBase {
 
   public function __construct(
-    protected RoomEditorService $roomEditor,
+    protected CanonicalDefinitionService $definitions,
   ) {}
 
   /**
@@ -28,7 +28,7 @@ class CanonicalObjectEditForm extends FormBase {
    */
   public static function create(ContainerInterface $container): static {
     return new static(
-      $container->get('dungeoncrawler_content.room_editor'),
+      $container->get('dungeoncrawler_content.canonical_definitions'),
     );
   }
 
@@ -49,7 +49,7 @@ class CanonicalObjectEditForm extends FormBase {
     $form_state->set('definition_id', $definition_id);
 
     try {
-      $entry = $this->roomEditor->loadCanonicalEntry($family, $definition_id);
+      $entry = $this->definitions->loadCanonicalEntry($family, $definition_id);
     }
     catch (\Throwable $exception) {
       $form['error'] = [
@@ -139,7 +139,7 @@ class CanonicalObjectEditForm extends FormBase {
     $schema_data = json_decode((string) $form_state->getValue('schema_data'), TRUE) ?: [];
 
     try {
-      $this->roomEditor->saveCanonicalEntry($family, $definition_id, $name, $schema_data);
+      $this->definitions->saveCanonicalEntry($family, $definition_id, $name, $schema_data);
       $this->messenger()->addStatus($this->t('Saved changes to %name.', ['%name' => $name]));
     }
     catch (\Throwable $exception) {

@@ -414,9 +414,20 @@ services:
     class: Drupal\dungeoncrawler_content\Service\ContentRegistry
     arguments: ['@database', '@logger.factory', '@dungeoncrawler_content.state_validation_service']
 
+  # Sole canonical definition authority. Every read and write of a canonical
+  # object definition resolves here; no other service may query the registry or
+  # actor tables for definition data.
+  dungeoncrawler_content.canonical_definitions:
+    class: Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService
+    arguments: ['@database']
+
   dungeoncrawler_content.room_editor:
     class: Drupal\dungeoncrawler_content\Service\RoomEditorService
-    arguments: ['@database', '@current_user', '@uuid']
+    arguments:
+      - '@database'
+      - '@current_user'
+      - '@uuid'
+      - '@dungeoncrawler_content.canonical_definitions'
 
   # Editor-embedded GM harness. Sibling of the runtime GM stack: it must never
   # depend on game_master_subsystem or gm_tool_execution, and RoomEditorService
@@ -445,6 +456,7 @@ services:
       - '@dungeoncrawler_content.editor_gm_tool_registry'
       - '@dungeoncrawler_content.room_editor_gm_context_assembler'
       - '@dungeoncrawler_content.editor_gm_intent_parser'
+      - '@dungeoncrawler_content.canonical_definitions'
 
   dungeoncrawler_content.content_query:
     class: Drupal\dungeoncrawler_content\Service\ContentQuery

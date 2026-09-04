@@ -1,0 +1,5791 @@
+{
+  "_comment": "Shared cross-language fixture vectors pinning RoomPlacementTransformer.php and placementTransform.js together. Generated independently from 10-placement-transform-spec.md. Do not hand-edit.",
+  "edge_directions": [
+    {
+      "q": 1,
+      "r": 0
+    },
+    {
+      "q": 0,
+      "r": 1
+    },
+    {
+      "q": -1,
+      "r": 1
+    },
+    {
+      "q": -1,
+      "r": 0
+    },
+    {
+      "q": 0,
+      "r": -1
+    },
+    {
+      "q": 1,
+      "r": -1
+    }
+  ],
+  "cases": [
+    {
+      "hex": {
+        "q": -9,
+        "r": -6
+      },
+      "placement": {
+        "origin": {
+          "q": -5,
+          "r": -13
+        },
+        "rotation_steps": 4
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": -11,
+        "r": 2
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": -10,
+        "r": 1
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": -5,
+        "r": 12
+      },
+      "placement": {
+        "origin": {
+          "q": 1,
+          "r": -22
+        },
+        "rotation_steps": 0
+      },
+      "edge": 2,
+      "expected_level": {
+        "q": -4,
+        "r": -10
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": -5,
+        "r": -9
+      },
+      "expected_opposite": 5
+    },
+    {
+      "hex": {
+        "q": 9,
+        "r": -1
+      },
+      "placement": {
+        "origin": {
+          "q": 17,
+          "r": 0
+        },
+        "rotation_steps": 4
+      },
+      "edge": 2,
+      "expected_level": {
+        "q": 16,
+        "r": -8
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": 17,
+        "r": -8
+      },
+      "expected_opposite": 5
+    },
+    {
+      "hex": {
+        "q": -5,
+        "r": 5
+      },
+      "placement": {
+        "origin": {
+          "q": -13,
+          "r": 28
+        },
+        "rotation_steps": 0
+      },
+      "edge": 5,
+      "expected_level": {
+        "q": -18,
+        "r": 33
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": -17,
+        "r": 32
+      },
+      "expected_opposite": 2
+    },
+    {
+      "hex": {
+        "q": -8,
+        "r": -10
+      },
+      "placement": {
+        "origin": {
+          "q": -7,
+          "r": 30
+        },
+        "rotation_steps": 2
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": 11,
+        "r": 22
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": 12,
+        "r": 21
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": 9,
+        "r": -11
+      },
+      "placement": {
+        "origin": {
+          "q": -18,
+          "r": 14
+        },
+        "rotation_steps": 3
+      },
+      "edge": 2,
+      "expected_level": {
+        "q": -27,
+        "r": 25
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": -26,
+        "r": 24
+      },
+      "expected_opposite": 5
+    },
+    {
+      "hex": {
+        "q": -12,
+        "r": -7
+      },
+      "placement": {
+        "origin": {
+          "q": 6,
+          "r": 11
+        },
+        "rotation_steps": 2
+      },
+      "edge": 4,
+      "expected_level": {
+        "q": 25,
+        "r": -1
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": 26,
+        "r": -1
+      },
+      "expected_opposite": 1
+    },
+    {
+      "hex": {
+        "q": 3,
+        "r": -4
+      },
+      "placement": {
+        "origin": {
+          "q": -25,
+          "r": -23
+        },
+        "rotation_steps": 3
+      },
+      "edge": 4,
+      "expected_level": {
+        "q": -28,
+        "r": -19
+      },
+      "expected_edge": 1,
+      "expected_neighbor": {
+        "q": -28,
+        "r": -18
+      },
+      "expected_opposite": 1
+    },
+    {
+      "hex": {
+        "q": 2,
+        "r": -12
+      },
+      "placement": {
+        "origin": {
+          "q": 10,
+          "r": 21
+        },
+        "rotation_steps": 2
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": 20,
+        "r": 23
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": 19,
+        "r": 24
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": 1,
+        "r": 5
+      },
+      "placement": {
+        "origin": {
+          "q": 26,
+          "r": 2
+        },
+        "rotation_steps": 4
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": 31,
+        "r": -4
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": 32,
+        "r": -5
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": 8,
+        "r": -8
+      },
+      "placement": {
+        "origin": {
+          "q": -3,
+          "r": -5
+        },
+        "rotation_steps": 2
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": -3,
+        "r": 3
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": -4,
+        "r": 4
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": -4,
+        "r": -8
+      },
+      "placement": {
+        "origin": {
+          "q": -24,
+          "r": -1
+        },
+        "rotation_steps": 2
+      },
+      "edge": 4,
+      "expected_level": {
+        "q": -12,
+        "r": -5
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": -11,
+        "r": -5
+      },
+      "expected_opposite": 1
+    },
+    {
+      "hex": {
+        "q": -2,
+        "r": -2
+      },
+      "placement": {
+        "origin": {
+          "q": -1,
+          "r": 4
+        },
+        "rotation_steps": 4
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": -3,
+        "r": 8
+      },
+      "expected_edge": 4,
+      "expected_neighbor": {
+        "q": -3,
+        "r": 7
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": -2,
+        "r": -7
+      },
+      "placement": {
+        "origin": {
+          "q": 30,
+          "r": -17
+        },
+        "rotation_steps": 3
+      },
+      "edge": 5,
+      "expected_level": {
+        "q": 32,
+        "r": -10
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": 31,
+        "r": -9
+      },
+      "expected_opposite": 2
+    },
+    {
+      "hex": {
+        "q": 10,
+        "r": 2
+      },
+      "placement": {
+        "origin": {
+          "q": -8,
+          "r": 8
+        },
+        "rotation_steps": 1
+      },
+      "edge": 2,
+      "expected_level": {
+        "q": -10,
+        "r": 20
+      },
+      "expected_edge": 3,
+      "expected_neighbor": {
+        "q": -11,
+        "r": 20
+      },
+      "expected_opposite": 5
+    },
+    {
+      "hex": {
+        "q": 5,
+        "r": 11
+      },
+      "placement": {
+        "origin": {
+          "q": -15,
+          "r": -5
+        },
+        "rotation_steps": 0
+      },
+      "edge": 4,
+      "expected_level": {
+        "q": -10,
+        "r": 6
+      },
+      "expected_edge": 4,
+      "expected_neighbor": {
+        "q": -10,
+        "r": 5
+      },
+      "expected_opposite": 1
+    },
+    {
+      "hex": {
+        "q": -10,
+        "r": -8
+      },
+      "placement": {
+        "origin": {
+          "q": -12,
+          "r": 27
+        },
+        "rotation_steps": 3
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": -2,
+        "r": 35
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": -1,
+        "r": 35
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": -12,
+        "r": -6
+      },
+      "placement": {
+        "origin": {
+          "q": 29,
+          "r": 11
+        },
+        "rotation_steps": 5
+      },
+      "edge": 4,
+      "expected_level": {
+        "q": 11,
+        "r": 23
+      },
+      "expected_edge": 3,
+      "expected_neighbor": {
+        "q": 10,
+        "r": 23
+      },
+      "expected_opposite": 1
+    },
+    {
+      "hex": {
+        "q": 5,
+        "r": 7
+      },
+      "placement": {
+        "origin": {
+          "q": 2,
+          "r": 9
+        },
+        "rotation_steps": 1
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": -5,
+        "r": 21
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": -6,
+        "r": 22
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": -7,
+        "r": -8
+      },
+      "placement": {
+        "origin": {
+          "q": 22,
+          "r": 0
+        },
+        "rotation_steps": 3
+      },
+      "edge": 5,
+      "expected_level": {
+        "q": 29,
+        "r": 8
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": 28,
+        "r": 9
+      },
+      "expected_opposite": 2
+    },
+    {
+      "hex": {
+        "q": -11,
+        "r": 9
+      },
+      "placement": {
+        "origin": {
+          "q": -11,
+          "r": 1
+        },
+        "rotation_steps": 4
+      },
+      "edge": 2,
+      "expected_level": {
+        "q": -2,
+        "r": 3
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": -1,
+        "r": 3
+      },
+      "expected_opposite": 5
+    },
+    {
+      "hex": {
+        "q": 12,
+        "r": 11
+      },
+      "placement": {
+        "origin": {
+          "q": 24,
+          "r": 23
+        },
+        "rotation_steps": 1
+      },
+      "edge": 2,
+      "expected_level": {
+        "q": 13,
+        "r": 46
+      },
+      "expected_edge": 3,
+      "expected_neighbor": {
+        "q": 12,
+        "r": 46
+      },
+      "expected_opposite": 5
+    },
+    {
+      "hex": {
+        "q": 2,
+        "r": -10
+      },
+      "placement": {
+        "origin": {
+          "q": -1,
+          "r": 22
+        },
+        "rotation_steps": 4
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": -11,
+        "r": 30
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": -10,
+        "r": 29
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": 7,
+        "r": -10
+      },
+      "placement": {
+        "origin": {
+          "q": 24,
+          "r": -27
+        },
+        "rotation_steps": 3
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": 17,
+        "r": -17
+      },
+      "expected_edge": 4,
+      "expected_neighbor": {
+        "q": 17,
+        "r": -18
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": 6,
+        "r": -12
+      },
+      "placement": {
+        "origin": {
+          "q": 13,
+          "r": -16
+        },
+        "rotation_steps": 1
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": 25,
+        "r": -22
+      },
+      "expected_edge": 1,
+      "expected_neighbor": {
+        "q": 25,
+        "r": -21
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": 5,
+        "r": 4
+      },
+      "placement": {
+        "origin": {
+          "q": -5,
+          "r": 29
+        },
+        "rotation_steps": 2
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": -14,
+        "r": 34
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": -15,
+        "r": 35
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": 12,
+        "r": 11
+      },
+      "placement": {
+        "origin": {
+          "q": 6,
+          "r": -22
+        },
+        "rotation_steps": 2
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": -17,
+        "r": -10
+      },
+      "expected_edge": 3,
+      "expected_neighbor": {
+        "q": -18,
+        "r": -10
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": -8,
+        "r": -1
+      },
+      "placement": {
+        "origin": {
+          "q": -20,
+          "r": -23
+        },
+        "rotation_steps": 5
+      },
+      "edge": 5,
+      "expected_level": {
+        "q": -29,
+        "r": -15
+      },
+      "expected_edge": 4,
+      "expected_neighbor": {
+        "q": -29,
+        "r": -16
+      },
+      "expected_opposite": 2
+    },
+    {
+      "hex": {
+        "q": 3,
+        "r": -12
+      },
+      "placement": {
+        "origin": {
+          "q": -12,
+          "r": 1
+        },
+        "rotation_steps": 1
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": 0,
+        "r": -8
+      },
+      "expected_edge": 1,
+      "expected_neighbor": {
+        "q": 0,
+        "r": -7
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": -1,
+        "r": -1
+      },
+      "placement": {
+        "origin": {
+          "q": 30,
+          "r": 23
+        },
+        "rotation_steps": 5
+      },
+      "edge": 5,
+      "expected_level": {
+        "q": 28,
+        "r": 24
+      },
+      "expected_edge": 4,
+      "expected_neighbor": {
+        "q": 28,
+        "r": 23
+      },
+      "expected_opposite": 2
+    },
+    {
+      "hex": {
+        "q": 7,
+        "r": -6
+      },
+      "placement": {
+        "origin": {
+          "q": 13,
+          "r": 25
+        },
+        "rotation_steps": 2
+      },
+      "edge": 5,
+      "expected_level": {
+        "q": 12,
+        "r": 32
+      },
+      "expected_edge": 1,
+      "expected_neighbor": {
+        "q": 12,
+        "r": 33
+      },
+      "expected_opposite": 2
+    },
+    {
+      "hex": {
+        "q": 7,
+        "r": -11
+      },
+      "placement": {
+        "origin": {
+          "q": 13,
+          "r": -7
+        },
+        "rotation_steps": 4
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": 2,
+        "r": -3
+      },
+      "expected_edge": 1,
+      "expected_neighbor": {
+        "q": 2,
+        "r": -2
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": -12,
+        "r": -7
+      },
+      "placement": {
+        "origin": {
+          "q": 18,
+          "r": 17
+        },
+        "rotation_steps": 2
+      },
+      "edge": 4,
+      "expected_level": {
+        "q": 37,
+        "r": 5
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": 38,
+        "r": 5
+      },
+      "expected_opposite": 1
+    },
+    {
+      "hex": {
+        "q": 0,
+        "r": 9
+      },
+      "placement": {
+        "origin": {
+          "q": -9,
+          "r": -4
+        },
+        "rotation_steps": 5
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": 0,
+        "r": -4
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": -1,
+        "r": -3
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": -8,
+        "r": 10
+      },
+      "placement": {
+        "origin": {
+          "q": -29,
+          "r": -15
+        },
+        "rotation_steps": 4
+      },
+      "edge": 5,
+      "expected_level": {
+        "q": -19,
+        "r": -17
+      },
+      "expected_edge": 3,
+      "expected_neighbor": {
+        "q": -20,
+        "r": -17
+      },
+      "expected_opposite": 2
+    },
+    {
+      "hex": {
+        "q": -9,
+        "r": -4
+      },
+      "placement": {
+        "origin": {
+          "q": 10,
+          "r": 19
+        },
+        "rotation_steps": 3
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": 19,
+        "r": 23
+      },
+      "expected_edge": 3,
+      "expected_neighbor": {
+        "q": 18,
+        "r": 23
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": 12,
+        "r": 1
+      },
+      "placement": {
+        "origin": {
+          "q": 27,
+          "r": -29
+        },
+        "rotation_steps": 0
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": 39,
+        "r": -28
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": 40,
+        "r": -28
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": -1,
+        "r": 6
+      },
+      "placement": {
+        "origin": {
+          "q": -22,
+          "r": -4
+        },
+        "rotation_steps": 5
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": -17,
+        "r": -3
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": -16,
+        "r": -4
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": 1,
+        "r": 3
+      },
+      "placement": {
+        "origin": {
+          "q": 16,
+          "r": 5
+        },
+        "rotation_steps": 1
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": 13,
+        "r": 9
+      },
+      "expected_edge": 4,
+      "expected_neighbor": {
+        "q": 13,
+        "r": 8
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": 3,
+        "r": 7
+      },
+      "placement": {
+        "origin": {
+          "q": -5,
+          "r": -19
+        },
+        "rotation_steps": 3
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": -8,
+        "r": -26
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": -7,
+        "r": -26
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": 7,
+        "r": 12
+      },
+      "placement": {
+        "origin": {
+          "q": 22,
+          "r": -6
+        },
+        "rotation_steps": 0
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": 29,
+        "r": 6
+      },
+      "expected_edge": 3,
+      "expected_neighbor": {
+        "q": 28,
+        "r": 6
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": 8,
+        "r": 0
+      },
+      "placement": {
+        "origin": {
+          "q": -21,
+          "r": 26
+        },
+        "rotation_steps": 2
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": -29,
+        "r": 34
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": -30,
+        "r": 35
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": -8,
+        "r": 6
+      },
+      "placement": {
+        "origin": {
+          "q": -25,
+          "r": 15
+        },
+        "rotation_steps": 3
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": -17,
+        "r": 9
+      },
+      "expected_edge": 4,
+      "expected_neighbor": {
+        "q": -17,
+        "r": 8
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": 2,
+        "r": -1
+      },
+      "placement": {
+        "origin": {
+          "q": 2,
+          "r": -8
+        },
+        "rotation_steps": 0
+      },
+      "edge": 5,
+      "expected_level": {
+        "q": 4,
+        "r": -9
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": 5,
+        "r": -10
+      },
+      "expected_opposite": 2
+    },
+    {
+      "hex": {
+        "q": 12,
+        "r": -11
+      },
+      "placement": {
+        "origin": {
+          "q": 18,
+          "r": -18
+        },
+        "rotation_steps": 3
+      },
+      "edge": 5,
+      "expected_level": {
+        "q": 6,
+        "r": -7
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": 5,
+        "r": -6
+      },
+      "expected_opposite": 2
+    },
+    {
+      "hex": {
+        "q": -2,
+        "r": 9
+      },
+      "placement": {
+        "origin": {
+          "q": -4,
+          "r": 14
+        },
+        "rotation_steps": 0
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": -6,
+        "r": 23
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": -5,
+        "r": 23
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": 7,
+        "r": -4
+      },
+      "placement": {
+        "origin": {
+          "q": -20,
+          "r": 16
+        },
+        "rotation_steps": 0
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": -13,
+        "r": 12
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": -12,
+        "r": 12
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": 0,
+        "r": 4
+      },
+      "placement": {
+        "origin": {
+          "q": -29,
+          "r": 15
+        },
+        "rotation_steps": 0
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": -29,
+        "r": 19
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": -28,
+        "r": 19
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": 10,
+        "r": -4
+      },
+      "placement": {
+        "origin": {
+          "q": -10,
+          "r": 0
+        },
+        "rotation_steps": 3
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": -20,
+        "r": 4
+      },
+      "expected_edge": 3,
+      "expected_neighbor": {
+        "q": -21,
+        "r": 4
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": -9,
+        "r": -3
+      },
+      "placement": {
+        "origin": {
+          "q": 2,
+          "r": -17
+        },
+        "rotation_steps": 1
+      },
+      "edge": 2,
+      "expected_level": {
+        "q": 5,
+        "r": -29
+      },
+      "expected_edge": 3,
+      "expected_neighbor": {
+        "q": 4,
+        "r": -29
+      },
+      "expected_opposite": 5
+    },
+    {
+      "hex": {
+        "q": 8,
+        "r": -2
+      },
+      "placement": {
+        "origin": {
+          "q": 14,
+          "r": 19
+        },
+        "rotation_steps": 5
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": 20,
+        "r": 11
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": 21,
+        "r": 10
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": -4,
+        "r": -8
+      },
+      "placement": {
+        "origin": {
+          "q": -1,
+          "r": 29
+        },
+        "rotation_steps": 1
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": 7,
+        "r": 17
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": 6,
+        "r": 18
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": 11,
+        "r": 4
+      },
+      "placement": {
+        "origin": {
+          "q": 20,
+          "r": -12
+        },
+        "rotation_steps": 5
+      },
+      "edge": 4,
+      "expected_level": {
+        "q": 35,
+        "r": -23
+      },
+      "expected_edge": 3,
+      "expected_neighbor": {
+        "q": 34,
+        "r": -23
+      },
+      "expected_opposite": 1
+    },
+    {
+      "hex": {
+        "q": -1,
+        "r": -2
+      },
+      "placement": {
+        "origin": {
+          "q": 23,
+          "r": 20
+        },
+        "rotation_steps": 5
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": 20,
+        "r": 21
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": 19,
+        "r": 22
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": 0,
+        "r": -6
+      },
+      "placement": {
+        "origin": {
+          "q": -7,
+          "r": -11
+        },
+        "rotation_steps": 0
+      },
+      "edge": 4,
+      "expected_level": {
+        "q": -7,
+        "r": -17
+      },
+      "expected_edge": 4,
+      "expected_neighbor": {
+        "q": -7,
+        "r": -18
+      },
+      "expected_opposite": 1
+    },
+    {
+      "hex": {
+        "q": -9,
+        "r": -10
+      },
+      "placement": {
+        "origin": {
+          "q": 22,
+          "r": -29
+        },
+        "rotation_steps": 4
+      },
+      "edge": 5,
+      "expected_level": {
+        "q": 12,
+        "r": -10
+      },
+      "expected_edge": 3,
+      "expected_neighbor": {
+        "q": 11,
+        "r": -10
+      },
+      "expected_opposite": 2
+    },
+    {
+      "hex": {
+        "q": -4,
+        "r": 4
+      },
+      "placement": {
+        "origin": {
+          "q": 27,
+          "r": 5
+        },
+        "rotation_steps": 3
+      },
+      "edge": 4,
+      "expected_level": {
+        "q": 31,
+        "r": 1
+      },
+      "expected_edge": 1,
+      "expected_neighbor": {
+        "q": 31,
+        "r": 2
+      },
+      "expected_opposite": 1
+    },
+    {
+      "hex": {
+        "q": 0,
+        "r": 8
+      },
+      "placement": {
+        "origin": {
+          "q": -14,
+          "r": -21
+        },
+        "rotation_steps": 1
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": -22,
+        "r": -13
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": -23,
+        "r": -12
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": -4,
+        "r": 2
+      },
+      "placement": {
+        "origin": {
+          "q": -3,
+          "r": 25
+        },
+        "rotation_steps": 4
+      },
+      "edge": 4,
+      "expected_level": {
+        "q": -1,
+        "r": 27
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": -2,
+        "r": 28
+      },
+      "expected_opposite": 1
+    },
+    {
+      "hex": {
+        "q": 6,
+        "r": 1
+      },
+      "placement": {
+        "origin": {
+          "q": -17,
+          "r": 5
+        },
+        "rotation_steps": 1
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": -18,
+        "r": 12
+      },
+      "expected_edge": 4,
+      "expected_neighbor": {
+        "q": -18,
+        "r": 11
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": 0,
+        "r": -7
+      },
+      "placement": {
+        "origin": {
+          "q": -26,
+          "r": -18
+        },
+        "rotation_steps": 0
+      },
+      "edge": 4,
+      "expected_level": {
+        "q": -26,
+        "r": -25
+      },
+      "expected_edge": 4,
+      "expected_neighbor": {
+        "q": -26,
+        "r": -26
+      },
+      "expected_opposite": 1
+    },
+    {
+      "hex": {
+        "q": -3,
+        "r": 0
+      },
+      "placement": {
+        "origin": {
+          "q": -23,
+          "r": -11
+        },
+        "rotation_steps": 3
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": -20,
+        "r": -11
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": -19,
+        "r": -11
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": -11,
+        "r": -4
+      },
+      "placement": {
+        "origin": {
+          "q": -22,
+          "r": -6
+        },
+        "rotation_steps": 0
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": -33,
+        "r": -10
+      },
+      "expected_edge": 1,
+      "expected_neighbor": {
+        "q": -33,
+        "r": -9
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": 4,
+        "r": 1
+      },
+      "placement": {
+        "origin": {
+          "q": -15,
+          "r": -30
+        },
+        "rotation_steps": 1
+      },
+      "edge": 2,
+      "expected_level": {
+        "q": -16,
+        "r": -25
+      },
+      "expected_edge": 3,
+      "expected_neighbor": {
+        "q": -17,
+        "r": -25
+      },
+      "expected_opposite": 5
+    },
+    {
+      "hex": {
+        "q": 1,
+        "r": -12
+      },
+      "placement": {
+        "origin": {
+          "q": 6,
+          "r": 7
+        },
+        "rotation_steps": 1
+      },
+      "edge": 4,
+      "expected_level": {
+        "q": 18,
+        "r": -4
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": 19,
+        "r": -5
+      },
+      "expected_opposite": 1
+    },
+    {
+      "hex": {
+        "q": 4,
+        "r": -4
+      },
+      "placement": {
+        "origin": {
+          "q": -25,
+          "r": -18
+        },
+        "rotation_steps": 0
+      },
+      "edge": 2,
+      "expected_level": {
+        "q": -21,
+        "r": -22
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": -22,
+        "r": -21
+      },
+      "expected_opposite": 5
+    },
+    {
+      "hex": {
+        "q": 8,
+        "r": -4
+      },
+      "placement": {
+        "origin": {
+          "q": 11,
+          "r": -17
+        },
+        "rotation_steps": 5
+      },
+      "edge": 4,
+      "expected_level": {
+        "q": 15,
+        "r": -25
+      },
+      "expected_edge": 3,
+      "expected_neighbor": {
+        "q": 14,
+        "r": -25
+      },
+      "expected_opposite": 1
+    },
+    {
+      "hex": {
+        "q": -5,
+        "r": -5
+      },
+      "placement": {
+        "origin": {
+          "q": -10,
+          "r": -2
+        },
+        "rotation_steps": 5
+      },
+      "edge": 2,
+      "expected_level": {
+        "q": -20,
+        "r": 3
+      },
+      "expected_edge": 1,
+      "expected_neighbor": {
+        "q": -20,
+        "r": 4
+      },
+      "expected_opposite": 5
+    },
+    {
+      "hex": {
+        "q": 12,
+        "r": -6
+      },
+      "placement": {
+        "origin": {
+          "q": 22,
+          "r": -17
+        },
+        "rotation_steps": 3
+      },
+      "edge": 2,
+      "expected_level": {
+        "q": 10,
+        "r": -11
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": 11,
+        "r": -12
+      },
+      "expected_opposite": 5
+    },
+    {
+      "hex": {
+        "q": 6,
+        "r": -12
+      },
+      "placement": {
+        "origin": {
+          "q": -28,
+          "r": -22
+        },
+        "rotation_steps": 4
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": -40,
+        "r": -16
+      },
+      "expected_edge": 4,
+      "expected_neighbor": {
+        "q": -40,
+        "r": -17
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": -7,
+        "r": 10
+      },
+      "placement": {
+        "origin": {
+          "q": -11,
+          "r": -8
+        },
+        "rotation_steps": 4
+      },
+      "edge": 2,
+      "expected_level": {
+        "q": -1,
+        "r": -11
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": 0,
+        "r": -11
+      },
+      "expected_opposite": 5
+    },
+    {
+      "hex": {
+        "q": 12,
+        "r": 1
+      },
+      "placement": {
+        "origin": {
+          "q": -30,
+          "r": 29
+        },
+        "rotation_steps": 1
+      },
+      "edge": 2,
+      "expected_level": {
+        "q": -31,
+        "r": 42
+      },
+      "expected_edge": 3,
+      "expected_neighbor": {
+        "q": -32,
+        "r": 42
+      },
+      "expected_opposite": 5
+    },
+    {
+      "hex": {
+        "q": 12,
+        "r": 12
+      },
+      "placement": {
+        "origin": {
+          "q": 10,
+          "r": 24
+        },
+        "rotation_steps": 1
+      },
+      "edge": 2,
+      "expected_level": {
+        "q": -2,
+        "r": 48
+      },
+      "expected_edge": 3,
+      "expected_neighbor": {
+        "q": -3,
+        "r": 48
+      },
+      "expected_opposite": 5
+    },
+    {
+      "hex": {
+        "q": 10,
+        "r": 2
+      },
+      "placement": {
+        "origin": {
+          "q": 16,
+          "r": -30
+        },
+        "rotation_steps": 3
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": 6,
+        "r": -32
+      },
+      "expected_edge": 3,
+      "expected_neighbor": {
+        "q": 5,
+        "r": -32
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": -8,
+        "r": 5
+      },
+      "placement": {
+        "origin": {
+          "q": 20,
+          "r": 24
+        },
+        "rotation_steps": 3
+      },
+      "edge": 2,
+      "expected_level": {
+        "q": 28,
+        "r": 19
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": 29,
+        "r": 18
+      },
+      "expected_opposite": 5
+    },
+    {
+      "hex": {
+        "q": -11,
+        "r": -8
+      },
+      "placement": {
+        "origin": {
+          "q": -29,
+          "r": -22
+        },
+        "rotation_steps": 3
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": -18,
+        "r": -14
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": -17,
+        "r": -14
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": -5,
+        "r": -7
+      },
+      "placement": {
+        "origin": {
+          "q": 3,
+          "r": -29
+        },
+        "rotation_steps": 0
+      },
+      "edge": 2,
+      "expected_level": {
+        "q": -2,
+        "r": -36
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": -3,
+        "r": -35
+      },
+      "expected_opposite": 5
+    },
+    {
+      "hex": {
+        "q": 10,
+        "r": 8
+      },
+      "placement": {
+        "origin": {
+          "q": 18,
+          "r": -29
+        },
+        "rotation_steps": 4
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": 26,
+        "r": -47
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": 27,
+        "r": -48
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": 1,
+        "r": -4
+      },
+      "placement": {
+        "origin": {
+          "q": -2,
+          "r": -23
+        },
+        "rotation_steps": 4
+      },
+      "edge": 5,
+      "expected_level": {
+        "q": -6,
+        "r": -20
+      },
+      "expected_edge": 3,
+      "expected_neighbor": {
+        "q": -7,
+        "r": -20
+      },
+      "expected_opposite": 2
+    },
+    {
+      "hex": {
+        "q": 6,
+        "r": -7
+      },
+      "placement": {
+        "origin": {
+          "q": -10,
+          "r": 22
+        },
+        "rotation_steps": 0
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": -4,
+        "r": 15
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": -3,
+        "r": 15
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": -4,
+        "r": 5
+      },
+      "placement": {
+        "origin": {
+          "q": -10,
+          "r": -1
+        },
+        "rotation_steps": 0
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": -14,
+        "r": 4
+      },
+      "expected_edge": 3,
+      "expected_neighbor": {
+        "q": -15,
+        "r": 4
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": -3,
+        "r": -10
+      },
+      "placement": {
+        "origin": {
+          "q": -17,
+          "r": 8
+        },
+        "rotation_steps": 4
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": -27,
+        "r": 21
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": -26,
+        "r": 20
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": 12,
+        "r": 7
+      },
+      "placement": {
+        "origin": {
+          "q": 30,
+          "r": 5
+        },
+        "rotation_steps": 0
+      },
+      "edge": 5,
+      "expected_level": {
+        "q": 42,
+        "r": 12
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": 43,
+        "r": 11
+      },
+      "expected_opposite": 2
+    },
+    {
+      "hex": {
+        "q": -3,
+        "r": -7
+      },
+      "placement": {
+        "origin": {
+          "q": -14,
+          "r": 28
+        },
+        "rotation_steps": 4
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": -21,
+        "r": 38
+      },
+      "expected_edge": 4,
+      "expected_neighbor": {
+        "q": -21,
+        "r": 37
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": 10,
+        "r": -8
+      },
+      "placement": {
+        "origin": {
+          "q": -14,
+          "r": 9
+        },
+        "rotation_steps": 4
+      },
+      "edge": 5,
+      "expected_level": {
+        "q": -22,
+        "r": 7
+      },
+      "expected_edge": 3,
+      "expected_neighbor": {
+        "q": -23,
+        "r": 7
+      },
+      "expected_opposite": 2
+    },
+    {
+      "hex": {
+        "q": -4,
+        "r": 8
+      },
+      "placement": {
+        "origin": {
+          "q": -16,
+          "r": -19
+        },
+        "rotation_steps": 1
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": -24,
+        "r": -15
+      },
+      "expected_edge": 1,
+      "expected_neighbor": {
+        "q": -24,
+        "r": -14
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": -5,
+        "r": -4
+      },
+      "placement": {
+        "origin": {
+          "q": 11,
+          "r": -15
+        },
+        "rotation_steps": 4
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": 7,
+        "r": -6
+      },
+      "expected_edge": 1,
+      "expected_neighbor": {
+        "q": 7,
+        "r": -5
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": -10,
+        "r": -2
+      },
+      "placement": {
+        "origin": {
+          "q": -20,
+          "r": -19
+        },
+        "rotation_steps": 4
+      },
+      "edge": 2,
+      "expected_level": {
+        "q": -22,
+        "r": -7
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": -21,
+        "r": -7
+      },
+      "expected_opposite": 5
+    },
+    {
+      "hex": {
+        "q": 3,
+        "r": 2
+      },
+      "placement": {
+        "origin": {
+          "q": -18,
+          "r": 21
+        },
+        "rotation_steps": 3
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": -21,
+        "r": 19
+      },
+      "expected_edge": 3,
+      "expected_neighbor": {
+        "q": -22,
+        "r": 19
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": 5,
+        "r": -6
+      },
+      "placement": {
+        "origin": {
+          "q": -23,
+          "r": -10
+        },
+        "rotation_steps": 1
+      },
+      "edge": 2,
+      "expected_level": {
+        "q": -17,
+        "r": -11
+      },
+      "expected_edge": 3,
+      "expected_neighbor": {
+        "q": -18,
+        "r": -11
+      },
+      "expected_opposite": 5
+    },
+    {
+      "hex": {
+        "q": 10,
+        "r": 2
+      },
+      "placement": {
+        "origin": {
+          "q": 24,
+          "r": 19
+        },
+        "rotation_steps": 5
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": 36,
+        "r": 9
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": 35,
+        "r": 10
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": 3,
+        "r": 11
+      },
+      "placement": {
+        "origin": {
+          "q": 5,
+          "r": -19
+        },
+        "rotation_steps": 1
+      },
+      "edge": 5,
+      "expected_level": {
+        "q": -6,
+        "r": -5
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": -5,
+        "r": -5
+      },
+      "expected_opposite": 2
+    },
+    {
+      "hex": {
+        "q": -6,
+        "r": 3
+      },
+      "placement": {
+        "origin": {
+          "q": -26,
+          "r": 23
+        },
+        "rotation_steps": 2
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": -23,
+        "r": 17
+      },
+      "expected_edge": 3,
+      "expected_neighbor": {
+        "q": -24,
+        "r": 17
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": -12,
+        "r": 5
+      },
+      "placement": {
+        "origin": {
+          "q": 10,
+          "r": 2
+        },
+        "rotation_steps": 3
+      },
+      "edge": 5,
+      "expected_level": {
+        "q": 22,
+        "r": -3
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": 21,
+        "r": -2
+      },
+      "expected_opposite": 2
+    },
+    {
+      "hex": {
+        "q": -5,
+        "r": 10
+      },
+      "placement": {
+        "origin": {
+          "q": 4,
+          "r": -6
+        },
+        "rotation_steps": 3
+      },
+      "edge": 5,
+      "expected_level": {
+        "q": 9,
+        "r": -16
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": 8,
+        "r": -15
+      },
+      "expected_opposite": 2
+    },
+    {
+      "hex": {
+        "q": 0,
+        "r": 5
+      },
+      "placement": {
+        "origin": {
+          "q": 24,
+          "r": 5
+        },
+        "rotation_steps": 4
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": 29,
+        "r": 0
+      },
+      "expected_edge": 4,
+      "expected_neighbor": {
+        "q": 29,
+        "r": -1
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": -3,
+        "r": 10
+      },
+      "placement": {
+        "origin": {
+          "q": -30,
+          "r": -19
+        },
+        "rotation_steps": 1
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": -40,
+        "r": -12
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": -41,
+        "r": -11
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": -7,
+        "r": 8
+      },
+      "placement": {
+        "origin": {
+          "q": 17,
+          "r": 3
+        },
+        "rotation_steps": 5
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": 18,
+        "r": 10
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": 17,
+        "r": 11
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": -2,
+        "r": -6
+      },
+      "placement": {
+        "origin": {
+          "q": 4,
+          "r": -16
+        },
+        "rotation_steps": 2
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": 12,
+        "r": -18
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": 11,
+        "r": -17
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": 7,
+        "r": 6
+      },
+      "placement": {
+        "origin": {
+          "q": -18,
+          "r": 1
+        },
+        "rotation_steps": 1
+      },
+      "edge": 4,
+      "expected_level": {
+        "q": -24,
+        "r": 14
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": -23,
+        "r": 13
+      },
+      "expected_opposite": 1
+    },
+    {
+      "hex": {
+        "q": -12,
+        "r": 9
+      },
+      "placement": {
+        "origin": {
+          "q": 19,
+          "r": -29
+        },
+        "rotation_steps": 2
+      },
+      "edge": 5,
+      "expected_level": {
+        "q": 22,
+        "r": -41
+      },
+      "expected_edge": 1,
+      "expected_neighbor": {
+        "q": 22,
+        "r": -40
+      },
+      "expected_opposite": 2
+    },
+    {
+      "hex": {
+        "q": 1,
+        "r": 6
+      },
+      "placement": {
+        "origin": {
+          "q": 27,
+          "r": -14
+        },
+        "rotation_steps": 3
+      },
+      "edge": 5,
+      "expected_level": {
+        "q": 26,
+        "r": -20
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": 25,
+        "r": -19
+      },
+      "expected_opposite": 2
+    },
+    {
+      "hex": {
+        "q": 7,
+        "r": 7
+      },
+      "placement": {
+        "origin": {
+          "q": -23,
+          "r": -11
+        },
+        "rotation_steps": 2
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": -37,
+        "r": -4
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": -38,
+        "r": -3
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": -9,
+        "r": -4
+      },
+      "placement": {
+        "origin": {
+          "q": 29,
+          "r": -22
+        },
+        "rotation_steps": 0
+      },
+      "edge": 5,
+      "expected_level": {
+        "q": 20,
+        "r": -26
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": 21,
+        "r": -27
+      },
+      "expected_opposite": 2
+    },
+    {
+      "hex": {
+        "q": -9,
+        "r": -2
+      },
+      "placement": {
+        "origin": {
+          "q": -13,
+          "r": -4
+        },
+        "rotation_steps": 4
+      },
+      "edge": 4,
+      "expected_level": {
+        "q": -15,
+        "r": 7
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": -16,
+        "r": 8
+      },
+      "expected_opposite": 1
+    },
+    {
+      "hex": {
+        "q": -12,
+        "r": -4
+      },
+      "placement": {
+        "origin": {
+          "q": 1,
+          "r": 2
+        },
+        "rotation_steps": 5
+      },
+      "edge": 2,
+      "expected_level": {
+        "q": -15,
+        "r": 14
+      },
+      "expected_edge": 1,
+      "expected_neighbor": {
+        "q": -15,
+        "r": 15
+      },
+      "expected_opposite": 5
+    },
+    {
+      "hex": {
+        "q": 8,
+        "r": 12
+      },
+      "placement": {
+        "origin": {
+          "q": 16,
+          "r": 13
+        },
+        "rotation_steps": 2
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": -4,
+        "r": 21
+      },
+      "expected_edge": 3,
+      "expected_neighbor": {
+        "q": -5,
+        "r": 21
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": 2,
+        "r": -11
+      },
+      "placement": {
+        "origin": {
+          "q": 26,
+          "r": -14
+        },
+        "rotation_steps": 0
+      },
+      "edge": 5,
+      "expected_level": {
+        "q": 28,
+        "r": -25
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": 29,
+        "r": -26
+      },
+      "expected_opposite": 2
+    },
+    {
+      "hex": {
+        "q": 1,
+        "r": -8
+      },
+      "placement": {
+        "origin": {
+          "q": 16,
+          "r": -13
+        },
+        "rotation_steps": 2
+      },
+      "edge": 5,
+      "expected_level": {
+        "q": 23,
+        "r": -12
+      },
+      "expected_edge": 1,
+      "expected_neighbor": {
+        "q": 23,
+        "r": -11
+      },
+      "expected_opposite": 2
+    },
+    {
+      "hex": {
+        "q": 11,
+        "r": -6
+      },
+      "placement": {
+        "origin": {
+          "q": -26,
+          "r": -18
+        },
+        "rotation_steps": 5
+      },
+      "edge": 2,
+      "expected_level": {
+        "q": -21,
+        "r": -29
+      },
+      "expected_edge": 1,
+      "expected_neighbor": {
+        "q": -21,
+        "r": -28
+      },
+      "expected_opposite": 5
+    },
+    {
+      "hex": {
+        "q": -2,
+        "r": 12
+      },
+      "placement": {
+        "origin": {
+          "q": 28,
+          "r": 12
+        },
+        "rotation_steps": 2
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": 18,
+        "r": 10
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": 17,
+        "r": 11
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": 12,
+        "r": 4
+      },
+      "placement": {
+        "origin": {
+          "q": -11,
+          "r": -19
+        },
+        "rotation_steps": 2
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": -27,
+        "r": -7
+      },
+      "expected_edge": 3,
+      "expected_neighbor": {
+        "q": -28,
+        "r": -7
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": 12,
+        "r": -5
+      },
+      "placement": {
+        "origin": {
+          "q": 1,
+          "r": -25
+        },
+        "rotation_steps": 3
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": -11,
+        "r": -20
+      },
+      "expected_edge": 4,
+      "expected_neighbor": {
+        "q": -11,
+        "r": -21
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": -11,
+        "r": 10
+      },
+      "placement": {
+        "origin": {
+          "q": -16,
+          "r": -29
+        },
+        "rotation_steps": 4
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": -6,
+        "r": -28
+      },
+      "expected_edge": 4,
+      "expected_neighbor": {
+        "q": -6,
+        "r": -29
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": -11,
+        "r": -3
+      },
+      "placement": {
+        "origin": {
+          "q": 25,
+          "r": 2
+        },
+        "rotation_steps": 4
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": 22,
+        "r": 16
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": 23,
+        "r": 15
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": 6,
+        "r": 9
+      },
+      "placement": {
+        "origin": {
+          "q": -3,
+          "r": 27
+        },
+        "rotation_steps": 4
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": 6,
+        "r": 12
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": 7,
+        "r": 11
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": -12,
+        "r": 5
+      },
+      "placement": {
+        "origin": {
+          "q": 9,
+          "r": 27
+        },
+        "rotation_steps": 3
+      },
+      "edge": 5,
+      "expected_level": {
+        "q": 21,
+        "r": 22
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": 20,
+        "r": 23
+      },
+      "expected_opposite": 2
+    },
+    {
+      "hex": {
+        "q": 12,
+        "r": -1
+      },
+      "placement": {
+        "origin": {
+          "q": -8,
+          "r": -20
+        },
+        "rotation_steps": 5
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": 3,
+        "r": -32
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": 4,
+        "r": -32
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": -2,
+        "r": -3
+      },
+      "placement": {
+        "origin": {
+          "q": 27,
+          "r": -23
+        },
+        "rotation_steps": 0
+      },
+      "edge": 5,
+      "expected_level": {
+        "q": 25,
+        "r": -26
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": 26,
+        "r": -27
+      },
+      "expected_opposite": 2
+    },
+    {
+      "hex": {
+        "q": 6,
+        "r": 6
+      },
+      "placement": {
+        "origin": {
+          "q": -14,
+          "r": -21
+        },
+        "rotation_steps": 1
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": -20,
+        "r": -9
+      },
+      "expected_edge": 1,
+      "expected_neighbor": {
+        "q": -20,
+        "r": -8
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": -3,
+        "r": 7
+      },
+      "placement": {
+        "origin": {
+          "q": -28,
+          "r": -13
+        },
+        "rotation_steps": 2
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": -32,
+        "r": -16
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": -33,
+        "r": -15
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": 4,
+        "r": -7
+      },
+      "placement": {
+        "origin": {
+          "q": 11,
+          "r": -19
+        },
+        "rotation_steps": 1
+      },
+      "edge": 4,
+      "expected_level": {
+        "q": 18,
+        "r": -22
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": 19,
+        "r": -23
+      },
+      "expected_opposite": 1
+    },
+    {
+      "hex": {
+        "q": -8,
+        "r": 3
+      },
+      "placement": {
+        "origin": {
+          "q": -27,
+          "r": -15
+        },
+        "rotation_steps": 1
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": -30,
+        "r": -20
+      },
+      "expected_edge": 4,
+      "expected_neighbor": {
+        "q": -30,
+        "r": -21
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": 12,
+        "r": -1
+      },
+      "placement": {
+        "origin": {
+          "q": -20,
+          "r": 6
+        },
+        "rotation_steps": 1
+      },
+      "edge": 4,
+      "expected_level": {
+        "q": -19,
+        "r": 17
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": -18,
+        "r": 16
+      },
+      "expected_opposite": 1
+    },
+    {
+      "hex": {
+        "q": -6,
+        "r": 8
+      },
+      "placement": {
+        "origin": {
+          "q": 27,
+          "r": -19
+        },
+        "rotation_steps": 0
+      },
+      "edge": 4,
+      "expected_level": {
+        "q": 21,
+        "r": -11
+      },
+      "expected_edge": 4,
+      "expected_neighbor": {
+        "q": 21,
+        "r": -12
+      },
+      "expected_opposite": 1
+    },
+    {
+      "hex": {
+        "q": -10,
+        "r": 12
+      },
+      "placement": {
+        "origin": {
+          "q": 16,
+          "r": 20
+        },
+        "rotation_steps": 0
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": 6,
+        "r": 32
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": 7,
+        "r": 32
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": -7,
+        "r": -1
+      },
+      "placement": {
+        "origin": {
+          "q": 1,
+          "r": 26
+        },
+        "rotation_steps": 1
+      },
+      "edge": 2,
+      "expected_level": {
+        "q": 2,
+        "r": 18
+      },
+      "expected_edge": 3,
+      "expected_neighbor": {
+        "q": 1,
+        "r": 18
+      },
+      "expected_opposite": 5
+    },
+    {
+      "hex": {
+        "q": -4,
+        "r": -1
+      },
+      "placement": {
+        "origin": {
+          "q": -12,
+          "r": 25
+        },
+        "rotation_steps": 0
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": -16,
+        "r": 24
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": -15,
+        "r": 24
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": -9,
+        "r": 6
+      },
+      "placement": {
+        "origin": {
+          "q": 23,
+          "r": 30
+        },
+        "rotation_steps": 3
+      },
+      "edge": 4,
+      "expected_level": {
+        "q": 32,
+        "r": 24
+      },
+      "expected_edge": 1,
+      "expected_neighbor": {
+        "q": 32,
+        "r": 25
+      },
+      "expected_opposite": 1
+    },
+    {
+      "hex": {
+        "q": 2,
+        "r": -4
+      },
+      "placement": {
+        "origin": {
+          "q": 1,
+          "r": -9
+        },
+        "rotation_steps": 5
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": -1,
+        "r": -11
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": 0,
+        "r": -11
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": -1,
+        "r": 2
+      },
+      "placement": {
+        "origin": {
+          "q": 20,
+          "r": -2
+        },
+        "rotation_steps": 0
+      },
+      "edge": 5,
+      "expected_level": {
+        "q": 19,
+        "r": 0
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": 20,
+        "r": -1
+      },
+      "expected_opposite": 2
+    },
+    {
+      "hex": {
+        "q": 4,
+        "r": -3
+      },
+      "placement": {
+        "origin": {
+          "q": 30,
+          "r": -3
+        },
+        "rotation_steps": 4
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": 27,
+        "r": -4
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": 28,
+        "r": -5
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": -7,
+        "r": 7
+      },
+      "placement": {
+        "origin": {
+          "q": 19,
+          "r": 8
+        },
+        "rotation_steps": 5
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": 19,
+        "r": 15
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": 20,
+        "r": 15
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": 7,
+        "r": 5
+      },
+      "placement": {
+        "origin": {
+          "q": -21,
+          "r": 15
+        },
+        "rotation_steps": 1
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": -26,
+        "r": 27
+      },
+      "expected_edge": 1,
+      "expected_neighbor": {
+        "q": -26,
+        "r": 28
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": 10,
+        "r": -10
+      },
+      "placement": {
+        "origin": {
+          "q": 8,
+          "r": -14
+        },
+        "rotation_steps": 1
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": 18,
+        "r": -14
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": 17,
+        "r": -13
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": -5,
+        "r": 2
+      },
+      "placement": {
+        "origin": {
+          "q": -15,
+          "r": 7
+        },
+        "rotation_steps": 2
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": -12,
+        "r": 2
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": -11,
+        "r": 1
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": -8,
+        "r": 3
+      },
+      "placement": {
+        "origin": {
+          "q": -30,
+          "r": 28
+        },
+        "rotation_steps": 2
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": -25,
+        "r": 20
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": -24,
+        "r": 19
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": 11,
+        "r": -11
+      },
+      "placement": {
+        "origin": {
+          "q": 30,
+          "r": -28
+        },
+        "rotation_steps": 2
+      },
+      "edge": 4,
+      "expected_level": {
+        "q": 30,
+        "r": -17
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": 31,
+        "r": -17
+      },
+      "expected_opposite": 1
+    },
+    {
+      "hex": {
+        "q": -11,
+        "r": 6
+      },
+      "placement": {
+        "origin": {
+          "q": -30,
+          "r": 16
+        },
+        "rotation_steps": 4
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": -24,
+        "r": 21
+      },
+      "expected_edge": 4,
+      "expected_neighbor": {
+        "q": -24,
+        "r": 20
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": 3,
+        "r": 10
+      },
+      "placement": {
+        "origin": {
+          "q": -5,
+          "r": -12
+        },
+        "rotation_steps": 4
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": 5,
+        "r": -25
+      },
+      "expected_edge": 1,
+      "expected_neighbor": {
+        "q": 5,
+        "r": -24
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": -1,
+        "r": 4
+      },
+      "placement": {
+        "origin": {
+          "q": 6,
+          "r": 1
+        },
+        "rotation_steps": 4
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": 10,
+        "r": -2
+      },
+      "expected_edge": 1,
+      "expected_neighbor": {
+        "q": 10,
+        "r": -1
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": 3,
+        "r": -5
+      },
+      "placement": {
+        "origin": {
+          "q": 16,
+          "r": -2
+        },
+        "rotation_steps": 0
+      },
+      "edge": 4,
+      "expected_level": {
+        "q": 19,
+        "r": -7
+      },
+      "expected_edge": 4,
+      "expected_neighbor": {
+        "q": 19,
+        "r": -8
+      },
+      "expected_opposite": 1
+    },
+    {
+      "hex": {
+        "q": 1,
+        "r": -2
+      },
+      "placement": {
+        "origin": {
+          "q": 18,
+          "r": 8
+        },
+        "rotation_steps": 3
+      },
+      "edge": 2,
+      "expected_level": {
+        "q": 17,
+        "r": 10
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": 18,
+        "r": 9
+      },
+      "expected_opposite": 5
+    },
+    {
+      "hex": {
+        "q": -9,
+        "r": -9
+      },
+      "placement": {
+        "origin": {
+          "q": 6,
+          "r": 5
+        },
+        "rotation_steps": 5
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": -12,
+        "r": 14
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": -11,
+        "r": 14
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": -1,
+        "r": 8
+      },
+      "placement": {
+        "origin": {
+          "q": 7,
+          "r": -18
+        },
+        "rotation_steps": 4
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": 15,
+        "r": -25
+      },
+      "expected_edge": 1,
+      "expected_neighbor": {
+        "q": 15,
+        "r": -24
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": -2,
+        "r": 6
+      },
+      "placement": {
+        "origin": {
+          "q": -2,
+          "r": -4
+        },
+        "rotation_steps": 4
+      },
+      "edge": 5,
+      "expected_level": {
+        "q": 4,
+        "r": -8
+      },
+      "expected_edge": 3,
+      "expected_neighbor": {
+        "q": 3,
+        "r": -8
+      },
+      "expected_opposite": 2
+    },
+    {
+      "hex": {
+        "q": 0,
+        "r": 3
+      },
+      "placement": {
+        "origin": {
+          "q": 10,
+          "r": 1
+        },
+        "rotation_steps": 2
+      },
+      "edge": 4,
+      "expected_level": {
+        "q": 7,
+        "r": 1
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": 8,
+        "r": 1
+      },
+      "expected_opposite": 1
+    },
+    {
+      "hex": {
+        "q": -12,
+        "r": -1
+      },
+      "placement": {
+        "origin": {
+          "q": 9,
+          "r": 5
+        },
+        "rotation_steps": 3
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": 21,
+        "r": 6
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": 22,
+        "r": 6
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": -6,
+        "r": -10
+      },
+      "placement": {
+        "origin": {
+          "q": -4,
+          "r": -30
+        },
+        "rotation_steps": 1
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": 6,
+        "r": -46
+      },
+      "expected_edge": 1,
+      "expected_neighbor": {
+        "q": 6,
+        "r": -45
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": 4,
+        "r": 8
+      },
+      "placement": {
+        "origin": {
+          "q": -2,
+          "r": 2
+        },
+        "rotation_steps": 0
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": 2,
+        "r": 10
+      },
+      "expected_edge": 1,
+      "expected_neighbor": {
+        "q": 2,
+        "r": 11
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": 5,
+        "r": -6
+      },
+      "placement": {
+        "origin": {
+          "q": -25,
+          "r": -7
+        },
+        "rotation_steps": 3
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": -30,
+        "r": -1
+      },
+      "expected_edge": 3,
+      "expected_neighbor": {
+        "q": -31,
+        "r": -1
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": -10,
+        "r": 3
+      },
+      "placement": {
+        "origin": {
+          "q": -4,
+          "r": 8
+        },
+        "rotation_steps": 4
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": -1,
+        "r": 15
+      },
+      "expected_edge": 1,
+      "expected_neighbor": {
+        "q": -1,
+        "r": 16
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": -3,
+        "r": -6
+      },
+      "placement": {
+        "origin": {
+          "q": 25,
+          "r": -5
+        },
+        "rotation_steps": 5
+      },
+      "edge": 4,
+      "expected_level": {
+        "q": 16,
+        "r": -2
+      },
+      "expected_edge": 3,
+      "expected_neighbor": {
+        "q": 15,
+        "r": -2
+      },
+      "expected_opposite": 1
+    },
+    {
+      "hex": {
+        "q": 9,
+        "r": 8
+      },
+      "placement": {
+        "origin": {
+          "q": -28,
+          "r": 29
+        },
+        "rotation_steps": 0
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": -19,
+        "r": 37
+      },
+      "expected_edge": 1,
+      "expected_neighbor": {
+        "q": -19,
+        "r": 38
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": -10,
+        "r": 3
+      },
+      "placement": {
+        "origin": {
+          "q": -3,
+          "r": -17
+        },
+        "rotation_steps": 3
+      },
+      "edge": 5,
+      "expected_level": {
+        "q": 7,
+        "r": -20
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": 6,
+        "r": -19
+      },
+      "expected_opposite": 2
+    },
+    {
+      "hex": {
+        "q": 8,
+        "r": 2
+      },
+      "placement": {
+        "origin": {
+          "q": 21,
+          "r": 25
+        },
+        "rotation_steps": 1
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": 19,
+        "r": 35
+      },
+      "expected_edge": 1,
+      "expected_neighbor": {
+        "q": 19,
+        "r": 36
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": -10,
+        "r": -8
+      },
+      "placement": {
+        "origin": {
+          "q": 26,
+          "r": -26
+        },
+        "rotation_steps": 0
+      },
+      "edge": 4,
+      "expected_level": {
+        "q": 16,
+        "r": -34
+      },
+      "expected_edge": 4,
+      "expected_neighbor": {
+        "q": 16,
+        "r": -35
+      },
+      "expected_opposite": 1
+    },
+    {
+      "hex": {
+        "q": -3,
+        "r": 6
+      },
+      "placement": {
+        "origin": {
+          "q": -30,
+          "r": 15
+        },
+        "rotation_steps": 3
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": -27,
+        "r": 9
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": -26,
+        "r": 9
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": -3,
+        "r": -5
+      },
+      "placement": {
+        "origin": {
+          "q": 26,
+          "r": 23
+        },
+        "rotation_steps": 2
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": 34,
+        "r": 20
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": 33,
+        "r": 21
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": -9,
+        "r": 0
+      },
+      "placement": {
+        "origin": {
+          "q": 5,
+          "r": 30
+        },
+        "rotation_steps": 1
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": 5,
+        "r": 21
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": 4,
+        "r": 22
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": -3,
+        "r": -6
+      },
+      "placement": {
+        "origin": {
+          "q": -8,
+          "r": -7
+        },
+        "rotation_steps": 1
+      },
+      "edge": 4,
+      "expected_level": {
+        "q": -2,
+        "r": -16
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": -1,
+        "r": -17
+      },
+      "expected_opposite": 1
+    },
+    {
+      "hex": {
+        "q": 3,
+        "r": -2
+      },
+      "placement": {
+        "origin": {
+          "q": -4,
+          "r": -15
+        },
+        "rotation_steps": 0
+      },
+      "edge": 5,
+      "expected_level": {
+        "q": -1,
+        "r": -17
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": 0,
+        "r": -18
+      },
+      "expected_opposite": 2
+    },
+    {
+      "hex": {
+        "q": -2,
+        "r": -6
+      },
+      "placement": {
+        "origin": {
+          "q": -24,
+          "r": -12
+        },
+        "rotation_steps": 4
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": -30,
+        "r": -4
+      },
+      "expected_edge": 4,
+      "expected_neighbor": {
+        "q": -30,
+        "r": -5
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": -3,
+        "r": -9
+      },
+      "placement": {
+        "origin": {
+          "q": -21,
+          "r": -22
+        },
+        "rotation_steps": 4
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": -30,
+        "r": -10
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": -29,
+        "r": -11
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": -5,
+        "r": 11
+      },
+      "placement": {
+        "origin": {
+          "q": 15,
+          "r": 15
+        },
+        "rotation_steps": 2
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": 9,
+        "r": 10
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": 10,
+        "r": 9
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": 8,
+        "r": 3
+      },
+      "placement": {
+        "origin": {
+          "q": -21,
+          "r": -13
+        },
+        "rotation_steps": 5
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": -10,
+        "r": -21
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": -11,
+        "r": -20
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": 11,
+        "r": -11
+      },
+      "placement": {
+        "origin": {
+          "q": -16,
+          "r": 3
+        },
+        "rotation_steps": 2
+      },
+      "edge": 4,
+      "expected_level": {
+        "q": -16,
+        "r": 14
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": -15,
+        "r": 14
+      },
+      "expected_opposite": 1
+    },
+    {
+      "hex": {
+        "q": -6,
+        "r": -2
+      },
+      "placement": {
+        "origin": {
+          "q": 2,
+          "r": -17
+        },
+        "rotation_steps": 1
+      },
+      "edge": 5,
+      "expected_level": {
+        "q": 4,
+        "r": -25
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": 5,
+        "r": -25
+      },
+      "expected_opposite": 2
+    },
+    {
+      "hex": {
+        "q": 9,
+        "r": 2
+      },
+      "placement": {
+        "origin": {
+          "q": -6,
+          "r": -14
+        },
+        "rotation_steps": 5
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": 5,
+        "r": -23
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": 4,
+        "r": -22
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": -5,
+        "r": 3
+      },
+      "placement": {
+        "origin": {
+          "q": -18,
+          "r": 23
+        },
+        "rotation_steps": 5
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": -20,
+        "r": 28
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": -19,
+        "r": 27
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": -6,
+        "r": -9
+      },
+      "placement": {
+        "origin": {
+          "q": 23,
+          "r": 5
+        },
+        "rotation_steps": 2
+      },
+      "edge": 5,
+      "expected_level": {
+        "q": 38,
+        "r": -1
+      },
+      "expected_edge": 1,
+      "expected_neighbor": {
+        "q": 38,
+        "r": 0
+      },
+      "expected_opposite": 2
+    },
+    {
+      "hex": {
+        "q": 6,
+        "r": 7
+      },
+      "placement": {
+        "origin": {
+          "q": -20,
+          "r": -25
+        },
+        "rotation_steps": 5
+      },
+      "edge": 4,
+      "expected_level": {
+        "q": -7,
+        "r": -31
+      },
+      "expected_edge": 3,
+      "expected_neighbor": {
+        "q": -8,
+        "r": -31
+      },
+      "expected_opposite": 1
+    },
+    {
+      "hex": {
+        "q": 2,
+        "r": -2
+      },
+      "placement": {
+        "origin": {
+          "q": 0,
+          "r": -18
+        },
+        "rotation_steps": 3
+      },
+      "edge": 2,
+      "expected_level": {
+        "q": -2,
+        "r": -16
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": -1,
+        "r": -17
+      },
+      "expected_opposite": 5
+    },
+    {
+      "hex": {
+        "q": 2,
+        "r": 3
+      },
+      "placement": {
+        "origin": {
+          "q": 23,
+          "r": 7
+        },
+        "rotation_steps": 1
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": 20,
+        "r": 12
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": 19,
+        "r": 13
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": 2,
+        "r": -9
+      },
+      "placement": {
+        "origin": {
+          "q": -23,
+          "r": 4
+        },
+        "rotation_steps": 1
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": -14,
+        "r": -3
+      },
+      "expected_edge": 4,
+      "expected_neighbor": {
+        "q": -14,
+        "r": -4
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": 9,
+        "r": 11
+      },
+      "placement": {
+        "origin": {
+          "q": 14,
+          "r": 14
+        },
+        "rotation_steps": 2
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": -6,
+        "r": 23
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": -5,
+        "r": 22
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": -5,
+        "r": 9
+      },
+      "placement": {
+        "origin": {
+          "q": 2,
+          "r": 10
+        },
+        "rotation_steps": 1
+      },
+      "edge": 5,
+      "expected_level": {
+        "q": -7,
+        "r": 14
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": -6,
+        "r": 14
+      },
+      "expected_opposite": 2
+    },
+    {
+      "hex": {
+        "q": 0,
+        "r": -8
+      },
+      "placement": {
+        "origin": {
+          "q": 27,
+          "r": 4
+        },
+        "rotation_steps": 3
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": 27,
+        "r": 12
+      },
+      "expected_edge": 3,
+      "expected_neighbor": {
+        "q": 26,
+        "r": 12
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": 1,
+        "r": -9
+      },
+      "placement": {
+        "origin": {
+          "q": 16,
+          "r": -26
+        },
+        "rotation_steps": 4
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": 7,
+        "r": -18
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": 8,
+        "r": -19
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": 12,
+        "r": 5
+      },
+      "placement": {
+        "origin": {
+          "q": -4,
+          "r": -18
+        },
+        "rotation_steps": 0
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": 8,
+        "r": -13
+      },
+      "expected_edge": 1,
+      "expected_neighbor": {
+        "q": 8,
+        "r": -12
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": -3,
+        "r": 8
+      },
+      "placement": {
+        "origin": {
+          "q": -26,
+          "r": -15
+        },
+        "rotation_steps": 4
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": -18,
+        "r": -20
+      },
+      "expected_edge": 1,
+      "expected_neighbor": {
+        "q": -18,
+        "r": -19
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": -2,
+        "r": -9
+      },
+      "placement": {
+        "origin": {
+          "q": 8,
+          "r": 11
+        },
+        "rotation_steps": 3
+      },
+      "edge": 4,
+      "expected_level": {
+        "q": 10,
+        "r": 20
+      },
+      "expected_edge": 1,
+      "expected_neighbor": {
+        "q": 10,
+        "r": 21
+      },
+      "expected_opposite": 1
+    },
+    {
+      "hex": {
+        "q": -7,
+        "r": -8
+      },
+      "placement": {
+        "origin": {
+          "q": -3,
+          "r": 8
+        },
+        "rotation_steps": 2
+      },
+      "edge": 5,
+      "expected_level": {
+        "q": 12,
+        "r": 1
+      },
+      "expected_edge": 1,
+      "expected_neighbor": {
+        "q": 12,
+        "r": 2
+      },
+      "expected_opposite": 2
+    },
+    {
+      "hex": {
+        "q": 1,
+        "r": -11
+      },
+      "placement": {
+        "origin": {
+          "q": -23,
+          "r": 15
+        },
+        "rotation_steps": 3
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": -24,
+        "r": 26
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": -23,
+        "r": 26
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": -10,
+        "r": 5
+      },
+      "placement": {
+        "origin": {
+          "q": -17,
+          "r": -23
+        },
+        "rotation_steps": 4
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": -12,
+        "r": -18
+      },
+      "expected_edge": 1,
+      "expected_neighbor": {
+        "q": -12,
+        "r": -17
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": -12,
+        "r": 3
+      },
+      "placement": {
+        "origin": {
+          "q": -27,
+          "r": 7
+        },
+        "rotation_steps": 3
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": -15,
+        "r": 4
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": -14,
+        "r": 4
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": -10,
+        "r": -2
+      },
+      "placement": {
+        "origin": {
+          "q": 11,
+          "r": -29
+        },
+        "rotation_steps": 2
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": 23,
+        "r": -39
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": 24,
+        "r": -40
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": -7,
+        "r": -10
+      },
+      "placement": {
+        "origin": {
+          "q": -17,
+          "r": 24
+        },
+        "rotation_steps": 2
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": 0,
+        "r": 17
+      },
+      "expected_edge": 3,
+      "expected_neighbor": {
+        "q": -1,
+        "r": 17
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": 9,
+        "r": 4
+      },
+      "placement": {
+        "origin": {
+          "q": 10,
+          "r": -4
+        },
+        "rotation_steps": 4
+      },
+      "edge": 5,
+      "expected_level": {
+        "q": 14,
+        "r": -17
+      },
+      "expected_edge": 3,
+      "expected_neighbor": {
+        "q": 13,
+        "r": -17
+      },
+      "expected_opposite": 2
+    },
+    {
+      "hex": {
+        "q": -7,
+        "r": 9
+      },
+      "placement": {
+        "origin": {
+          "q": 20,
+          "r": 2
+        },
+        "rotation_steps": 2
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": 18,
+        "r": -5
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": 19,
+        "r": -6
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": -7,
+        "r": -2
+      },
+      "placement": {
+        "origin": {
+          "q": 1,
+          "r": 21
+        },
+        "rotation_steps": 2
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": 10,
+        "r": 14
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": 11,
+        "r": 13
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": 6,
+        "r": 11
+      },
+      "placement": {
+        "origin": {
+          "q": -20,
+          "r": 23
+        },
+        "rotation_steps": 4
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": -9,
+        "r": 6
+      },
+      "expected_edge": 1,
+      "expected_neighbor": {
+        "q": -9,
+        "r": 7
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": -9,
+        "r": 9
+      },
+      "placement": {
+        "origin": {
+          "q": -19,
+          "r": -30
+        },
+        "rotation_steps": 0
+      },
+      "edge": 2,
+      "expected_level": {
+        "q": -28,
+        "r": -21
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": -29,
+        "r": -20
+      },
+      "expected_opposite": 5
+    },
+    {
+      "hex": {
+        "q": -2,
+        "r": -6
+      },
+      "placement": {
+        "origin": {
+          "q": 24,
+          "r": 8
+        },
+        "rotation_steps": 3
+      },
+      "edge": 4,
+      "expected_level": {
+        "q": 26,
+        "r": 14
+      },
+      "expected_edge": 1,
+      "expected_neighbor": {
+        "q": 26,
+        "r": 15
+      },
+      "expected_opposite": 1
+    },
+    {
+      "hex": {
+        "q": -5,
+        "r": 1
+      },
+      "placement": {
+        "origin": {
+          "q": -21,
+          "r": 16
+        },
+        "rotation_steps": 0
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": -26,
+        "r": 17
+      },
+      "expected_edge": 3,
+      "expected_neighbor": {
+        "q": -27,
+        "r": 17
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": 10,
+        "r": -3
+      },
+      "placement": {
+        "origin": {
+          "q": 4,
+          "r": -19
+        },
+        "rotation_steps": 0
+      },
+      "edge": 4,
+      "expected_level": {
+        "q": 14,
+        "r": -22
+      },
+      "expected_edge": 4,
+      "expected_neighbor": {
+        "q": 14,
+        "r": -23
+      },
+      "expected_opposite": 1
+    },
+    {
+      "hex": {
+        "q": -6,
+        "r": -5
+      },
+      "placement": {
+        "origin": {
+          "q": -21,
+          "r": 6
+        },
+        "rotation_steps": 1
+      },
+      "edge": 5,
+      "expected_level": {
+        "q": -16,
+        "r": -5
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": -15,
+        "r": -5
+      },
+      "expected_opposite": 2
+    },
+    {
+      "hex": {
+        "q": -8,
+        "r": 5
+      },
+      "placement": {
+        "origin": {
+          "q": -22,
+          "r": -19
+        },
+        "rotation_steps": 1
+      },
+      "edge": 2,
+      "expected_level": {
+        "q": -27,
+        "r": -22
+      },
+      "expected_edge": 3,
+      "expected_neighbor": {
+        "q": -28,
+        "r": -22
+      },
+      "expected_opposite": 5
+    },
+    {
+      "hex": {
+        "q": -5,
+        "r": -6
+      },
+      "placement": {
+        "origin": {
+          "q": 4,
+          "r": -14
+        },
+        "rotation_steps": 3
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": 9,
+        "r": -8
+      },
+      "expected_edge": 4,
+      "expected_neighbor": {
+        "q": 9,
+        "r": -9
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": -5,
+        "r": 12
+      },
+      "placement": {
+        "origin": {
+          "q": -14,
+          "r": 25
+        },
+        "rotation_steps": 1
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": -26,
+        "r": 32
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": -27,
+        "r": 33
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": 7,
+        "r": 1
+      },
+      "placement": {
+        "origin": {
+          "q": -28,
+          "r": -18
+        },
+        "rotation_steps": 0
+      },
+      "edge": 4,
+      "expected_level": {
+        "q": -21,
+        "r": -17
+      },
+      "expected_edge": 4,
+      "expected_neighbor": {
+        "q": -21,
+        "r": -18
+      },
+      "expected_opposite": 1
+    },
+    {
+      "hex": {
+        "q": 7,
+        "r": 8
+      },
+      "placement": {
+        "origin": {
+          "q": -21,
+          "r": -6
+        },
+        "rotation_steps": 2
+      },
+      "edge": 4,
+      "expected_level": {
+        "q": -36,
+        "r": 1
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": -35,
+        "r": 1
+      },
+      "expected_opposite": 1
+    },
+    {
+      "hex": {
+        "q": 1,
+        "r": 0
+      },
+      "placement": {
+        "origin": {
+          "q": -11,
+          "r": -9
+        },
+        "rotation_steps": 4
+      },
+      "edge": 4,
+      "expected_level": {
+        "q": -11,
+        "r": -10
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": -12,
+        "r": -9
+      },
+      "expected_opposite": 1
+    },
+    {
+      "hex": {
+        "q": 7,
+        "r": 5
+      },
+      "placement": {
+        "origin": {
+          "q": 23,
+          "r": 20
+        },
+        "rotation_steps": 0
+      },
+      "edge": 2,
+      "expected_level": {
+        "q": 30,
+        "r": 25
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": 29,
+        "r": 26
+      },
+      "expected_opposite": 5
+    },
+    {
+      "hex": {
+        "q": -7,
+        "r": 8
+      },
+      "placement": {
+        "origin": {
+          "q": -8,
+          "r": -24
+        },
+        "rotation_steps": 0
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": -15,
+        "r": -16
+      },
+      "expected_edge": 1,
+      "expected_neighbor": {
+        "q": -15,
+        "r": -15
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": 3,
+        "r": 10
+      },
+      "placement": {
+        "origin": {
+          "q": -8,
+          "r": -11
+        },
+        "rotation_steps": 5
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": 5,
+        "r": -14
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": 4,
+        "r": -13
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": 7,
+        "r": 9
+      },
+      "placement": {
+        "origin": {
+          "q": 7,
+          "r": 6
+        },
+        "rotation_steps": 4
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": 16,
+        "r": -10
+      },
+      "expected_edge": 4,
+      "expected_neighbor": {
+        "q": 16,
+        "r": -11
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": -1,
+        "r": -1
+      },
+      "placement": {
+        "origin": {
+          "q": 17,
+          "r": 14
+        },
+        "rotation_steps": 4
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": 16,
+        "r": 16
+      },
+      "expected_edge": 4,
+      "expected_neighbor": {
+        "q": 16,
+        "r": 15
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": -8,
+        "r": 12
+      },
+      "placement": {
+        "origin": {
+          "q": -25,
+          "r": -15
+        },
+        "rotation_steps": 3
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": -17,
+        "r": -27
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": -16,
+        "r": -27
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": 11,
+        "r": -6
+      },
+      "placement": {
+        "origin": {
+          "q": 28,
+          "r": 9
+        },
+        "rotation_steps": 0
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": 39,
+        "r": 3
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": 40,
+        "r": 3
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": 11,
+        "r": -4
+      },
+      "placement": {
+        "origin": {
+          "q": -16,
+          "r": -13
+        },
+        "rotation_steps": 0
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": -5,
+        "r": -17
+      },
+      "expected_edge": 3,
+      "expected_neighbor": {
+        "q": -6,
+        "r": -17
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": 3,
+        "r": 6
+      },
+      "placement": {
+        "origin": {
+          "q": -7,
+          "r": -17
+        },
+        "rotation_steps": 2
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": -16,
+        "r": -14
+      },
+      "expected_edge": 3,
+      "expected_neighbor": {
+        "q": -17,
+        "r": -14
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": 3,
+        "r": -4
+      },
+      "placement": {
+        "origin": {
+          "q": 4,
+          "r": -16
+        },
+        "rotation_steps": 3
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": 1,
+        "r": -12
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": 2,
+        "r": -12
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": 2,
+        "r": 8
+      },
+      "placement": {
+        "origin": {
+          "q": 17,
+          "r": 22
+        },
+        "rotation_steps": 3
+      },
+      "edge": 2,
+      "expected_level": {
+        "q": 15,
+        "r": 14
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": 16,
+        "r": 13
+      },
+      "expected_opposite": 5
+    },
+    {
+      "hex": {
+        "q": -8,
+        "r": 3
+      },
+      "placement": {
+        "origin": {
+          "q": 29,
+          "r": 14
+        },
+        "rotation_steps": 5
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": 24,
+        "r": 22
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": 25,
+        "r": 21
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": 5,
+        "r": 8
+      },
+      "placement": {
+        "origin": {
+          "q": -27,
+          "r": -3
+        },
+        "rotation_steps": 1
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": -35,
+        "r": 10
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": -36,
+        "r": 11
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": -9,
+        "r": -2
+      },
+      "placement": {
+        "origin": {
+          "q": -11,
+          "r": 2
+        },
+        "rotation_steps": 3
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": -2,
+        "r": 4
+      },
+      "expected_edge": 3,
+      "expected_neighbor": {
+        "q": -3,
+        "r": 4
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": 5,
+        "r": -9
+      },
+      "placement": {
+        "origin": {
+          "q": -27,
+          "r": -21
+        },
+        "rotation_steps": 3
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": -32,
+        "r": -12
+      },
+      "expected_edge": 3,
+      "expected_neighbor": {
+        "q": -33,
+        "r": -12
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": -5,
+        "r": 10
+      },
+      "placement": {
+        "origin": {
+          "q": -10,
+          "r": 18
+        },
+        "rotation_steps": 0
+      },
+      "edge": 5,
+      "expected_level": {
+        "q": -15,
+        "r": 28
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": -14,
+        "r": 27
+      },
+      "expected_opposite": 2
+    },
+    {
+      "hex": {
+        "q": -11,
+        "r": 11
+      },
+      "placement": {
+        "origin": {
+          "q": -15,
+          "r": -22
+        },
+        "rotation_steps": 4
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": -4,
+        "r": -22
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": -3,
+        "r": -23
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": 1,
+        "r": 10
+      },
+      "placement": {
+        "origin": {
+          "q": -17,
+          "r": -26
+        },
+        "rotation_steps": 3
+      },
+      "edge": 5,
+      "expected_level": {
+        "q": -18,
+        "r": -36
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": -19,
+        "r": -35
+      },
+      "expected_opposite": 2
+    },
+    {
+      "hex": {
+        "q": 11,
+        "r": -6
+      },
+      "placement": {
+        "origin": {
+          "q": 4,
+          "r": -8
+        },
+        "rotation_steps": 4
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": -2,
+        "r": -13
+      },
+      "expected_edge": 1,
+      "expected_neighbor": {
+        "q": -2,
+        "r": -12
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": -1,
+        "r": -8
+      },
+      "placement": {
+        "origin": {
+          "q": -2,
+          "r": -13
+        },
+        "rotation_steps": 4
+      },
+      "edge": 0,
+      "expected_level": {
+        "q": -10,
+        "r": -4
+      },
+      "expected_edge": 4,
+      "expected_neighbor": {
+        "q": -10,
+        "r": -5
+      },
+      "expected_opposite": 3
+    },
+    {
+      "hex": {
+        "q": -1,
+        "r": -12
+      },
+      "placement": {
+        "origin": {
+          "q": -17,
+          "r": -21
+        },
+        "rotation_steps": 3
+      },
+      "edge": 2,
+      "expected_level": {
+        "q": -16,
+        "r": -9
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": -15,
+        "r": -10
+      },
+      "expected_opposite": 5
+    },
+    {
+      "hex": {
+        "q": 8,
+        "r": 10
+      },
+      "placement": {
+        "origin": {
+          "q": -6,
+          "r": -1
+        },
+        "rotation_steps": 2
+      },
+      "edge": 2,
+      "expected_level": {
+        "q": -24,
+        "r": 7
+      },
+      "expected_edge": 4,
+      "expected_neighbor": {
+        "q": -24,
+        "r": 6
+      },
+      "expected_opposite": 5
+    },
+    {
+      "hex": {
+        "q": 3,
+        "r": -8
+      },
+      "placement": {
+        "origin": {
+          "q": -18,
+          "r": 23
+        },
+        "rotation_steps": 4
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": -26,
+        "r": 28
+      },
+      "expected_edge": 1,
+      "expected_neighbor": {
+        "q": -26,
+        "r": 29
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": 4,
+        "r": 3
+      },
+      "placement": {
+        "origin": {
+          "q": 17,
+          "r": 12
+        },
+        "rotation_steps": 0
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": 21,
+        "r": 15
+      },
+      "expected_edge": 3,
+      "expected_neighbor": {
+        "q": 20,
+        "r": 15
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": -3,
+        "r": 1
+      },
+      "placement": {
+        "origin": {
+          "q": 3,
+          "r": -25
+        },
+        "rotation_steps": 1
+      },
+      "edge": 5,
+      "expected_level": {
+        "q": 2,
+        "r": -27
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": 3,
+        "r": -27
+      },
+      "expected_opposite": 2
+    },
+    {
+      "hex": {
+        "q": -4,
+        "r": -3
+      },
+      "placement": {
+        "origin": {
+          "q": -17,
+          "r": 22
+        },
+        "rotation_steps": 4
+      },
+      "edge": 2,
+      "expected_level": {
+        "q": -20,
+        "r": 29
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": -19,
+        "r": 29
+      },
+      "expected_opposite": 5
+    },
+    {
+      "hex": {
+        "q": 4,
+        "r": 2
+      },
+      "placement": {
+        "origin": {
+          "q": -28,
+          "r": -11
+        },
+        "rotation_steps": 4
+      },
+      "edge": 2,
+      "expected_level": {
+        "q": -26,
+        "r": -17
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": -25,
+        "r": -17
+      },
+      "expected_opposite": 5
+    },
+    {
+      "hex": {
+        "q": 2,
+        "r": -9
+      },
+      "placement": {
+        "origin": {
+          "q": 25,
+          "r": 13
+        },
+        "rotation_steps": 3
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": 23,
+        "r": 22
+      },
+      "expected_edge": 4,
+      "expected_neighbor": {
+        "q": 23,
+        "r": 21
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": -5,
+        "r": 4
+      },
+      "placement": {
+        "origin": {
+          "q": 17,
+          "r": -18
+        },
+        "rotation_steps": 4
+      },
+      "edge": 4,
+      "expected_level": {
+        "q": 21,
+        "r": -17
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": 20,
+        "r": -16
+      },
+      "expected_opposite": 1
+    },
+    {
+      "hex": {
+        "q": -9,
+        "r": 4
+      },
+      "placement": {
+        "origin": {
+          "q": -27,
+          "r": 6
+        },
+        "rotation_steps": 1
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": -31,
+        "r": 1
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": -32,
+        "r": 2
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": -9,
+        "r": 1
+      },
+      "placement": {
+        "origin": {
+          "q": 18,
+          "r": 3
+        },
+        "rotation_steps": 3
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": 27,
+        "r": 2
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": 28,
+        "r": 2
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": 4,
+        "r": -10
+      },
+      "placement": {
+        "origin": {
+          "q": -26,
+          "r": -23
+        },
+        "rotation_steps": 3
+      },
+      "edge": 3,
+      "expected_level": {
+        "q": -30,
+        "r": -13
+      },
+      "expected_edge": 0,
+      "expected_neighbor": {
+        "q": -29,
+        "r": -13
+      },
+      "expected_opposite": 0
+    },
+    {
+      "hex": {
+        "q": -11,
+        "r": -9
+      },
+      "placement": {
+        "origin": {
+          "q": 19,
+          "r": 8
+        },
+        "rotation_steps": 3
+      },
+      "edge": 5,
+      "expected_level": {
+        "q": 30,
+        "r": 17
+      },
+      "expected_edge": 2,
+      "expected_neighbor": {
+        "q": 29,
+        "r": 18
+      },
+      "expected_opposite": 2
+    },
+    {
+      "hex": {
+        "q": -4,
+        "r": 0
+      },
+      "placement": {
+        "origin": {
+          "q": 12,
+          "r": -12
+        },
+        "rotation_steps": 0
+      },
+      "edge": 1,
+      "expected_level": {
+        "q": 8,
+        "r": -12
+      },
+      "expected_edge": 1,
+      "expected_neighbor": {
+        "q": 8,
+        "r": -11
+      },
+      "expected_opposite": 4
+    },
+    {
+      "hex": {
+        "q": -6,
+        "r": -4
+      },
+      "placement": {
+        "origin": {
+          "q": 23,
+          "r": -7
+        },
+        "rotation_steps": 2
+      },
+      "edge": 5,
+      "expected_level": {
+        "q": 33,
+        "r": -13
+      },
+      "expected_edge": 1,
+      "expected_neighbor": {
+        "q": 33,
+        "r": -12
+      },
+      "expected_opposite": 2
+    },
+    {
+      "hex": {
+        "q": 7,
+        "r": 0
+      },
+      "placement": {
+        "origin": {
+          "q": 20,
+          "r": -26
+        },
+        "rotation_steps": 2
+      },
+      "edge": 5,
+      "expected_level": {
+        "q": 13,
+        "r": -19
+      },
+      "expected_edge": 1,
+      "expected_neighbor": {
+        "q": 13,
+        "r": -18
+      },
+      "expected_opposite": 2
+    },
+    {
+      "hex": {
+        "q": 7,
+        "r": 0
+      },
+      "placement": {
+        "origin": {
+          "q": 9,
+          "r": 6
+        },
+        "rotation_steps": 3
+      },
+      "edge": 2,
+      "expected_level": {
+        "q": 2,
+        "r": 6
+      },
+      "expected_edge": 5,
+      "expected_neighbor": {
+        "q": 3,
+        "r": 5
+      },
+      "expected_opposite": 5
+    }
+  ]
+}

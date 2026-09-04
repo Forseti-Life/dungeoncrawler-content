@@ -11,7 +11,6 @@ use Drupal\Component\Uuid\UuidInterface;
  */
 class RoomEditorService {
 
-  private const FAMILIES = ['creature', 'actor', 'item', 'obstacle', 'trap', 'hazard'];
 
   private const TERRAIN_TYPES = [
     'stone_floor', 'rough_stone', 'smooth_stone', 'dirt', 'mud', 'sand',
@@ -35,6 +34,7 @@ class RoomEditorService {
     protected Connection $database,
     protected AccountProxyInterface $currentUser,
     protected UuidInterface $uuid,
+    protected CanonicalDefinitionService $definitions,
   ) {}
 
   /**
@@ -340,7 +340,7 @@ class RoomEditorService {
           'schema_version' => 'canonical-room-v1',
           'room_payload' => $encoded,
           'payload_hash' => $hash,
-          'catalog_version' => $this->catalogVersion(),
+          'catalog_version' => $this->definitions->catalogVersion(),
           'publication_note' => trim((string) ($request['publication_note'] ?? '')),
           'source' => 'room_editor',
           'published_by' => (int) $this->currentUser->id(),
@@ -394,249 +394,6 @@ class RoomEditorService {
     ];
   }
 
-  /**
-   * Returns a paginated, normalized placeable catalog.
-   */
-  public function catalog(?string $family, string $search, int $limit, int $offset): array {
-    if ($family !== NULL && !in_array($family, self::FAMILIES, TRUE)) {
-      throw new \InvalidArgumentException('catalog_family_invalid');
-    }
-    $limit = max(1, min(250, $limit));
-    $offset = max(0, $offset);
-    $families = $family ? [$family] : self::FAMILIES;
-    $definitions = [];
-
-    foreach ($families as $current_family) {
-      if ($current_family === 'actor') {
-        $query = $this->database->select('dc_canonical_actors', 'a')
-          ->fields('a', ['actor_id', 'version', 'display_name', 'actor_type', 'state_data']);
-        if ($search !== '') {
-          $or = $query->orConditionGroup()
-            ->condition('display_name', '%' . $this->database->escapeLike($search) . '%', 'LIKE')
-            ->condition('actor_id', '%' . $this->database->escapeLike($search) . '%', 'LIKE');
-          $query->condition($or);
-        }
-        foreach ($query->execute()->fetchAll() as $row) {
-          $data = json_decode((string) $row->state_data, TRUE) ?: [];
-          $definitions[] = $this->normalizeDefinition(
-            'actor',
-            $row->actor_id,
-            $row->version,
-            $row->display_name ?: ($data['name'] ?? $row->actor_id),
-            $row->actor_type ?: 'npc',
-            $data,
-            'dc_canonical_actors'
-          );
-        }
-        continue;
-      }
-
-      $registry_type = $current_family === 'obstacle' ? 'obstacle_object' : $current_family;
-      $query = $this->database->select('dungeoncrawler_content_registry', 'r')
-        ->fields('r', ['content_id', 'name', 'version', 'schema_data']);
-      $query->condition('content_type', $registry_type);
-      if ($search !== '') {
-        $or = $query->orConditionGroup()
-          ->condition('name', '%' . $this->database->escapeLike($search) . '%', 'LIKE')
-          ->condition('content_id', '%' . $this->database->escapeLike($search) . '%', 'LIKE');
-        $query->condition($or);
-      }
-      foreach ($query->execute()->fetchAll() as $row) {
-        $data = json_decode((string) $row->schema_data, TRUE) ?: [];
-        $category = $data['category'] ?? $data[$current_family . '_type'] ?? $data['type'] ?? $current_family;
-        $definitions[] = $this->normalizeDefinition(
-          $current_family,
-          $row->content_id,
-          $row->version ?: ($data['schema_version'] ?? '1.0.0'),
-          $row->name,
-          (string) $category,
-          $data,
-          'dungeoncrawler_content_registry'
-        );
-      }
-    }
-
-    usort($definitions, static fn(array $a, array $b): int =>
-      [$a['family'], strtolower($a['label']), $a['definition_id']]
-      <=> [$b['family'], strtolower($b['label']), $b['definition_id']]
-    );
-    $total = count($definitions);
-    return [
-      'definitions' => array_slice($definitions, $offset, $limit),
-      'total' => $total,
-      'limit' => $limit,
-      'offset' => $offset,
-      'catalog_version' => $this->catalogVersion(),
-      'families' => self::FAMILIES,
-    ];
-  }
-
-  /**
-   * Returns one fully-normalized catalog definition (for inspector lookups).
-   *
-   * Unlike catalog(), which pages through the whole family list, this fetches
-   * a single row directly by id so the Room Editor inspector can enrich a
-   * placement with its canonical name/description/tags even when that
-   * definition isn't part of the currently-loaded catalog page.
-   */
-  public function catalogEntry(string $family, string $definition_id): ?array {
-    if (!in_array($family, self::FAMILIES, TRUE)) {
-      throw new \InvalidArgumentException('catalog_family_invalid');
-    }
-    $definition_id = trim($definition_id);
-    if ($definition_id === '') {
-      return NULL;
-    }
-
-    if ($family === 'actor') {
-      $row = $this->database->select('dc_canonical_actors', 'a')
-        ->fields('a', ['actor_id', 'version', 'display_name', 'actor_type', 'state_data'])
-        ->condition('actor_id', $definition_id)
-        ->execute()
-        ->fetchAssoc();
-      if (!$row) {
-        return NULL;
-      }
-      $data = json_decode((string) $row['state_data'], TRUE) ?: [];
-      return $this->normalizeDefinition(
-        'actor',
-        $row['actor_id'],
-        $row['version'],
-        $row['display_name'] ?: ($data['name'] ?? $row['actor_id']),
-        $row['actor_type'] ?: 'npc',
-        $data,
-        'dc_canonical_actors'
-      );
-    }
-
-    $registry_type = $family === 'obstacle' ? 'obstacle_object' : $family;
-    $row = $this->database->select('dungeoncrawler_content_registry', 'r')
-      ->fields('r', ['content_id', 'name', 'version', 'schema_data'])
-      ->condition('content_type', $registry_type)
-      ->condition('content_id', $definition_id)
-      ->execute()
-      ->fetchAssoc();
-    if (!$row) {
-      return NULL;
-    }
-    $data = json_decode((string) $row['schema_data'], TRUE) ?: [];
-    $category = $data['category'] ?? $data[$family . '_type'] ?? $data['type'] ?? $family;
-    return $this->normalizeDefinition(
-      $family,
-      $row['content_id'],
-      $row['version'] ?: ($data['schema_version'] ?? '1.0.0'),
-      $row['name'],
-      (string) $category,
-      $data,
-      'dungeoncrawler_content_registry'
-    );
-  }
-
-  /**
-   * Loads the raw editable record backing one catalog definition.
-   *
-   * Used by the canonical library edit form - returns the full schema_data
-   * payload (not the trimmed placeable-object-v1 projection normalizeDefinition
-   * produces) since editors need access to every attribute, not just the
-   * subset relevant to room placement.
-   */
-  public function loadCanonicalEntry(string $family, string $definition_id): array {
-    if (!in_array($family, self::FAMILIES, TRUE)) {
-      throw new \InvalidArgumentException('catalog_family_invalid');
-    }
-    $definition_id = trim($definition_id);
-    if ($definition_id === '') {
-      throw new \InvalidArgumentException('definition_id_required');
-    }
-
-    if ($family === 'actor') {
-      $row = $this->database->select('dc_canonical_actors', 'a')
-        ->fields('a', ['actor_id', 'version', 'display_name', 'actor_type', 'state_data'])
-        ->condition('actor_id', $definition_id)
-        ->execute()
-        ->fetchAssoc();
-      if (!$row) {
-        throw new \OutOfBoundsException('canonical_entry_not_found');
-      }
-      return [
-        'family' => 'actor',
-        'definition_id' => $row['actor_id'],
-        'name' => (string) $row['display_name'],
-        'category' => (string) $row['actor_type'],
-        'version' => (string) $row['version'],
-        'schema_data' => json_decode((string) $row['state_data'], TRUE) ?: [],
-        'source_table' => 'dc_canonical_actors',
-      ];
-    }
-
-    $registry_type = $family === 'obstacle' ? 'obstacle_object' : $family;
-    $row = $this->database->select('dungeoncrawler_content_registry', 'r')
-      ->fields('r', ['content_id', 'name', 'content_type', 'version', 'schema_data'])
-      ->condition('content_type', $registry_type)
-      ->condition('content_id', $definition_id)
-      ->execute()
-      ->fetchAssoc();
-    if (!$row) {
-      throw new \OutOfBoundsException('canonical_entry_not_found');
-    }
-    $data = json_decode((string) $row['schema_data'], TRUE) ?: [];
-    return [
-      'family' => $family,
-      'definition_id' => $row['content_id'],
-      'name' => (string) $row['name'],
-      'category' => (string) ($data['category'] ?? $data[$family . '_type'] ?? $data['type'] ?? $family),
-      'version' => (string) $row['version'],
-      'schema_data' => $data,
-      'source_table' => 'dungeoncrawler_content_registry',
-    ];
-  }
-
-  /**
-   * Persists edited name/attributes back to the canonical source row.
-   */
-  public function saveCanonicalEntry(string $family, string $definition_id, string $name, array $schema_data): void {
-    if (!in_array($family, self::FAMILIES, TRUE)) {
-      throw new \InvalidArgumentException('catalog_family_invalid');
-    }
-    $definition_id = trim($definition_id);
-    $name = trim($name);
-    if ($definition_id === '') {
-      throw new \InvalidArgumentException('definition_id_required');
-    }
-    if ($name === '') {
-      throw new \InvalidArgumentException('name_required');
-    }
-    $now = time();
-
-    if ($family === 'actor') {
-      $updated = $this->database->update('dc_canonical_actors')
-        ->fields([
-          'display_name' => $name,
-          'state_data' => $this->encode($schema_data),
-          'updated_at' => $now,
-        ])
-        ->condition('actor_id', $definition_id)
-        ->execute();
-      if (!$updated) {
-        throw new \OutOfBoundsException('canonical_entry_not_found');
-      }
-      return;
-    }
-
-    $registry_type = $family === 'obstacle' ? 'obstacle_object' : $family;
-    $updated = $this->database->update('dungeoncrawler_content_registry')
-      ->fields([
-        'name' => $name,
-        'schema_data' => $this->encode($schema_data),
-        'updated' => $now,
-      ])
-      ->condition('content_type', $registry_type)
-      ->condition('content_id', $definition_id)
-      ->execute();
-    if (!$updated) {
-      throw new \OutOfBoundsException('canonical_entry_not_found');
-    }
-  }
 
   /**
    * Mutates the aggregate for one command.
@@ -716,10 +473,10 @@ class RoomEditorService {
 
       case 'place_object':
         $definition = $payload['definition_ref'] ?? [];
-        if (!is_array($definition) || !in_array($definition['family'] ?? NULL, self::FAMILIES, TRUE)) {
+        if (!is_array($definition) || !in_array($definition['family'] ?? NULL, CanonicalDefinitionService::FAMILIES, TRUE)) {
           throw new \InvalidArgumentException('definition_ref_invalid');
         }
-        if (!$this->definitionExists(
+        if (!$this->definitions->definitionExists(
           (string) $definition['family'],
           (string) ($definition['definition_id'] ?? ''),
           (string) ($definition['version'] ?? '1.0.0')
@@ -1022,7 +779,7 @@ class RoomEditorService {
       if (!isset($coordinates[$key])) {
         $errors[] = $this->finding('placement_outside_room', "/placements/{$index}/anchor_hex", 'Placement anchor is outside the room.');
       }
-      if (!in_array($placement['definition_ref']['family'] ?? NULL, self::FAMILIES, TRUE)) {
+      if (!in_array($placement['definition_ref']['family'] ?? NULL, CanonicalDefinitionService::FAMILIES, TRUE)) {
         $errors[] = $this->finding('placement_family_invalid', "/placements/{$index}/definition_ref/family", 'Placement family is not canonical.');
       }
       if (!preg_match('/^[a-z0-9][a-z0-9_-]{0,99}$/', (string) ($placement['definition_ref']['definition_id'] ?? ''))
@@ -1050,7 +807,7 @@ class RoomEditorService {
         }
         $solid_occupancy[$key] = TRUE;
       }
-      if ($profile === 'publication' && !$this->definitionExists(
+      if ($profile === 'publication' && !$this->definitions->definitionExists(
         $family,
         (string) ($placement['definition_ref']['definition_id'] ?? ''),
         (string) ($placement['definition_ref']['version'] ?? '')
@@ -1438,82 +1195,13 @@ class RoomEditorService {
     }
   }
 
-  private function normalizeDefinition(string $family, string $id, string $version, string $label, string $category, array $data, string $source_table): array {
-    $visual = is_array($data['visual'] ?? NULL) ? $data['visual'] : [];
-    return [
-      'schema_version' => 'placeable-object-v1',
-      'definition_id' => $id,
-      'definition_version' => $this->normalizeSemanticVersion($version),
-      'family' => $family,
-      'label' => $label,
-      'category' => $category,
-      'description' => (string) ($data['description'] ?? ''),
-      'tags' => array_values(array_filter((array) ($data['tags'] ?? $data['traits'] ?? []), 'is_string')),
-      'footprint' => [['q' => 0, 'r' => 0]],
-      'visual' => [
-        'sprite_id' => (string) ($visual['sprite_id'] ?? 'generic_' . $family),
-        'color' => (string) ($visual['color'] ?? ''),
-      ],
-      'placement_constraints' => [
-        'occupancy' => in_array($family, ['item', 'trap', 'hazard'], TRUE) ? 'overlay' : 'solid',
-        'stackable' => (bool) ($data['stackable'] ?? $family === 'item'),
-      ],
-      'allowed_instance_overrides' => ['facing', 'elevation_ft', 'hidden'],
-      'source_authority' => [
-        'provider' => $family === 'actor' ? 'canonical_actor' : 'content_registry',
-        'source_table' => $source_table,
-        'source_id' => $id,
-        'source_hash' => hash('sha256', $this->encode($data)),
-      ],
-    ];
-  }
 
-  private function definitionExists(string $family, string $definition_id, string $version): bool {
-    if ($definition_id === '' || $version === '') {
-      return FALSE;
-    }
-    if ($family === 'actor') {
-      $versions = $this->database->select('dc_canonical_actors', 'a')
-        ->fields('a', ['version'])
-        ->condition('actor_id', $definition_id)
-        ->execute()
-        ->fetchCol();
-      return in_array($this->normalizeSemanticVersion($version), array_map([$this, 'normalizeSemanticVersion'], $versions), TRUE);
-    }
-    $registry_type = $family === 'obstacle' ? 'obstacle_object' : $family;
-    $versions = $this->database->select('dungeoncrawler_content_registry', 'r')
-      ->fields('r', ['version'])
-      ->condition('content_type', $registry_type)
-      ->condition('content_id', $definition_id)
-      ->execute()
-      ->fetchCol();
-    return in_array($this->normalizeSemanticVersion($version), array_map([$this, 'normalizeSemanticVersion'], $versions), TRUE);
-  }
 
-  private function normalizeSemanticVersion(mixed $version): string {
-    $version = trim((string) $version);
-    if (preg_match('/^\d+\.\d+\.\d+$/', $version)) {
-      return $version;
-    }
-    if (preg_match('/^(\d+)\.(\d+)$/', $version, $matches)) {
-      return $matches[1] . '.' . $matches[2] . '.0';
-    }
-    return '1.0.0';
-  }
 
   private function isUuid(string $value): bool {
     return (bool) preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $value);
   }
 
-  private function catalogVersion(): string {
-    $registry_query = $this->database->select('dungeoncrawler_content_registry', 'r');
-    $registry_query->addExpression('MAX(updated)', 'max_updated');
-    $registry_max = (string) ($registry_query->execute()->fetchField() ?: '0');
-    $actor_query = $this->database->select('dc_canonical_actors', 'a');
-    $actor_query->addExpression('MAX(updated_at)', 'max_updated');
-    $actor_max = (string) ($actor_query->execute()->fetchField() ?: '0');
-    return hash('sha256', $registry_max . '|' . $actor_max);
-  }
 
   private function legacyProjection(array $room): array {
     $entry_points = array_map(static fn(array $port): array => [

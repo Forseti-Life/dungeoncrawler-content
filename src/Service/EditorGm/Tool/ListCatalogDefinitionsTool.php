@@ -36,7 +36,7 @@ final class ListCatalogDefinitionsTool implements EditorGmToolInterface {
     }
     $family = is_string($family) && trim($family) !== '' ? trim($family) : NULL;
 
-    return $context->roomEditor->catalog(
+    return $context->definitions->catalog(
       $family,
       isset($arguments['search']) ? (string) $arguments['search'] : '',
       isset($arguments['limit']) ? (int) $arguments['limit'] : 40,
