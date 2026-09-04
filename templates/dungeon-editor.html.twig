@@ -132,21 +132,52 @@
       <aside class="room-editor__gm-panel" data-dungeon-editor-gm-panel aria-label="{{ 'GM assistant'|t }}">
         <header class="room-editor__gm-header">
           <p class="room-editor__eyebrow">{{ 'GM Assistant'|t }}</p>
-          <span class="room-editor__gm-state" data-dungeon-editor-gm-state role="status" aria-live="polite">{{ 'Not connected'|t }}</span>
+          <span class="room-editor__gm-state" data-dungeon-editor-gm-state role="status" aria-live="polite">{{ 'Idle'|t }}</span>
         </header>
+
         <section class="room-editor__gm-disclosure-group" aria-label="{{ 'Grounded editor context'|t }}">
           <button type="button"
                   class="room-editor__gm-disclosure"
                   data-dungeon-editor-action="gm-toggle-context"
-                  aria-expanded="true"
+                  aria-expanded="false"
                   aria-controls="dungeon-editor-gm-context-body">{{ 'Grounded context'|t }}</button>
-          <div id="dungeon-editor-gm-context-body" class="room-editor__gm-context-body" data-dungeon-editor-gm-context></div>
+          <div id="dungeon-editor-gm-context-body" class="room-editor__gm-context-body" data-dungeon-editor-gm-context hidden></div>
         </section>
-        <ol class="room-editor__gm-transcript" data-dungeon-editor-gm-transcript aria-label="{{ 'Assistant transcript'|t }}" aria-live="polite">
-          <li class="room-editor__gm-message room-editor__gm-message--warning">
-            {{ 'The dungeon_editor assistant surface is delivered in slice 7. Until then this panel shows the grounded context the assistant will receive, and accepts no messages.'|t }}
-          </li>
-        </ol>
+
+        <section class="room-editor__gm-disclosure-group" aria-label="{{ 'Assistant toolset'|t }}">
+          <button type="button"
+                  class="room-editor__gm-disclosure"
+                  data-dungeon-editor-action="gm-toggle-tools"
+                  aria-expanded="false"
+                  aria-controls="dungeon-editor-gm-tools-body">{{ 'Toolset'|t }}</button>
+          <div id="dungeon-editor-gm-tools-body" class="room-editor__gm-tools-body" data-dungeon-editor-gm-tools hidden></div>
+        </section>
+
+        <ol class="room-editor__gm-transcript" data-dungeon-editor-gm-transcript aria-label="{{ 'Assistant transcript'|t }}" aria-live="polite"></ol>
+
+        <div class="room-editor__gm-plan" data-dungeon-editor-gm-plan hidden>
+          <p class="room-editor__eyebrow">{{ 'Proposed command plan'|t }}</p>
+          <ol class="room-editor__gm-plan-list" data-dungeon-editor-gm-plan-list></ol>
+          <div class="room-editor__gm-plan-actions">
+            <button type="button" class="room-editor__button" data-dungeon-editor-action="gm-preview-plan">{{ 'Preview'|t }}</button>
+            <button type="button" class="room-editor__button room-editor__button--primary" data-dungeon-editor-action="gm-apply-plan">{{ 'Apply plan'|t }}</button>
+            <button type="button" class="room-editor__button" data-dungeon-editor-action="gm-discard-plan">{{ 'Discard'|t }}</button>
+          </div>
+        </div>
+
+        <form class="room-editor__gm-composer" data-dungeon-editor-gm-form>
+          <label class="visually-hidden" for="dungeon-editor-gm-input">{{ 'Message the GM assistant'|t }}</label>
+          <textarea id="dungeon-editor-gm-input"
+                    data-dungeon-editor-gm-input
+                    rows="3"
+                    placeholder="{{ 'Ask the assistant, or run a tool: validate_dungeon {}'|t }}"></textarea>
+          <div class="room-editor__gm-composer-actions">
+            <label class="room-editor__gm-dry-run">
+              <input type="checkbox" data-dungeon-editor-gm-dry-run> {{ 'Dry run'|t }}
+            </label>
+            <button type="submit" class="room-editor__button room-editor__button--primary" data-dungeon-editor-action="gm-send">{{ 'Send'|t }}</button>
+          </div>
+        </form>
       </aside>
     </div>
   </div>

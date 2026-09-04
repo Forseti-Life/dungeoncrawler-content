@@ -308,6 +308,7 @@ dungeoncrawler_content.room_editor_gm_describe:
   path: '/api/room-editor/drafts/{draft_id}/gm'
   defaults:
     _controller: '\Drupal\dungeoncrawler_content\Controller\EditorGmController::describe'
+    _surface: room_editor
   methods: [GET]
   requirements:
     _user_is_logged_in: 'TRUE'
@@ -318,10 +319,33 @@ dungeoncrawler_content.room_editor_gm_execute:
   path: '/api/room-editor/drafts/{draft_id}/gm'
   defaults:
     _controller: '\Drupal\dungeoncrawler_content\Controller\EditorGmController::execute'
+    _surface: room_editor
   methods: [POST]
   requirements:
     _user_is_logged_in: 'TRUE'
     _permission: 'edit canonical dungeoncrawler rooms'
+    draft_id: '[0-9a-f-]{36}'
+
+dungeoncrawler_content.dungeon_editor_gm_describe:
+  path: '/api/dungeon-editor/drafts/{draft_id}/gm'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\EditorGmController::describe'
+    _surface: dungeon_editor
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'edit canonical dungeoncrawler dungeons'
+    draft_id: '[0-9a-f-]{36}'
+
+dungeoncrawler_content.dungeon_editor_gm_execute:
+  path: '/api/dungeon-editor/drafts/{draft_id}/gm'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\EditorGmController::execute'
+    _surface: dungeon_editor
+  methods: [POST]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'edit canonical dungeoncrawler dungeons'
     draft_id: '[0-9a-f-]{36}'
 
 dungeoncrawler_content.game_objects:

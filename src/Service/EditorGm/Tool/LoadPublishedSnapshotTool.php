@@ -5,6 +5,7 @@ namespace Drupal\dungeoncrawler_content\Service\EditorGm\Tool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolContext;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolDefinition;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolInterface;
+use Drupal\dungeoncrawler_content\Service\EditorGm\RoomEditorGmToolContext;
 
 /**
  * Context tool: returns the currently published canonical room aggregate.
@@ -22,6 +23,7 @@ final class LoadPublishedSnapshotTool implements EditorGmToolInterface {
   }
 
   public function execute(array $arguments, EditorGmToolContext $context): array {
+    $context = RoomEditorGmToolContext::of($context);
     $published = $context->publishedRoom();
     return [
       'room_id' => $context->roomId(),

@@ -5,6 +5,7 @@ namespace Drupal\dungeoncrawler_content\Service\EditorGm\Tool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolContext;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolDefinition;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolInterface;
+use Drupal\dungeoncrawler_content\Service\EditorGm\RoomEditorGmToolContext;
 
 /**
  * Validation tool: diffs the active draft against the published version.
@@ -24,6 +25,7 @@ final class DiffDraftAgainstPublishedTool implements EditorGmToolInterface {
   }
 
   public function execute(array $arguments, EditorGmToolContext $context): array {
+    $context = RoomEditorGmToolContext::of($context);
     $draft_room = $context->room();
     $published = $context->publishedRoom();
     if ($published === NULL) {

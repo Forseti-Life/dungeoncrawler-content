@@ -5,6 +5,7 @@ namespace Drupal\dungeoncrawler_content\Service\EditorGm\Tool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolContext;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolDefinition;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolInterface;
+use Drupal\dungeoncrawler_content\Service\EditorGm\RoomEditorGmToolContext;
 
 /**
  * Planning tool: previews a command plan without mutating the draft.
@@ -30,6 +31,7 @@ final class PreviewCommandPlanTool implements EditorGmToolInterface {
   }
 
   public function execute(array $arguments, EditorGmToolContext $context): array {
+    $context = RoomEditorGmToolContext::of($context);
     $commands = EditorGmToolContext::requireArray($arguments, 'commands');
     $profile = isset($arguments['profile']) ? (string) $arguments['profile'] : $context->validationProfile;
     if (!in_array($profile, ['editing', 'preview', 'publication'], TRUE)) {

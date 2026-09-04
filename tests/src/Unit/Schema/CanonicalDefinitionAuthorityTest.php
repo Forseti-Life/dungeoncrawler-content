@@ -134,11 +134,26 @@ class CanonicalDefinitionAuthorityTest extends TestCase {
       'The tool context must carry the definition authority so GM tools reach full parity with the human UI.'
     );
 
-    $harness = $this->source('src/Service/EditorGm/EditorGmHarnessService.php');
-    $this->assertStringContainsString(
-      '$this->definitions',
-      $harness,
-      'The harness must inject the definition authority into the tool context.'
+    foreach ([
+      'src/Service/EditorGm/RoomEditorGmSurface.php' => 'RoomEditorGmToolContext',
+      'src/Service/EditorGm/DungeonEditorGmSurface.php' => 'DungeonEditorGmToolContext',
+    ] as $relative => $context_class) {
+      $surface = $this->source($relative);
+      $this->assertStringContainsString(
+        'CanonicalDefinitionService $definitions',
+        $surface,
+        $relative . ' must receive the definition authority.'
+      );
+      $this->assertMatchesRegularExpression(
+        '/new ' . $context_class . '\([^;]*\$this->definitions\)/s',
+        $surface,
+        $relative . ' must inject the definition authority into its tool context.'
+      );
+    }
+    $this->assertStringNotContainsString(
+      'CanonicalDefinitionService',
+      $this->source('src/Service/EditorGm/EditorGmHarnessService.php'),
+      'The harness holds no authority of its own; surfaces bring theirs.'
     );
   }
 
@@ -158,9 +173,9 @@ class CanonicalDefinitionAuthorityTest extends TestCase {
       'The definition authority service must point at CanonicalDefinitionService.'
     );
     $this->assertSame(
-      3,
+      4,
       substr_count($services, "'@dungeoncrawler_content.canonical_definitions'"),
-      'The authority must be injected into its three constructor consumers: the room editor, the dungeon editor (catalog_version pinning) and the GM harness. Forms and controllers resolve it from the container by name.'
+      'The authority must be injected into its four constructor consumers: the room editor, the dungeon editor (catalog_version pinning) and the two GM surfaces. Forms and controllers resolve it from the container by name.'
     );
 
     foreach ([

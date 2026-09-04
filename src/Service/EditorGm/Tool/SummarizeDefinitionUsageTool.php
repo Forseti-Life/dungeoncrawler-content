@@ -5,6 +5,7 @@ namespace Drupal\dungeoncrawler_content\Service\EditorGm\Tool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolContext;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolDefinition;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolInterface;
+use Drupal\dungeoncrawler_content\Service\EditorGm\RoomEditorGmToolContext;
 
 /**
  * Definition tool: reports where a definition is placed in the active draft.
@@ -28,6 +29,7 @@ final class SummarizeDefinitionUsageTool implements EditorGmToolInterface {
   }
 
   public function execute(array $arguments, EditorGmToolContext $context): array {
+    $context = RoomEditorGmToolContext::of($context);
     $family = EditorGmToolContext::requireString($arguments, 'family');
     $definition_id = EditorGmToolContext::requireString($arguments, 'definition_id');
 

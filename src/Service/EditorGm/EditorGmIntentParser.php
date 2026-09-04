@@ -27,7 +27,6 @@ class EditorGmIntentParser {
 
   public function __construct(
     protected ?AIApiService $ai,
-    protected EditorGmToolRegistry $registry,
     LoggerChannelFactoryInterface $loggerFactory,
   ) {
     $this->logger = $loggerFactory->get('dungeoncrawler_content');
@@ -43,11 +42,15 @@ class EditorGmIntentParser {
   /**
    * Resolves one utterance into a tool call or a clarification request.
    *
+   * The registry is passed per call because the parser is shared by every
+   * surface while the toolset is per surface. The parser is grounded on that
+   * registry only, so it can never select a tool the surface will not run.
+   *
    * @return array
    *   Either ['type' => 'tool_call', 'tool_name' => ..., 'arguments' => [...],
    *   'reasoning' => ...] or ['type' => 'clarification', 'question' => ...].
    */
-  public function parse(string $utterance, array $context_snapshot): array {
+  public function parse(string $utterance, array $context_snapshot, EditorGmToolRegistry $registry, string $surface_label): array {
     $utterance = trim($utterance);
     if ($utterance === '') {
       throw new \InvalidArgumentException('editor_gm_utterance_required');
@@ -60,7 +63,7 @@ class EditorGmIntentParser {
     }
 
     $result = $this->ai->invokeModelDirect(
-      $this->buildPrompt($utterance, $context_snapshot),
+      $this->buildPrompt($utterance, $context_snapshot, $registry),
       self::MODULE,
       self::OPERATION,
       ['draft_id' => (string) ($context_snapshot['draft']['draft_id'] ?? '')],
@@ -69,7 +72,7 @@ class EditorGmIntentParser {
         // be a correctness bug rather than an optimization.
         'skip_cache' => TRUE,
         'max_tokens' => 1500,
-        'system_prompt' => $this->systemPrompt(),
+        'system_prompt' => $this->systemPrompt($surface_label),
       ],
     );
 
@@ -80,13 +83,13 @@ class EditorGmIntentParser {
       throw new \RuntimeException('editor_gm_intent_model_failed');
     }
 
-    return $this->decodeIntent((string) ($result['response'] ?? ''));
+    return $this->decodeIntent((string) ($result['response'] ?? ''), $registry);
   }
 
   /**
    * Parses and validates the model's JSON response against the registry.
    */
-  private function decodeIntent(string $response): array {
+  private function decodeIntent(string $response, EditorGmToolRegistry $registry): array {
     $json = trim($response);
     if (str_starts_with($json, '```')) {
       $json = trim(preg_replace('/^```(?:json)?|```$/m', '', $json));
@@ -120,7 +123,7 @@ class EditorGmIntentParser {
     }
 
     $tool_name = (string) ($decoded['tool_name'] ?? '');
-    if (!$this->registry->has($tool_name)) {
+    if (!$registry->has($tool_name)) {
       throw new \DomainException(sprintf('editor_gm_intent_tool_unsupported:%s', $tool_name));
     }
     $arguments = $decoded['arguments'] ?? [];
@@ -128,7 +131,7 @@ class EditorGmIntentParser {
       throw new \DomainException('editor_gm_intent_arguments_invalid');
     }
 
-    $definition = $this->registry->get($tool_name)->definition();
+    $definition = $registry->get($tool_name)->definition();
     foreach ($definition->arguments as $argument) {
       if (!empty($argument['required']) && !array_key_exists($argument['name'], $arguments)) {
         throw new \DomainException(sprintf(
@@ -150,9 +153,9 @@ class EditorGmIntentParser {
   /**
    * Returns the invariant behavioural contract for the parser.
    */
-  private function systemPrompt(): string {
-    return <<<'PROMPT'
-You are the intent parser for the Dungeoncrawler canonical Room Editor assistant.
+  private function systemPrompt(string $surface_label): string {
+    return sprintf(<<<'PROMPT'
+You are the intent parser for the Dungeoncrawler canonical %s assistant.
 
 Your only job is to translate an author's request into exactly one registered
 tool call, using only the grounded editor context you are given.
@@ -160,8 +163,9 @@ tool call, using only the grounded editor context you are given.
 Hard rules:
 - Respond with a single JSON object and nothing else. No prose, no code fences.
 - You may only use a tool name from the provided toolset. Never invent one.
-- Never invent room ids, hex coordinates, instance ids, or definition ids. Use
-  only values present in the grounded context, or values the author stated.
+- Never invent room ids, placement ids, hex coordinates, port ids, instance
+  ids, or definition ids. Use only values present in the grounded context, or
+  values the author stated.
 - If the request is ambiguous, or you would have to guess a required value,
   return a clarification instead of a tool call.
 - Prefer planning tools over execution tools. A mutating tool call is a
@@ -170,14 +174,14 @@ Hard rules:
 Response shapes:
 {"type":"tool_call","tool_name":"<registered tool>","arguments":{...},"reasoning":"<one short sentence>"}
 {"type":"clarification","question":"<what you need the author to specify>"}
-PROMPT;
+PROMPT, $surface_label);
   }
 
   /**
    * Builds the grounded prompt for one turn.
    */
-  private function buildPrompt(string $utterance, array $context_snapshot): string {
-    $manifest = $this->registry->manifest();
+  private function buildPrompt(string $utterance, array $context_snapshot, EditorGmToolRegistry $registry): string {
+    $manifest = $registry->manifest();
     $tools = [];
     foreach ($manifest['families'] as $family => $definitions) {
       foreach ($definitions as $definition) {
@@ -191,12 +195,16 @@ PROMPT;
       }
     }
 
-    $grounding = [
-      'draft' => $context_snapshot['draft'] ?? [],
-      'room' => $context_snapshot['room'] ?? [],
-      'validation_summary' => $context_snapshot['validation_summary'] ?? [],
-      'publication' => $context_snapshot['publication'] ?? [],
-    ];
+    // Every surface snapshot carries these keys; the subject key (`room`,
+    // `dungeon`, ...) is whichever the surface assembler declared.
+    $grounding = ['draft' => $context_snapshot['draft'] ?? []];
+    foreach ($context_snapshot as $key => $value) {
+      if (!in_array($key, ['tool_id', 'draft', 'validation_summary', 'publication', 'authority_boundary', 'assistant', 'tools'], TRUE)) {
+        $grounding[$key] = $value;
+      }
+    }
+    $grounding['validation_summary'] = $context_snapshot['validation_summary'] ?? [];
+    $grounding['publication'] = $context_snapshot['publication'] ?? [];
 
     return implode("\n\n", [
       '## Grounded editor context',

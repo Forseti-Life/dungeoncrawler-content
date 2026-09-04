@@ -24,7 +24,8 @@
       "properties": {
         "tool_id": {
           "enum": [
-            "room_editor"
+            "room_editor",
+            "dungeon_editor"
           ]
         },
         "draft_id": {

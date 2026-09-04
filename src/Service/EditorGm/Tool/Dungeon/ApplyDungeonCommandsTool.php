@@ -1,33 +1,31 @@
 <?php
 
-namespace Drupal\dungeoncrawler_content\Service\EditorGm\Tool;
+namespace Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon;
 
 use Drupal\Component\Uuid\UuidInterface;
+use Drupal\dungeoncrawler_content\Service\EditorGm\DungeonEditorGmToolContext;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolContext;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolDefinition;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolInterface;
-use Drupal\dungeoncrawler_content\Service\EditorGm\RoomEditorGmToolContext;
 
 /**
- * Execution tool: applies an approved command plan to the active draft.
+ * Applies approved dungeon commands through DungeonEditorService.
  *
- * Every step is dispatched through RoomEditorService::applyCommand(), which
- * keeps revision checking, idempotency, aggregate validation, and inverse
- * snapshots identical to manual editing. Steps are applied in order and the
- * first failure aborts the batch; the draft keeps whatever revision the last
- * successful step produced, exactly as it would with manual edits.
+ * Steps chain revisions: each command expects the revision the previous one
+ * produced. The first failure aborts the batch; the draft keeps whatever
+ * revision the last successful step produced, exactly as manual edits would.
  */
-final class ApplyRoomCommandsTool implements EditorGmToolInterface {
+final class ApplyDungeonCommandsTool implements EditorGmToolInterface {
 
   public function __construct(private readonly UuidInterface $uuid) {}
 
   public function definition(): EditorGmToolDefinition {
     return new EditorGmToolDefinition(
-      'apply_room_commands',
+      'apply_dungeon_commands',
       EditorGmToolDefinition::FAMILY_EXECUTION,
-      'Apply an ordered list of approved Room Editor commands to the active draft.',
+      'Apply an ordered list of approved Dungeon Editor commands to the active draft.',
       TRUE,
-      'RoomEditorService::applyCommand()',
+      'DungeonEditorService::applyCommand()',
       [
         EditorGmToolDefinition::argument('expected_revision', 'integer', TRUE, 'Draft revision the plan was built against.'),
         EditorGmToolDefinition::argument('commands', 'array', TRUE, 'Ordered list of {type, payload} command steps.'),
@@ -36,16 +34,16 @@ final class ApplyRoomCommandsTool implements EditorGmToolInterface {
   }
 
   public function execute(array $arguments, EditorGmToolContext $context): array {
-    $context = RoomEditorGmToolContext::of($context);
+    $context = DungeonEditorGmToolContext::of($context);
     $revision = EditorGmToolContext::requireInt($arguments, 'expected_revision');
     $commands = EditorGmToolContext::requireArray($arguments, 'commands');
-    if ($commands === []) {
+    if ($commands === [] || !array_is_list($commands)) {
       throw new \InvalidArgumentException('command_plan_empty');
     }
 
     $receipts = [];
     $draft = NULL;
-    foreach (array_values($commands) as $index => $command) {
+    foreach ($commands as $index => $command) {
       if (!is_array($command)) {
         throw new \InvalidArgumentException(sprintf('command_step_invalid:%d', $index + 1));
       }
@@ -59,7 +57,7 @@ final class ApplyRoomCommandsTool implements EditorGmToolInterface {
       }
 
       $command_id = $this->uuid->generate();
-      $result = $context->roomEditor->applyCommand($context->draftId, [
+      $result = $context->dungeonEditor->applyCommand($context->draftId, [
         'command_id' => $command_id,
         'expected_revision' => $revision,
         'type' => $type,
@@ -68,12 +66,13 @@ final class ApplyRoomCommandsTool implements EditorGmToolInterface {
       ]);
 
       $draft = $result['draft'];
-      $revision = (int) $draft['revision'];
+      $revision = (int) $result['result_revision'];
       $receipts[] = [
         'step' => $index + 1,
         'command_id' => $command_id,
         'command_type' => $type,
         'result_revision' => $revision,
+        'placement_id' => $result['placement_id'] ?? NULL,
         'idempotent' => (bool) ($result['idempotent'] ?? FALSE),
       ];
     }

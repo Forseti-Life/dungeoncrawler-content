@@ -19,6 +19,7 @@
       "properties": {
         "step": {"type": "integer", "minimum": 1},
         "command_type": {
+          "description": "Union of room_editor_command and dungeon_editor_command types; the harness narrows each plan to the surface that produced it.",
           "enum": [
             "set_room_metadata",
             "add_hex",
@@ -37,6 +38,19 @@
             "add_exit_port",
             "update_exit_port",
             "remove_exit_port",
+            "set_dungeon_metadata",
+            "place_room",
+            "move_room_placement",
+            "rotate_room_placement",
+            "remove_room_placement",
+            "retarget_room_placement",
+            "set_placement_metadata",
+            "link_ports",
+            "update_port_link",
+            "unlink_ports",
+            "add_region",
+            "update_region",
+            "remove_region",
             "undo",
             "redo"
           ]

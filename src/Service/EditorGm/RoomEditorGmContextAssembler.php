@@ -10,7 +10,7 @@ namespace Drupal\dungeoncrawler_content\Service\EditorGm;
  * explicit context tools so the assistant panel never has to guess what it is
  * allowed to read.
  */
-class RoomEditorGmContextAssembler {
+final class RoomEditorGmContextAssembler implements EditorGmContextAssemblerInterface {
 
   public const AUTHORITY_BOUNDARY = [
     'draft_source_of_truth' => 'dungeoncrawler_content_room_editor_drafts',
@@ -30,13 +30,14 @@ class RoomEditorGmContextAssembler {
    * Assembles the editor-scoped context snapshot for one draft.
    */
   public function assemble(EditorGmToolContext $context): array {
+    $context = RoomEditorGmToolContext::of($context);
     $draft = $context->draft();
     $room = $context->room();
     $validation = $context->validation();
     $published = $context->publishedRoom();
 
     return [
-      'tool_id' => EditorGmHarnessService::TOOL_ID_ROOM_EDITOR,
+      'tool_id' => RoomEditorGmSurface::ID,
       'draft' => [
         'draft_id' => (string) ($draft['draft_id'] ?? ''),
         'room_id' => $context->roomId(),

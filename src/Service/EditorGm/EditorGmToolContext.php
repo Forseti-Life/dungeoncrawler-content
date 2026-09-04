@@ -3,7 +3,6 @@
 namespace Drupal\dungeoncrawler_content\Service\EditorGm;
 
 use Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService;
-use Drupal\dungeoncrawler_content\Service\RoomEditorService;
 
 /**
  * Grounded, memoized editor state handed to every harness tool.
@@ -13,84 +12,50 @@ use Drupal\dungeoncrawler_content\Service\RoomEditorService;
  * service so draft, validation, publication and definition authority each stay
  * in exactly one place.
  *
- * Room state resolves through RoomEditorService. Canonical object definitions
- * resolve through CanonicalDefinitionService, which is the sole definition
- * authority.
+ * Each editor surface provides its own subclass carrying that surface's
+ * mutation authority (RoomEditorService, DungeonEditorService). Canonical
+ * object definitions resolve through CanonicalDefinitionService on every
+ * surface, which is the sole definition authority.
  */
-final class EditorGmToolContext {
-
-  private ?array $draft = NULL;
-  private array $validationByProfile = [];
-  private bool $publishedResolved = FALSE;
-  private ?array $published = NULL;
+abstract class EditorGmToolContext {
 
   public function __construct(
     public readonly string $draftId,
     public readonly string $validationProfile,
-    public readonly RoomEditorService $roomEditor,
     public readonly CanonicalDefinitionService $definitions,
   ) {}
 
   /**
+   * Surface id this context was grounded for.
+   */
+  abstract public function surfaceId(): string;
+
+  /**
    * Returns the active draft aggregate wrapper.
    */
-  public function draft(): array {
-    if ($this->draft === NULL) {
-      $this->draft = $this->roomEditor->getDraft($this->draftId);
-    }
-    return $this->draft;
-  }
-
-  /**
-   * Returns the canonical room aggregate inside the active draft.
-   */
-  public function room(): array {
-    $draft = $this->draft();
-    if (!is_array($draft['room'] ?? NULL)) {
-      throw new \DomainException('draft_room_payload_invalid');
-    }
-    return $draft['room'];
-  }
-
-  /**
-   * Returns the room_id the draft is bound to, or an empty string when unbound.
-   */
-  public function roomId(): string {
-    $draft = $this->draft();
-    return (string) ($draft['room_id'] ?? ($draft['room']['room_id'] ?? ''));
-  }
+  abstract public function draft(): array;
 
   /**
    * Returns deterministic validation findings for one profile.
    */
-  public function validation(?string $profile = NULL): array {
-    $profile = $profile ?? $this->validationProfile;
-    if (!array_key_exists($profile, $this->validationByProfile)) {
-      $this->validationByProfile[$profile] = $this->roomEditor->validateDraft($this->draftId, $profile);
-    }
-    return $this->validationByProfile[$profile];
-  }
-
-  /**
-   * Returns the currently published canonical room aggregate, when one exists.
-   */
-  public function publishedRoom(): ?array {
-    if (!$this->publishedResolved) {
-      $room_id = $this->roomId();
-      $this->published = $room_id === '' ? NULL : $this->roomEditor->publishedRoom($room_id);
-      $this->publishedResolved = TRUE;
-    }
-    return $this->published;
-  }
+  abstract public function validation(?string $profile = NULL): array;
 
   /**
    * Drops memoized state after a mutation so later reads observe fresh data.
    */
-  public function invalidate(): void {
-    $this->draft = NULL;
-    $this->validationByProfile = [];
-    $this->publishedResolved = FALSE;
-    $this->published = NULL;
+  abstract public function invalidate(): void;
+
+  /**
+   * Narrows a context to the surface a tool was registered for.
+   *
+   * Registries are per surface, so a mismatch is a wiring defect, not a
+   * request error. It fails loudly rather than reading the wrong authority.
+   */
+  public static function of(EditorGmToolContext $context): static {
+    if (!$context instanceof static) {
+      throw new \LogicException(sprintf('editor_gm_context_surface_mismatch:%s', $context->surfaceId()));
+    }
+    return $context;
   }
 
   /**

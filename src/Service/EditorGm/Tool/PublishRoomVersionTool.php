@@ -5,6 +5,7 @@ namespace Drupal\dungeoncrawler_content\Service\EditorGm\Tool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolContext;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolDefinition;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolInterface;
+use Drupal\dungeoncrawler_content\Service\EditorGm\RoomEditorGmToolContext;
 
 /**
  * Execution tool: publishes an immutable canonical room version.
@@ -30,6 +31,7 @@ final class PublishRoomVersionTool implements EditorGmToolInterface {
   }
 
   public function execute(array $arguments, EditorGmToolContext $context): array {
+    $context = RoomEditorGmToolContext::of($context);
     $draft = $context->draft();
     $request = [
       'version' => EditorGmToolContext::requireString($arguments, 'version'),

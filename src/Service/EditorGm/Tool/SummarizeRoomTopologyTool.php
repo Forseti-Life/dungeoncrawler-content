@@ -5,6 +5,7 @@ namespace Drupal\dungeoncrawler_content\Service\EditorGm\Tool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolContext;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolDefinition;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolInterface;
+use Drupal\dungeoncrawler_content\Service\EditorGm\RoomEditorGmToolContext;
 
 /**
  * Context tool: summarizes room shape without shipping the whole aggregate.
@@ -22,6 +23,7 @@ final class SummarizeRoomTopologyTool implements EditorGmToolInterface {
   }
 
   public function execute(array $arguments, EditorGmToolContext $context): array {
+    $context = RoomEditorGmToolContext::of($context);
     $room = $context->room();
     $hexes = is_array($room['hexes'] ?? NULL) ? $room['hexes'] : [];
     $placements = is_array($room['placements'] ?? NULL) ? $room['placements'] : [];

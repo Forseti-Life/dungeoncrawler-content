@@ -14,8 +14,11 @@ use Symfony\Component\HttpFoundation\Request;
  * JSON transport for the editor-embedded GM harness.
  *
  * This controller is the only browser-facing entrypoint for the editor GM
- * assistant. It never reaches campaign runtime authority; all work resolves
- * through EditorGmHarnessService and, beneath it, RoomEditorService.
+ * assistant on every surface. Each route binds its surface through the
+ * `_surface` default, so the same controller serves the Room Editor and the
+ * Dungeon Editor without either being able to reach the other's toolset. It
+ * never reaches campaign runtime authority; all work resolves through
+ * EditorGmHarnessService and, beneath it, the surface's editor authority.
  */
 class EditorGmController extends ControllerBase {
 
@@ -37,10 +40,10 @@ class EditorGmController extends ControllerBase {
   /**
    * Returns the grounded context snapshot and declared toolset for a draft.
    */
-  public function describe(string $draft_id, Request $request): JsonResponse {
+  public function describe(string $_surface, string $draft_id, Request $request): JsonResponse {
     try {
       $profile = trim((string) $request->query->get('profile', 'editing')) ?: 'editing';
-      return new JsonResponse(['data' => $this->harness->describe($draft_id, $profile)]);
+      return new JsonResponse(['data' => $this->harness->describe($_surface, $draft_id, $profile)]);
     }
     catch (\Throwable $exception) {
       return $this->errorResponse($exception);
@@ -50,12 +53,12 @@ class EditorGmController extends ControllerBase {
   /**
    * Executes one editor GM request envelope.
    */
-  public function execute(string $draft_id, Request $request): JsonResponse {
+  public function execute(string $_surface, string $draft_id, Request $request): JsonResponse {
     if ($csrf = $this->validateCsrf($request)) {
       return $csrf;
     }
     try {
-      return new JsonResponse(['data' => $this->harness->handle($draft_id, $this->decodeBody($request))]);
+      return new JsonResponse(['data' => $this->harness->handle($_surface, $draft_id, $this->decodeBody($request))]);
     }
     catch (\Throwable $exception) {
       return $this->errorResponse($exception);

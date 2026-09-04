@@ -14,7 +14,7 @@
  *     from the server's response ("server-confirmed state only");
  *   - hand already-transformed geometry to HexCanvas via `map:changed`;
  *   - render the author drawer (room library, placements, inspector,
- *     validation) and the GM panel's grounded context.
+ *     validation) and the GM assistant panel (dungeon_editor surface).
  *
  * Rules carried over from the Room Editor:
  *   - the shell never keeps state the server did not confirm; every render
@@ -286,9 +286,21 @@ export class DungeonEditorShell {
       regionEmpty: q('[data-dungeon-editor-region-empty]'),
       regionForm: q('[data-dungeon-editor-region-form]'),
       validationList: q('[data-dungeon-editor-validation-list]'),
+      gmPanel: q('[data-dungeon-editor-gm-panel]'),
       gmState: q('[data-dungeon-editor-gm-state]'),
       gmContext: q('[data-dungeon-editor-gm-context]'),
       gmContextToggle: q('[data-dungeon-editor-action="gm-toggle-context"]'),
+      gmTools: q('[data-dungeon-editor-gm-tools]'),
+      gmToolsToggle: q('[data-dungeon-editor-action="gm-toggle-tools"]'),
+      gmTranscript: q('[data-dungeon-editor-gm-transcript]'),
+      gmPlan: q('[data-dungeon-editor-gm-plan]'),
+      gmPlanList: q('[data-dungeon-editor-gm-plan-list]'),
+      gmApplyPlanBtn: q('[data-dungeon-editor-action="gm-apply-plan"]'),
+      gmPreviewPlanBtn: q('[data-dungeon-editor-action="gm-preview-plan"]'),
+      gmDiscardPlanBtn: q('[data-dungeon-editor-action="gm-discard-plan"]'),
+      gmForm: q('[data-dungeon-editor-gm-form]'),
+      gmInput: q('[data-dungeon-editor-gm-input]'),
+      gmDryRun: q('[data-dungeon-editor-gm-dry-run]'),
     };
   }
 
@@ -654,13 +666,46 @@ export class DungeonEditorShell {
   }
 
   _bindGmEvents() {
+    this._gm = { context: null, manifest: null, plan: null };
+
     this._dom.gmContextToggle?.addEventListener('click', () => {
-      const expanded = this._dom.gmContextToggle.getAttribute('aria-expanded') === 'true';
-      this._dom.gmContextToggle.setAttribute('aria-expanded', expanded ? 'false' : 'true');
-      if (this._dom.gmContext) {
-        this._dom.gmContext.hidden = expanded;
+      this._toggleDisclosure(this._dom.gmContextToggle, this._dom.gmContext);
+    });
+    this._dom.gmToolsToggle?.addEventListener('click', () => {
+      this._toggleDisclosure(this._dom.gmToolsToggle, this._dom.gmTools);
+    });
+    this._dom.gmForm?.addEventListener('submit', (event) => {
+      event.preventDefault();
+      this._submitGmMessage();
+    });
+    this._dom.gmInput?.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+        event.preventDefault();
+        this._submitGmMessage();
       }
     });
+    this._dom.gmTools?.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-gm-tool]');
+      if (!button || !this._dom.gmInput) {
+        return;
+      }
+      const template = button.getAttribute('data-gm-template') || '{}';
+      this._dom.gmInput.value = `${button.getAttribute('data-gm-tool')} ${template}`;
+      this._dom.gmInput.focus();
+    });
+    this._dom.gmDiscardPlanBtn?.addEventListener('click', () => this._setGmPlan(null));
+    this._dom.gmPreviewPlanBtn?.addEventListener('click', () => this._previewGmPlan());
+    this._dom.gmApplyPlanBtn?.addEventListener('click', () => this._applyGmPlan());
+
+    this._setGmState('Load or create a dungeon to ground the assistant.');
+  }
+
+  _toggleDisclosure(button, body) {
+    const open = button.getAttribute('aria-expanded') === 'true';
+    button.setAttribute('aria-expanded', open ? 'false' : 'true');
+    if (body) {
+      body.hidden = open;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -889,7 +934,7 @@ export class DungeonEditorShell {
     this._renderRegionList();
     this._renderInspector();
     this._renderValidation(model.validation);
-    this._renderGmContext();
+    this._refreshGmContext();
     this._updateHistoryButtons();
   }
 
@@ -1591,36 +1636,360 @@ export class DungeonEditorShell {
     });
   }
 
+  // ---------------------------------------------------------------------------
+  // GM assistant (dungeon_editor surface of the editor GM harness)
+  // ---------------------------------------------------------------------------
+
   /**
-   * The grounded context the slice 7 assistant will receive, shown now so
-   * the panel is honest about what the assistant would see.
+   * Re-grounds the assistant on the server's view of the draft. The panel never
+   * keeps its own copy of draft state: every turn is grounded from the same
+   * draft the manual tools mutate, through the same DungeonEditorService.
    */
+  async _refreshGmContext() {
+    if (!this._gm || !this.draft?.draft_id || !this.urls.gm) {
+      this._renderGmContext();
+      return;
+    }
+    const url = `${this._draftUrl('gm')}?profile=${encodeURIComponent(this._gmProfile())}`;
+    try {
+      const result = await this._getJson(url);
+      this._gm.context = result?.data?.context_snapshot || null;
+      this._gm.manifest = this._gm.context?.tools || null;
+      this._renderGmContext();
+      this._renderGmToolset();
+      this._setGmState(`Grounded on revision ${this._gm.context?.draft?.revision ?? '?'}.`);
+    } catch (err) {
+      this._gm.context = null;
+      this._gm.manifest = null;
+      this._renderGmContext();
+      this._renderGmToolset();
+      this._setGmState(`Context unavailable: ${err?.message || 'unknown error'}${err?.code ? ` (${err.code})` : ''}`, 'error');
+    }
+  }
+
+  _gmProfile() {
+    return 'editing';
+  }
+
   _renderGmContext() {
-    const el = this._dom.gmContext;
-    if (!el) {
+    const body = this._dom.gmContext;
+    if (!body) {
       return;
     }
-    clearElement(el);
-    if (!this.model) {
-      el.appendChild(makeEl('p', 'room-editor__hint', 'No draft loaded.'));
+    clearElement(body);
+    const context = this._gm?.context;
+    if (!context) {
+      body.appendChild(makeEl('p', 'room-editor__hint', 'No grounded context loaded.'));
       return;
     }
-    const summary = {
-      draft_id: this.model.draft_id,
-      revision: this.model.revision,
-      name: this.model.name,
-      placements: this.model.placements.length,
-      port_links: (this.model.port_links || []).length,
-      regions: (this.model.regions || []).length,
-      validation: {
-        is_valid: this.model.validation?.is_valid,
-        counts: this.model.validation?.counts,
-      },
-    };
-    const pre = makeEl('pre', null, JSON.stringify(summary, null, 2));
-    el.appendChild(pre);
+    const list = makeEl('ul', 'room-editor__gm-context-list');
+    const rows = [
+      ['Dungeon', `${context.dungeon?.name || '(unnamed)'} [${context.draft?.dungeon_id || 'unbound'}]`],
+      ['Revision', String(context.draft?.revision ?? '?')],
+      ['Status', String(context.draft?.status || '?')],
+      ['Placements', String(context.dungeon?.placement_count ?? 0)],
+      ['Entrances', String((context.dungeon?.level_entrances || []).length)],
+      ['Links', String(context.dungeon?.port_link_count ?? 0)],
+      ['Regions', String(context.dungeon?.region_count ?? 0)],
+      ['Validation', `${context.validation_summary?.profile}: ${context.validation_summary?.error_count ?? 0} errors, ${context.validation_summary?.warning_count ?? 0} warnings`],
+      ['Published', context.publication?.has_published_version ? 'yes' : 'no'],
+      ['Authority', context.authority_boundary?.mutation_gateway || '?'],
+    ];
+    rows.forEach(([label, value]) => {
+      list.appendChild(makeEl('li', null, `${label}: ${value}`));
+    });
+    body.appendChild(list);
+  }
+
+  /**
+   * Renders the server-declared toolset. The manifest is authoritative: the
+   * panel never invents tool names, so assistant parity with the manual editor
+   * is always exactly what the surface registry exposes.
+   */
+  _renderGmToolset() {
+    const body = this._dom.gmTools;
+    if (!body) {
+      return;
+    }
+    clearElement(body);
+    const manifest = this._gm?.manifest;
+    if (!manifest) {
+      body.appendChild(makeEl('p', 'room-editor__hint', 'Toolset unavailable.'));
+      return;
+    }
+    Object.keys(manifest.families || {}).forEach((family) => {
+      body.appendChild(makeEl('p', 'room-editor__gm-tool-family', family));
+      const list = makeEl('ul', 'room-editor__gm-tool-list');
+      (manifest.families[family] || []).forEach((tool) => {
+        const item = makeEl('li');
+        const button = makeEl('button', `room-editor__gm-tool${tool.mutating ? ' room-editor__gm-tool--mutating' : ''}`, tool.name);
+        button.type = 'button';
+        button.title = `${tool.summary}\n${tool.authority}`;
+        button.setAttribute('data-gm-tool', tool.name);
+        const template = {};
+        (tool.arguments || []).filter((arg) => arg.required).forEach((arg) => {
+          template[arg.name] = arg.type === 'integer' ? 0 : (arg.type === 'array' ? [] : (arg.type === 'boolean' ? false : ''));
+        });
+        button.setAttribute('data-gm-template', JSON.stringify(template));
+        item.appendChild(button);
+        list.appendChild(item);
+      });
+      body.appendChild(list);
+    });
+  }
+
+  _setGmState(text, level = 'info') {
     if (this._dom.gmState) {
-      this._dom.gmState.textContent = 'Not connected (slice 7)';
+      this._dom.gmState.textContent = text;
+      this._dom.gmState.setAttribute('data-status-level', level);
+    }
+  }
+
+  _appendGmMessage(kind, text, detail) {
+    const list = this._dom.gmTranscript;
+    if (!list) {
+      return;
+    }
+    const item = makeEl('li', `room-editor__gm-message room-editor__gm-message--${kind}`, text);
+    if (detail !== undefined && detail !== null) {
+      item.appendChild(makeEl('pre', null, typeof detail === 'string' ? detail : JSON.stringify(detail, null, 2)));
+    }
+    list.appendChild(item);
+    list.scrollTop = list.scrollHeight;
+  }
+
+  /**
+   * Classifies one composer submission.
+   *
+   * A message whose first token is a registered tool name is an explicit tool
+   * call (`<tool_name> {json arguments}`). Anything else is a natural-language
+   * intent, which the harness may only answer with a read-only tool run or an
+   * explicit proposal; it can never mutate directly.
+   */
+  _parseGmMessage(raw) {
+    const text = String(raw || '').trim();
+    if (!text) {
+      throw new Error('Enter a request, or a tool name to run directly.');
+    }
+    const match = text.match(/^([a-z][a-z0-9_]*)\s*([\s\S]*)$/);
+    if (!match || !this._isKnownGmTool(match[1])) {
+      return { kind: 'natural_language', utterance: text };
+    }
+    const rest = match[2].trim();
+    let args = {};
+    if (rest) {
+      let parsed = null;
+      try {
+        parsed = JSON.parse(rest);
+      } catch (_err) {
+        throw new Error('Tool arguments must be a JSON object.');
+      }
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('Tool arguments must be a JSON object.');
+      }
+      args = parsed;
+    }
+    return { kind: 'tool_call', toolName: match[1], args };
+  }
+
+  _isKnownGmTool(name) {
+    return !!this._gm?.manifest
+      && Object.values(this._gm.manifest.families || {}).some((tools) => tools.some((t) => t.name === name));
+  }
+
+  async _submitGmMessage() {
+    const raw = this._dom.gmInput?.value || '';
+    let parsed = null;
+    try {
+      parsed = this._parseGmMessage(raw);
+    } catch (err) {
+      this._appendGmMessage('error', err.message);
+      return;
+    }
+    if (parsed.kind === 'natural_language' && !this._gm.context?.assistant?.natural_language_available) {
+      this._appendGmMessage('error', 'Natural-language requests are unavailable. Run a tool directly, e.g. "validate_dungeon".');
+      return;
+    }
+    this._appendGmMessage('user', raw.trim());
+    if (this._dom.gmInput) {
+      this._dom.gmInput.value = '';
+    }
+    if (parsed.kind === 'natural_language') {
+      await this._sendGmRequest({ type: 'natural_language', utterance: parsed.utterance }, false, 'assistant');
+      return;
+    }
+    await this._invokeGmTool(parsed.toolName, parsed.args, !!this._dom.gmDryRun?.checked);
+  }
+
+  async _invokeGmTool(toolName, args, dryRun) {
+    return this._sendGmRequest({ type: 'tool_call', tool_name: toolName, arguments: args || {} }, !!dryRun, toolName);
+  }
+
+  /**
+   * Posts one request envelope and folds the response into shared editor state.
+   *
+   * A mutating tool goes through the same DungeonEditorService authority as
+   * manual editing, so after it reports a new revision the read model is
+   * re-fetched exactly as it is after a manual command.
+   */
+  async _sendGmRequest(intent, dryRun, label) {
+    if (!this.draft?.draft_id) {
+      this._appendGmMessage('error', 'Load or create a dungeon before using the assistant.');
+      return null;
+    }
+    if (!this.urls.gm) {
+      this._appendGmMessage('error', 'Editor GM harness endpoint is not configured.');
+      return null;
+    }
+    if (this._busy) {
+      this._appendGmMessage('error', 'Another request is still running.');
+      return null;
+    }
+    const body = {
+      schema_version: 'editor-gm-request-v1',
+      tool_context: {
+        tool_id: 'dungeon_editor',
+        draft_id: this.draft.draft_id,
+        validation_profile: this._gmProfile(),
+      },
+      intent,
+      options: { dry_run: !!dryRun },
+    };
+
+    this._setBusy(true);
+    this._setGmState(`Running ${label}...`);
+    let envelope = null;
+    try {
+      const result = await this._postJson(this._draftUrl('gm'), body);
+      envelope = result?.data || {};
+    } catch (err) {
+      this._setBusy(false);
+      this._appendGmMessage('error', `${label} failed: ${err?.message || 'unknown error'}${err?.code ? ` (${err.code})` : ''}`, err?.findings || undefined);
+      this._setGmState('Last request failed.', 'error');
+      if (err?.status === 409) {
+        await this.refresh().catch(() => {});
+      }
+      return null;
+    }
+    this._setBusy(false);
+
+    this._gm.context = envelope.context_snapshot || this._gm.context;
+    this._gm.manifest = this._gm.context?.tools || this._gm.manifest;
+    this._renderGmContext();
+    this._renderGmToolset();
+
+    if (Array.isArray(envelope.command_plan) && envelope.command_plan.length) {
+      this._setGmPlan(envelope.command_plan);
+    }
+    this._appendGmMessage(dryRun ? 'info' : 'success', `${label} → ${envelope.route_family}`, envelope.tool_result);
+    this._renderGmProposal(envelope.tool_result);
+    (envelope.messages || []).forEach((message) => {
+      this._appendGmMessage(message.level === 'error' ? 'error' : 'info', message.text);
+    });
+
+    const applied = envelope.tool_result?.final_revision;
+    if (Number.isInteger(applied) && !dryRun && applied !== this.model?.revision) {
+      // Assistant-applied commands join the same undo history as manual ones.
+      (envelope.tool_result.receipts || []).forEach((receipt) => {
+        if (receipt.command_type === 'undo') {
+          this._redoStack.push(receipt.command_id);
+        } else {
+          this._history.push(receipt.command_id);
+          if (receipt.command_type !== 'redo') {
+            this._redoStack = [];
+          }
+        }
+      });
+      this._setStatus(`Assistant applied ${label} (revision ${applied}).`, 'info');
+      await this.refresh().catch((err) => this._showError(err, 'Reload after assistant apply failed'));
+    } else {
+      this._setGmState(`Grounded on revision ${this._gm.context?.draft?.revision ?? '?'}.`);
+    }
+    return envelope;
+  }
+
+  /**
+   * Renders an approval affordance for a mutating tool the assistant proposed
+   * but is not allowed to run. Approval re-sends the call as an explicit
+   * tool_call intent, so the mutation is always author-authorised.
+   */
+  _renderGmProposal(result) {
+    const proposal = result?.proposed_execution;
+    if (!proposal || result.intent !== 'proposed_execution') {
+      return;
+    }
+    const list = this._dom.gmTranscript;
+    if (!list) {
+      return;
+    }
+    const item = makeEl('li', 'room-editor__gm-message room-editor__gm-message--warning');
+    item.appendChild(makeEl('span', null, `Proposed: ${proposal.tool_name} (${proposal.authority})`));
+    item.appendChild(makeEl('pre', null, JSON.stringify(proposal.arguments || {}, null, 2)));
+    const approve = makeEl('button', 'room-editor__button room-editor__button--primary', 'Approve and run');
+    approve.type = 'button';
+    approve.setAttribute('data-dungeon-editor-gm-approve', proposal.tool_name);
+    approve.addEventListener('click', () => {
+      approve.disabled = true;
+      this._invokeGmTool(proposal.tool_name, proposal.arguments || {}, false);
+    });
+    item.appendChild(approve);
+    list.appendChild(item);
+    list.scrollTop = list.scrollHeight;
+  }
+
+  _setGmPlan(plan) {
+    this._gm.plan = plan;
+    const panel = this._dom.gmPlan;
+    const list = this._dom.gmPlanList;
+    if (!panel || !list) {
+      return;
+    }
+    clearElement(list);
+    if (!plan || !plan.length) {
+      panel.hidden = true;
+      return;
+    }
+    plan.forEach((step) => {
+      list.appendChild(makeEl('li', null, `${step.command_type}: ${step.rationale || ''}`));
+    });
+    panel.hidden = false;
+  }
+
+  _gmPlanCommands() {
+    return (this._gm.plan || []).map((step) => ({
+      type: step.command_type,
+      payload: step.payload || {},
+      rationale: step.rationale || '',
+    }));
+  }
+
+  /**
+   * Projects the proposed plan through the harness without mutating the draft,
+   * so the author approves on evidence rather than on the rationale text.
+   */
+  async _previewGmPlan() {
+    if (!this._gm.plan?.length) {
+      this._appendGmMessage('error', 'There is no proposed plan to preview.');
+      return;
+    }
+    await this._invokeGmTool('preview_command_plan', {
+      commands: this._gmPlanCommands(),
+      profile: this._gmProfile(),
+    }, false);
+  }
+
+  async _applyGmPlan() {
+    if (!this._gm.plan?.length) {
+      this._appendGmMessage('error', 'There is no proposed plan to apply.');
+      return;
+    }
+    const commands = this._gmPlanCommands().map(({ type, payload }) => ({ type, payload }));
+    const result = await this._invokeGmTool('apply_dungeon_commands', {
+      expected_revision: this.model?.revision,
+      commands,
+    }, false);
+    if (result) {
+      this._setGmPlan(null);
     }
   }
 

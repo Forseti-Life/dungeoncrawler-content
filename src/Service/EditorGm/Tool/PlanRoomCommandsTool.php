@@ -5,6 +5,7 @@ namespace Drupal\dungeoncrawler_content\Service\EditorGm\Tool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolContext;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolDefinition;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolInterface;
+use Drupal\dungeoncrawler_content\Service\EditorGm\RoomEditorGmToolContext;
 
 /**
  * Planning tool: turns a structured authoring goal into Room Editor commands.
@@ -65,6 +66,7 @@ final class PlanRoomCommandsTool implements EditorGmToolInterface {
   }
 
   public function execute(array $arguments, EditorGmToolContext $context): array {
+    $context = RoomEditorGmToolContext::of($context);
     $goal = EditorGmToolContext::requireString($arguments, 'goal');
     if (!in_array($goal, self::GOALS, TRUE)) {
       throw new \InvalidArgumentException(sprintf('planning_goal_unsupported:%s', $goal));

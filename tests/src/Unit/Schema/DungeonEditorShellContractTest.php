@@ -652,10 +652,20 @@ class DungeonEditorShellContractTest extends TestCase {
     foreach (['dungeon_editor', 'dungeon_editor_edit', 'dungeon_editor_draft_create', 'dungeon_editor_draft_get', 'dungeon_editor_draft_describe', 'dungeon_editor_rooms', 'dungeon_editor_draft_command', 'dungeon_editor_draft_simulate', 'dungeon_editor_draft_validate'] as $route) {
       $this->assertContains($route, $names, $route . ' must exist.');
     }
+    foreach (['dungeon_editor_gm_describe', 'dungeon_editor_gm_execute'] as $route) {
+      $this->assertContains($route, $names, $route . ' must exist.');
+    }
     foreach ($matches as $match) {
       $this->assertStringContainsString("_user_is_logged_in: 'TRUE'", $match[2], $match[1]);
       $this->assertStringContainsString("_permission: 'edit canonical dungeoncrawler dungeons'", $match[2], $match[1]);
-      $this->assertStringContainsString('DungeonEditorController::', $match[2], $match[1]);
+      if (str_contains($match[1], '_gm_')) {
+        $this->assertStringContainsString('EditorGmController::', $match[2], $match[1]);
+        $this->assertStringContainsString('_surface: dungeon_editor', $match[2], $match[1] . ' must bind the dungeon_editor surface.');
+        $this->assertStringContainsString("path: '/api/dungeon-editor/drafts/{draft_id}/gm'", $match[2], $match[1]);
+      }
+      else {
+        $this->assertStringContainsString('DungeonEditorController::', $match[2], $match[1]);
+      }
     }
 
     $libraries = $this->source('dungeoncrawler_content.libraries.yml');

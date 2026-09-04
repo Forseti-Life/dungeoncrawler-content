@@ -110,22 +110,31 @@ class RoomEditorContractTest extends UnitTestCase {
     $services = Yaml::parseFile($module_root . '/dungeoncrawler_content.services.yml')['services'];
     $this->assertSame(
       [
-        '@dungeoncrawler_content.room_editor',
-        '@dungeoncrawler_content.editor_gm_tool_registry',
-        '@dungeoncrawler_content.room_editor_gm_context_assembler',
+        [
+          '@dungeoncrawler_content.editor_gm_surface.room_editor',
+          '@dungeoncrawler_content.editor_gm_surface.dungeon_editor',
+        ],
         '@dungeoncrawler_content.editor_gm_intent_parser',
-        '@dungeoncrawler_content.canonical_definitions',
       ],
-      $services['dungeoncrawler_content.editor_gm_harness']['arguments']
+      $services['dungeoncrawler_content.editor_gm_harness']['arguments'],
+      'The harness owns no editor authority of its own; every surface brings its own.'
+    );
+    $this->assertSame(
+      [
+        '@dungeoncrawler_content.room_editor',
+        '@dungeoncrawler_content.canonical_definitions',
+        '@dungeoncrawler_content.editor_gm_intent_parser',
+        '@uuid',
+      ],
+      $services['dungeoncrawler_content.editor_gm_surface.room_editor']['arguments']
     );
     $this->assertSame(
       [
         '@?ai_conversation.ai_api_service',
-        '@dungeoncrawler_content.editor_gm_tool_registry',
         '@logger.factory',
       ],
       $services['dungeoncrawler_content.editor_gm_intent_parser']['arguments'],
-      'The intent parser must treat the model provider as optional and hard fail without it.'
+      'The intent parser must treat the model provider as optional and hard fail without it, and must hold no toolset of its own.'
     );
     $this->assertSame(
       ['@database', '@current_user', '@uuid', '@dungeoncrawler_content.canonical_definitions'],
@@ -136,6 +145,7 @@ class RoomEditorContractTest extends UnitTestCase {
     foreach ([
       '/src/Service/EditorGm/EditorGmHarnessService.php',
       '/src/Service/EditorGm/EditorGmToolRegistry.php',
+      '/src/Service/EditorGm/RoomEditorGmSurface.php',
       '/src/Controller/EditorGmController.php',
     ] as $relative_path) {
       $source = (string) file_get_contents($module_root . $relative_path);
@@ -164,15 +174,20 @@ class RoomEditorContractTest extends UnitTestCase {
       512,
       JSON_THROW_ON_ERROR
     );
-    $registry_source = (string) file_get_contents($module_root . '/src/Service/EditorGm/EditorGmToolRegistry.php');
+    $surface_source = (string) file_get_contents($module_root . '/src/Service/EditorGm/RoomEditorGmSurface.php');
 
     foreach ($command_schema['properties']['type']['enum'] as $type) {
       $this->assertStringContainsString(
         "'" . $type . "'",
-        $registry_source,
-        sprintf('Command type %s must be declared in the harness toolset.', $type)
+        $surface_source,
+        sprintf('Command type %s must be declared in the Room Editor surface toolset.', $type)
       );
     }
+    $this->assertStringContainsString(
+      "'room_editor_command.schema.json'",
+      $surface_source,
+      'The Room Editor surface must ground payload contracts on the room command schema.'
+    );
 
     foreach (glob($module_root . '/src/Service/EditorGm/Tool/*.php') as $tool_path) {
       $source = (string) file_get_contents($tool_path);
@@ -234,10 +249,27 @@ class RoomEditorContractTest extends UnitTestCase {
       512,
       JSON_THROW_ON_ERROR
     );
+    $dungeon_schema = json_decode(
+      (string) file_get_contents($module_root . '/config/schemas/dungeon_editor_command.schema.json'),
+      TRUE,
+      512,
+      JSON_THROW_ON_ERROR
+    );
+    $plan_types = $plan_schema['$defs']['step']['properties']['command_type']['enum'];
+    $this->assertSame(array_values(array_unique($plan_types)), $plan_types, 'Plan command types must not repeat.');
+    $expected = array_values(array_unique(array_merge($command_schema['properties']['type']['enum'], $dungeon_schema['properties']['type']['enum'])));
+    sort($expected);
+    $actual = $plan_types;
+    sort($actual);
     $this->assertSame(
-      $command_schema['properties']['type']['enum'],
-      $plan_schema['$defs']['step']['properties']['command_type']['enum'],
-      'Planned steps must be constrained to real Room Editor command types.'
+      $expected,
+      $actual,
+      'Planned steps must be constrained to exactly the union of real Room Editor and Dungeon Editor command types.'
+    );
+    $this->assertStringContainsString(
+      'editor_gm_command_plan_type_unsupported',
+      (string) file_get_contents($module_root . '/src/Service/EditorGm/EditorGmHarnessService.php'),
+      'The harness must narrow each plan to the command types of the surface that produced it.'
     );
   }
 

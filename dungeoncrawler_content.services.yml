@@ -453,31 +453,37 @@ services:
   # Editor-embedded GM harness. Sibling of the runtime GM stack: it must never
   # depend on game_master_subsystem or gm_tool_execution, and RoomEditorService
   # must never depend on these services in return.
-  dungeoncrawler_content.editor_gm_tool_registry:
-    class: Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolRegistry
-    arguments: ['@uuid']
-
-  dungeoncrawler_content.room_editor_gm_context_assembler:
-    class: Drupal\dungeoncrawler_content\Service\EditorGm\RoomEditorGmContextAssembler
-    arguments:
-      - '@dungeoncrawler_content.editor_gm_tool_registry'
-      - '@dungeoncrawler_content.editor_gm_intent_parser'
-
   dungeoncrawler_content.editor_gm_intent_parser:
     class: Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmIntentParser
     arguments:
       - '@?ai_conversation.ai_api_service'
-      - '@dungeoncrawler_content.editor_gm_tool_registry'
       - '@logger.factory'
+
+  # One surface per editor. Each surface owns its toolset and reads/writes only
+  # through its own editor authority; the harness resolves the surface from the
+  # route and the request envelope's tool_id.
+  dungeoncrawler_content.editor_gm_surface.room_editor:
+    class: Drupal\dungeoncrawler_content\Service\EditorGm\RoomEditorGmSurface
+    arguments:
+      - '@dungeoncrawler_content.room_editor'
+      - '@dungeoncrawler_content.canonical_definitions'
+      - '@dungeoncrawler_content.editor_gm_intent_parser'
+      - '@uuid'
+
+  dungeoncrawler_content.editor_gm_surface.dungeon_editor:
+    class: Drupal\dungeoncrawler_content\Service\EditorGm\DungeonEditorGmSurface
+    arguments:
+      - '@dungeoncrawler_content.dungeon_editor'
+      - '@dungeoncrawler_content.canonical_definitions'
+      - '@dungeoncrawler_content.editor_gm_intent_parser'
+      - '@uuid'
 
   dungeoncrawler_content.editor_gm_harness:
     class: Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmHarnessService
     arguments:
-      - '@dungeoncrawler_content.room_editor'
-      - '@dungeoncrawler_content.editor_gm_tool_registry'
-      - '@dungeoncrawler_content.room_editor_gm_context_assembler'
+      - - '@dungeoncrawler_content.editor_gm_surface.room_editor'
+        - '@dungeoncrawler_content.editor_gm_surface.dungeon_editor'
       - '@dungeoncrawler_content.editor_gm_intent_parser'
-      - '@dungeoncrawler_content.canonical_definitions'
 
   dungeoncrawler_content.content_query:
     class: Drupal\dungeoncrawler_content\Service\ContentQuery
