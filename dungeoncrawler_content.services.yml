@@ -417,9 +417,18 @@ services:
   # Sole canonical definition authority. Every read and write of a canonical
   # object definition resolves here; no other service may query the registry or
   # actor tables for definition data.
+  # Definition editors. The validator and mapper are pure; the definition
+  # service is the only writer of canonical definitions.
+  dungeoncrawler_content.definition_schema_validator:
+    class: Drupal\dungeoncrawler_content\Service\Definition\DefinitionSchemaValidator
+
+  dungeoncrawler_content.definition_form_mapper:
+    class: Drupal\dungeoncrawler_content\Service\Definition\DefinitionFormMapper
+    arguments: ['@dungeoncrawler_content.definition_schema_validator']
+
   dungeoncrawler_content.canonical_definitions:
     class: Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService
-    arguments: ['@database']
+    arguments: ['@database', '@dungeoncrawler_content.definition_schema_validator']
 
   dungeoncrawler_content.room_editor:
     class: Drupal\dungeoncrawler_content\Service\RoomEditorService

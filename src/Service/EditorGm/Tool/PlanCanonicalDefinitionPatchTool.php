@@ -26,8 +26,7 @@ final class PlanCanonicalDefinitionPatchTool implements EditorGmToolInterface {
       [
         EditorGmToolDefinition::argument('family', 'string', TRUE, 'Placeable family.'),
         EditorGmToolDefinition::argument('definition_id', 'string', TRUE, 'Canonical definition id.'),
-        EditorGmToolDefinition::argument('patch', 'object', TRUE, 'Attribute keys to add or replace.'),
-        EditorGmToolDefinition::argument('name', 'string', FALSE, 'Replacement display name.'),
+        EditorGmToolDefinition::argument('patch', 'object', TRUE, 'Top-level payload keys to add or replace.'),
       ],
     );
   }
@@ -36,46 +35,51 @@ final class PlanCanonicalDefinitionPatchTool implements EditorGmToolInterface {
     $family = EditorGmToolContext::requireString($arguments, 'family');
     $definition_id = EditorGmToolContext::requireString($arguments, 'definition_id');
     $patch = EditorGmToolContext::requireArray($arguments, 'patch');
-    if ($patch === [] && !isset($arguments['name'])) {
+    if ($patch === []) {
       throw new \InvalidArgumentException('definition_patch_empty');
     }
 
-    $entry = $context->definitions->loadCanonicalEntry($family, $definition_id);
-    $current_attributes = is_array($entry['schema_data'] ?? NULL) ? $entry['schema_data'] : [];
-    $current_name = (string) ($entry['name'] ?? '');
-    $proposed_name = isset($arguments['name']) ? EditorGmToolContext::requireString($arguments, 'name') : $current_name;
-    $proposed_attributes = array_replace($current_attributes, $patch);
+    $current = $context->definitions->definitionPayload($family, $definition_id);
+    $proposed = array_replace($current, $patch);
 
     $field_changes = [];
     foreach ($patch as $key => $value) {
-      $before = $current_attributes[$key] ?? NULL;
+      $before = $current[$key] ?? NULL;
       if ($before !== $value) {
         $field_changes[] = [
           'field' => (string) $key,
           'before' => $before,
           'after' => $value,
-          'is_new_field' => !array_key_exists($key, $current_attributes),
+          'is_new_field' => !array_key_exists($key, $current),
         ];
       }
     }
 
+    $findings = $context->definitions->validateDefinition($family, $proposed);
+    $affected_rooms = $context->definitions->publishedRoomsReferencing($family, $definition_id);
+    $current_version = $context->definitions->currentVersion($family, $definition_id);
+
     return [
       'family' => $family,
       'definition_id' => $definition_id,
-      'name_changes' => $proposed_name === $current_name
-        ? NULL
-        : ['before' => $current_name, 'after' => $proposed_name],
       'field_changes' => $field_changes,
-      'has_changes' => $field_changes !== [] || $proposed_name !== $current_name,
-      'proposed_execution' => [
+      'has_changes' => $field_changes !== [],
+      'valid' => $findings === [],
+      'findings' => $findings,
+      'current_version' => $current_version,
+      'affected_published_rooms' => $affected_rooms,
+      'version_after_save' => $affected_rooms === [] || $current_version === NULL
+        ? $current_version
+        : $context->definitions->incrementPatch($context->definitions->normalizeSemanticVersion($current_version)),
+      'proposed_execution' => $findings === [] ? [
         'tool_name' => 'update_canonical_definition',
         'arguments' => [
           'family' => $family,
           'definition_id' => $definition_id,
-          'name' => $proposed_name,
-          'schema_data' => $proposed_attributes,
+          'payload' => $proposed,
+          'expected_version' => $current_version,
         ],
-      ],
+      ] : NULL,
     ];
   }
 

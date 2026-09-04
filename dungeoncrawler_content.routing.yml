@@ -67,17 +67,103 @@ dungeoncrawler_content.room_editor_catalog_entry:
     family: 'creature|actor|item|obstacle|trap|hazard'
     definition_id: '[a-zA-Z0-9][a-zA-Z0-9_-]{0,149}'
 
-dungeoncrawler_content.canonical_library_edit:
-  path: '/admin/content/dungeoncrawler/canonical-library/{family}/{definition_id}'
+# Canonical definition editors (19-definition-editor-spec.md). One
+# schema-driven form for all six families; no raw JSON control anywhere.
+dungeoncrawler_content.definition_index:
+  path: '/admin/content/dungeoncrawler/canonical-library'
   defaults:
-    _form: '\Drupal\dungeoncrawler_content\Form\CanonicalObjectEditForm'
-    _title: 'Canonical Object Editor'
+    _controller: '\Drupal\dungeoncrawler_content\Controller\DefinitionEditorController::index'
+    _title: 'Canonical Library'
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'edit canonical dungeoncrawler definitions'
+
+dungeoncrawler_content.definition_family:
+  path: '/admin/content/dungeoncrawler/canonical-library/{family}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\DefinitionEditorController::family'
+    _title_callback: '\Drupal\dungeoncrawler_content\Controller\DefinitionEditorController::familyTitle'
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'edit canonical dungeoncrawler definitions'
+    family: 'creature|actor|item|obstacle|trap|hazard'
+
+dungeoncrawler_content.definition_create:
+  path: '/admin/content/dungeoncrawler/canonical-library/{family}/new'
+  defaults:
+    _form: '\Drupal\dungeoncrawler_content\Form\SchemaDrivenDefinitionForm'
+    _title_callback: '\Drupal\dungeoncrawler_content\Form\SchemaDrivenDefinitionForm::title'
   methods: [GET, POST]
   requirements:
     _user_is_logged_in: 'TRUE'
-    _permission: 'edit canonical dungeoncrawler rooms'
+    _permission: 'edit canonical dungeoncrawler definitions'
     family: 'creature|actor|item|obstacle|trap|hazard'
-    definition_id: '[a-zA-Z0-9][a-zA-Z0-9_-]{0,149}'
+
+dungeoncrawler_content.definition_edit:
+  path: '/admin/content/dungeoncrawler/canonical-library/{family}/{definition_id}'
+  defaults:
+    _form: '\Drupal\dungeoncrawler_content\Form\SchemaDrivenDefinitionForm'
+    _title_callback: '\Drupal\dungeoncrawler_content\Form\SchemaDrivenDefinitionForm::title'
+  methods: [GET, POST]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'edit canonical dungeoncrawler definitions'
+    family: 'creature|actor|item|obstacle|trap|hazard'
+    definition_id: '(?!new$)[a-zA-Z0-9][a-zA-Z0-9_-]{0,149}'
+
+dungeoncrawler_content.definition_api_list:
+  path: '/api/canonical-definitions/{family}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\DefinitionEditorController::apiList'
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'edit canonical dungeoncrawler definitions'
+    family: 'creature|actor|item|obstacle|trap|hazard'
+
+dungeoncrawler_content.definition_api_create:
+  path: '/api/canonical-definitions/{family}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\DefinitionEditorController::apiCreate'
+  methods: [POST]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'edit canonical dungeoncrawler definitions'
+    family: 'creature|actor|item|obstacle|trap|hazard'
+
+dungeoncrawler_content.definition_api_schema:
+  path: '/api/canonical-definitions/{family}/schema'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\DefinitionEditorController::apiSchema'
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'edit canonical dungeoncrawler definitions'
+    family: 'creature|actor|item|obstacle|trap|hazard'
+
+dungeoncrawler_content.definition_api_load:
+  path: '/api/canonical-definitions/{family}/{definition_id}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\DefinitionEditorController::apiLoad'
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'edit canonical dungeoncrawler definitions'
+    family: 'creature|actor|item|obstacle|trap|hazard'
+    definition_id: '(?!schema$)[a-zA-Z0-9][a-zA-Z0-9_-]{0,149}'
+
+dungeoncrawler_content.definition_api_save:
+  path: '/api/canonical-definitions/{family}/{definition_id}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\DefinitionEditorController::apiSave'
+  methods: [PUT]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'edit canonical dungeoncrawler definitions'
+    family: 'creature|actor|item|obstacle|trap|hazard'
+    definition_id: '(?!schema$)[a-zA-Z0-9][a-zA-Z0-9_-]{0,149}'
 
 dungeoncrawler_content.room_editor_draft_create:
   path: '/api/room-editor/drafts'

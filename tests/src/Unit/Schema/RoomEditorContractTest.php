@@ -213,7 +213,7 @@ class RoomEditorContractTest extends UnitTestCase {
     ] as $class) {
       $source = (string) file_get_contents($module_root . '/src/Service/EditorGm/Tool/' . $class . '.php');
       $this->assertStringContainsString('FAMILY_PLANNING', $source, $class . ' must declare the planning family.');
-      foreach (['applyCommand(', 'saveCanonicalEntry(', 'publish(', 'createDraft('] as $mutator) {
+      foreach (['applyCommand(', 'saveDefinition(', 'publish(', 'createDraft('] as $mutator) {
         $this->assertStringNotContainsString(
           '->' . $mutator,
           $source,

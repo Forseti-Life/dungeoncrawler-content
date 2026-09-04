@@ -23,7 +23,11 @@ class CanonicalDefinitionAuthorityTest extends TestCase {
     'catalog(',
     'catalogEntry(',
     'loadCanonicalEntry(',
-    'saveCanonicalEntry(',
+    'saveDefinition(',
+    'definitionPayload(',
+    'validateDefinition(',
+    'publishedRoomsReferencing(',
+    'schemaForFamily(',
     'definitionExists(',
     'normalizeDefinition(',
     'normalizeSemanticVersion(',
@@ -98,7 +102,8 @@ class CanonicalDefinitionAuthorityTest extends TestCase {
    */
   public function testConsumersResolveThroughTheAuthority(): void {
     $consumers = [
-      'src/Form/CanonicalObjectEditForm.php',
+      'src/Form/SchemaDrivenDefinitionForm.php',
+      'src/Controller/DefinitionEditorController.php',
       'src/Controller/RoomEditorController.php',
       'src/Service/EditorGm/Tool/LoadCanonicalDefinitionTool.php',
       'src/Service/EditorGm/Tool/UpdateCanonicalDefinitionTool.php',
@@ -155,11 +160,12 @@ class CanonicalDefinitionAuthorityTest extends TestCase {
     $this->assertSame(
       2,
       substr_count($services, "'@dungeoncrawler_content.canonical_definitions'"),
-      'The authority must be injected into its two constructor consumers: the room editor and the GM harness. The form and controller resolve it from the container by name.'
+      'The authority must be injected into its two constructor consumers: the room editor and the GM harness. Forms and controllers resolve it from the container by name.'
     );
 
     foreach ([
-      'src/Form/CanonicalObjectEditForm.php',
+      'src/Form/SchemaDrivenDefinitionForm.php',
+      'src/Controller/DefinitionEditorController.php',
       'src/Controller/RoomEditorController.php',
     ] as $relative) {
       $this->assertStringContainsString(

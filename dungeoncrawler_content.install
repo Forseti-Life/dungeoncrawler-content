@@ -5002,6 +5002,103 @@ function dungeoncrawler_content_update_10198() {
 }
 
 /**
+ * Audit every canonical definition family against its schema.
+ *
+ * Slice 2 ships schema-driven definition editors for all six families. This
+ * audit records, per definition, exactly what the editor will surface on
+ * open, so the reconciliation backlog is visible in one place. No row is
+ * migrated and no schema is loosened here; that is a product decision owned
+ * by pm-dungeoncrawler.
+ */
+function dungeoncrawler_content_update_10199() {
+  $database = \Drupal::database();
+  $now = \Drupal::time()->getRequestTime();
+  /** @var \Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService $definitions */
+  $definitions = \Drupal::service('dungeoncrawler_content.canonical_definitions');
+
+  $database->delete('dungeoncrawler_content_editor_review_flags')
+    ->condition('audit_hook', 'update_10199')
+    ->execute();
+
+  $summary = [];
+  foreach ($definitions->families() as $family) {
+    $checked = 0;
+    $failed = 0;
+    if ($family === 'actor') {
+      $rows = $database->select('dc_canonical_actors', 'a')
+        ->fields('a', ['actor_id', 'version', 'actor_type', 'display_name', 'state_data'])
+        ->execute();
+      foreach ($rows as $row) {
+        $checked++;
+        $state = json_decode((string) $row->state_data, TRUE);
+        $payload = [
+          'actor_id' => (string) $row->actor_id,
+          'version' => (string) $row->version,
+          'actor_type' => (string) $row->actor_type,
+          'display_name' => (string) $row->display_name,
+          'state_data' => is_array($state) ? $state : $row->state_data,
+        ];
+        $failed += _dungeoncrawler_content_flag_definition_findings($database, $definitions, $family, (string) $row->actor_id, $payload, $now);
+      }
+    }
+    else {
+      $rows = $database->select('dungeoncrawler_content_registry', 'r')
+        ->fields('r', ['content_id', 'schema_data'])
+        ->condition('content_type', $definitions->registryContentType($family))
+        ->execute();
+      foreach ($rows as $row) {
+        $checked++;
+        $payload = json_decode((string) $row->schema_data, TRUE);
+        if (!is_array($payload)) {
+          throw new \RuntimeException('definition_schema_data_unreadable:' . $family . ':' . $row->content_id);
+        }
+        $failed += _dungeoncrawler_content_flag_definition_findings($database, $definitions, $family, (string) $row->content_id, $payload, $now);
+      }
+    }
+    $summary[] = $family . ' ' . $failed . '/' . $checked;
+  }
+
+  $message = 'Canonical definition audit (nonconforming/checked): ' . implode(', ', $summary) . '. No row was migrated and no schema was loosened.';
+  \Drupal::logger('dungeoncrawler_content')->notice($message);
+  return $message;
+}
+
+/**
+ * Records one definition's schema findings as a review flag.
+ *
+ * @return int
+ *   1 when the definition is nonconforming, 0 when it validates.
+ */
+function _dungeoncrawler_content_flag_definition_findings($database, $definitions, string $family, string $definition_id, array $payload, int $now): int {
+  $findings = $definitions->validateDefinition($family, $payload);
+  if ($findings === []) {
+    return 0;
+  }
+  $codes = array_count_values(array_column($findings, 'code'));
+  ksort($codes);
+  $database->merge('dungeoncrawler_content_editor_review_flags')
+    ->keys([
+      'flag' => 'definition_schema_nonconforming',
+      'subject_type' => 'definition',
+      'subject_id' => $family . ':' . $definition_id,
+      'detail_key' => (string) $findings[0]['pointer'],
+    ])
+    ->fields([
+      'finding' => json_encode([
+        'family' => $family,
+        'definition_id' => $definition_id,
+        'finding_count' => count($findings),
+        'codes' => $codes,
+        'findings' => $findings,
+      ], JSON_UNESCAPED_SLASHES),
+      'audit_hook' => 'update_10199',
+      'created_at' => $now,
+    ])
+    ->execute();
+  return 1;
+}
+
+/**
  * Normalize one legacy canonical room row for migration and editor drafts.
  */
 function _dungeoncrawler_content_room_editor_legacy_aggregate(array $row): array {

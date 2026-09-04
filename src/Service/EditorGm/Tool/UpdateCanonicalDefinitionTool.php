@@ -7,11 +7,13 @@ use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolDefinition;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolInterface;
 
 /**
- * Definition tool: persists approved canonical definition edits.
+ * Definition tool: persists an approved, schema-validated definition.
  *
- * Mutation is delegated to RoomEditorService so canonical library authority
- * stays in one place. The tool refuses partial payloads: callers must send the
- * full name and attribute payload they intend to store.
+ * Mutation is delegated to CanonicalDefinitionService::saveDefinition(), the
+ * single validated write path shared with the human definition editor. The
+ * tool refuses partial payloads: callers send the complete schema-shaped
+ * payload they intend to store, and an invalid payload hard-fails with
+ * per-pointer findings rather than being written blind.
  */
 final class UpdateCanonicalDefinitionTool implements EditorGmToolInterface {
 
@@ -19,14 +21,14 @@ final class UpdateCanonicalDefinitionTool implements EditorGmToolInterface {
     return new EditorGmToolDefinition(
       'update_canonical_definition',
       EditorGmToolDefinition::FAMILY_DEFINITION,
-      'Persist an approved edit to one canonical object definition.',
+      'Persist an approved, schema-validated edit to one canonical object definition.',
       TRUE,
-      'CanonicalDefinitionService::saveCanonicalEntry()',
+      'CanonicalDefinitionService::saveDefinition()',
       [
         EditorGmToolDefinition::argument('family', 'string', TRUE, 'Placeable family.'),
         EditorGmToolDefinition::argument('definition_id', 'string', TRUE, 'Canonical definition id.'),
-        EditorGmToolDefinition::argument('name', 'string', TRUE, 'Definition display name.'),
-        EditorGmToolDefinition::argument('schema_data', 'object', TRUE, 'Complete attribute payload to store.'),
+        EditorGmToolDefinition::argument('payload', 'object', TRUE, 'Complete schema-shaped definition payload to store.'),
+        EditorGmToolDefinition::argument('expected_version', 'string', FALSE, 'Version the edit was planned against; rejects concurrent edits.'),
       ],
     );
   }
@@ -34,19 +36,18 @@ final class UpdateCanonicalDefinitionTool implements EditorGmToolInterface {
   public function execute(array $arguments, EditorGmToolContext $context): array {
     $family = EditorGmToolContext::requireString($arguments, 'family');
     $definition_id = EditorGmToolContext::requireString($arguments, 'definition_id');
-    $name = EditorGmToolContext::requireString($arguments, 'name');
-    $schema_data = EditorGmToolContext::requireArray($arguments, 'schema_data');
+    $payload = EditorGmToolContext::requireArray($arguments, 'payload');
+    $expected_version = isset($arguments['expected_version'])
+      ? EditorGmToolContext::requireString($arguments, 'expected_version')
+      : NULL;
 
-    $before = $context->definitions->loadCanonicalEntry($family, $definition_id);
-    $context->definitions->saveCanonicalEntry($family, $definition_id, $name, $schema_data);
-    $after = $context->definitions->loadCanonicalEntry($family, $definition_id);
+    $before = $context->definitions->definitionPayload($family, $definition_id);
+    $result = $context->definitions->saveDefinition($family, $definition_id, $payload, $expected_version);
+    $after = $context->definitions->definitionPayload($family, $definition_id);
 
-    return [
-      'family' => $family,
-      'definition_id' => $definition_id,
-      'name_changed' => $before['name'] !== $after['name'],
-      'attributes_changed' => $before['schema_data'] !== $after['schema_data'],
-      'entry' => $after,
+    return $result + [
+      'changed' => $before !== $after,
+      'payload' => $after,
     ];
   }
 

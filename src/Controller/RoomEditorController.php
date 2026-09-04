@@ -78,7 +78,7 @@ class RoomEditorController extends ControllerBase {
                 'canonicalLibraryEdit' => str_replace(
                   [$family_placeholder, $definition_placeholder],
                   ['{family}', '{definition_id}'],
-                  Url::fromRoute('dungeoncrawler_content.canonical_library_edit', [
+                  Url::fromRoute('dungeoncrawler_content.definition_edit', [
                     'family' => $family_placeholder,
                     'definition_id' => $definition_placeholder,
                   ])->toString()
