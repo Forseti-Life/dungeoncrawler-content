@@ -1,0 +1,79 @@
+/**
+ * Dungeon Editor additions on top of room-editor.css.
+ *
+ * The three-column grid, drawer, header, GM panel, and validation list are
+ * the Room Editor's classes, reused verbatim. Only map-specific pieces live
+ * here.
+ */
+
+.dungeon-editor__revision {
+  font-size: var(--text-sm, 0.85em);
+  color: var(--text-muted, #94a3b8);
+  white-space: nowrap;
+}
+
+.dungeon-editor__room-list,
+.dungeon-editor__placement-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.dungeon-editor__room-item,
+.dungeon-editor__placement-item {
+  display: grid;
+  grid-template-columns: 12px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 8px;
+  border-radius: var(--radius-md, 6px);
+  background: var(--overlay-white-04, rgba(255, 255, 255, 0.04));
+  font-size: var(--text-sm, 0.85em);
+  cursor: default;
+}
+
+.dungeon-editor__placement-item {
+  cursor: pointer;
+}
+
+.dungeon-editor__placement-item[aria-selected="true"] {
+  outline: 2px solid var(--accent-strong, #38bdf8);
+}
+
+.dungeon-editor__swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  display: inline-block;
+}
+
+.dungeon-editor__item-meta {
+  color: var(--text-muted, #94a3b8);
+  white-space: nowrap;
+}
+
+.dungeon-editor__item-link {
+  color: inherit;
+  text-decoration: underline dotted;
+}
+
+.dungeon-editor__inspector-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 10px;
+  font-size: var(--text-sm, 0.85em);
+}
+
+.dungeon-editor__inspector-grid dt {
+  color: var(--text-muted, #94a3b8);
+}
+
+.dungeon-editor__inspector-grid dd {
+  margin: 0;
+  word-break: break-all;
+}

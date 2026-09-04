@@ -438,6 +438,18 @@ services:
       - '@uuid'
       - '@dungeoncrawler_content.canonical_definitions'
 
+  # Dungeon authoring authority. Independent of room_editor by contract
+  # (02-target-architecture.md): neither service may appear in the other's
+  # constructor. Enforced by DungeonEditorContractTest.
+  dungeoncrawler_content.dungeon_editor:
+    class: Drupal\dungeoncrawler_content\Service\DungeonEditorService
+    arguments:
+      - '@database'
+      - '@current_user'
+      - '@uuid'
+      - '@dungeoncrawler_content.definition_schema_validator'
+      - '@dungeoncrawler_content.canonical_definitions'
+
   # Editor-embedded GM harness. Sibling of the runtime GM stack: it must never
   # depend on game_master_subsystem or gm_tool_execution, and RoomEditorService
   # must never depend on these services in return.

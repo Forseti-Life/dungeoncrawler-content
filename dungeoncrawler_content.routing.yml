@@ -67,6 +67,66 @@ dungeoncrawler_content.room_editor_catalog_entry:
     family: 'creature|actor|item|obstacle|trap|hazard'
     definition_id: '[a-zA-Z0-9][a-zA-Z0-9_-]{0,149}'
 
+# Canonical Dungeon Editor (02-target-architecture.md). Slice 3 is read-only:
+# page, draft create/load/describe, and the published room library. Every
+# route is behind authentication and its own permission.
+dungeoncrawler_content.dungeon_editor:
+  path: '/admin/content/dungeoncrawler/dungeon-editor'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\DungeonEditorController::page'
+    _title: 'Dungeon Editor'
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'edit canonical dungeoncrawler dungeons'
+
+dungeoncrawler_content.dungeon_editor_edit:
+  path: '/admin/content/dungeoncrawler/dungeon-editor/{dungeon_id}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\DungeonEditorController::page'
+    _title: 'Dungeon Editor'
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'edit canonical dungeoncrawler dungeons'
+    dungeon_id: '[a-z0-9][a-z0-9_-]{0,99}'
+
+dungeoncrawler_content.dungeon_editor_draft_create:
+  path: '/api/dungeon-editor/drafts'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\DungeonEditorController::createDraft'
+  methods: [POST]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'edit canonical dungeoncrawler dungeons'
+
+dungeoncrawler_content.dungeon_editor_draft_get:
+  path: '/api/dungeon-editor/drafts/{draft_id}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\DungeonEditorController::getDraft'
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'edit canonical dungeoncrawler dungeons'
+    draft_id: '[0-9a-f-]{36}'
+
+dungeoncrawler_content.dungeon_editor_draft_describe:
+  path: '/api/dungeon-editor/drafts/{draft_id}/describe'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\DungeonEditorController::describe'
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'edit canonical dungeoncrawler dungeons'
+    draft_id: '[0-9a-f-]{36}'
+
+dungeoncrawler_content.dungeon_editor_rooms:
+  path: '/api/dungeon-editor/rooms'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\DungeonEditorController::rooms'
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'edit canonical dungeoncrawler dungeons'
+
 # Canonical definition editors (19-definition-editor-spec.md). One
 # schema-driven form for all six families; no raw JSON control anywhere.
 dungeoncrawler_content.definition_index:

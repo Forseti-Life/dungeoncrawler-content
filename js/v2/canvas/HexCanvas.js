@@ -25,6 +25,9 @@
  *
  * Subscribes to bus events:
  *   room:changed               — regenerate hex grid for new room
+ *   map:changed                — regenerate hex grid for a level map aggregate
+ *                                ({ mapId, placements, ports, links, occupancy });
+ *                                additive to room:changed, see _renderMapAggregate
  *   canvas:coordinates-toggled — redraw grid labels
  *   canvas:grid-toggled        — redraw grid lines
  *   canvas:reset-view          — restore default camera transform
@@ -80,6 +83,16 @@ export class HexCanvas {
     this.currentRoom = null;
     this.currentRoomId = null;
 
+    /**
+     * Level-map aggregate from the additive `map:changed` contract. When set it
+     * takes precedence over currentRoom in generateHexGrid(). The Room Editor
+     * and the gameplay Map tab never emit map:changed, so their rendering path
+     * is untouched. The canvas knows nothing about dungeons, drafts, or
+     * commands: every hex here is already in level space.
+     * @type {{mapId: string|null, placements: Array, ports: Array, links: Array, occupancy: object}|null}
+     */
+    this.currentMap = null;
+
     this._unsubs = [];
     this._lastRoomTransitionId = '';
     this._wheelHandler = null;
@@ -131,6 +144,18 @@ export class HexCanvas {
         if (room?.name) {
           this.showRoomBanner(room.name, room.subtitle ?? null);
         }
+      }),
+      this.bus.on('map:changed', ({ mapId = null, placements = null, ports = [], links = [], occupancy = {} } = {}) => {
+        this.currentMap = Array.isArray(placements)
+          ? {
+            mapId: mapId ? String(mapId) : null,
+            placements,
+            ports: Array.isArray(ports) ? ports : [],
+            links: Array.isArray(links) ? links : [],
+            occupancy: occupancy && typeof occupancy === 'object' ? occupancy : {},
+          }
+          : null;
+        this.generateHexGrid();
       }),
       this.bus.on('canvas:coordinates-toggled', ({ enabled } = {}) => {
         this.config.showCoordinates = Boolean(enabled);
@@ -276,6 +301,12 @@ export class HexCanvas {
     this._hideHexHoverInfo();
 
     const { hexSize, gridWidth, gridHeight } = this.config;
+
+    if (this.currentMap) {
+      this._renderMapAggregate(this.currentMap, hexSize);
+      return;
+    }
+
     const roomHexes = _getRoomHexes(this.currentRoom);
 
     if (roomHexes.length) {
@@ -296,6 +327,89 @@ export class HexCanvas {
         this._createHex(q, r, hexSize, _resolveHexStyleForCanvas(DEFAULT_HEX_STYLE, this.config), null);
       }
     }
+  }
+
+  /**
+   * Render a level-map aggregate: footprints, ports, and links.
+   *
+   * Layers, bottom to top, inside the world container so pan/zoom apply
+   * uniformly: footprint hexes (hexContainer), port markers and link lines
+   * (propsContainer). A hex claimed by more than one placement is drawn in
+   * the overlap style regardless of terrain; the author must see it.
+   *
+   * @param {{placements: Array, ports: Array, links: Array, occupancy: object}} map
+   * @param {number} hexSize
+   */
+  _renderMapAggregate(map, hexSize) {
+    const occupancy = map.occupancy || {};
+    map.placements.forEach((placement, index) => {
+      const tint = _placementTint(placement, index);
+      const hexes = Array.isArray(placement?.hexes) ? placement.hexes : [];
+      hexes.forEach((hex) => {
+        const q = Number(hex?.q);
+        const r = Number(hex?.r);
+        if (!Number.isInteger(q) || !Number.isInteger(r)) {
+          return;
+        }
+        const claimants = occupancy[`${q}:${r}`];
+        const overlapping = Array.isArray(claimants) && claimants.length > 1;
+        const terrainStyle = _resolveRoomHexStyle(hex);
+        const style = overlapping
+          ? MAP_OVERLAP_HEX_STYLE
+          : { ...terrainStyle, fillColor: _blendColor(terrainStyle.fillColor, tint, 0.45), lineColor: tint };
+        const mapHex = {
+          ...hex,
+          hex_id: `${placement.placementId || placement.placement_id || index}:${q}:${r}`,
+          placement_id: placement.placementId || placement.placement_id || null,
+          placement_label: placement.label || null,
+        };
+        const graphic = this._createHex(q, r, hexSize, _resolveHexStyleForCanvas(style, this.config), mapHex);
+        graphic.mapHexData = mapHex;
+      });
+    });
+
+    if (!this.propsContainer) {
+      return;
+    }
+    const overlay = new PIXI.Graphics();
+    overlay.name = 'mapAggregateOverlay';
+    overlay.eventMode = 'none';
+    map.links.forEach((link) => {
+      const from = link?.from;
+      const to = link?.to;
+      if (!from || !to) {
+        return;
+      }
+      const a = this.axialToPixel(Number(from.q), Number(from.r), hexSize);
+      const b = this.axialToPixel(Number(to.q), Number(to.r), hexSize);
+      overlay.lineStyle(3, link?.kind === 'secret_door' ? 0xa855f7 : 0xf8fafc, 0.9);
+      overlay.moveTo(a.x, a.y);
+      overlay.lineTo(b.x, b.y);
+    });
+    map.ports.forEach((port) => {
+      const q = Number(port?.q);
+      const r = Number(port?.r);
+      const edge = Number(port?.edge);
+      if (!Number.isInteger(q) || !Number.isInteger(r) || !Number.isInteger(edge)) {
+        return;
+      }
+      const center = this.axialToPixel(q, r, hexSize);
+      // Edge e faces EDGE_DIRECTIONS[e]; marker sits on that edge's midpoint.
+      const angle = (Math.PI / 3) * edge + Math.PI / 6;
+      const x = center.x + Math.cos(angle) * hexSize * 0.8;
+      const y = center.y + Math.sin(angle) * hexSize * 0.8;
+      const isEntry = port?.kind === 'entry';
+      const color = isEntry ? 0x38bdf8 : (port?.linked ? 0x22c55e : 0xf59e0b);
+      overlay.lineStyle(2, color, 1);
+      if (isEntry || port?.linked) {
+        overlay.beginFill(color, 0.9);
+      }
+      overlay.drawCircle(x, y, hexSize * 0.18);
+      if (isEntry || port?.linked) {
+        overlay.endFill();
+      }
+    });
+    this.propsContainer.addChild(overlay);
   }
 
   /**
@@ -709,6 +823,7 @@ export class HexCanvas {
       this.gridContainer.addChild(label);
       hex.hexCoordText = label;
     }
+    return hex;
   }
 
   _renderHexAttributeIndicators(pos, size, roomHex = null) {
@@ -988,6 +1103,36 @@ const DEFAULT_HEX_STYLE = {
   lineWidth: 1,
   showCoordinates: false,
 };
+
+const MAP_OVERLAP_HEX_STYLE = {
+  fillColor: 0xdc2626,
+  fillAlpha: 0.95,
+  lineColor: 0xfecaca,
+  lineAlpha: 1,
+  lineWidth: 2,
+  showCoordinates: false,
+};
+
+const MAP_PLACEMENT_TINTS = [
+  0x60a5fa, 0x34d399, 0xfbbf24, 0xf472b6, 0xa78bfa, 0xfb923c, 0x2dd4bf, 0xe879f9,
+];
+
+function _placementTint(placement, index) {
+  const explicit = Number(placement?.tint);
+  if (Number.isInteger(explicit) && explicit >= 0 && explicit <= 0xffffff) {
+    return explicit;
+  }
+  return MAP_PLACEMENT_TINTS[index % MAP_PLACEMENT_TINTS.length];
+}
+
+function _blendColor(base, tint, weight) {
+  const mix = (shift) => {
+    const a = (base >> shift) & 0xff;
+    const b = (tint >> shift) & 0xff;
+    return Math.round(a * (1 - weight) + b * weight) & 0xff;
+  };
+  return (mix(16) << 16) | (mix(8) << 8) | mix(0);
+}
 
 function _getRoomHexes(room = null) {
   return Array.isArray(room?.hexes)

@@ -1,0 +1,121 @@
+{#
+/**
+ * @file
+ * Canonical Dungeon Editor shell (slice 3: read-only).
+ *
+ * Layout contract, shared with the Room Editor:
+ *   [author drawer] | [level canvas] | [GM assistant panel]
+ * The drawer starts collapsed; the assistant panel owns the freed space.
+ *
+ * Slice 3 renders a dungeon and changes nothing. Placement, links, regions,
+ * publication, and the assistant's dungeon_editor surface arrive in later
+ * slices; controls for them are absent, not disabled, so nothing on this
+ * page promises a capability the server does not yet have.
+ *
+ * Available variables:
+ * - dungeons: List of { dungeon_id, name, publication_status, published_version_id }.
+ * - selected_dungeon_id: Optional dungeon_id to auto-load.
+ * Full editor state is attached via
+ * drupalSettings.dungeoncrawlerContent.dungeonEditor for
+ * js/v2/editor/DungeonEditorShell.js.
+ */
+#}
+<div class="hexmap-container room-editor dungeon-editor" data-dungeon-editor>
+  <div class="game-shell" data-dungeon-editor-shell>
+
+    <header class="room-editor__header">
+      <div class="room-editor__header-row">
+        <button type="button"
+                class="room-editor__button room-editor__drawer-toggle"
+                data-dungeon-editor-action="toggle-author-drawer"
+                aria-expanded="false"
+                aria-controls="dungeon-editor-author-drawer"
+                title="{{ 'Show or hide the manual authoring tools'|t }}">{{ 'Author Tools'|t }}</button>
+
+        <div class="room-editor__field room-editor__field--inline">
+          <label for="dungeon-editor-dungeon-select">{{ 'Dungeon'|t }}</label>
+          <select id="dungeon-editor-dungeon-select" data-dungeon-editor-dungeon-select>
+            <option value="">{{ '- Select a dungeon -'|t }}</option>
+            {% for dungeon in dungeons %}
+              <option value="{{ dungeon.dungeon_id }}"{% if dungeon.dungeon_id == selected_dungeon_id %} selected{% endif %}>
+                {{ dungeon.name }} ({{ dungeon.publication_status }})
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+        <button type="button" class="room-editor__button" data-dungeon-editor-action="load-dungeon">{{ 'Load'|t }}</button>
+        <button type="button" class="room-editor__button" data-dungeon-editor-action="new-dungeon">{{ 'New Dungeon'|t }}</button>
+
+        <span class="room-editor__spacer"></span>
+
+        <span class="dungeon-editor__revision" data-dungeon-editor-revision></span>
+      </div>
+
+      <div class="room-editor__status" data-dungeon-editor-status role="status" aria-live="polite">
+        {{ 'Loading canonical Dungeon Editor...'|t }}
+      </div>
+    </header>
+
+    <div class="game-shell__workspace room-editor__workspace" data-dungeon-editor-workspace>
+
+      <aside id="dungeon-editor-author-drawer"
+             class="room-editor__author-drawer"
+             data-dungeon-editor-author-drawer
+             aria-label="{{ 'Manual authoring tools'|t }}"
+             hidden>
+
+        <section class="room-editor__drawer-section" data-dungeon-editor-room-library aria-label="{{ 'Room library'|t }}">
+          <p class="room-editor__eyebrow">{{ 'Room Library'|t }}</p>
+          <p class="room-editor__hint">{{ 'Published room versions. Placement arrives in slice 4.'|t }}</p>
+          <ul class="dungeon-editor__room-list" data-dungeon-editor-room-list role="list"></ul>
+          <p class="room-editor__catalog-empty" data-dungeon-editor-room-list-empty hidden>{{ 'No published rooms.'|t }}</p>
+        </section>
+
+        <section class="room-editor__drawer-section" data-dungeon-editor-placements aria-label="{{ 'Placements'|t }}">
+          <p class="room-editor__eyebrow">{{ 'Placements'|t }}</p>
+          <ul class="dungeon-editor__placement-list" data-dungeon-editor-placement-list role="list"></ul>
+          <p class="room-editor__hint" data-dungeon-editor-placement-empty hidden>{{ 'This level has no placements.'|t }}</p>
+        </section>
+
+        <section class="room-editor__drawer-section room-editor__inspector" data-dungeon-editor-inspector aria-label="{{ 'Inspector'|t }}">
+          <p class="room-editor__eyebrow">{{ 'Inspector'|t }}</p>
+          <div data-dungeon-editor-inspector-body>
+            <p class="room-editor__hint">{{ 'Select a placement to inspect it.'|t }}</p>
+          </div>
+        </section>
+
+        <section class="room-editor__drawer-section room-editor__validation" data-dungeon-editor-validation aria-label="{{ 'Validation results'|t }}">
+          <p class="room-editor__eyebrow">{{ 'Validation'|t }}</p>
+          <ul class="room-editor__validation-list" data-dungeon-editor-validation-list></ul>
+        </section>
+
+      </aside>
+
+      <div class="game-shell__content room-editor__center">
+        <div class="hexmap-stage room-editor__stage">
+          <div id="dungeon-editor-canvas" class="hexmap-canvas-wrapper" data-dungeon-editor-canvas></div>
+        </div>
+      </div>
+
+      <aside class="room-editor__gm-panel" data-dungeon-editor-gm-panel aria-label="{{ 'GM assistant'|t }}">
+        <header class="room-editor__gm-header">
+          <p class="room-editor__eyebrow">{{ 'GM Assistant'|t }}</p>
+          <span class="room-editor__gm-state" data-dungeon-editor-gm-state role="status" aria-live="polite">{{ 'Not connected'|t }}</span>
+        </header>
+        <section class="room-editor__gm-disclosure-group" aria-label="{{ 'Grounded editor context'|t }}">
+          <button type="button"
+                  class="room-editor__gm-disclosure"
+                  data-dungeon-editor-action="gm-toggle-context"
+                  aria-expanded="true"
+                  aria-controls="dungeon-editor-gm-context-body">{{ 'Grounded context'|t }}</button>
+          <div id="dungeon-editor-gm-context-body" class="room-editor__gm-context-body" data-dungeon-editor-gm-context></div>
+        </section>
+        <ol class="room-editor__gm-transcript" data-dungeon-editor-gm-transcript aria-label="{{ 'Assistant transcript'|t }}" aria-live="polite">
+          <li class="room-editor__gm-message room-editor__gm-message--warning">
+            {{ 'The dungeon_editor assistant surface is delivered in slice 7. Until then this panel shows the grounded context the assistant will receive, and accepts no messages.'|t }}
+          </li>
+        </ol>
+      </aside>
+    </div>
+  </div>
+</div>

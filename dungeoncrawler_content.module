@@ -288,6 +288,14 @@ function dungeoncrawler_content_theme(array $existing, string $type, string $the
       'template' => 'room-editor',
       'path' => $path . '/templates',
     ],
+    'dungeon_editor' => [
+      'variables' => [
+        'dungeons' => [],
+        'selected_dungeon_id' => NULL,
+      ],
+      'template' => 'dungeon-editor',
+      'path' => $path . '/templates',
+    ],
 
     // Credits page displaying contributors and attributions.
     'credits_page' => [

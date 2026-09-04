@@ -158,9 +158,9 @@ class CanonicalDefinitionAuthorityTest extends TestCase {
       'The definition authority service must point at CanonicalDefinitionService.'
     );
     $this->assertSame(
-      2,
+      3,
       substr_count($services, "'@dungeoncrawler_content.canonical_definitions'"),
-      'The authority must be injected into its two constructor consumers: the room editor and the GM harness. Forms and controllers resolve it from the container by name.'
+      'The authority must be injected into its three constructor consumers: the room editor, the dungeon editor (catalog_version pinning) and the GM harness. Forms and controllers resolve it from the container by name.'
     );
 
     foreach ([
