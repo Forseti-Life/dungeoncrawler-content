@@ -55,6 +55,37 @@ class RoomEditorService {
   }
 
   /**
+   * Active drafts, optionally limited to those the given author created.
+   *
+   * A read-only listing for the editor suite hub. Each entry carries the
+   * decoded room name so the hub can label a resume link without loading the
+   * full draft; an undecodable payload throws rather than yielding a blank.
+   */
+  public function listDrafts(?int $created_by = NULL): array {
+    $query = $this->database->select('dungeoncrawler_content_room_editor_drafts', 'd')
+      ->fields('d', ['draft_id', 'room_id', 'base_version_id', 'revision', 'status', 'room_payload', 'created_by', 'updated_by', 'updated_at'])
+      ->condition('status', 'active')
+      ->orderBy('updated_at', 'DESC');
+    if ($created_by !== NULL) {
+      $query->condition('created_by', $created_by);
+    }
+    return array_map(static function (object $row): array {
+      $room = json_decode((string) $row->room_payload, TRUE, 512, JSON_THROW_ON_ERROR);
+      return [
+        'draft_id' => $row->draft_id,
+        'room_id' => $row->room_id,
+        'name' => (string) ($room['name'] ?? ''),
+        'base_version_id' => $row->base_version_id,
+        'revision' => (int) $row->revision,
+        'status' => $row->status,
+        'created_by' => (int) $row->created_by,
+        'updated_by' => (int) $row->updated_by,
+        'updated_at' => (int) $row->updated_at,
+      ];
+    }, $query->execute()->fetchAll());
+  }
+
+  /**
    * Creates an active draft from a canonical room or a blank room.
    */
   public function createDraft(?string $room_id = NULL): array {

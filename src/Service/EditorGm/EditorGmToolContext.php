@@ -20,7 +20,7 @@ use Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService;
 abstract class EditorGmToolContext {
 
   public function __construct(
-    public readonly string $draftId,
+    public readonly ?string $draftId,
     public readonly string $validationProfile,
     public readonly CanonicalDefinitionService $definitions,
   ) {}
@@ -29,11 +29,6 @@ abstract class EditorGmToolContext {
    * Surface id this context was grounded for.
    */
   abstract public function surfaceId(): string;
-
-  /**
-   * Returns the active draft aggregate wrapper.
-   */
-  abstract public function draft(): array;
 
   /**
    * Returns deterministic validation findings for one profile.

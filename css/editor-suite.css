@@ -1,0 +1,123 @@
+/**
+ * Editor suite hub. Reuses the room-editor design tokens and GM panel styles;
+ * this file only lays out the console grid and the hub-specific widgets.
+ */
+
+.editor-suite__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
+  gap: var(--space-4, 16px);
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .editor-suite__body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.editor-suite__console {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4, 16px);
+  min-width: 0;
+}
+
+.editor-suite__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 8px);
+  padding: var(--space-3, 12px);
+  background: var(--panel-bg, rgba(15, 23, 42, 0.6));
+  border: 1px solid var(--panel-border, rgba(148, 163, 184, 0.24));
+  border-radius: var(--radius-lg, 8px);
+}
+
+.editor-suite__recent,
+.editor-suite__attention {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1, 4px);
+}
+
+.editor-suite__recent-item,
+.editor-suite__attention-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-2, 8px);
+  align-items: center;
+  padding: var(--space-2, 8px);
+  border: 1px solid var(--panel-border, rgba(148, 163, 184, 0.16));
+  border-radius: var(--radius-md, 6px);
+}
+
+.editor-suite__recent-label,
+.editor-suite__attention-message {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.editor-suite__meta {
+  display: block;
+  font-size: 0.8em;
+  opacity: 0.75;
+}
+
+.editor-suite__attention-item[data-severity="error"] {
+  border-left: 4px solid var(--danger, #f87171);
+}
+
+.editor-suite__attention-item[data-severity="warning"] {
+  border-left: 4px solid var(--warning, #fbbf24);
+}
+
+.editor-suite__tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-3, 12px);
+}
+
+.editor-suite__tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 8px);
+  padding: var(--space-3, 12px);
+  border: 1px solid var(--panel-border, rgba(148, 163, 184, 0.24));
+  border-radius: var(--radius-md, 6px);
+}
+
+.editor-suite__tile-title {
+  margin: 0;
+  font-size: 1.05em;
+}
+
+.editor-suite__tile-counts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.9em;
+}
+
+.editor-suite__tile-actions {
+  display: flex;
+  gap: var(--space-2, 8px);
+  margin-top: auto;
+}
+
+.editor-suite__gm-panel {
+  height: auto;
+  min-height: 70vh;
+  position: sticky;
+  top: var(--space-3, 12px);
+}
+
+.editor-suite__empty {
+  margin: 0;
+  opacity: 0.7;
+}

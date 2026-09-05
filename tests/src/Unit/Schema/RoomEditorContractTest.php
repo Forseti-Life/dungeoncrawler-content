@@ -113,6 +113,7 @@ class RoomEditorContractTest extends UnitTestCase {
         [
           '@dungeoncrawler_content.editor_gm_surface.room_editor',
           '@dungeoncrawler_content.editor_gm_surface.dungeon_editor',
+          '@dungeoncrawler_content.editor_gm_surface.editor_suite',
         ],
         '@dungeoncrawler_content.editor_gm_intent_parser',
       ],

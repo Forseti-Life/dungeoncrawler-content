@@ -296,6 +296,11 @@ function dungeoncrawler_content_theme(array $existing, string $type, string $the
       'template' => 'dungeon-editor',
       'path' => $path . '/templates',
     ],
+    'editor_suite' => [
+      'variables' => [],
+      'template' => 'editor-suite',
+      'path' => $path . '/templates',
+    ],
 
     // Credits page displaying contributors and attributions.
     'credits_page' => [

@@ -25,16 +25,20 @@ final class EditorGmToolRegistry {
    *   Tool instances, in manifest order.
    * @param string[] $supported_command_types
    *   Command types the surface's execution tools may plan and apply.
-   * @param string $command_schema_file
-   *   File name under config/schemas/ that defines those commands.
+   * @param string|null $command_schema_file
+   *   File name under config/schemas/ that defines those commands, or NULL
+   *   for a surface that plans and applies no commands at all.
    */
   public function __construct(
     array $tools,
     private readonly array $supported_command_types,
-    private readonly string $command_schema_file,
+    private readonly ?string $command_schema_file,
   ) {
     if ($tools === []) {
       throw new \LogicException('editor_gm_registry_empty');
+    }
+    if ($this->command_schema_file === NULL && $this->supported_command_types !== []) {
+      throw new \LogicException('editor_gm_registry_schema_required');
     }
     foreach ($tools as $tool) {
       if (!$tool instanceof EditorGmToolInterface) {
@@ -103,6 +107,9 @@ final class EditorGmToolRegistry {
    * @return array<string, string[]>
    */
   public function commandPayloadContracts(): array {
+    if ($this->command_schema_file === NULL) {
+      return [];
+    }
     $path = dirname(__DIR__, 3) . '/config/schemas/' . $this->command_schema_file;
     $schema = json_decode((string) file_get_contents($path), TRUE, 512, JSON_THROW_ON_ERROR);
 

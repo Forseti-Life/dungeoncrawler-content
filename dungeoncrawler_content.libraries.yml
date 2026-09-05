@@ -228,6 +228,19 @@ room-editor:
     - core/drupalSettings
     - core/once
 
+editor-suite:
+  version: 20260905-slice8-hub
+  js:
+    js/editor-suite.js: { attributes: { type: module } }
+  css:
+    theme:
+      css/room-editor.css: {}
+      css/editor-suite.css: {}
+  dependencies:
+    - core/drupal
+    - core/drupalSettings
+    - core/once
+
 dungeon-editor:
   version: 20260904-slice7-gm-assistant
   js:

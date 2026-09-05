@@ -101,6 +101,46 @@ class DungeonEditorService {
   }
 
   /**
+   * Active drafts, optionally limited to those the given author created.
+   *
+   * Read-only listing for the editor suite hub. Each entry carries the room
+   * version every placement pins so the hub can report superseded pins
+   * without loading full drafts.
+   */
+  public function listDrafts(?int $created_by = NULL): array {
+    $query = $this->database->select('dungeoncrawler_content_dungeon_editor_drafts', 'd')
+      ->fields('d', ['draft_id', 'dungeon_id', 'base_version_id', 'revision', 'status', 'dungeon_payload', 'created_by', 'updated_by', 'updated_at'])
+      ->condition('status', 'active')
+      ->orderBy('updated_at', 'DESC');
+    if ($created_by !== NULL) {
+      $query->condition('created_by', $created_by);
+    }
+    return array_map(static function (object $row): array {
+      $dungeon = json_decode((string) $row->dungeon_payload, TRUE, 512, JSON_THROW_ON_ERROR);
+      $pins = [];
+      foreach ($dungeon['placements'] ?? [] as $placement) {
+        $pins[] = [
+          'placement_id' => (string) $placement['placement_id'],
+          'room_id' => (string) $placement['room_id'],
+          'version_id' => (string) $placement['version_id'],
+        ];
+      }
+      return [
+        'draft_id' => $row->draft_id,
+        'dungeon_id' => $row->dungeon_id,
+        'name' => (string) ($dungeon['name'] ?? ''),
+        'base_version_id' => $row->base_version_id,
+        'revision' => (int) $row->revision,
+        'status' => $row->status,
+        'placement_pins' => $pins,
+        'created_by' => (int) $row->created_by,
+        'updated_by' => (int) $row->updated_by,
+        'updated_at' => (int) $row->updated_at,
+      ];
+    }, $query->execute()->fetchAll());
+  }
+
+  /**
    * Published room versions available for placement.
    *
    * Only rooms with a published version appear: a placement pins a version,

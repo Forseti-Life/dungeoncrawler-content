@@ -40,7 +40,7 @@ class EditorGmController extends ControllerBase {
   /**
    * Returns the grounded context snapshot and declared toolset for a draft.
    */
-  public function describe(string $_surface, string $draft_id, Request $request): JsonResponse {
+  public function describe(string $_surface, Request $request, ?string $draft_id = NULL): JsonResponse {
     try {
       $profile = trim((string) $request->query->get('profile', 'editing')) ?: 'editing';
       return new JsonResponse(['data' => $this->harness->describe($_surface, $draft_id, $profile)]);
@@ -53,7 +53,7 @@ class EditorGmController extends ControllerBase {
   /**
    * Executes one editor GM request envelope.
    */
-  public function execute(string $_surface, string $draft_id, Request $request): JsonResponse {
+  public function execute(string $_surface, Request $request, ?string $draft_id = NULL): JsonResponse {
     if ($csrf = $this->validateCsrf($request)) {
       return $csrf;
     }

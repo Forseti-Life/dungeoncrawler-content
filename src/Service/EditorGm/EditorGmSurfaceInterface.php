@@ -12,6 +12,22 @@ namespace Drupal\dungeoncrawler_content\Service\EditorGm;
 interface EditorGmSurfaceInterface {
 
   /**
+   * The surface grounds every request on one draft (room, dungeon).
+   */
+  public const SCOPE_DRAFT = 'draft';
+
+  /**
+   * The surface grounds on suite-wide state and owns no draft (editor suite).
+   */
+  public const SCOPE_SUITE = 'suite';
+
+  /**
+   * Whether requests to this surface carry a draft id (SCOPE_DRAFT) or must
+   * not (SCOPE_SUITE). The harness hard-fails on either mismatch.
+   */
+  public function scope(): string;
+
+  /**
    * Stable id carried in `tool_context.tool_id` and route defaults.
    */
   public function id(): string;
@@ -48,6 +64,6 @@ interface EditorGmSurfaceInterface {
   /**
    * Grounds a tool context for one draft at one profile.
    */
-  public function createContext(string $draft_id, string $profile): EditorGmToolContext;
+  public function createContext(?string $draft_id, string $profile): EditorGmToolContext;
 
 }

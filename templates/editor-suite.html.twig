@@ -1,0 +1,87 @@
+{#
+/**
+ * @file
+ * Editor suite home page (slice 8).
+ *
+ * The single entry point for every authoring surface. Everything on this
+ * page is rendered from GET /api/editor-suite/summary by
+ * js/v2/editor/EditorSuiteShell.js; nothing is templated in, so a zeroed tile
+ * can never be mistaken for a live count. A surface the user may not open is
+ * omitted, never disabled.
+ *
+ * Layout: [console: resume | tiles | attention] | [GM assistant panel]
+ */
+#}
+<div class="room-editor editor-suite" data-editor-suite>
+  <div class="game-shell" data-editor-suite-shell>
+
+    <header class="room-editor__header">
+      <div class="room-editor__header-row">
+        <div>
+          <p class="room-editor__eyebrow">{{ 'DungeonCrawler'|t }}</p>
+          <h1 class="room-editor__title">{{ 'Editors'|t }}</h1>
+        </div>
+        <p class="room-editor__status" data-editor-suite-status role="status" aria-live="polite">{{ 'Loading suite…'|t }}</p>
+      </div>
+    </header>
+
+    <div class="editor-suite__body">
+      <main class="editor-suite__console" aria-label="{{ 'Editor suite console'|t }}">
+
+        <section class="editor-suite__section" aria-labelledby="editor-suite-recent-heading">
+          <h2 id="editor-suite-recent-heading" class="room-editor__eyebrow">{{ 'Continue where you left off'|t }}</h2>
+          <ol class="editor-suite__recent" data-editor-suite-recent></ol>
+        </section>
+
+        <section class="editor-suite__section" aria-labelledby="editor-suite-tiles-heading">
+          <h2 id="editor-suite-tiles-heading" class="room-editor__eyebrow">{{ 'Editors'|t }}</h2>
+          <div class="editor-suite__tiles" data-editor-suite-tiles></div>
+        </section>
+
+        <section class="editor-suite__section" aria-labelledby="editor-suite-attention-heading">
+          <h2 id="editor-suite-attention-heading" class="room-editor__eyebrow">{{ 'Needs attention'|t }}</h2>
+          <ol class="editor-suite__attention" data-editor-suite-attention></ol>
+        </section>
+
+      </main>
+
+      <aside class="room-editor__gm-panel editor-suite__gm-panel" data-editor-suite-gm-panel aria-label="{{ 'GM assistant'|t }}">
+        <header class="room-editor__gm-header">
+          <p class="room-editor__eyebrow">{{ 'GM Assistant'|t }}</p>
+          <span class="room-editor__gm-state" data-editor-suite-gm-state role="status" aria-live="polite">{{ 'Idle'|t }}</span>
+        </header>
+
+        <section class="room-editor__gm-disclosure-group" aria-label="{{ 'Grounded suite context'|t }}">
+          <button type="button"
+                  class="room-editor__gm-disclosure"
+                  data-editor-suite-action="gm-toggle-context"
+                  aria-expanded="false"
+                  aria-controls="editor-suite-gm-context-body">{{ 'Grounded context'|t }}</button>
+          <div id="editor-suite-gm-context-body" class="room-editor__gm-context-body" data-editor-suite-gm-context hidden></div>
+        </section>
+
+        <section class="room-editor__gm-disclosure-group" aria-label="{{ 'Assistant toolset'|t }}">
+          <button type="button"
+                  class="room-editor__gm-disclosure"
+                  data-editor-suite-action="gm-toggle-tools"
+                  aria-expanded="false"
+                  aria-controls="editor-suite-gm-tools-body">{{ 'Toolset'|t }}</button>
+          <div id="editor-suite-gm-tools-body" class="room-editor__gm-tools-body" data-editor-suite-gm-tools hidden></div>
+        </section>
+
+        <ol class="room-editor__gm-transcript" data-editor-suite-gm-transcript aria-label="{{ 'Assistant transcript'|t }}" aria-live="polite"></ol>
+
+        <form class="room-editor__gm-composer" data-editor-suite-gm-form>
+          <label class="visually-hidden" for="editor-suite-gm-input">{{ 'Message the GM assistant'|t }}</label>
+          <textarea id="editor-suite-gm-input"
+                    data-editor-suite-gm-input
+                    rows="3"
+                    placeholder="{{ 'Ask across the suite, or run a tool: list_attention_items {}'|t }}"></textarea>
+          <div class="room-editor__gm-composer-actions">
+            <button type="submit" class="room-editor__button room-editor__button--primary" data-editor-suite-action="gm-send">{{ 'Send'|t }}</button>
+          </div>
+        </form>
+      </aside>
+    </div>
+  </div>
+</div>

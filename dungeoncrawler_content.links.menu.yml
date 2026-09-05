@@ -16,19 +16,19 @@ dungeoncrawler_content.dashboard:
   route_name: dungeoncrawler_content.dashboard
   parent: system.admin_content
 
+dungeoncrawler_content.menu.editor_suite:
+  title: 'Editors'
+  description: 'Room, dungeon, and canonical library editors with the GM assistant. The single entry point for the authoring suite.'
+  route_name: dungeoncrawler_content.editor_suite
+  parent: system.admin_content
+  weight: 6
+
 dungeoncrawler_content.game_objects:
   title: 'Game Objects'
   description: 'Review game objects and their attributes.'
   route_name: dungeoncrawler_content.game_objects
   parent: dungeoncrawler_content.dashboard
   weight: 5
-
-dungeoncrawler_content.room_editor:
-  title: 'Canonical Room Editor'
-  description: 'Author and publish reusable canonical rooms on the Hexmap canvas.'
-  route_name: dungeoncrawler_content.room_editor
-  parent: dungeoncrawler_content.dashboard
-  weight: 4
 
 dungeoncrawler_content.image_generation_interface:
   title: 'Image Generation'
@@ -186,103 +186,89 @@ dungeoncrawler_content.menu.dc_administration:
   expanded: true
   weight: 90
 
-dungeoncrawler_content.menu.dc_administration_dashboard:
-  title: 'Game Dashboard'
-  description: 'Overview of Dungeon Crawler game content.'
-  route_name: dungeoncrawler_content.dashboard
-  parent: dungeoncrawler_content.menu.dc_administration
-  weight: 1
-
-dungeoncrawler_content.menu.dc_administration_room_editor:
-  title: 'Room Editor'
-  description: 'Author reusable canonical room layouts and object placements.'
-  route_name: dungeoncrawler_content.room_editor
-  parent: dungeoncrawler_content.menu.dc_administration
-  weight: 2
-
 dungeoncrawler_content.menu.dc_administration_game_objects:
   title: 'Game Objects'
   description: 'Review game objects and their attributes.'
   route_name: dungeoncrawler_content.game_objects
   parent: dungeoncrawler_content.menu.dc_administration
-  weight: 2
+  weight: 1
 
 dungeoncrawler_content.menu.dc_administration_image_generation:
   title: 'Image Generation'
   description: 'Generate images from prompts using the configured generation provider.'
   route_name: dungeoncrawler_content.image_generation_interface
   parent: dungeoncrawler_content.menu.dc_administration
-  weight: 3
+  weight: 2
 
 dungeoncrawler_content.menu.dc_administration_generated_images:
   title: 'Generated Images'
   description: 'Browse stored generated images and their metadata.'
   route_name: dungeoncrawler_content.generated_image_browser
   parent: dungeoncrawler_content.menu.dc_administration
-  weight: 4
+  weight: 3
 
 dungeoncrawler_content.menu.dc_administration_text_to_speech:
   title: 'Text-to-Speech'
   description: 'Run a smoke test through the optional Forseti TTS integration module.'
   route_name: dungeoncrawler_content.text_to_speech_interface
   parent: dungeoncrawler_content.menu.dc_administration
-  weight: 5
+  weight: 4
 
 dungeoncrawler_content.menu.dc_administration_settings:
   title: 'Dungeon Settings'
   description: 'Configure Dungeon Crawler content settings and integrations.'
   route_name: dungeoncrawler_content.settings
   parent: dungeoncrawler_content.menu.dc_administration
-  weight: 6
+  weight: 5
 
 dungeoncrawler_content.menu.dc_administration_testing:
   title: 'Testing Dashboard'
   description: 'Open the Dungeon Crawler testing dashboard.'
   route_name: dungeoncrawler_content.testing_home
   parent: dungeoncrawler_content.menu.dc_administration
-  weight: 7
+  weight: 6
 
 dungeoncrawler_content.menu.dc_administration_controller_architecture:
   title: 'Controller Architecture'
   description: 'Review controller architecture documentation.'
   route_name: dungeoncrawler_content.controller_architecture
   parent: dungeoncrawler_content.menu.dc_administration
-  weight: 8
+  weight: 7
 
 dungeoncrawler_content.menu.dc_administration_encounter_ai:
   title: 'Encounter Algorithm Integration'
   description: 'Review encounter algorithm integration architecture.'
   route_name: dungeoncrawler_content.encounter_ai_integration
   parent: dungeoncrawler_content.menu.dc_administration
-  weight: 9
+  weight: 8
 
 dungeoncrawler_content.menu.dc_administration_architecture:
   title: 'System Architecture'
   description: 'Central hub for process flows, requirements, and release gates.'
   route_name: dungeoncrawler_content.architecture
   parent: dungeoncrawler_content.menu.dc_administration
-  weight: 10
+  weight: 9
 
 dungeoncrawler_content.menu.dc_administration_data_lineage:
   title: 'Data Lineage Architecture'
   description: 'Review hierarchical page/API/controller/table data lineage.'
   route_name: dungeoncrawler_content.data_lineage_architecture
   parent: dungeoncrawler_content.menu.dc_administration
-  weight: 11
+  weight: 10
 
 dungeoncrawler_content.menu.dc_administration_institution_review:
   title: 'Institution Review Queue'
   description: 'Inspect unresolved institution normalization and backfill rows.'
   route_name: dungeoncrawler_content.institution_review_browser
   parent: dungeoncrawler_content.menu.dc_administration
-  weight: 12
+  weight: 11
 
 dungeoncrawler_content.menu.dc_administration_storyline_explorer:
   title: 'Storyline Explorer'
   description: 'Inspect storyline nodes, edges, and campaign runtime pointers.'
   route_name: dungeoncrawler_content.storyline_explorer
   parent: dungeoncrawler_content.menu.dc_administration
-  weight: 13
+  weight: 12
 
 # ==============================================================================
 # FOOTER MENU LINKS

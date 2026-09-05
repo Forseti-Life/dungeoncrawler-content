@@ -10,6 +10,9 @@ use Drupal\dungeoncrawler_content\Service\DungeonEditorService;
 use Drupal\dungeoncrawler_content\Service\EditorGm\DungeonEditorGmSurface;
 use Drupal\dungeoncrawler_content\Service\EditorGm\DungeonEditorGmToolContext;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmHarnessService;
+use Drupal\dungeoncrawler_content\Service\EditorGm\EditorSuiteGmSurface;
+use Drupal\dungeoncrawler_content\Service\EditorSuite\EditorReviewFlagService;
+use Drupal\dungeoncrawler_content\Service\EditorSuite\EditorSuiteService;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmIntentParser;
 use Drupal\dungeoncrawler_content\Service\EditorGm\RoomEditorGmSurface;
 use Drupal\dungeoncrawler_content\Service\EditorGm\RoomEditorGmToolContext;
@@ -68,6 +71,7 @@ class DungeonEditorGmContractTest extends TestCase {
     return new EditorGmHarnessService([
       new RoomEditorGmSurface($this->createMock(RoomEditorService::class), $definitions, $parser, new Php()),
       new DungeonEditorGmSurface($this->createMock(DungeonEditorService::class), $definitions, $parser, new Php()),
+      new EditorSuiteGmSurface($this->createMock(EditorSuiteService::class), $this->createMock(EditorReviewFlagService::class), $definitions, $parser),
     ], $parser);
   }
 
@@ -106,7 +110,7 @@ class DungeonEditorGmContractTest extends TestCase {
    */
   public function testDungeonSurfaceManifest(): void {
     $harness = $this->harness();
-    $this->assertSame(['room_editor', 'dungeon_editor'], $harness->surfaceIds());
+    $this->assertSame(['room_editor', 'dungeon_editor', 'editor_suite'], $harness->surfaceIds());
 
     $manifest = $harness->manifest('dungeon_editor');
     $this->assertSame(DungeonEditorService::SUPPORTED_COMMANDS, $manifest['supported_command_types']);
@@ -250,7 +254,7 @@ class DungeonEditorGmContractTest extends TestCase {
     $this->assertStringNotContainsString('$this->registry', $this->source('src/Service/EditorGm/EditorGmIntentParser.php'), 'The parser is grounded per call on the surface registry.');
 
     $request = json_decode($this->source('config/schemas/editor_gm_request.schema.json'), TRUE, 512, JSON_THROW_ON_ERROR);
-    $this->assertSame(['room_editor', 'dungeon_editor'], $request['properties']['tool_context']['properties']['tool_id']['enum']);
+    $this->assertSame(['room_editor', 'dungeon_editor', 'editor_suite'], $request['properties']['tool_context']['properties']['tool_id']['enum']);
   }
 
 }

@@ -478,11 +478,34 @@ services:
       - '@dungeoncrawler_content.editor_gm_intent_parser'
       - '@uuid'
 
+  dungeoncrawler_content.editor_review_flags:
+    class: Drupal\dungeoncrawler_content\Service\EditorSuite\EditorReviewFlagService
+    arguments: ['@database']
+
+  dungeoncrawler_content.editor_suite:
+    class: Drupal\dungeoncrawler_content\Service\EditorSuite\EditorSuiteService
+    arguments:
+      - '@dungeoncrawler_content.room_editor'
+      - '@dungeoncrawler_content.dungeon_editor'
+      - '@dungeoncrawler_content.canonical_definitions'
+      - '@dungeoncrawler_content.editor_review_flags'
+      - '@url_generator'
+      - '@current_user'
+
+  dungeoncrawler_content.editor_gm_surface.editor_suite:
+    class: Drupal\dungeoncrawler_content\Service\EditorGm\EditorSuiteGmSurface
+    arguments:
+      - '@dungeoncrawler_content.editor_suite'
+      - '@dungeoncrawler_content.editor_review_flags'
+      - '@dungeoncrawler_content.canonical_definitions'
+      - '@dungeoncrawler_content.editor_gm_intent_parser'
+
   dungeoncrawler_content.editor_gm_harness:
     class: Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmHarnessService
     arguments:
       - - '@dungeoncrawler_content.editor_gm_surface.room_editor'
         - '@dungeoncrawler_content.editor_gm_surface.dungeon_editor'
+        - '@dungeoncrawler_content.editor_gm_surface.editor_suite'
       - '@dungeoncrawler_content.editor_gm_intent_parser'
 
   dungeoncrawler_content.content_query:

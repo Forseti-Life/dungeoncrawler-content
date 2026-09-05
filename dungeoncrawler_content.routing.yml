@@ -26,6 +26,45 @@ dungeoncrawler_content.dashboard:
   requirements:
     _permission: 'access content overview'
 
+dungeoncrawler_content.editor_suite:
+  path: '/admin/content/dungeoncrawler/editors'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\EditorSuiteController::page'
+    _title: 'DungeonCrawler Editors'
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'access dungeoncrawler editor suite'
+
+dungeoncrawler_content.editor_suite_summary:
+  path: '/api/editor-suite/summary'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\EditorSuiteController::summary'
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'access dungeoncrawler editor suite'
+
+dungeoncrawler_content.editor_suite_gm_describe:
+  path: '/api/editor-suite/gm'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\EditorGmController::describe'
+    _surface: editor_suite
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'access dungeoncrawler editor suite'
+
+dungeoncrawler_content.editor_suite_gm_execute:
+  path: '/api/editor-suite/gm'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\EditorGmController::execute'
+    _surface: editor_suite
+  methods: [POST]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'access dungeoncrawler editor suite'
+
 dungeoncrawler_content.room_editor:
   path: '/admin/content/dungeoncrawler/room-editor'
   defaults:

@@ -101,7 +101,14 @@ final class DungeonEditorGmSurface implements EditorGmSurfaceInterface {
     return self::VALIDATION_PROFILES;
   }
 
-  public function createContext(string $draft_id, string $profile): EditorGmToolContext {
+  public function scope(): string {
+    return self::SCOPE_DRAFT;
+  }
+
+  public function createContext(?string $draft_id, string $profile): EditorGmToolContext {
+    if ($draft_id === NULL) {
+      throw new \LogicException('editor_gm_draft_required:dungeon_editor');
+    }
     return new DungeonEditorGmToolContext($draft_id, $profile, $this->dungeonEditor, $this->definitions);
   }
 

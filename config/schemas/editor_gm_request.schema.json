@@ -18,14 +18,14 @@
       "additionalProperties": false,
       "required": [
         "tool_id",
-        "draft_id",
         "validation_profile"
       ],
       "properties": {
         "tool_id": {
           "enum": [
             "room_editor",
-            "dungeon_editor"
+            "dungeon_editor",
+            "editor_suite"
           ]
         },
         "draft_id": {
