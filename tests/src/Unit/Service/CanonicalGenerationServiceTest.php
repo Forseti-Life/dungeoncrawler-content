@@ -57,26 +57,27 @@ final class CanonicalGenerationServiceTest extends TestCase {
     return new EditorCanonicalGenerationPlanService($core, $definitions);
   }
 
-  private function ai(array $responses): object {
-    return new class($responses) {
+  private function ai(array $responses, array $resultOverrides = []): object {
+    return new class($responses, $resultOverrides) {
       public int $calls = 0;
       public array $prompts = [];
       public array $options = [];
 
-      public function __construct(private array $responses) {}
+      public function __construct(private array $responses, private array $resultOverrides) {}
 
       public function invokeModelDirect(string $prompt, string $module, string $operation, array $metadata, array $options): array {
         $this->prompts[] = $prompt;
         $this->options[] = $options;
         $response = $this->responses[min($this->calls, count($this->responses) - 1)];
         $this->calls++;
-        return [
+        return array_replace([
           'success' => TRUE,
           'response' => is_string($response) ? $response : json_encode($response, JSON_UNESCAPED_SLASHES),
           'model_id' => 'fixture-model',
+          'provider' => 'fixture-provider',
           'finish_reason' => 'stop',
           'reasoning_tokens' => 0,
-        ];
+        ], $this->resultOverrides);
       }
     };
   }
@@ -153,14 +154,36 @@ final class CanonicalGenerationServiceTest extends TestCase {
     $this->assertSame('room_layout', $result['generation_type']);
     $this->assertSame(42, $result['seed']);
     $this->assertSame('fixture-model', $result['metadata']['generated_by']['model']);
+    $this->assertSame('fixture-provider', $result['metadata']['generated_by']['provider']);
     $this->assertSame('stop', $result['metadata']['generated_by']['finish_reason']);
     $this->assertSame(0, $result['metadata']['generated_by']['reasoning_tokens']);
     $this->assertSame('disabled', $ai->options[0]['thinking']);
     $this->assertArrayNotHasKey('timeout_sec', $ai->options[0]);
     $this->assertSame('set_room_metadata', $result['command_plan']['steps'][0]['command_type']);
     $this->assertSame('fixture-model', $result['command_plan']['steps'][0]['payload']['changes']['metadata']['generated_by']['model']);
+    $this->assertSame('fixture-provider', $result['command_plan']['steps'][0]['payload']['changes']['metadata']['generated_by']['provider']);
     $this->assertContains('place_object', array_column($result['command_plan']['steps'], 'command_type'));
     $this->assertSame(1, $ai->calls);
+  }
+
+  public function testProviderSuccessWithoutModelIdHardFailsProvenanceIncomplete(): void {
+    $catalog = [['family' => 'item', 'definition_id' => 'broken-altar', 'version' => '1.0.0', 'label' => 'Broken altar']];
+    $definitions = $this->definitions($catalog);
+    $roomEditor = $this->roomEditorExpectingSimulation();
+
+    $this->expectException(CanonicalGenerationException::class);
+    $this->expectExceptionMessage('generation_provenance_incomplete');
+    try {
+      $this->service($this->ai([$this->conformingRoom()], ['model_id' => '']), $definitions, $roomEditor)->generateRoomLayout([
+        'prompt' => 'a flooded cellar with a broken altar, ~20 hexes',
+        'seed' => 42,
+      ], $this->roomContext($roomEditor, $definitions));
+    }
+    catch (CanonicalGenerationException $exception) {
+      $this->assertSame('/provider/model_id', $exception->getFindings()[0]['pointer']);
+      $this->assertStringContainsString('model_id', $exception->getFindings()[0]['message']);
+      throw $exception;
+    }
   }
 
   public function testNonconformingThenConformingRetriesWithFindings(): void {

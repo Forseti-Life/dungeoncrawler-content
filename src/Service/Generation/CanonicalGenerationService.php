@@ -81,14 +81,22 @@ class CanonicalGenerationService {
       }
       $response = (string) ($result['response'] ?? '');
       $decoded = $this->extractSingleJsonObject($response);
-      $model = trim((string) ($result['model_id'] ?? $result['model'] ?? $result['provider'] ?? 'ai_conversation.invokeModelDirect'));
+      $model = is_scalar($result['model_id'] ?? NULL) ? trim((string) $result['model_id']) : '';
+      if ($model === '') {
+        throw $this->exception('generation_provenance_incomplete', [
+          $this->finding('generation_provenance_incomplete', '/provider/model_id', 'Provider success response is missing required provenance key model_id.'),
+        ], 500);
+      }
       $provenance = [
         'tool' => $tool,
-        'model' => $model !== '' ? $model : 'ai_conversation.invokeModelDirect',
+        'model' => $model,
         'prompt_hash' => 'sha256:' . hash('sha256', $prompt),
         'seed' => $seed,
         'generated_at' => gmdate(DATE_RFC3339, $this->time->getRequestTime()),
       ];
+      if (array_key_exists('provider', $result) && is_scalar($result['provider']) && trim((string) $result['provider']) !== '') {
+        $provenance['provider'] = trim((string) $result['provider']);
+      }
       if (array_key_exists('finish_reason', $result)) {
         $provenance['finish_reason'] = is_scalar($result['finish_reason']) ? (string) $result['finish_reason'] : NULL;
       }

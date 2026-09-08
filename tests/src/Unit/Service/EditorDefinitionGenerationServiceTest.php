@@ -51,6 +51,7 @@ final class EditorDefinitionGenerationServiceTest extends TestCase {
           'success' => TRUE,
           'response' => is_string($response) ? $response : json_encode($response, JSON_UNESCAPED_SLASHES),
           'model_id' => 'fixture-model',
+          'provider' => 'fixture-provider',
           'finish_reason' => 'stop',
           'reasoning_tokens' => 0,
         ];
@@ -77,7 +78,7 @@ final class EditorDefinitionGenerationServiceTest extends TestCase {
     $definitions->method('validateDefinition')->willReturnCallback(function (string $family, array $payload) use (&$calls, $validationFindings): array {
       $this->assertArrayHasKey('metadata', $payload);
       $this->assertArrayHasKey('generated_by', $payload['metadata']);
-      $this->assertSame(['tool', 'model', 'prompt_hash', 'seed', 'generated_at'], array_keys($payload['metadata']['generated_by']));
+      $this->assertSame(['tool', 'model', 'provider', 'prompt_hash', 'seed', 'generated_at'], array_keys($payload['metadata']['generated_by']));
       $findings = $validationFindings[min($calls, max(0, count($validationFindings) - 1))] ?? [];
       $calls++;
       return $findings;
@@ -106,6 +107,7 @@ final class EditorDefinitionGenerationServiceTest extends TestCase {
     $this->assertSame('create_definition', $result['proposed_execution']['tool_name']);
     $this->assertSame('generate_item_definition', $result['payload']['metadata']['generated_by']['tool']);
     $this->assertSame('fixture-model', $result['payload']['metadata']['generated_by']['model']);
+    $this->assertSame('fixture-provider', $result['payload']['metadata']['generated_by']['provider']);
     $this->assertArrayNotHasKey('finish_reason', $result['payload']['metadata']['generated_by']);
     $this->assertSame('disabled', $ai->options[0]['thinking']);
     $this->assertSame('editor_generation_item_definition', $ai->operations[0]);
@@ -138,6 +140,8 @@ final class EditorDefinitionGenerationServiceTest extends TestCase {
     $this->assertSame('create_definition', $result['proposed_execution']['tool_name']);
     $this->assertSame('generate_npc_definition', $result['payload']['metadata']['generated_by']['tool']);
     $this->assertSame('editor_generation_npc_definition', $ai->operations[0]);
+    $this->assertSame(2, $result['payload']['state_data']['level']);
+    $this->assertArrayNotHasKey('level', $result['payload']);
   }
 
   public function testNonconformingThenConformingRetriesWithFindings(): void {

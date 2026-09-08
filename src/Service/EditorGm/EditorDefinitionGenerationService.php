@@ -233,13 +233,19 @@ final class EditorDefinitionGenerationService {
   }
 
   private function schemaProvenance(array $provenance): array {
-    return [
+    $schema_provenance = [
       'tool' => (string) ($provenance['tool'] ?? ''),
       'model' => (string) ($provenance['model'] ?? ''),
+    ];
+    if (isset($provenance['provider']) && is_string($provenance['provider']) && $provenance['provider'] !== '') {
+      $schema_provenance['provider'] = $provenance['provider'];
+    }
+    $schema_provenance += [
       'prompt_hash' => (string) ($provenance['prompt_hash'] ?? ''),
       'seed' => (int) ($provenance['seed'] ?? 0),
       'generated_at' => (string) ($provenance['generated_at'] ?? ''),
     ];
+    return $schema_provenance;
   }
 
   private function assertScope(DefinitionEditorGmToolContext $context, string $family): void {

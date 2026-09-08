@@ -192,6 +192,7 @@ class DefinitionEditorContractTest extends TestCase {
     return [
       'tool' => $tool,
       'model' => 'fixture-model',
+      'provider' => 'fixture-provider',
       'prompt_hash' => 'sha256:' . str_repeat('a', 64),
       'seed' => 42,
       'generated_at' => '2026-09-08T00:00:00+00:00',
@@ -258,6 +259,13 @@ class DefinitionEditorContractTest extends TestCase {
       ],
       'metadata' => ['generated_by' => $this->generatedBy('generate_npc_definition')],
     ];
+  }
+
+  public function testActorLevelLivesInStateDataOnly(): void {
+    $schema = $this->schema('canonical_actor.schema.json');
+    $this->assertArrayNotHasKey('level', $schema['properties']);
+    $this->assertArrayHasKey('level', $schema['definitions']['state_data']['properties']);
+    $this->assertSame(2, $this->validGeneratedActor()['state_data']['level']);
   }
 
   /**
