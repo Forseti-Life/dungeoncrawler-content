@@ -4,6 +4,10 @@ namespace Drupal\dungeoncrawler_content\Service;
 
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
+use Drupal\dungeoncrawler_content\Service\Generation\CanonicalDefinitionGenerationService;
+use Drupal\dungeoncrawler_content\Service\Generation\CanonicalGenerationException;
+use Drupal\dungeoncrawler_content\Service\Generation\EncounterGenerationRules;
+use Drupal\dungeoncrawler_content\Service\Generation\RuntimeGenerationException;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -68,6 +72,15 @@ class EncounterGeneratorService {
   protected NumberGenerationService $numberGeneration;
 
   /**
+   * Canonical published definition authority.
+   *
+   * @var \Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService
+   */
+  protected CanonicalDefinitionService $definitions;
+
+  protected ?CanonicalDefinitionGenerationService $definitionGeneration;
+
+  /**
    * Constructs an EncounterGeneratorService object.
    *
    * @param \Drupal\Core\Database\Connection $database
@@ -84,13 +97,17 @@ class EncounterGeneratorService {
     LoggerChannelFactoryInterface $logger_factory,
     EncounterBalancer $encounter_balancer,
     SchemaLoader $schema_loader,
-    NumberGenerationService $number_generation
+    NumberGenerationService $number_generation,
+    CanonicalDefinitionService $definitions,
+    ?CanonicalDefinitionGenerationService $definition_generation = NULL
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler');
     $this->encounterBalancer = $encounter_balancer;
     $this->schemaLoader = $schema_loader;
     $this->numberGeneration = $number_generation;
+    $this->definitions = $definitions;
+    $this->definitionGeneration = $definition_generation;
   }
 
   /**
@@ -167,18 +184,15 @@ class EncounterGeneratorService {
     // Step 1: Calculate XP budget
     $budget = $this->calculateXpBudget($party_level, $party_size, $difficulty);
 
-    // Step 2: Select creatures
+    // Step 2: Select published canonical creature definitions.
     $creatures = $this->selectCreatures($context);
-
-    if (empty($creatures)) {
-      $this->logger->warning('No creatures found for theme @theme', [
-        '@theme' => $theme,
-      ]);
-      return [];
-    }
 
     // Step 3-4: Build encounter
     $encounter = $this->buildEncounter($context, $budget, $creatures);
+    if (!empty($context['include_treasure']) || !empty($context['include_items'])) {
+      $encounter['item_plan'] = $this->buildItemPlan($context);
+      $encounter['population_plan'] = array_values(array_merge($encounter['population_plan'], $encounter['item_plan']));
+    }
 
     // Step 5: Validate (Phase 3)
     // $validated = $this->schemaLoader->validateEncounterData($encounter);
@@ -217,22 +231,7 @@ class EncounterGeneratorService {
     int $party_size,
     string $difficulty
   ): array {
-    $base_xp = CharacterManager::ENCOUNTER_THREAT_TIERS[$difficulty]
-      ?? CharacterManager::ENCOUNTER_THREAT_TIERS['moderate'];
-
-    $target_xp = CharacterManager::adjustBudgetForPartySize($base_xp, $party_size);
-
-    // Allow ±15% variance for flexibility.
-    $min_xp = (int) floor($target_xp * 0.85);
-    $max_xp = (int) ceil($target_xp * 1.15);
-
-    return [
-      'target_xp' => $target_xp,
-      'min_xp' => $min_xp,
-      'max_xp' => $max_xp,
-      'difficulty' => $difficulty,
-      'threat_level' => $difficulty,
-    ];
+    return EncounterGenerationRules::xpBudget($party_level, $party_size, $difficulty);
   }
 
   /**
@@ -260,43 +259,40 @@ class EncounterGeneratorService {
   protected function selectCreatures(array $context): array {
     $theme = $context['theme'] ?? 'goblin_warrens';
     $party_level = $context['party_level'] ?? 3;
+    $difficulty = (string) ($context['difficulty'] ?? 'moderate');
+    $level_band = EncounterGenerationRules::creatureLevelRange((int) $party_level, $difficulty);
+    $tags_tried = $this->tagsTried($theme, $context);
+    $creatures = $this->definitions->publishedDefinitions('creature', [
+      'level_min' => $level_band['min'],
+      'level_max' => $level_band['max'],
+      'tags_any' => $tags_tried,
+      'limit' => 100,
+    ]);
+    if ($creatures === [] && !empty($context['canonical_generation_wait'])) {
+      $this->generateRuntimeCreatureDefinition($context, $tags_tried, (int) $party_level);
+      $creatures = $this->definitions->publishedDefinitions('creature', [
+        'level_min' => $level_band['min'],
+        'level_max' => $level_band['max'],
+        'tags_any' => $tags_tried,
+        'limit' => 100,
+      ]);
+    }
+    if ($creatures === []) {
+      throw $this->selectionFailed($context, $this->calculateXpBudget((int) $party_level, (int) ($context['party_size'] ?? 4), $difficulty), $level_band, $tags_tried, 'No schema-valid published canonical creature definitions matched the encounter criteria.');
+    }
 
-    // Phase 2: Return sample creatures for testing
-    // Phase 3: Query content registry
-    // SELECT * FROM dc_content_registry
-    // WHERE content_type = 'creature'
-    // AND (theme_tags LIKE '%theme%' OR level BETWEEN party_level-2 AND party_level+2)
-    // ORDER BY level
-
-    // Sample creatures for common themes.
-    // Note: xp_value is NOT stored here — it is computed dynamically from
-    // creature level vs. party level via CharacterManager::computeCreatureXp().
-    $theme_creatures = [
-      'goblin_warrens' => [
-        ['creature_id' => 'goblin_warrior', 'name' => 'Goblin Warrior', 'level' => 1, 'max_hp' => 6],
-        ['creature_id' => 'goblin_commando', 'name' => 'Goblin Commando', 'level' => 2, 'max_hp' => 18],
-        ['creature_id' => 'hobgoblin_soldier', 'name' => 'Hobgoblin Soldier', 'level' => 3, 'max_hp' => 45],
-      ],
-      'fungal_caverns' => [
-        ['creature_id' => 'violet_fungus', 'name' => 'Violet Fungus', 'level' => 2, 'max_hp' => 30],
-        ['creature_id' => 'myceloid', 'name' => 'Myceloid', 'level' => 3, 'max_hp' => 40],
-      ],
-      'undead_crypts' => [
-        ['creature_id' => 'skeleton_guard', 'name' => 'Skeleton Guard', 'level' => 1, 'max_hp' => 4],
-        ['creature_id' => 'zombie_shambler', 'name' => 'Zombie Shambler', 'level' => 2, 'max_hp' => 20],
-        ['creature_id' => 'wight', 'name' => 'Wight', 'level' => 4, 'max_hp' => 50],
-      ],
-    ];
-
-    // Get creatures for theme (default to goblin_warrens)
-    $creatures = $theme_creatures[$theme] ?? $theme_creatures['goblin_warrens'];
-
-    // Filter by level range (party_level ± 2)
-    $filtered = array_filter($creatures, function($creature) use ($party_level) {
-      return abs($creature['level'] - $party_level) <= 2;
-    });
-
-    return !empty($filtered) ? array_values($filtered) : $creatures;
+    return array_map(static function (array $definition): array {
+      $payload = is_array($definition['payload'] ?? NULL) ? $definition['payload'] : [];
+      return [
+        'creature_id' => (string) $definition['definition_id'],
+        'definition_id' => (string) $definition['definition_id'],
+        'definition_version' => (string) $definition['version'],
+        'name' => (string) ($definition['label'] ?? $definition['definition_id']),
+        'level' => (int) ($definition['level'] ?? 0),
+        'max_hp' => (int) ($payload['pf2e_stats']['hp']['max'] ?? 20),
+        'tags' => (array) ($definition['tags'] ?? []),
+      ];
+    }, $creatures);
   }
 
   /**
@@ -344,12 +340,7 @@ class EncounterGeneratorService {
     }
 
     if (empty($eligible)) {
-      return [
-        'xp_budget' => $budget,
-        'actual_xp' => 0,
-        'combatants' => [],
-        'combatant_count' => 0,
-      ];
+      throw $this->selectionFailed($context, $budget, $this->levelBand($context), $this->tagsTried((string) ($context['theme'] ?? ''), $context), 'No published canonical creature definitions have a PF2e XP value for this party level.');
     }
 
     // Add creatures until budget met.
@@ -375,11 +366,18 @@ class EncounterGeneratorService {
       $combatants[] = [
         'entity_type' => 'creature',
         'entity_ref' => $creature['creature_id'],
+        'definition_id' => $creature['definition_id'],
+        'definition_version' => $creature['definition_version'],
         'name' => $creature['name'] ?? $creature['creature_id'],
         'level' => $creature['level'] ?? 1,
         'xp_value' => $creature['xp_value'],
         'quantity' => 1,
         'placement_hint' => $this->getPlacementHint(count($combatants)),
+        'placement_plan' => [
+          'room_id' => (string) ($context['room_id'] ?? ''),
+          'hex' => $this->planHex($context, count($combatants)),
+          'disposition' => (string) ($context['disposition'] ?? 'hostile'),
+        ],
         'max_hp' => $creature['max_hp'] ?? 20,
         'spawn_type' => 'permanent',
       ];
@@ -387,12 +385,28 @@ class EncounterGeneratorService {
       $current_xp += $creature['xp_value'];
     }
 
+    if ($current_xp < (int) $budget['min_xp']) {
+      throw $this->selectionFailed($context, $budget, $this->levelBand($context), $this->tagsTried((string) ($context['theme'] ?? ''), $context), sprintf('Published canonical creature definitions could only fill %d XP of the requested minimum %d XP.', $current_xp, (int) $budget['min_xp']));
+    }
+
+    $population_plan = array_map(static fn(array $combatant): array => [
+      'entity_type' => 'creature',
+      'definition_id' => (string) $combatant['definition_id'],
+      'definition_version' => (string) $combatant['definition_version'],
+      'quantity' => (int) ($combatant['quantity'] ?? 1),
+      'room_id' => (string) ($combatant['placement_plan']['room_id'] ?? ''),
+      'hex' => $combatant['placement_plan']['hex'],
+      'disposition' => (string) ($combatant['placement_plan']['disposition'] ?? 'hostile'),
+    ], $combatants);
+
     return [
+      'schema_version' => 'encounter_population_plan-v1',
       'xp_budget' => $budget,
       'actual_xp' => $current_xp,
       'threat_tier' => CharacterManager::classifyEncounterTier($current_xp),
       'combatants' => $combatants,
       'combatant_count' => count($combatants),
+      'population_plan' => $population_plan,
     ];
   }
 
@@ -432,20 +446,152 @@ class EncounterGeneratorService {
    *   Placement hint
    */
   protected function getPlacementHint(int $index): string {
-    $hints = ['scattered', 'center', 'back_corner', 'near_door'];
+    return EncounterGenerationRules::placementHint($index);
+  }
 
-    // First creature at back corner (boss position)
-    if ($index === 0) {
-      return 'back_corner';
+  protected function planHex(array $context, int $index): array {
+    $hexes = array_values(array_filter((array) ($context['hexes'] ?? []), 'is_array'));
+    if ($hexes === []) {
+      throw new RuntimeGenerationException('runtime_selection_failed', [[
+        'code' => 'runtime_selection_failed',
+        'pointer' => '/hexes',
+        'message' => 'Room hexes are required to emit an encounter population plan.',
+        'severity' => 'error',
+      ]], 422);
     }
+    $hex = $hexes[$index % count($hexes)];
+    return ['q' => (int) ($hex['q'] ?? 0), 'r' => (int) ($hex['r'] ?? 0)];
+  }
 
-    // Second creature near center
-    if ($index === 1) {
-      return 'center';
+  protected function buildItemPlan(array $context): array {
+    $party_level = (int) ($context['party_level'] ?? 1);
+    $tags_tried = $this->tagsTried((string) ($context['theme'] ?? ''), $context);
+    $items = $this->definitions->publishedDefinitions('item', [
+      'level_min' => max(0, $party_level - 1),
+      'level_max' => $party_level + 1,
+      'tags_any' => $tags_tried,
+      'limit' => 25,
+    ]);
+    if ($items === [] && !empty($context['canonical_generation_wait'])) {
+      $this->generateRuntimeItemDefinition($context, $tags_tried, $party_level);
+      $items = $this->definitions->publishedDefinitions('item', [
+        'level_min' => max(0, $party_level - 1),
+        'level_max' => $party_level + 1,
+        'tags_any' => $tags_tried,
+        'limit' => 25,
+      ]);
     }
+    if ($items === []) {
+      throw $this->selectionFailed($context, $this->calculateXpBudget($party_level, (int) ($context['party_size'] ?? 4), (string) ($context['difficulty'] ?? 'moderate')), $this->levelBand($context), $tags_tried, 'No schema-valid published canonical item definitions matched the requested encounter item criteria.');
+    }
+    $rng = $this->createScopedRng($context, 'item_plan');
+    $item = $rng->pick($items);
+    return [[
+      'entity_type' => 'item',
+      'definition_id' => (string) $item['definition_id'],
+      'definition_version' => (string) $item['version'],
+      'quantity' => 1,
+      'room_id' => (string) ($context['room_id'] ?? ''),
+      'hex' => $this->planHex($context, 0),
+      'disposition' => 'loot',
+    ]];
+  }
 
-    // Others scattered
-    return 'scattered';
+  protected function levelBand(array $context): array {
+    return EncounterGenerationRules::creatureLevelRange((int) ($context['party_level'] ?? 3), (string) ($context['difficulty'] ?? 'moderate'));
+  }
+
+  protected function tagsTried(string $theme, array $context): array {
+    $tags = array_values(array_filter(array_map(
+      static fn($tag): string => strtolower(trim((string) $tag)),
+      array_merge([$theme], (array) ($context['tags'] ?? []), (array) ($context['environment_tags'] ?? []))
+    ), static fn(string $tag): bool => $tag !== ''));
+    return array_values(array_unique($tags));
+  }
+
+  protected function selectionFailed(array $context, array $budget, array $level_band, array $tags_tried, string $message): RuntimeGenerationException {
+    return new RuntimeGenerationException('runtime_selection_failed', [[
+      'code' => 'runtime_selection_failed',
+      'pointer' => '/encounter',
+      'message' => $message,
+      'severity' => 'error',
+      'budget' => [
+        'target_xp' => (int) ($budget['target_xp'] ?? 0),
+        'min_xp' => (int) ($budget['min_xp'] ?? 0),
+        'max_xp' => (int) ($budget['max_xp'] ?? 0),
+        'difficulty' => (string) ($budget['difficulty'] ?? ($context['difficulty'] ?? 'moderate')),
+      ],
+      'level_band' => $level_band,
+      'tags_tried' => $tags_tried,
+    ]], 422);
+  }
+
+  protected function generateRuntimeCreatureDefinition(array $context, array $tags_tried, int $party_level): void {
+    if (!$this->definitionGeneration) {
+      throw new RuntimeGenerationException('runtime_generation_failed', [[
+        'code' => 'runtime_generation_failed',
+        'pointer' => '/canonical_definition_generation',
+        'message' => 'Canonical definition generation service is required for explicit encounter definition generation.',
+        'severity' => 'error',
+      ]], 503);
+    }
+    try {
+      $prompt = trim((string) ($context['definition_prompt'] ?? $context['prompt'] ?? ''));
+      if ($prompt === '') {
+        $prompt = sprintf('Create a level %d creature suitable for tags: %s.', $party_level, implode(', ', $tags_tried));
+      }
+      $this->definitionGeneration->generateRuntimeDefinitionAndSave('creature', [
+        'prompt' => $prompt,
+        'level' => $party_level,
+        'role' => (string) ($context['role'] ?? 'encounter'),
+        'seed' => isset($context['seed']) && is_int($context['seed']) ? $context['seed'] : NULL,
+      ], (int) ($context['requested_by_uid'] ?? 0));
+    }
+    catch (CanonicalGenerationException $e) {
+      throw new RuntimeGenerationException('runtime_generation_failed', $e->getFindings(), $e->httpStatus(), $e);
+    }
+    catch (\Throwable $e) {
+      throw new RuntimeGenerationException('runtime_generation_failed', [[
+        'code' => 'runtime_generation_failed',
+        'pointer' => '/canonical_definition_generation/creature',
+        'message' => $e->getMessage(),
+        'severity' => 'error',
+      ]], 500, $e);
+    }
+  }
+
+  protected function generateRuntimeItemDefinition(array $context, array $tags_tried, int $party_level): void {
+    if (!$this->definitionGeneration) {
+      throw new RuntimeGenerationException('runtime_generation_failed', [[
+        'code' => 'runtime_generation_failed',
+        'pointer' => '/canonical_definition_generation',
+        'message' => 'Canonical definition generation service is required for explicit encounter item generation.',
+        'severity' => 'error',
+      ]], 503);
+    }
+    try {
+      $prompt = trim((string) ($context['item_prompt'] ?? $context['prompt'] ?? ''));
+      if ($prompt === '') {
+        $prompt = sprintf('Create a level %d encounter item suitable for tags: %s.', $party_level, implode(', ', $tags_tried));
+      }
+      $this->definitionGeneration->generateRuntimeDefinitionAndSave('item', [
+        'prompt' => $prompt,
+        'level' => max(0, $party_level),
+        'rarity' => (string) ($context['rarity'] ?? 'common'),
+        'seed' => isset($context['seed']) && is_int($context['seed']) ? $context['seed'] : NULL,
+      ], (int) ($context['requested_by_uid'] ?? 0));
+    }
+    catch (CanonicalGenerationException $e) {
+      throw new RuntimeGenerationException('runtime_generation_failed', $e->getFindings(), $e->httpStatus(), $e);
+    }
+    catch (\Throwable $e) {
+      throw new RuntimeGenerationException('runtime_generation_failed', [[
+        'code' => 'runtime_generation_failed',
+        'pointer' => '/canonical_definition_generation/item',
+        'message' => $e->getMessage(),
+        'severity' => 'error',
+      ]], 500, $e);
+    }
   }
 
 }

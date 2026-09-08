@@ -79,7 +79,7 @@ Use this as the canonical pairing when touching generation code.
 | `CharacterPortraitGenerationService` / `SpriteGenerationService` / `TerrainImageGenerationService` | No dedicated validator service (provider/repository contract checks) | Runtime correctness is currently integration + persistence based. |
 | `ImageGenerationIntegrationService` / `GeminiImageGenerationService` / `VertexImageGenerationService` | No dedicated validator service (provider readiness + API contract checks) | Effective provider is chosen by integration status. |
 | `NameGeneratorService` / `CampaignNameGeneratorService` / `NumberGenerationService` / `TerrainGeneratorService` | No dedicated validator service | Deterministic utility generators without schema validators. |
-| `ContentGenerator` | Deprecated legacy service | Not part of authoritative runtime generation path. |
+| Encounter content selection | `CanonicalDefinitionService` + `EncounterGeneratorService` | R6 removed `ContentGenerator`; encounter population consumes published canonical creature/item definitions only. |
 | `DungeonGenerationEngine` | Deprecated legacy service | Replaced by `DungeonGeneratorService`. |
 
 ### Actor Psychology Invocation Summary

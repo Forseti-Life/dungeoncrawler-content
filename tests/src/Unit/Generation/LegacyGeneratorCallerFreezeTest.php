@@ -28,14 +28,12 @@ final class LegacyGeneratorCallerFreezeTest extends TestCase {
     'dungeoncrawler_content.storyline_generation_service',
     'dungeoncrawler_content.quest_generator',
     'dungeoncrawler_content.encounter_generator',
-    'dungeoncrawler_content.content_generator',
     'RoomGeneratorService',
     'DungeonGeneratorService',
     'NpcSheetGenerationService',
     'StorylineGenerationService',
     'QuestGeneratorService',
     'EncounterGeneratorService',
-    'ContentGenerator',
     'DungeonGenerationEngine',
   ];
 
@@ -58,7 +56,6 @@ final class LegacyGeneratorCallerFreezeTest extends TestCase {
     'src/Controller/StorylineExplorerPageController.php',
     'src/Service/CampaignCharacterRuntimeSyncService.php',
     'src/Service/CampaignInitializationService.php',
-    'src/Service/ContentGenerator.php',
     'src/Service/DungeonGenerationEngine.php',
     'src/Service/DungeonGeneratorService.php',
     'src/Service/EncounterGeneratorService.php',
@@ -108,7 +105,7 @@ final class LegacyGeneratorCallerFreezeTest extends TestCase {
     $expected = self::ALLOWED_LEGACY_REFERENCE_FILES;
     sort($expected);
 
-    $this->assertCount(27, $expected, 'R5 shrinks the legacy generator freeze allowlist after dungeon routes moved to RuntimeCanonicalDungeonService.');
+    $this->assertCount(26, $expected, 'R6 shrinks the legacy generator freeze allowlist after ContentGenerator deletion and encounter route reconciliation.');
     $this->assertSame($expected, $actual, 'New legacy generator callers/references are forbidden; migrate to CanonicalGenerationService instead.');
   }
 
@@ -128,7 +125,7 @@ final class LegacyGeneratorCallerFreezeTest extends TestCase {
     $expected = self::ALLOWED_R4_MAP_FACADE_REFERENCE_FILES;
     sort($expected);
 
-    $this->assertCount(11, $expected, 'R5 keeps the reconciled MapGeneratorService facade reference surface frozen after dungeon routes moved.');
+    $this->assertCount(11, $expected, 'R6 keeps the reconciled MapGeneratorService facade reference surface frozen.');
     $this->assertSame($expected, $actual, 'MapGeneratorService is reconciled as a runtime facade; add no new direct references during reconciliation.');
   }
 
@@ -141,7 +138,6 @@ final class LegacyGeneratorCallerFreezeTest extends TestCase {
       'src/Service/StorylineGenerationService.php' => ['class StorylineGenerationService', 'public function generateStorylinePackage', 'public function generateStorylineBootstrapPackage', 'public function bootstrapCampaignStoryline', 'public function enqueueStorylineExpansion', 'public function processPendingExpansionJobs'],
       'src/Service/QuestGeneratorService.php' => ['class QuestGeneratorService', 'public function generateQuestFromTemplate', 'public function generateQuestsForLocation'],
       'src/Service/EncounterGeneratorService.php' => ['class EncounterGeneratorService', 'public function generateEncounter'],
-      'src/Service/ContentGenerator.php' => ['class ContentGenerator', 'public function generateRoomContent', 'public function generateEncounter', 'public function generateCreaturePersonality', 'public function generateTreasureHoard'],
       'src/Service/DungeonGenerationEngine.php' => ['class DungeonGenerationEngine', 'public function generateDungeon', 'private function generateLevel'],
     ] as $relative => $markers) {
       $source = (string) file_get_contents($this->root() . '/' . $relative);

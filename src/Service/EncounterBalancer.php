@@ -3,6 +3,7 @@
 namespace Drupal\dungeoncrawler_content\Service;
 
 use Drupal\Core\Database\Connection;
+use Drupal\dungeoncrawler_content\Service\Generation\EncounterGenerationRules;
 
 /**
  * PF2e encounter balancing service using XP budget system.
@@ -217,37 +218,7 @@ class EncounterBalancer {
    *   Array with 'min' and 'max' level bounds.
    */
   private function getCreatureLevelRange(int $party_level, string $difficulty): array {
-    // if (difficulty == 'trivial') {
-    //     return {min: max(1, partyLevel - 4), max: partyLevel - 2}
-    // } else if (difficulty == 'low') {
-    //     return {min: max(1, partyLevel - 3), max: partyLevel - 1}
-    // } else if (difficulty == 'moderate') {
-    //     return {min: max(1, partyLevel - 2), max: partyLevel + 1}
-    // } else if (difficulty == 'severe') {
-    //     return {min: partyLevel - 1, max: partyLevel + 2}
-    // } else { // extreme
-    //     return {min: partyLevel, max: partyLevel + 4}
-    // }
-
-    switch ($difficulty) {
-      case 'trivial':
-        return ['min' => max(1, $party_level - 4), 'max' => max(1, $party_level - 2)];
-
-      case 'low':
-        return ['min' => max(1, $party_level - 3), 'max' => max(1, $party_level - 1)];
-
-      case 'moderate':
-        return ['min' => max(1, $party_level - 2), 'max' => $party_level + 1];
-
-      case 'severe':
-        return ['min' => max(1, $party_level - 1), 'max' => $party_level + 2];
-
-      case 'extreme':
-        return ['min' => $party_level, 'max' => $party_level + 4];
-
-      default:
-        return ['min' => max(1, $party_level - 2), 'max' => $party_level + 1];
-    }
+    return EncounterGenerationRules::creatureLevelRange($party_level, $difficulty);
   }
 
   /**
@@ -545,33 +516,7 @@ class EncounterBalancer {
    *   Encounter name.
    */
   private function generateEncounterName(array $creatures, string $theme): string {
-    if (empty($creatures)) {
-      return 'Empty Chamber';
-    }
-
-    // Find the highest-level creature as the "star".
-    $star = $creatures[0];
-    foreach ($creatures as $c) {
-      if (($c['level'] ?? 0) > ($star['level'] ?? 0)) {
-        $star = $c;
-      }
-    }
-
-    $total_count = 0;
-    foreach ($creatures as $c) {
-      $total_count += $c['count'] ?? 1;
-    }
-
-    $star_name = $star['name'] ?? 'Unknown';
-
-    if ($total_count === 1) {
-      return sprintf('Lone %s', $star_name);
-    }
-    if (count($creatures) === 1 && $total_count > 1) {
-      return sprintf('%s Pack (%d)', $star_name, $total_count);
-    }
-
-    return sprintf('%s and Allies', $star_name);
+    return EncounterGenerationRules::encounterName($creatures, $theme);
   }
 
   /**

@@ -41,7 +41,7 @@ Yes — the architecture includes a content generation system, and this section 
 | **Primary responsibility** | Dynamically generate campaign-world content and persist canonical campaign records |
 | **Execution modes** | Synchronous generation + asynchronous worker queues |
 | **Core orchestrators** | `CampaignInitializationService`, `DungeonGeneratorService`, `RoomGeneratorService`, `MapGeneratorService`, `QuestGeneratorService`, `StorylineGenerationService`, `StorylineRealizationService`, `NpcSheetGenerationService`, `NpcPsychologyService`, `FactionGenerationService` |
-| **Note on legacy stubs** | `ContentGenerator`, `ContentQuery`, and `ContentRegistry` are legacy/stub-era services and are not the authoritative campaign-generation pipeline |
+| **Note on legacy stubs** | `ContentQuery` and `ContentRegistry` are legacy/stub-era services; R6 removed `ContentGenerator` in favor of canonical published-definition selection through `EncounterGeneratorService` |
 
 ### Dynamically Generated Campaign Objects
 

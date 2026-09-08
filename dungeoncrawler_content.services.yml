@@ -500,6 +500,12 @@ services:
     arguments:
       - '@dungeoncrawler_content.canonical_generation'
 
+  dungeoncrawler_content.canonical_definition_generation:
+    class: Drupal\dungeoncrawler_content\Service\Generation\CanonicalDefinitionGenerationService
+    arguments:
+      - '@dungeoncrawler_content.canonical_generation'
+      - '@dungeoncrawler_content.canonical_definitions'
+
   dungeoncrawler_content.runtime_canonical_dungeon:
     class: Drupal\dungeoncrawler_content\Service\Generation\RuntimeCanonicalDungeonService
     arguments:
@@ -519,8 +525,7 @@ services:
   dungeoncrawler_content.editor_definition_generation:
     class: Drupal\dungeoncrawler_content\Service\EditorGm\EditorDefinitionGenerationService
     arguments:
-      - '@dungeoncrawler_content.canonical_generation'
-      - '@dungeoncrawler_content.canonical_definitions'
+      - '@dungeoncrawler_content.canonical_definition_generation'
 
   # One surface per editor. Each surface owns its toolset and reads/writes only
   # through its own editor authority; the harness resolves the surface from the
@@ -584,12 +589,6 @@ services:
   dungeoncrawler_content.content_query:
     class: Drupal\dungeoncrawler_content\Service\ContentQuery
     arguments: ['@database']
-
-  dungeoncrawler_content.content_generator:
-    class: Drupal\dungeoncrawler_content\Service\ContentGenerator
-    # Legacy-only compatibility service. Do not use for new generation flows.
-    # Prefer EncounterGeneratorService/RoomGeneratorService/DungeonGeneratorService.
-    arguments: ['@dungeoncrawler_content.content_query', '@dungeoncrawler_content.number_generation']
 
   dungeoncrawler_content.gemini_image_generator:
     class: Drupal\dungeoncrawler_content\Service\GeminiImageGenerationService
@@ -1631,6 +1630,8 @@ services:
       - '@dungeoncrawler_content.encounter_balancer'
       - '@dungeoncrawler_content.schema_loader'
       - '@dungeoncrawler_content.number_generation'
+      - '@dungeoncrawler_content.canonical_definitions'
+      - '@dungeoncrawler_content.canonical_definition_generation'
 
   dungeoncrawler_content.hex_utility:
     class: Drupal\dungeoncrawler_content\Service\HexUtilityService

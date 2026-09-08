@@ -39,22 +39,11 @@ Service for querying and filtering game content.
 
 **Status:** Stub implementation only. All methods return empty arrays.
 
-### ContentGenerator.php
-Service for generating game content procedurally.
-
-**Responsibilities:**
-- Generate room content (creatures, items, traps)
-- Generate encounters based on party level and threat
-- Generate treasure hoards
-- Add AI personality to creatures
-
-**Key Methods:**
-- `generateRoomContent()` - Generate content for a dungeon room
-- `generateEncounter()` - Generate combat encounter
-- `generateTreasureHoard()` - Generate treasure by level and type
-- `generateCreaturePersonality()` - Add AI behavior to creatures
-
-**Status:** Stub implementation only. All methods return empty/default structures.
+### Canonical encounter/content generation
+R6 deleted `ContentGenerator`. Encounter population now uses
+`EncounterGeneratorService` with published canonical creature/item definitions
+from `CanonicalDefinitionService`; budget/name helpers live in
+`Service/Generation/EncounterGenerationRules.php`.
 
 ## Database Tables
 
@@ -103,9 +92,8 @@ dungeoncrawler_content.content_query:
   class: Drupal\dungeoncrawler_content\Service\ContentQuery
   arguments: ['@database']
 
-dungeoncrawler_content.content_generator:
-  class: Drupal\dungeoncrawler_content\Service\ContentGenerator
-  arguments: ['@dungeoncrawler_content.content_query']
+dungeoncrawler_content.encounter_generator:
+  class: Drupal\dungeoncrawler_content\Service\EncounterGeneratorService
 ```
 
 ## Usage Example
@@ -121,14 +109,15 @@ $creatures = $content_query->queryCreatures([
   'tags_include' => ['goblinoid'],
 ], 5);
 
-// Generate an encounter
-$generator = \Drupal::service('dungeoncrawler_content.content_generator');
-$encounter = $generator->generateEncounter(
-  $party_level = 2,
-  $party_size = 4,
-  $threat_level = 'moderate',
-  $theme = 'goblin_warrens'
-);
+// Generate an encounter plan from published canonical definitions.
+$generator = \Drupal::service('dungeoncrawler_content.encounter_generator');
+$encounter = $generator->generateEncounter([
+  'party_level' => 2,
+  'party_size' => 4,
+  'difficulty' => 'moderate',
+  'theme' => 'goblin',
+  'hexes' => [['q' => 0, 'r' => 0]],
+]);
 
 // Roll a loot table
 $loot = $content_query->rollLootTable('goblin_common');
@@ -146,17 +135,12 @@ $loot = $content_query->rollLootTable('goblin_common');
    - Implement loot table rolling algorithm
    - Implement encounter building logic
 
-3. **Implement ContentGenerator methods:**
-   - XP budget calculations
-   - Room content generation
-   - Treasure hoard generation
-
-4. **Create Content Files:**
+3. **Create Content Files:**
    - Add JSON files for creatures, items, traps
    - Create loot table definitions
    - Create encounter templates
 
-5. **Create Admin Interface:**
+4. **Create Admin Interface:**
    - Content browser UI
    - Content editor with validation
    - Loot table testing tools

@@ -556,6 +556,82 @@ class CanonicalDefinitionService {
   }
 
   /**
+   * List schema-valid published canonical definitions for runtime selection.
+   *
+   * The definition registry/current actor tables are the published canonical
+   * library for definitions; invalid legacy registry rows are not eligible
+   * runtime source content.
+   *
+   * @param array<string,mixed> $criteria
+   *   Supported keys: level_min, level_max, tags_any, rarity, limit.
+   *
+   * @return array<int,array<string,mixed>>
+   *   Rows with definition_id, version, label, level, rarity, tags, payload.
+   */
+  public function publishedDefinitions(string $family, array $criteria = []): array {
+    $this->assertFamily($family);
+    if ($family === self::ACTOR_FAMILY) {
+      throw new \InvalidArgumentException('published_definition_family_unsupported');
+    }
+
+    $limit = max(1, min(250, (int) ($criteria['limit'] ?? 100)));
+    $scan_limit = max($limit * 20, 5000);
+    $query = $this->database->select('dungeoncrawler_content_registry', 'r')
+      ->fields('r', ['content_id', 'name', 'version', 'level', 'rarity', 'tags', 'schema_data'])
+      ->condition('content_type', $this->registryContentType($family))
+      ->range(0, $scan_limit);
+    if (isset($criteria['level_min']) && is_numeric($criteria['level_min'])) {
+      $query->condition('level', (int) $criteria['level_min'], '>=');
+    }
+    if (isset($criteria['level_max']) && is_numeric($criteria['level_max'])) {
+      $query->condition('level', (int) $criteria['level_max'], '<=');
+    }
+    if (isset($criteria['rarity']) && is_string($criteria['rarity']) && $criteria['rarity'] !== '') {
+      $query->condition('rarity', $criteria['rarity']);
+    }
+    $query->orderBy('level', 'ASC')
+      ->orderBy('name', 'ASC')
+      ->orderBy('content_id', 'ASC');
+
+    $tags_any = array_values(array_filter(array_map(
+      static fn($tag): string => strtolower(trim((string) $tag)),
+      (array) ($criteria['tags_any'] ?? [])
+    ), static fn(string $tag): bool => $tag !== ''));
+    $definitions = [];
+    foreach ($query->execute()->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+      $payload = json_decode((string) ($row['schema_data'] ?? ''), TRUE);
+      if (!is_array($payload) || $this->validateDefinition($family, $payload) !== []) {
+        continue;
+      }
+      $tags = is_array($payload['tags'] ?? NULL)
+        ? array_values(array_map('strval', $payload['tags']))
+        : (json_decode((string) ($row['tags'] ?? '[]'), TRUE) ?: []);
+      $normalized_tags = array_values(array_unique(array_filter(array_map(
+        static fn($tag): string => strtolower(trim((string) $tag)),
+        $tags
+      ), static fn(string $tag): bool => $tag !== '')));
+      if ($tags_any !== [] && array_intersect($tags_any, $normalized_tags) === []) {
+        continue;
+      }
+      $definitions[] = [
+        'family' => $family,
+        'definition_id' => (string) $row['content_id'],
+        'version' => $this->normalizeSemanticVersion($row['version'] ?: ($payload['schema_version'] ?? '1.0.0')),
+        'label' => (string) ($row['name'] ?: ($payload[$this->nameProperty($family)] ?? $row['content_id'])),
+        'level' => isset($payload['level']) && is_int($payload['level']) ? $payload['level'] : (int) ($row['level'] ?? 0),
+        'rarity' => (string) ($payload['rarity'] ?? $row['rarity'] ?? ''),
+        'tags' => $normalized_tags,
+        'payload' => $payload,
+      ];
+      if (count($definitions) >= $limit) {
+        break;
+      }
+    }
+
+    return $definitions;
+  }
+
+  /**
    * Loads the raw editable record backing one catalog definition.
    *
    * Returns the full payload rather than the trimmed placeable-object-v1

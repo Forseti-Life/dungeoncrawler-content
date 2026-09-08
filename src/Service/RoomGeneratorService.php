@@ -219,7 +219,7 @@ class RoomGeneratorService {
       '@level' => $context['level_id'],
     ]);
 
-    if ($this->canonicalRuntimeGenerationR5Enabled()) {
+    if ($this->canonicalRuntimeGenerationR6Enabled()) {
       return $this->generateRoomViaCanonicalRuntime($context);
     }
 
@@ -391,9 +391,9 @@ class RoomGeneratorService {
     return $this->runtimeCanonicalRoom->generateRoom($context);
   }
 
-  protected function canonicalRuntimeGenerationR5Enabled(): bool {
+  protected function canonicalRuntimeGenerationR6Enabled(): bool {
     return $this->configFactory
-      && $this->configFactory->get('dungeoncrawler_content.settings')->get('canonical_runtime_generation.r5') !== FALSE;
+      && $this->configFactory->get('dungeoncrawler_content.settings')->get('canonical_runtime_generation.r6') !== FALSE;
   }
 
   /**
@@ -1141,7 +1141,7 @@ class RoomGeneratorService {
     }
 
     // Generate encounter
-    $encounter = $this->encounterGenerator->generateEncounter($context);
+    $encounter = $this->encounterGenerator->generateEncounter($context + ['hexes' => $hexes]);
 
     if (empty($encounter['combatants'])) {
       $this->logger->info('No combatants generated for encounter');
