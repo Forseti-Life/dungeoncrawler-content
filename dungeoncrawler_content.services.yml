@@ -466,6 +466,18 @@ services:
       - '@?ai_conversation.ai_api_service'
       - '@logger.factory'
 
+  dungeoncrawler_content.editor_generation:
+    class: Drupal\dungeoncrawler_content\Service\EditorGm\EditorGenerationService
+    arguments:
+      - '@?ai_conversation.ai_api_service'
+      - '@dungeoncrawler_content.definition_schema_validator'
+      - '@dungeoncrawler_content.canonical_definitions'
+      - '@dungeoncrawler_content.room_editor'
+      - '@dungeoncrawler_content.dungeon_editor'
+      - '@uuid'
+      - '@datetime.time'
+      - '@logger.factory'
+
   # One surface per editor. Each surface owns its toolset and reads/writes only
   # through its own editor authority; the harness resolves the surface from the
   # route and the request envelope's tool_id.
@@ -476,6 +488,7 @@ services:
       - '@dungeoncrawler_content.canonical_definitions'
       - '@dungeoncrawler_content.editor_gm_intent_parser'
       - '@uuid'
+      - '@dungeoncrawler_content.editor_generation'
 
   dungeoncrawler_content.editor_gm_surface.dungeon_editor:
     class: Drupal\dungeoncrawler_content\Service\EditorGm\DungeonEditorGmSurface
@@ -484,6 +497,7 @@ services:
       - '@dungeoncrawler_content.canonical_definitions'
       - '@dungeoncrawler_content.editor_gm_intent_parser'
       - '@uuid'
+      - '@dungeoncrawler_content.editor_generation'
 
   dungeoncrawler_content.editor_gm_surface.definition_editor:
     class: Drupal\dungeoncrawler_content\Service\EditorGm\DefinitionEditorGmSurface

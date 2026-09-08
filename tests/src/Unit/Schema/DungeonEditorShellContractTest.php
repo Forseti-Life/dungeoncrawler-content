@@ -271,8 +271,8 @@ class DungeonEditorShellContractTest extends TestCase {
 
     $shell = $this->source('js/v2/editor/DungeonEditorShell.js');
     $this->assertStringNotContainsString('RoomEditorShell', $shell);
-    $this->assertStringContainsString("import './placementTransform.js'", $shell);
-    $this->assertStringContainsString("import { HexCanvas } from '../canvas/HexCanvas.js'", $shell);
+    $this->assertMatchesRegularExpression("/import '\\.\\/placementTransform\\.js(?:\\?v=[^']+)?'/", $shell);
+    $this->assertMatchesRegularExpression("/import \\{ HexCanvas \\} from '\\.\\.\\/canvas\\/HexCanvas\\.js(?:\\?v=[^']+)?'/", $shell);
   }
 
   /**
@@ -375,6 +375,18 @@ class DungeonEditorShellContractTest extends TestCase {
     $this->assertCount(2, $placed['room_placements']);
     $new = $placed['room_placements'][1];
     $this->assertSame(['placement_id' => self::uuid(500), 'room_id' => 'one', 'version_id' => $version, 'origin' => ['q' => 10, 'r' => 10], 'rotation_steps' => 2, 'label' => 'One', 'is_level_entrance' => FALSE, 'tags' => []], $new);
+
+    // G1 generation plans may supply placement_id so same-plan link_ports can
+    // reference previewed placements; it must be UUID-shaped and draft-unique.
+    $with_supplied = $this->transition($service, $base, 'place_room', ['placement_id' => self::uuid(501), 'room_id' => 'one', 'version_id' => $version, 'origin' => ['q' => 20, 'r' => 20], 'rotation_steps' => 0]);
+    $this->assertSame(self::uuid(501), $with_supplied['room_placements'][1]['placement_id']);
+    try {
+      $this->transition($service, $with_supplied, 'place_room', ['placement_id' => self::uuid(501), 'room_id' => 'one', 'version_id' => $version, 'origin' => ['q' => 25, 'r' => 25], 'rotation_steps' => 0]);
+      $this->fail('Duplicate supplied placement_id must be rejected.');
+    }
+    catch (DungeonCommandRejectedException $exception) {
+      $this->assertSame('placement_id_duplicate', $exception->getMessage());
+    }
 
     // Rotation is absolute: applying the same command twice is a fixed point.
     $once = $this->transition($service, $placed, 'rotate_room_placement', ['placement_id' => self::uuid(500), 'rotation_steps' => 4]);

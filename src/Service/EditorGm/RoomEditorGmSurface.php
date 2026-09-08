@@ -8,6 +8,7 @@ use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\ApplyRoomCommandsTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\CheckPublicationReadinessTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\DiffDraftAgainstPublishedTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\ExplainValidationFindingsTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\GenerateRoomLayoutTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\InspectCatalogEntryTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\ListCatalogDefinitionsTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\LoadCanonicalDefinitionTool;
@@ -70,8 +71,9 @@ final class RoomEditorGmSurface implements EditorGmSurfaceInterface {
     private readonly CanonicalDefinitionService $definitions,
     EditorGmIntentParser $intentParser,
     UuidInterface $uuid,
+    ?EditorGenerationService $generation = NULL,
   ) {
-    $this->registry = new EditorGmToolRegistry([
+    $tools = [
       new LoadDraftSnapshotTool(),
       new LoadPublishedSnapshotTool(),
       new SummarizeRoomTopologyTool(),
@@ -90,7 +92,11 @@ final class RoomEditorGmSurface implements EditorGmSurfaceInterface {
       new ApplyRoomCommandsTool($uuid),
       new PreviewPublicationPayloadTool(),
       new PublishRoomVersionTool(),
-    ], self::SUPPORTED_COMMAND_TYPES, 'room_editor_command.schema.json');
+    ];
+    if ($generation !== NULL) {
+      array_splice($tools, 12, 0, [new GenerateRoomLayoutTool($generation)]);
+    }
+    $this->registry = new EditorGmToolRegistry($tools, self::SUPPORTED_COMMAND_TYPES, 'room_editor_command.schema.json');
     $this->assembler = new RoomEditorGmContextAssembler($this->registry, $intentParser);
   }
 

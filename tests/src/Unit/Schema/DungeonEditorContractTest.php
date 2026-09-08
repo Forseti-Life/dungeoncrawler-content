@@ -182,6 +182,15 @@ class DungeonEditorContractTest extends TestCase {
       $place,
       'place_room requires an explicit version_id; defaulting to the current published version would be a fallback.'
     );
+    foreach ($schema['allOf'] as $rule) {
+      if (($rule['if']['properties']['type']['const'] ?? NULL) === 'place_room') {
+        $this->assertSame(
+          'uuid',
+          $rule['then']['properties']['payload']['properties']['placement_id']['format'] ?? NULL,
+          'place_room supports optional preview placement_id references and constrains them to UUID.'
+        );
+      }
+    }
   }
 
   /**

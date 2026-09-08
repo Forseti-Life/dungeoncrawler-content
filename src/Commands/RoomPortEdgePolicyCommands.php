@@ -5,6 +5,7 @@ namespace Drupal\dungeoncrawler_content\Commands;
 use Drupal\Component\Uuid\UuidInterface;
 use Drupal\Core\Database\Connection;
 use Drupal\dungeoncrawler_content\Geometry\RoomPlacementTransformer;
+use Drupal\dungeoncrawler_content\Geometry\RoomPortEdgePolicy;
 use Drupal\dungeoncrawler_content\Service\RoomEditorService;
 use Drush\Commands\DrushCommands;
 
@@ -493,113 +494,46 @@ class RoomPortEdgePolicyCommands extends DrushCommands {
    * @return array{hex: array{q: int, r: int}, edge: int, basis: string}
    */
   private function policyTarget(array $room, array $port): array {
-    $hex = ['q' => (int) $port['hex']['q'], 'r' => (int) $port['hex']['r']];
-    $open_edges = $this->openEdges($room, $hex);
-    $basis = 'Board boundary policy';
-    if ($open_edges === []) {
-      $hex = $this->nearestBoundaryHex($room, $hex);
-      $open_edges = $this->openEdges($room, $hex);
-      $basis = 'Board landlocked policy';
-    }
-    if ($open_edges === []) {
-      throw new \RuntimeException(sprintf('room_policy_no_boundary_edge:%s:%s', (string) ($port['port_id'] ?? ''), json_encode($hex, JSON_UNESCAPED_SLASHES)));
-    }
-
-    return [
-      'hex' => $hex,
-      'edge' => $this->farthestOpenEdgeFromCentroid($room, $hex, $open_edges),
-      'basis' => $basis,
-    ];
+    return RoomPortEdgePolicy::target($room, $port);
   }
 
   /**
    * @return int[]
    */
   private function openEdges(array $room, array $hex): array {
-    $footprint = $this->footprint($room);
-    $open = [];
-    for ($edge = 0; $edge < RoomPlacementTransformer::EDGE_COUNT; $edge++) {
-      $neighbour = RoomPlacementTransformer::neighbor($hex, $edge);
-      if (!isset($footprint[$this->hexKey($neighbour)])) {
-        $open[] = $edge;
-      }
-    }
-    return $open;
+    return RoomPortEdgePolicy::openEdges($room, $hex);
   }
 
   /**
    * @return array{q: int, r: int}
    */
   private function nearestBoundaryHex(array $room, array $from): array {
-    $candidates = [];
-    foreach ($room['hexes'] as $hex) {
-      $candidate = ['q' => (int) $hex['q'], 'r' => (int) $hex['r']];
-      if ($this->openEdges($room, $candidate) !== []) {
-        $candidates[] = $candidate;
-      }
-    }
-    if ($candidates === []) {
-      throw new \RuntimeException('room_policy_no_boundary_hex');
-    }
-    usort($candidates, static function (array $a, array $b) use ($from): int {
-      return [
-        self::hexDistance($from, $a),
-        $a['q'],
-        $a['r'],
-      ] <=> [
-        self::hexDistance($from, $b),
-        $b['q'],
-        $b['r'],
-      ];
-    });
-    return $candidates[0];
+    return RoomPortEdgePolicy::nearestBoundaryHex($room, $from);
   }
 
   /**
    * @param int[] $edges
    */
   private function farthestOpenEdgeFromCentroid(array $room, array $hex, array $edges): int {
-    $centroid = $this->centroid($room);
-    $best_edge = NULL;
-    $best_distance = NULL;
-    foreach ($edges as $edge) {
-      $outside = RoomPlacementTransformer::neighbor($hex, $edge);
-      $distance = (($outside['q'] - $centroid['q']) ** 2) + (($outside['r'] - $centroid['r']) ** 2);
-      if ($best_distance === NULL || $distance > $best_distance || ($distance === $best_distance && $edge < $best_edge)) {
-        $best_distance = $distance;
-        $best_edge = $edge;
-      }
-    }
-    return (int) $best_edge;
+    return RoomPortEdgePolicy::farthestOpenEdgeFromCentroid($room, $hex, $edges);
   }
 
   /**
    * @return array{q: float, r: float}
    */
   private function centroid(array $room): array {
-    $q = 0;
-    $r = 0;
-    foreach ($room['hexes'] as $hex) {
-      $q += (int) $hex['q'];
-      $r += (int) $hex['r'];
-    }
-    $count = count($room['hexes']);
-    return ['q' => $q / $count, 'r' => $r / $count];
+    return RoomPortEdgePolicy::centroid($room);
   }
 
   /**
    * @return array<string, bool>
    */
   private function footprint(array $room): array {
-    $footprint = [];
-    foreach ($room['hexes'] as $hex) {
-      $footprint[$this->hexKey(['q' => (int) $hex['q'], 'r' => (int) $hex['r']])] = TRUE;
-    }
-    return $footprint;
+    return RoomPortEdgePolicy::footprint($room);
   }
 
   private function hasHex(array $room, array $hex): bool {
-    return isset($this->footprint($room)[$this->hexKey($hex)]);
+    return RoomPortEdgePolicy::hasHex($room, $hex);
   }
 
   /**
@@ -629,13 +563,11 @@ class RoomPortEdgePolicyCommands extends DrushCommands {
   }
 
   private static function hexDistance(array $a, array $b): int {
-    $dq = (int) $a['q'] - (int) $b['q'];
-    $dr = (int) $a['r'] - (int) $b['r'];
-    return intdiv(abs($dq) + abs($dq + $dr) + abs($dr), 2);
+    return RoomPortEdgePolicy::hexDistance($a, $b);
   }
 
   private function hexKey(array $hex): string {
-    return (int) $hex['q'] . ':' . (int) $hex['r'];
+    return RoomPortEdgePolicy::hexKey($hex);
   }
 
   private function nextPatchVersion(string $version): string {

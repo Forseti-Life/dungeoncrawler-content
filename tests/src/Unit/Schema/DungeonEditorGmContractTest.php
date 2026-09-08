@@ -11,6 +11,7 @@ use Drupal\dungeoncrawler_content\Service\EditorGm\DefinitionEditorGmSurface;
 use Drupal\dungeoncrawler_content\Service\EditorGm\DungeonEditorGmSurface;
 use Drupal\dungeoncrawler_content\Service\EditorGm\DungeonEditorGmToolContext;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmHarnessService;
+use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGenerationService;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorSuiteGmSurface;
 use Drupal\dungeoncrawler_content\Service\EditorSuite\EditorReviewFlagService;
 use Drupal\dungeoncrawler_content\Service\EditorSuite\EditorSuiteService;
@@ -43,6 +44,7 @@ class DungeonEditorGmContractTest extends TestCase {
     'explain_validation_findings',
     'load_canonical_definition',
     'update_canonical_definition',
+    'generate_dungeon_layout',
     'plan_dungeon_commands',
     'plan_room_placement',
     'plan_port_links',
@@ -71,9 +73,10 @@ class DungeonEditorGmContractTest extends TestCase {
   private function harness(): EditorGmHarnessService {
     $parser = $this->parser();
     $definitions = $this->createMock(CanonicalDefinitionService::class);
+    $generation = $this->createMock(EditorGenerationService::class);
     return new EditorGmHarnessService([
-      new RoomEditorGmSurface($this->createMock(RoomEditorService::class), $definitions, $parser, new Php()),
-      new DungeonEditorGmSurface($this->createMock(DungeonEditorService::class), $definitions, $parser, new Php()),
+      new RoomEditorGmSurface($this->createMock(RoomEditorService::class), $definitions, $parser, new Php(), $generation),
+      new DungeonEditorGmSurface($this->createMock(DungeonEditorService::class), $definitions, $parser, new Php(), $generation),
       new DefinitionEditorGmSurface($definitions, $parser),
       new EditorSuiteGmSurface($this->createMock(EditorSuiteService::class), $this->createMock(EditorReviewFlagService::class), $definitions, $parser),
     ], $parser);
@@ -137,6 +140,8 @@ class DungeonEditorGmContractTest extends TestCase {
       $this->assertSame('planning', $by_name[$planning]['family_key']);
       $this->assertFalse($by_name[$planning]['mutating'], $planning . ' must be a proposal.');
     }
+    $this->assertSame('planning', $by_name['generate_dungeon_layout']['family_key']);
+    $this->assertFalse($by_name['generate_dungeon_layout']['mutating']);
     $this->assertTrue($by_name['apply_dungeon_commands']['mutating']);
     $this->assertSame('execution', $by_name['apply_dungeon_commands']['family_key']);
     $this->assertTrue($by_name['update_canonical_definition']['mutating']);

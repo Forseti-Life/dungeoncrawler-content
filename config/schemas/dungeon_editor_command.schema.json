@@ -33,7 +33,7 @@
   },
   "allOf": [
     {"if": {"properties": {"type": {"const": "set_dungeon_metadata"}}}, "then": {"properties": {"payload": {"required": ["changes"]}}}},
-    {"if": {"properties": {"type": {"const": "place_room"}}}, "then": {"properties": {"payload": {"required": ["room_id", "version_id", "origin", "rotation_steps"]}}}},
+    {"if": {"properties": {"type": {"const": "place_room"}}}, "then": {"properties": {"payload": {"required": ["room_id", "version_id", "origin", "rotation_steps"], "properties": {"placement_id": {"type": "string", "format": "uuid", "description": "Optional additive G1 field. When supplied, it must be unique in the draft and is used for same-plan link_ports references."}}}}}},
     {"if": {"properties": {"type": {"const": "move_room_placement"}}}, "then": {"properties": {"payload": {"required": ["placement_id", "origin"]}}}},
     {"if": {"properties": {"type": {"const": "rotate_room_placement"}}}, "then": {"properties": {"payload": {"required": ["placement_id", "rotation_steps"]}}}},
     {"if": {"properties": {"type": {"const": "remove_room_placement"}}}, "then": {"properties": {"payload": {"required": ["placement_id"]}}}},

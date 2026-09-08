@@ -439,6 +439,15 @@ class RoomEditorService {
             $room[$field] = $changes[$field];
           }
         }
+        if (array_key_exists('metadata', $changes)) {
+          if (!is_array($changes['metadata']) || array_is_list($changes['metadata'])) {
+            throw new \InvalidArgumentException('metadata_invalid');
+          }
+          $room['metadata'] = array_replace_recursive(
+            is_array($room['metadata'] ?? NULL) ? $room['metadata'] : [],
+            $changes['metadata']
+          );
+        }
         if (array_key_exists('room_id', $changes)) {
           foreach ($room['placements'] as &$placement) {
             $placement['room_id'] = (string) $room['room_id'];

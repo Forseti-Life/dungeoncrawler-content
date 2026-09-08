@@ -132,6 +132,7 @@ class RoomEditorContractTest extends UnitTestCase {
         '@dungeoncrawler_content.canonical_definitions',
         '@dungeoncrawler_content.editor_gm_intent_parser',
         '@uuid',
+        '@dungeoncrawler_content.editor_generation',
       ],
       $services['dungeoncrawler_content.editor_gm_surface.room_editor']['arguments']
     );

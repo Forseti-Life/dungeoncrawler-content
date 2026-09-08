@@ -102,6 +102,26 @@
         <button type="button" class="room-editor__button room-editor__catalog-more" data-room-editor-action="catalog-more" hidden>{{ 'Load more'|t }}</button>
       </section>
 
+      <section class="room-editor__drawer-section room-editor__generation" data-room-editor-generation aria-label="{{ 'Generate room layout'|t }}">
+        <p class="room-editor__eyebrow">{{ 'Generate…'|t }}</p>
+        <label class="room-editor__field" for="room-editor-generation-prompt">{{ 'Prompt'|t }}
+          <textarea id="room-editor-generation-prompt" data-room-editor-generation-prompt rows="3" maxlength="2000" placeholder="{{ 'A flooded cellar with a broken altar, ~20 hexes'|t }}"></textarea>
+        </label>
+        <label class="room-editor__field">{{ 'Theme'|t }}<input type="text" data-room-editor-generation-theme maxlength="100" placeholder="{{ 'sewer, cellar, shrine...'|t }}"></label>
+        <label class="room-editor__field">{{ 'Size'|t }}
+          <select data-room-editor-generation-size>
+            <option value="small">{{ 'Small'|t }}</option>
+            <option value="medium" selected>{{ 'Medium'|t }}</option>
+            <option value="large">{{ 'Large'|t }}</option>
+            <option value="huge">{{ 'Huge'|t }}</option>
+          </select>
+        </label>
+        <label class="room-editor__field">{{ 'Minimum hexes'|t }}<input type="number" data-room-editor-generation-min-hexes min="16" max="80" step="1" value="16"></label>
+        <label class="room-editor__field">{{ 'Maximum hexes'|t }}<input type="number" data-room-editor-generation-max-hexes min="16" max="80" step="1" value="32"></label>
+        <label class="room-editor__field">{{ 'Seed (optional)'|t }}<input type="number" data-room-editor-generation-seed min="0" max="2147483647" step="1"></label>
+        <button type="button" class="room-editor__button room-editor__button--primary" data-room-editor-action="generate-room-layout">{{ 'Generate room plan'|t }}</button>
+      </section>
+
       <section class="room-editor__drawer-section" aria-label="{{ 'Editing tools'|t }}">
         <p class="room-editor__eyebrow">{{ 'Tools'|t }}</p>
         <div class="room-editor__toolbar" role="toolbar" data-room-editor-toolbar aria-label="{{ 'Editing tools'|t }}">

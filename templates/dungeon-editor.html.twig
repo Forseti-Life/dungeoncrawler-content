@@ -85,6 +85,17 @@
           <p class="room-editor__catalog-empty" data-dungeon-editor-room-list-empty hidden>{{ 'No published rooms.'|t }}</p>
         </section>
 
+        <section class="room-editor__drawer-section dungeon-editor__generation" data-dungeon-editor-generation aria-label="{{ 'Generate dungeon layout'|t }}">
+          <p class="room-editor__eyebrow">{{ 'Generate…'|t }}</p>
+          <label class="room-editor__field" for="dungeon-editor-generation-prompt">{{ 'Prompt'|t }}
+            <textarea id="dungeon-editor-generation-prompt" data-dungeon-editor-generation-prompt rows="3" maxlength="2000" placeholder="{{ '3 connected rooms, sewer theme'|t }}"></textarea>
+          </label>
+          <label class="room-editor__field">{{ 'Theme'|t }}<input type="text" data-dungeon-editor-generation-theme maxlength="100" placeholder="{{ 'sewer, ruin, crypt...'|t }}"></label>
+          <label class="room-editor__field">{{ 'Room count'|t }}<input type="number" data-dungeon-editor-generation-room-count min="3" max="20" step="1" value="3"></label>
+          <label class="room-editor__field">{{ 'Seed (optional)'|t }}<input type="number" data-dungeon-editor-generation-seed min="0" max="2147483647" step="1"></label>
+          <button type="button" class="room-editor__button room-editor__button--primary" data-dungeon-editor-action="generate-dungeon-layout">{{ 'Generate dungeon plan'|t }}</button>
+        </section>
+
         <section class="room-editor__drawer-section" data-dungeon-editor-placements aria-label="{{ 'Placements'|t }}">
           <p class="room-editor__eyebrow">{{ 'Placements'|t }}</p>
           <p class="room-editor__hint">{{ 'Drag a room on the canvas to move it. With one selected: [ and ] rotate, Delete removes.'|t }}</p>

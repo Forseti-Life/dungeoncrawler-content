@@ -56,7 +56,7 @@ class DungeonEditorService {
     'undo',
     'redo',
   ];
-  private const METADATA_KEYS = ['name', 'description', 'depth', 'theme'];
+  private const METADATA_KEYS = ['name', 'description', 'depth', 'theme', 'metadata'];
   private const PLACEMENT_METADATA_KEYS = ['label', 'tags', 'is_level_entrance'];
   private const LINK_KEYS = ['kind', 'direction', 'default_state', 'travel_cost', 'requirements', 'description', 'tags'];
   private const REGION_KEYS = ['name', 'placement_ids', 'description', 'environmental_effects', 'ambient_hazard_level'];
@@ -361,6 +361,7 @@ class DungeonEditorService {
       'depth' => $dungeon['depth'],
       'theme' => $dungeon['theme'],
       'hex_grid' => $dungeon['hex_grid'],
+      'metadata' => $dungeon['metadata'] ?? [],
       'placements' => $placements,
       'port_links' => $dungeon['port_links'] ?? [],
       'regions' => $dungeon['regions'] ?? [],
@@ -869,7 +870,18 @@ class DungeonEditorService {
       case 'set_dungeon_metadata':
         $changes = $this->requireChanges($payload, self::METADATA_KEYS);
         foreach ($changes as $key => $value) {
-          $dungeon[$key] = $value;
+          if ($key === 'metadata') {
+            if (!is_array($value) || array_is_list($value)) {
+              throw new DungeonCommandPayloadException('dungeon_command_payload_invalid', [$this->payloadFinding('/changes/metadata', 'metadata must be an object.')]);
+            }
+            $dungeon['metadata'] = array_replace_recursive(
+              is_array($dungeon['metadata'] ?? NULL) ? $dungeon['metadata'] : [],
+              $value
+            );
+          }
+          else {
+            $dungeon[$key] = $value;
+          }
         }
         break;
 
@@ -880,7 +892,19 @@ class DungeonEditorService {
           throw new DungeonCommandPayloadException('dungeon_command_payload_invalid', [$this->payloadFinding('/room_id', 'room_id and version_id must be strings.')]);
         }
         $room = $this->resolvePlacementVersion($version_id, $room_id);
-        $placement_id = $this->uuid->generate();
+        // G1 generation plans may supply placement_id so later same-plan
+        // link_ports steps can reference previewed placements before apply.
+        $placement_id = isset($payload['placement_id']) ? (string) $payload['placement_id'] : $this->uuid->generate();
+        if (!$this->isUuid($placement_id)) {
+          throw new DungeonCommandPayloadException('dungeon_command_payload_invalid', [$this->payloadFinding('/placement_id', 'placement_id must be a uuid when supplied.')]);
+        }
+        foreach ($dungeon['room_placements'] as $existing) {
+          if (($existing['placement_id'] ?? NULL) === $placement_id) {
+            throw new DungeonCommandRejectedException('placement_id_duplicate', [
+              $this->finding('error', 'placement_id_duplicate', sprintf('Placement id %s already exists in this draft.', $placement_id), [['placement_id' => $placement_id]]),
+            ]);
+          }
+        }
         $label = $payload['label'] ?? $room['name'] ?? $room_id;
         $placement = [
           'placement_id' => $placement_id,

@@ -8,6 +8,7 @@ use Drupal\dungeoncrawler_content\Service\DungeonEditorService;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\ApplyDungeonCommandsTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\DescribePublicationReadinessTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\ExplainDungeonValidationFindingsTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\GenerateDungeonLayoutTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\InspectRoomVersionTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\ListPublishedRoomsTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\LoadDungeonDraftTool;
@@ -55,8 +56,9 @@ final class DungeonEditorGmSurface implements EditorGmSurfaceInterface {
     private readonly CanonicalDefinitionService $definitions,
     EditorGmIntentParser $intentParser,
     UuidInterface $uuid,
+    ?EditorGenerationService $generation = NULL,
   ) {
-    $this->registry = new EditorGmToolRegistry([
+    $tools = [
       new LoadDungeonDraftTool(),
       new SummarizeLevelTopologyTool(),
       new ListPublishedRoomsTool(),
@@ -75,7 +77,11 @@ final class DungeonEditorGmSurface implements EditorGmSurfaceInterface {
       new PlanCanonicalDefinitionPatchTool(),
       new ApplyDungeonCommandsTool($uuid),
       new PublishDungeonVersionTool(),
-    ], self::SUPPORTED_COMMAND_TYPES, DungeonEditorService::COMMAND_SCHEMA_FILE);
+    ];
+    if ($generation !== NULL) {
+      array_splice($tools, 11, 0, [new GenerateDungeonLayoutTool($generation)]);
+    }
+    $this->registry = new EditorGmToolRegistry($tools, self::SUPPORTED_COMMAND_TYPES, DungeonEditorService::COMMAND_SCHEMA_FILE);
     $this->assembler = new DungeonEditorGmContextAssembler($this->registry, $intentParser);
   }
 
