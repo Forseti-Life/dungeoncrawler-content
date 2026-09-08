@@ -323,7 +323,7 @@ class StateValidationServiceTest extends UnitTestCase {
    */
   public function testValidateNavigationReceiptAcceptsHexElevationAndObjects(): void {
     $payload = [
-      'schema_version' => 'navigation-receipt-v1',
+      'schema_version' => 'navigation-receipt-v2',
       'target_room_id' => 'tavern_entrance',
       'origin_room_id' => 'street_entry',
       'destination' => 'Tavern Entrance',
@@ -331,6 +331,37 @@ class StateValidationServiceTest extends UnitTestCase {
       'travel_type' => 'walk',
       'estimated_distance' => 'adjacent',
       'source' => 'room-chat',
+      'authority' => [
+        'source' => 'canonical_db',
+        'resolution' => 14,
+      ],
+      'route' => [
+        'source_room_id' => 'street_entry',
+        'target_room_id' => 'tavern_entrance',
+        'segments' => [
+          [
+            'from_room_id' => 'street_entry',
+            'to_room_id' => 'tavern_entrance',
+            'entry_h3_index_res14' => '8e1fb46622d1c17',
+            'exit_h3_index_res14' => '8e1fb46622d1c18',
+            'street_path_h3_indexes' => ['8e1fb46622d1c17'],
+            'traversal_cost' => 1,
+            'blocked' => FALSE,
+          ],
+        ],
+      ],
+      'placement_contract' => [
+        'normalization' => 'global_non_overlapping_axial',
+        'active_anchor_resolution' => 14,
+        'room_anchor_h3_indexes_res14' => [
+          'tavern_entrance' => '8e1fb46622d1c17',
+        ],
+      ],
+      'capabilities' => [
+        'in_session_transition' => TRUE,
+        'server_authoritative' => TRUE,
+        'supports_res15' => FALSE,
+      ],
       'template_id' => NULL,
       'room' => [
         'room_id' => 'tavern_entrance',
@@ -381,6 +412,9 @@ class StateValidationServiceTest extends UnitTestCase {
           'is_passable' => TRUE,
           'bidirectional' => TRUE,
           'requires_interaction' => FALSE,
+          'destination_type' => 'room',
+          'destination_id' => 'street_entry',
+          'distance' => 1,
           'travel_time_seconds' => 60,
           'origin_hex' => [
             'q' => 0,

@@ -1597,15 +1597,13 @@ services:
     arguments:
       - '@database'
       - '@logger.factory'
-      - '@ai_conversation.ai_api_service'
-      - '@dungeoncrawler_content.npc_psychology_service'
       - '@dungeoncrawler_content.room_state_service'
-      - '@dungeoncrawler_content.npc_sheet_generation'
       - '@dungeoncrawler_content.state_validation_service'
       - '@?dungeoncrawler_content.navigation_service'
       - '@dungeoncrawler_content.runtime_canonical_content_resolver'
       - '@dungeoncrawler_content.canonical_room_projection'
       - '@config.factory'
+      - '@dungeoncrawler_content.runtime_canonical_room'
 
   dungeoncrawler_content.entity_placer:
     class: Drupal\dungeoncrawler_content\Service\EntityPlacerService

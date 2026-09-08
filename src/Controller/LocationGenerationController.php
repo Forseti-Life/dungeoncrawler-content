@@ -186,6 +186,11 @@ class LocationGenerationController extends ControllerBase {
       'travel_type' => (string) ($data['travel_type'] ?? 'walk'),
       'estimated_distance' => (string) ($data['estimated_distance'] ?? 'short'),
       'time_of_day' => (string) ($data['time_of_day'] ?? 'day'),
+      'prompt' => (string) ($data['prompt'] ?? $data['description'] ?? $destination),
+      'seed' => isset($data['seed']) && is_numeric($data['seed']) ? (int) $data['seed'] : NULL,
+      'required_tags' => is_array($data['required_tags'] ?? NULL) ? $data['required_tags'] : [],
+      'canonical_generation_wait' => !empty($data['canonical_generation_wait']) || !empty($data['wait_for_generator']) || (($data['generation_mode'] ?? '') === 'llm'),
+      'requested_by_uid' => (int) $this->currentUser()->id(),
     ];
 
     try {
@@ -244,6 +249,9 @@ class LocationGenerationController extends ControllerBase {
           'navigation' => $navigation,
         ],
       ], JsonResponse::HTTP_CREATED);
+    }
+    catch (RuntimeGenerationException $e) {
+      return $this->runtimeGenerationFailureResponse($e);
     }
     catch (\RuntimeException $e) {
       return new JsonResponse([
@@ -325,6 +333,7 @@ class LocationGenerationController extends ControllerBase {
       'party_size' => max(1, (int) ($data['party_size'] ?? 4)),
       'prompt' => (string) ($data['prompt'] ?? $data['description'] ?? ''),
       'seed' => isset($data['seed']) && is_numeric($data['seed']) ? (int) $data['seed'] : NULL,
+      'required_tags' => is_array($data['required_tags'] ?? NULL) ? $data['required_tags'] : [],
       'canonical_generation_wait' => !empty($data['canonical_generation_wait']) || !empty($data['wait_for_generator']) || (($data['generation_mode'] ?? '') === 'llm'),
       'requested_by_uid' => (int) $this->currentUser()->id(),
       'origin_room_id' => $origin_room_id,
@@ -389,7 +398,7 @@ class LocationGenerationController extends ControllerBase {
   private function runtimeGenerationFailureResponse(RuntimeGenerationException $exception): JsonResponse {
     return new JsonResponse([
       'success' => FALSE,
-      'error' => 'runtime_generation_failed',
+      'error' => $exception->getMessage(),
       'receipt' => [
         'code' => $exception->getMessage(),
         'findings' => $exception->getFindings(),

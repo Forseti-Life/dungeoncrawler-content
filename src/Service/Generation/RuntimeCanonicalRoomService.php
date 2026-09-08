@@ -175,6 +175,7 @@ final class RuntimeCanonicalRoomService {
     $room_type = $this->canonicalRoomType((string) ($context['room_type'] ?? 'chamber'));
     return [
       'tags' => array_values(array_unique(array_filter([$theme, $terrain, $room_type, (string) ($context['room_size'] ?? '')]))),
+      'required_tags' => array_values(array_unique(array_filter(array_map('strval', (array) ($context['required_tags'] ?? []))))),
       'size_category' => $this->canonicalSizeCategory((string) ($context['room_size'] ?? 'medium')),
       'room_type' => $room_type,
       'terrain_type' => $terrain,

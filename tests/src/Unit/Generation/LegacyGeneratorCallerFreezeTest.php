@@ -24,7 +24,6 @@ final class LegacyGeneratorCallerFreezeTest extends TestCase {
   private const LEGACY_REFERENCE_TOKENS = [
     'dungeoncrawler_content.room_generator',
     'dungeoncrawler_content.dungeon_generator',
-    'dungeoncrawler_content.map_generator',
     'dungeoncrawler_content.npc_sheet_generation',
     'dungeoncrawler_content.storyline_generation_service',
     'dungeoncrawler_content.quest_generator',
@@ -32,7 +31,6 @@ final class LegacyGeneratorCallerFreezeTest extends TestCase {
     'dungeoncrawler_content.content_generator',
     'RoomGeneratorService',
     'DungeonGeneratorService',
-    'MapGeneratorService',
     'NpcSheetGenerationService',
     'StorylineGenerationService',
     'QuestGeneratorService',
@@ -41,10 +39,14 @@ final class LegacyGeneratorCallerFreezeTest extends TestCase {
     'DungeonGenerationEngine',
   ];
 
-  private const ALLOWED_REFERENCE_FILES = [
+  private const RECONCILED_MAP_FACADE_REFERENCE_TOKENS = [
+    'dungeoncrawler_content.map_generator',
+    'MapGeneratorService',
+  ];
+
+  private const ALLOWED_LEGACY_REFERENCE_FILES = [
     'drush.services.yml',
     'dungeoncrawler_content.services.yml',
-    'src/Commands/InitialGameContentCommands.php',
     'src/Commands/NpcSheetWorkerCommands.php',
     'src/Commands/StorylineExpansionWorkerCommands.php',
     'src/Controller/DungeonController.php',
@@ -61,9 +63,6 @@ final class LegacyGeneratorCallerFreezeTest extends TestCase {
     'src/Service/DungeonGenerationEngine.php',
     'src/Service/DungeonGeneratorService.php',
     'src/Service/EncounterGeneratorService.php',
-    'src/Service/EncounterPhaseHandlerRouteExecutionSupportTrait.php',
-    'src/Service/MapGeneratorService.php',
-    'src/Service/NavigationRuntimeService.php',
     'src/Service/NpcService.php',
     'src/Service/NpcSheetGenerationService.php',
     'src/Service/QuestGeneratorService.php',
@@ -73,6 +72,22 @@ final class LegacyGeneratorCallerFreezeTest extends TestCase {
     'src/Service/StorylineGenerationService.php',
     'src/Service/StorylineManagerService.php',
     'src/Service/StorylineQuestLifecycleService.php',
+    'src/Service/StorylineRealizationService.php',
+  ];
+
+  private const ALLOWED_R4_MAP_FACADE_REFERENCE_FILES = [
+    'dungeoncrawler_content.services.yml',
+    'src/Commands/InitialGameContentCommands.php',
+    'src/Controller/DungeonGeneratorController.php',
+    'src/Controller/LocationGenerationController.php',
+    'src/Service/CampaignInitializationService.php',
+    'src/Service/DungeonGeneratorService.php',
+    'src/Service/EncounterPhaseHandlerRouteExecutionSupportTrait.php',
+    'src/Service/MapGeneratorService.php',
+    'src/Service/NavigationRuntimeService.php',
+    'src/Service/RoomChatService.php',
+    'src/Service/RoomGeneratorService.php',
+    'src/Service/StorylineManagerService.php',
     'src/Service/StorylineRealizationService.php',
   ];
 
@@ -93,11 +108,31 @@ final class LegacyGeneratorCallerFreezeTest extends TestCase {
     }
     $actual = array_values(array_unique($actual));
     sort($actual);
-    $expected = self::ALLOWED_REFERENCE_FILES;
+    $expected = self::ALLOWED_LEGACY_REFERENCE_FILES;
     sort($expected);
 
-    $this->assertCount(32, $expected, 'R3 shrinks the R1 freeze allowlist after RoomGeneratorController moved to RuntimeCanonicalRoomService.');
+    $this->assertCount(28, $expected, 'R4 shrinks the legacy generator freeze allowlist after MapGeneratorService became a canonical runtime facade.');
     $this->assertSame($expected, $actual, 'New legacy generator callers/references are forbidden; migrate to CanonicalGenerationService instead.');
+  }
+
+  public function testNoNewMapGeneratorFacadeReferencesOutsideR4Allowlist(): void {
+    $actual = [];
+    foreach ($this->scannedFiles() as $relative) {
+      $source = $this->sourceForScan($relative);
+      foreach (self::RECONCILED_MAP_FACADE_REFERENCE_TOKENS as $token) {
+        if (str_contains($source, $token)) {
+          $actual[] = $relative;
+          break;
+        }
+      }
+    }
+    $actual = array_values(array_unique($actual));
+    sort($actual);
+    $expected = self::ALLOWED_R4_MAP_FACADE_REFERENCE_FILES;
+    sort($expected);
+
+    $this->assertCount(13, $expected, 'R4 freezes the reconciled MapGeneratorService facade reference surface.');
+    $this->assertSame($expected, $actual, 'MapGeneratorService is reconciled as a runtime facade; add no new direct references during reconciliation.');
   }
 
   public function testLegacyGeneratorEntrypointsDeclareFreezeDocblocks(): void {

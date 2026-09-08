@@ -7,9 +7,9 @@ use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\dungeoncrawler_content\Support\H3SpatialHelper;
 use Drupal\dungeoncrawler_content\Service\Generation\CanonicalRoomProjectionService;
+use Drupal\dungeoncrawler_content\Service\Generation\RuntimeCanonicalRoomService;
 use Drupal\dungeoncrawler_content\Service\Generation\RuntimeCanonicalContentResolver;
 use Drupal\dungeoncrawler_content\Service\Generation\RuntimeGenerationException;
-use Drupal\ai_conversation\Service\AIApiService;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -38,14 +38,12 @@ class MapGeneratorService {
 
   protected Connection $database;
   protected LoggerInterface $logger;
-  protected AIApiService $aiApiService;
-  protected NpcPsychologyService $psychologyService;
   protected RoomStateService $roomStateService;
-  protected NpcSheetGenerationService $npcSheetGenerationService;
   protected StateValidationService $stateValidationService;
   protected ?NavigationService $navigationService;
   protected ?RuntimeCanonicalContentResolver $runtimeCanonicalContentResolver;
   protected ?CanonicalRoomProjectionService $canonicalRoomProjection;
+  protected ?RuntimeCanonicalRoomService $runtimeCanonicalRoom;
   protected ?ConfigFactoryInterface $configFactory;
   protected const NAVIGATION_RECEIPT_SCHEMA_VERSION = 'navigation-receipt-v2';
   protected const MIN_ROOM_GAP_HEXES = 5;
@@ -113,26 +111,22 @@ class MapGeneratorService {
   public function __construct(
     Connection $database,
     LoggerChannelFactoryInterface $logger_factory,
-    AIApiService $ai_api_service,
-    NpcPsychologyService $psychology_service,
     RoomStateService $room_state_service,
-    NpcSheetGenerationService $npc_sheet_generation_service,
     StateValidationService $state_validation_service,
     ?NavigationService $navigation_service = NULL,
     ?RuntimeCanonicalContentResolver $runtime_canonical_content_resolver = NULL,
     ?CanonicalRoomProjectionService $canonical_room_projection = NULL,
-    ?ConfigFactoryInterface $config_factory = NULL
+    ?ConfigFactoryInterface $config_factory = NULL,
+    ?RuntimeCanonicalRoomService $runtime_canonical_room = NULL
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler_map_gen');
-    $this->aiApiService = $ai_api_service;
-    $this->psychologyService = $psychology_service;
     $this->roomStateService = $room_state_service;
-    $this->npcSheetGenerationService = $npc_sheet_generation_service;
     $this->stateValidationService = $state_validation_service;
     $this->navigationService = $navigation_service;
     $this->runtimeCanonicalContentResolver = $runtime_canonical_content_resolver;
     $this->canonicalRoomProjection = $canonical_room_projection;
+    $this->runtimeCanonicalRoom = $runtime_canonical_room;
     $this->configFactory = $config_factory;
   }
 
@@ -326,192 +320,30 @@ class MapGeneratorService {
       ?? $dungeon_data['generation_rules']['party_level_target']
       ?? 1;
 
-    if ($this->canonicalRuntimeGenerationR2Enabled()) {
-      return $this->generateSettingFromCanonicalRoom(
-        $campaign_id,
-        (string) $dungeon_id,
-        $destination,
-        $origin_room_id,
-        $dungeon_data,
-        (int) $party_level,
-        $narrative_context
-      );
+    if (!$this->canonicalRuntimeGenerationR4Enabled()) {
+      throw new RuntimeGenerationException('runtime_generation_failed', [[
+        'code' => 'runtime_generation_failed',
+        'pointer' => '/canonical_runtime_generation/r4',
+        'message' => 'R4 canonical navigation setting generation is disabled; no legacy fallback is available.',
+        'severity' => 'error',
+      ]], 503);
     }
 
-    // Step 1: Check the setting template library for an adequate match.
-    $template_id = NULL;
-    $source = 'ai_generated';
-    $library_match = $this->findLibraryMatch($destination, $party_level, $campaign_id);
-
-    if ($library_match) {
-      // Library hit — use cached template instead of AI generation.
-      $setting = $this->hydrateSettingFromTemplate($library_match);
-      $template_id = $library_match['template_id'];
-      $source = 'library';
-      $this->incrementTemplateUsage($template_id);
-      $this->logger->info('Library match found: @tid (score=@score, usage=@usage)', [
-        '@tid' => $template_id,
-        '@score' => $library_match['quality_score'],
-        '@usage' => $library_match['usage_count'] + 1,
-      ]);
-      $this->logger->notice('Map generation branch: campaign=@campaign_id destination=@destination branch=library template_id=@template_id setting_type=@setting_type', [
-        '@campaign_id' => $campaign_id,
-        '@destination' => $destination,
-        '@template_id' => $template_id,
-        '@setting_type' => (string) ($setting['setting_type'] ?? ''),
-      ]);
-    }
-    else {
-      // No library match — generate via AI.
-      $generation_seed = trim((string) ($narrative_context['destination_description'] ?? ''));
-      if ($generation_seed === '') {
-        $generation_seed = $destination;
-      }
-      $setting = $this->generateSettingDescription($generation_seed, $narrative_context, $dungeon_data);
-
-      // Cache the AI-generated setting as a new library template.
-      $template_id = $this->cacheSettingAsTemplate($setting, $destination, $party_level);
-      $this->logger->info('New template cached: @tid', ['@tid' => $template_id]);
-      $this->logger->notice('Map generation branch: campaign=@campaign_id destination=@destination branch=ai_generated template_id=@template_id setting_type=@setting_type', [
-        '@campaign_id' => $campaign_id,
-        '@destination' => $destination,
-        '@template_id' => (string) $template_id,
-        '@setting_type' => (string) ($setting['setting_type'] ?? ''),
-      ]);
-    }
-
-    // Step 2: Build the room structure.
-    $room = $this->buildRoomFromSetting($setting, $origin_room_id);
-    $placement_result = $this->placeRoomWithMinimumGap(
-      $room,
-      is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : [],
-      self::MIN_ROOM_GAP_HEXES
-    );
-    $room = $placement_result['room'];
-    $room = $this->ensureRoomHexH3Indexes($dungeon_id, $room);
-
-    // Finalize generated NPC/item contracts now that the room id is known.
-    $setting = $this->finalizeGeneratedSettingContracts($setting, $room['room_id']);
-
-    // Step 3: Generate entities (NPCs, objects, furniture) for the room.
-    $entities = $this->generateSettingEntities($setting, $room['room_id'], $campaign_id);
-    $entities = $this->offsetGeneratedEntitiesByHex(
-      $entities,
-      (int) ($placement_result['offset_q'] ?? 0),
-      (int) ($placement_result['offset_r'] ?? 0)
-    );
-
-    $room_index = -1;
-    $this->executeNavigationPersistenceTransaction(function () use (
-      &$dungeon_data,
-      &$room_index,
+    return $this->generateSettingFromCanonicalRoom(
       $campaign_id,
-      $dungeon_id,
+      (string) $dungeon_id,
+      $destination,
       $origin_room_id,
-      $room,
-      $entities,
-      $template_id,
-      $setting
-    ): void {
-      // Step 4: Append room to dungeon_data.
-      $dungeon_data['rooms'][] = $room;
-      $room_index = array_key_last($dungeon_data['rooms']);
-
-      // Step 5: Add entities to top-level entities array.
-      if (!isset($dungeon_data['entities'])) {
-        $dungeon_data['entities'] = [];
-      }
-      foreach ($entities as $entity) {
-        $dungeon_data['entities'][] = $entity;
-      }
-
-      // Step 6: Create connection from origin room to new room.
-      $this->createRoomConnection($dungeon_data, $origin_room_id, $room['room_id']);
-      $this->syncCampaignConnectionRows($campaign_id, $dungeon_id, $origin_room_id, $room['room_id']);
-      $this->assertNavigationConnectionParity(
-        $campaign_id,
-        $dungeon_id,
-        $origin_room_id,
-        (string) $room['room_id'],
-        $dungeon_data
-      );
-
-      // Step 7: Update hex_map regions.
-      $this->addRegionToHexMap($dungeon_data, $room);
-
-      // Step 8: Persist dungeon_data.
-      $this->database->update('dc_campaign_dungeons')
-        ->fields([
-          'dungeon_data' => json_encode($dungeon_data),
-          'updated' => time(),
-        ])
-        ->condition('dungeon_id', $dungeon_id)
-        ->condition('campaign_id', $campaign_id)
-        ->execute();
-
-      // Step 9: Record campaign setting instance.
-      $this->recordCampaignSettingInstance(
-        $campaign_id, $room['room_id'], $template_id, $room['name'],
-        $setting['setting_type'] ?? 'default', $room_index, $setting
-      );
-
-      // Step 10a: Persist room into dc_campaign_rooms so it can be resolved
-      // by slug later (prevents tavern NPC bleed into unindexed rooms).
-      $this->persistRoomToCampaignRooms($campaign_id, $room, $setting);
-
-      // Step 10a.1: Mark the destination as discovered/visited now that this
-      // generation path is being used for immediate travel into the new room.
-      $this->roomStateService->setState($campaign_id, $room['room_id'], $dungeon_id, [
-        'roomId' => $room['room_id'],
-        'dungeonId' => $dungeon_id,
-        'explored' => TRUE,
-        'visibility' => 'visible',
-        'isCleared' => FALSE,
-      ], NULL);
-
-      // Step 10b: Create NPC psychology profiles for any new NPCs.
-      $this->ensureGeneratedNpcPsychologyProfiles($campaign_id, $entities);
-
-      // Step 11: Register AI-generated NPCs in content library + campaign chars.
-      $npc_setting_data = $setting['npcs'] ?? [];
-      if (!empty($npc_setting_data)) {
-        $this->registerGeneratedNpcs($campaign_id, $room['room_id'], $npc_setting_data);
-      }
-    });
-
-    $this->logger->info('Setting ready: @name (source=@src, template=@tid, room_index=@idx, @hex hexes, @ent entities)', [
-      '@name' => $room['name'],
-      '@src' => $source,
-      '@tid' => $template_id ?? 'none',
-      '@idx' => $room_index,
-      '@hex' => count($room['hexes']),
-      '@ent' => count($entities),
-    ]);
-    $this->logger->notice('Map generation exit: campaign=@campaign_id destination=@destination room_id=@room_id room_name=@room_name source=@source template_id=@template_id room_index=@room_index entity_count=@entity_count', [
-      '@campaign_id' => $campaign_id,
-      '@destination' => $destination,
-      '@room_id' => (string) ($room['room_id'] ?? ''),
-      '@room_name' => (string) ($room['name'] ?? ''),
-      '@source' => $source,
-      '@template_id' => (string) ($template_id ?? ''),
-      '@room_index' => $room_index,
-      '@entity_count' => count($entities),
-    ]);
-
-    return [
-      'room' => $room,
-      'room_index' => $room_index,
-      'entities' => $entities,
-      'dungeon_data' => $dungeon_data,
-      'source' => $source,
-      'template_id' => $template_id,
-    ];
+      $dungeon_data,
+      (int) $party_level,
+      $narrative_context
+    );
   }
 
   /**
    * Resolve navigation expansion through published canonical room projection.
    *
-   * R2 default path: select deterministic canonical content or hard-fail with
+   * R4 default path: select deterministic canonical content or hard-fail with
    * runtime_selection_failed. It never falls through to the legacy setting
    * template or AI setting generator after a selection miss.
    */
@@ -524,30 +356,35 @@ class MapGeneratorService {
     int $party_level,
     array $narrative_context
   ): array {
-    if (!$this->runtimeCanonicalContentResolver || !$this->canonicalRoomProjection) {
+    if (!$this->runtimeCanonicalRoom || !$this->canonicalRoomProjection) {
       throw new RuntimeGenerationException('runtime_selection_failed', [[
         'code' => 'runtime_selection_failed',
         'pointer' => '/services',
-        'message' => 'Runtime canonical resolver/projection services are required for R2.',
+        'message' => 'Runtime canonical room/projection services are required for R4.',
         'severity' => 'error',
       ]], 500);
     }
 
-    $criteria = [
-      'tags' => array_values(array_unique(array_merge(
-        $this->extractSearchKeywords($destination),
-        $this->extractSearchKeywords((string) ($narrative_context['campaign_theme'] ?? '')),
-        [$this->inferSettingType($destination) ?: '']
-      ))),
-      'room_type' => $this->settingTypeToRoomType($this->inferSettingType($destination) ?: 'default'),
-      'terrain_type' => (string) ((self::TERRAIN_MAP[$this->inferSettingType($destination) ?: 'default'] ?? self::TERRAIN_MAP['default'])['type'] ?? ''),
-      'min_entry_ports' => 1,
-      'min_exit_ports' => 1,
+    $setting_type = $this->inferSettingType($destination) ?: 'default';
+    $room_index_seed = count(is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : []);
+    $runtime_room = $this->runtimeCanonicalRoom->generateRoom([
+      'campaign_id' => $campaign_id,
+      'dungeon_id' => $dungeon_id,
+      'level_id' => (string) ($dungeon_data['level_id'] ?? $dungeon_data['current_level_id'] ?? 'navigation'),
+      'room_index' => $room_index_seed,
+      'runtime_room_id' => $this->buildNavigationRuntimeRoomId($dungeon_id, $destination, $room_index_seed),
+      'theme' => (string) ($narrative_context['campaign_theme'] ?? $dungeon_data['theme'] ?? 'dungeon'),
+      'room_type' => $this->settingTypeToRoomType($setting_type),
+      'terrain_type' => (string) ((self::TERRAIN_MAP[$setting_type] ?? self::TERRAIN_MAP['default'])['type'] ?? 'stone_floor'),
+      'room_size' => (string) ($narrative_context['room_size'] ?? 'medium'),
+      'party_level' => $party_level,
+      'prompt' => trim((string) ($narrative_context['prompt'] ?? $narrative_context['destination_description'] ?? $destination)),
       'seed' => $this->runtimeSelectionSeed($destination, $party_level, $narrative_context),
-    ];
-    $resolved = $this->runtimeCanonicalContentResolver->selectPublishedRoom($criteria);
-    $runtime_room = $this->canonicalRoomProjection->buildRuntimeRoom($resolved, [
-      'source_kind' => !empty($resolved['room_payload']['metadata']['runtime_generated']) ? 'runtime_generated' : 'published_room',
+      'required_tags' => array_values(array_unique(array_filter(array_map('strval', (array) ($narrative_context['required_tags'] ?? []))))),
+      'defer_room_persistence' => TRUE,
+      'canonical_generation_wait' => !empty($narrative_context['canonical_generation_wait']),
+      'requested_by_uid' => (int) ($narrative_context['requested_by_uid'] ?? 0),
+      'origin_room_id' => $origin_room_id,
     ]);
     $placement_result = $this->placeRoomWithMinimumGap(
       $runtime_room,
@@ -564,7 +401,7 @@ class MapGeneratorService {
       'setting_type' => $this->inferSettingType($destination) ?: 'default',
       'size' => (string) ($room['size_category'] ?? 'medium'),
       'lighting' => is_string($room['lighting'] ?? NULL) ? $room['lighting'] : (string) ($room['lighting']['level'] ?? 'normal_light'),
-      'theme_tags' => $criteria['tags'],
+      'theme_tags' => (array) ($room['metadata']['campaign_source']['selection']['criteria']['tags'] ?? []),
       'atmosphere' => '',
       'npcs' => [],
       'objects' => [],
@@ -629,15 +466,15 @@ class MapGeneratorService {
       'dungeon_data' => $dungeon_data,
       'source' => 'canonical_room',
       'template_id' => NULL,
-      'room_version_id' => $resolved['room_version_id'],
+      'room_version_id' => $room['source_room_version_id'] ?? $room['room_version_id'] ?? NULL,
     ];
   }
 
-  protected function canonicalRuntimeGenerationR2Enabled(): bool {
+  protected function canonicalRuntimeGenerationR4Enabled(): bool {
     if (!$this->configFactory) {
       return FALSE;
     }
-    return $this->configFactory->get('dungeoncrawler_content.settings')->get('canonical_runtime_generation.r3') !== FALSE;
+    return $this->configFactory->get('dungeoncrawler_content.settings')->get('canonical_runtime_generation.r4') !== FALSE;
   }
 
   protected function runtimeSelectionSeed(string $destination, int $party_level, array $context): int {
@@ -645,6 +482,18 @@ class MapGeneratorService {
       return max(0, min(2147483647, (int) $context['seed']));
     }
     return (int) (sprintf('%u', crc32(strtolower($destination) . ':' . $party_level)) % 2147483647);
+  }
+
+  protected function buildNavigationRuntimeRoomId(string $dungeon_id, string $destination, int $room_index): string {
+    $slug = $this->normalizeLocationLabel($destination);
+    if ($slug === '') {
+      $slug = 'location';
+    }
+    $slug = preg_replace('/[^a-z0-9_-]+/', '_', $slug) ?: 'location';
+    $slug = trim($slug, '_-') !== '' ? trim($slug, '_-') : 'location';
+    $dungeon = preg_replace('/[^a-zA-Z0-9_-]+/', '_', $dungeon_id) ?: 'dungeon';
+    $hash = substr(hash('sha256', $dungeon_id . ':' . $destination . ':' . $room_index . ':' . microtime(TRUE)), 0, 8);
+    return substr(sprintf('room_%s_%s_%d_%s', trim($dungeon, '_-'), $slug, $room_index, $hash), 0, 100);
   }
 
   /**
@@ -1178,133 +1027,6 @@ class MapGeneratorService {
   // =========================================================================
 
   /**
-   * Search the setting template library for an adequate existing match.
-   *
-   * Matching strategy:
-   * 1. Extract keywords from the destination string
-   * 2. Infer a likely setting_type from the destination
-   * 3. Query library by setting_type + level range + quality threshold
-   * 4. Score candidates by keyword overlap with search_tags
-   * 5. Return the best match if score exceeds threshold, NULL otherwise
-   *
-   * @param string $destination
-   *   Player's stated destination.
-   * @param int $party_level
-   *   Current party level for level-range filtering.
-   * @param int $campaign_id
-   *   Campaign ID (to avoid re-using a template already active in this campaign).
-   *
-   * @return array|null
-   *   Library row (with all fields) or NULL if no adequate match.
-   */
-  protected function findLibraryMatch(string $destination, int $party_level, int $campaign_id): ?array {
-    $keywords = $this->extractSearchKeywords($destination);
-    $inferred_type = $this->inferSettingType($destination);
-    $this->logger->notice('Library match entry: campaign=@campaign_id destination=@destination inferred_type=@inferred_type keyword_count=@keyword_count', [
-      '@campaign_id' => $campaign_id,
-      '@destination' => $destination,
-      '@inferred_type' => (string) $inferred_type,
-      '@keyword_count' => count($keywords),
-    ]);
-
-    if (empty($keywords) && !$inferred_type) {
-      $this->logger->notice('Library match exit: campaign=@campaign_id destination=@destination result=no_keywords_or_type', [
-        '@campaign_id' => $campaign_id,
-        '@destination' => $destination,
-      ]);
-      return NULL;
-    }
-
-    // Build query: setting_type match (if we can infer) + level range + quality.
-    $query = $this->database->select('dungeoncrawler_content_setting_templates', 't')
-      ->fields('t')
-      ->condition('t.quality_score', self::MIN_QUALITY_SCORE, '>=')
-      ->condition('t.level_min', $party_level, '<=')
-      ->condition('t.level_max', $party_level, '>=')
-      ->orderBy('t.quality_score', 'DESC')
-      ->orderBy('t.usage_count', 'ASC')
-      ->range(0, self::MAX_LIBRARY_CANDIDATES);
-
-    if ($inferred_type && $inferred_type !== 'default') {
-      $query->condition('t.setting_type', $inferred_type);
-    }
-
-    $candidates = $query->execute()->fetchAll(\PDO::FETCH_ASSOC);
-
-    if (empty($candidates)) {
-      $this->logger->notice('Library match exit: campaign=@campaign_id destination=@destination result=no_candidates', [
-        '@campaign_id' => $campaign_id,
-        '@destination' => $destination,
-      ]);
-      return NULL;
-    }
-
-    // Collect templates already used in this campaign to avoid duplicates.
-    $used_templates = $this->database->select('dc_campaign_settings', 'cs')
-      ->fields('cs', ['source_template_id'])
-      ->condition('cs.campaign_id', $campaign_id)
-      ->isNotNull('cs.source_template_id')
-      ->execute()
-      ->fetchCol();
-    $used_set = array_flip($used_templates);
-
-    // Score candidates by keyword overlap.
-    $best = NULL;
-    $best_score = 0;
-
-    foreach ($candidates as $candidate) {
-      // Skip templates already active in this campaign.
-      if (isset($used_set[$candidate['template_id']])) {
-        continue;
-      }
-
-      $tags = json_decode($candidate['search_tags'] ?? '[]', TRUE) ?: [];
-      $overlap = count(array_intersect($keywords, $tags));
-      $score = $overlap / max(count($keywords), 1);
-
-      // Boost for exact setting_type match.
-      if ($inferred_type && $candidate['setting_type'] === $inferred_type) {
-        $score += 0.3;
-      }
-
-      // Boost for quality.
-      $score += (float) $candidate['quality_score'] * 0.2;
-
-      // Penalize overused templates slightly.
-      $score -= min(0.1, (int) $candidate['usage_count'] * 0.01);
-
-      if ($score > $best_score) {
-        $best_score = $score;
-        $best = $candidate;
-      }
-    }
-
-    // Require minimum match score of 0.4 to use a library template.
-    if ($best_score < 0.4) {
-      $this->logger->debug('Library search: best score @score < 0.4 threshold, will generate fresh', [
-        '@score' => round($best_score, 2),
-      ]);
-      $this->logger->notice('Library match exit: campaign=@campaign_id destination=@destination result=below_threshold best_score=@best_score best_template_id=@best_template_id candidate_count=@candidate_count', [
-        '@campaign_id' => $campaign_id,
-        '@destination' => $destination,
-        '@best_score' => round($best_score, 4),
-        '@best_template_id' => (string) ($best['template_id'] ?? ''),
-        '@candidate_count' => count($candidates),
-      ]);
-      return NULL;
-    }
-
-    $this->logger->notice('Library match exit: campaign=@campaign_id destination=@destination result=matched template_id=@template_id best_score=@best_score candidate_count=@candidate_count', [
-      '@campaign_id' => $campaign_id,
-      '@destination' => $destination,
-      '@template_id' => (string) ($best['template_id'] ?? ''),
-      '@best_score' => round($best_score, 4),
-      '@candidate_count' => count($candidates),
-    ]);
-    return $best;
-  }
-
-  /**
    * Reuse an existing campaign room when the destination already exists.
    */
   protected function findExistingCampaignRoomMatch(int $campaign_id, array &$dungeon_data, string $destination, string $origin_room_id): ?array {
@@ -1579,119 +1301,6 @@ class MapGeneratorService {
   }
 
   /**
-   * Hydrate a full setting array from a library template row.
-   */
-  protected function hydrateSettingFromTemplate(array $template): array {
-    $setting_data = json_decode($template['setting_data'] ?? '{}', TRUE) ?: [];
-    $this->logger->notice('Hydrate template exit: template_id=@template_id name=@name setting_type=@setting_type npc_count=@npc_count object_count=@object_count', [
-      '@template_id' => (string) ($template['template_id'] ?? ''),
-      '@name' => (string) ($template['name'] ?? ''),
-      '@setting_type' => (string) ($template['setting_type'] ?? ''),
-      '@npc_count' => count($setting_data['npcs'] ?? []),
-      '@object_count' => count($setting_data['objects'] ?? []),
-    ]);
-
-    return array_merge($setting_data, [
-      'name' => $template['name'],
-      'description' => $template['description'],
-      'setting_type' => $template['setting_type'],
-      'size' => $template['size'],
-      'lighting' => $template['lighting'],
-    ]);
-  }
-
-  /**
-   * Cache an AI-generated setting as a new library template.
-   *
-   * @param array $setting
-   *   Normalized setting data from generateSettingDescription().
-   * @param string $destination
-   *   Original destination string (for keyword extraction).
-   * @param int $party_level
-   *   Party level at time of generation.
-   *
-   * @return string
-   *   The new template_id.
-   */
-  protected function cacheSettingAsTemplate(array $setting, string $destination, int $party_level): string {
-    // Generate a stable template_id from the setting name.
-    $base_id = strtolower(preg_replace('/[^a-z0-9]+/i', '_', $setting['name'] ?? 'setting'));
-    $base_id = trim($base_id, '_');
-    $template_id = substr($base_id, 0, 80) . '_' . substr(md5($base_id . microtime()), 0, 8);
-
-    // Build search tags from destination keywords + setting metadata.
-    $keywords = $this->extractSearchKeywords($destination);
-    $tags = array_unique(array_merge(
-      $keywords,
-      $setting['theme_tags'] ?? [],
-      [$setting['setting_type'] ?? '', $setting['size'] ?? ''],
-      $this->extractSearchKeywords($setting['name'] ?? ''),
-      $this->extractSearchKeywords($setting['description'] ?? '')
-    ));
-    $tags = array_values(array_filter($tags));
-
-    // Separate NPCs/objects/atmosphere into setting_data blob.
-    $setting_data = [
-      'theme_tags' => $setting['theme_tags'] ?? [],
-      'atmosphere' => $setting['atmosphere'] ?? '',
-      'npcs' => $setting['npcs'] ?? [],
-      'objects' => $setting['objects'] ?? [],
-    ];
-
-    $now = time();
-    $level_min = max(1, $party_level - 2);
-    $level_max = min(20, $party_level + 3);
-
-    try {
-      $this->database->insert('dungeoncrawler_content_setting_templates')
-        ->fields([
-          'template_id' => $template_id,
-          'name' => $setting['name'] ?? 'Unknown Setting',
-          'description' => $setting['description'] ?? '',
-          'setting_type' => $setting['setting_type'] ?? 'default',
-          'size' => $setting['size'] ?? 'medium',
-          'lighting' => $setting['lighting'] ?? 'normal_light',
-          'setting_data' => json_encode($setting_data),
-          'search_tags' => json_encode($tags),
-          'level_min' => $level_min,
-          'level_max' => $level_max,
-          'usage_count' => 1,
-          'quality_score' => 0.5,
-          'source' => 'ai_generated',
-          'created' => $now,
-          'updated' => $now,
-        ])
-        ->execute();
-    }
-    catch (\Exception $e) {
-      $this->logger->warning('Failed to cache setting template @tid: @err', [
-        '@tid' => $template_id,
-        '@err' => $e->getMessage(),
-      ]);
-    }
-
-    return $template_id;
-  }
-
-  /**
-   * Increment usage_count on a library template.
-   */
-  protected function incrementTemplateUsage(string $template_id): void {
-    try {
-      $this->database->update('dungeoncrawler_content_setting_templates')
-        ->expression('usage_count', 'usage_count + 1')
-        ->fields(['updated' => time()])
-        ->condition('template_id', $template_id)
-        ->execute();
-    }
-    catch (\Exception $e) {
-      $this->logger->warning('Failed to increment usage for template @tid', [
-        '@tid' => $template_id,
-      ]);
-    }
-  }
-
-  /**
    * Execute navigation persistence writes in one DB transaction.
    */
   protected function executeNavigationPersistenceTransaction(callable $operation): void {
@@ -1703,22 +1312,6 @@ class MapGeneratorService {
       $transaction->rollBack();
       throw $e;
     }
-  }
-
-  /**
-   * Ensure psychology profiles exist for generated NPC entities.
-   *
-   * @param int $campaign_id
-   *   Campaign identifier.
-   * @param array<int, array<string, mixed>> $entities
-   *   Generated entity list for the new room.
-   */
-  protected function ensureGeneratedNpcPsychologyProfiles(int $campaign_id, array $entities): void {
-    $room_entities = array_values(array_filter($entities, static fn($entity): bool => ($entity['entity_type'] ?? '') === 'npc'));
-    if ($room_entities === []) {
-      return;
-    }
-    $this->psychologyService->ensureRoomNpcProfiles($campaign_id, $room_entities);
   }
 
   /**
@@ -1769,54 +1362,6 @@ class MapGeneratorService {
   // =========================================================================
   // NPC and Room persistence helpers
   // =========================================================================
-
-  /**
-   * Persist a generated room into dc_campaign_rooms.
-   *
-   * Rooms created by MapGeneratorService live in dc_campaign_settings but were
-   * historically NOT written to dc_campaign_rooms. This method bridges that
-   * gap so resolveRoomSlugForQuery() can find them and avoid bleeding tavern
-   * NPCs (Eldric etc.) into unrelated rooms.
-   *
-   * @param int $campaign_id
-   *   Campaign ID.
-   * @param array $room
-   *   Room data from buildRoomFromSetting().
-   * @param array $setting
-   *   Normalized setting data.
-   */
-  protected function persistRoomToCampaignRooms(int $campaign_id, array $room, array $setting): void {
-    $room_id = $room['room_id'] ?? '';
-    if (!$room_id) {
-      return;
-    }
-
-    $layout_payload = $this->buildCanonicalCampaignRoomLayoutPayload($room);
-    $contents_payload = $this->buildCanonicalCampaignRoomContentsPayload($setting);
-    $this->persistCanonicalCampaignRoom(
-      $campaign_id,
-      (string) $room_id,
-      (string) ($room['name'] ?? 'Unknown'),
-      (string) ($room['description'] ?? ''),
-      $layout_payload,
-      $contents_payload,
-      is_array($setting['theme_tags'] ?? NULL) ? $setting['theme_tags'] : [],
-      $this->resolveGeneratedSourceRoomId($setting)
-    );
-
-    $this->logger->info('Room @id persisted to dc_campaign_rooms (name: @name)', [
-      '@id'   => $room_id,
-      '@name' => $room['name'] ?? 'Unknown',
-    ]);
-    $this->logger->notice('Room persistence exit: campaign=@campaign_id room_id=@room_id room_name=@room_name source_room_id=@source_room_id setting_type=@setting_type theme_tag_count=@theme_tag_count', [
-      '@campaign_id' => $campaign_id,
-      '@room_id' => $room_id,
-      '@room_name' => (string) ($room['name'] ?? ''),
-      '@source_room_id' => $this->resolveGeneratedSourceRoomId($setting),
-      '@setting_type' => (string) ($setting['setting_type'] ?? ''),
-      '@theme_tag_count' => count($setting['theme_tags'] ?? []),
-    ]);
-  }
 
   /**
    * Persist one canonical campaign room row.
@@ -2357,184 +1902,6 @@ class MapGeneratorService {
   }
 
   /**
-   * Register AI-generated NPCs in the content library and campaign characters.
-   *
-   * Each NPC from the AI setting response is:
-   * 1. Upserted into dungeoncrawler_content_registry (global library).
-   * 2. Upserted into dc_campaign_content_registry (campaign-scoped copy).
-   * 3. Inserted into dc_campaign_characters (so loadRoomCampaignNpcRows finds them).
-   *
-   * @param int $campaign_id
-   *   Campaign ID.
-   * @param string $room_id
-   *   UUID of the room this NPC was placed into.
-   * @param array $npcs
-   *   Normalized NPC array from setting['npcs'].
-   */
-  protected function registerGeneratedNpcs(int $campaign_id, string $room_id, array $npcs): void {
-    $now = time();
-
-    foreach ($npcs as $npc) {
-      $content_id = $npc['content_id'] ?? '';
-      $name       = $npc['name'] ?? 'Unknown NPC';
-      if (!$content_id) {
-        continue;
-      }
-      $instance_id = $this->buildGeneratedNpcInstanceId((string) $content_id);
-      $inventory = is_array($npc['inventory'] ?? NULL) ? $npc['inventory'] : [];
-      $equipment_labels = is_array($npc['equipment'] ?? NULL) ? $npc['equipment'] : [];
-      $npc_level = max(1, (int) ($npc['level'] ?? ($npc['stats']['level'] ?? 1)));
-
-      $this->registerGeneratedEquipmentItems($campaign_id, $equipment_labels);
-
-      $schema_data = json_encode([
-        'schema_version' => '1.0.0',
-        'content_id'  => $content_id,
-        'name'        => $name,
-        'ancestry'    => $npc['ancestry'] ?? 'Human',
-        'class'       => $npc['class'] ?? 'Commoner',
-        'role'        => $npc['role'] ?? 'neutral',
-        'occupation'  => $npc['occupation'] ?? '',
-        'description' => $npc['description'] ?? '',
-        'backstory'   => $npc['backstory'] ?? '',
-        'attitude'    => $npc['attitude'] ?? 'indifferent',
-        'stats'       => $npc['stats'] ?? [],
-        'inventory'   => $inventory,
-        'equipment_labels' => $equipment_labels,
-        'source'      => 'ai_generated',
-      ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-
-      $tags = json_encode(array_filter([
-        $npc['role'] ?? NULL,
-        $npc['team'] ?? NULL,
-        'ai_generated',
-      ]));
-
-      // 1. Global library entry (dungeoncrawler_content_registry).
-      $this->database->merge('dungeoncrawler_content_registry')
-        ->keys(['content_type' => 'npc', 'content_id' => $content_id])
-        ->fields([
-          'content_type' => 'npc',
-          'content_id'   => $content_id,
-          'name'         => $name,
-          'level'        => $npc_level,
-          'rarity'       => 'common',
-          'tags'         => $tags,
-          'schema_data'  => $schema_data,
-          'source_file'  => 'ai_generated',
-          'version'      => '1.0',
-        ])
-        ->execute();
-
-      // 2. Campaign-scoped copy (dc_campaign_content_registry).
-      $this->database->merge('dc_campaign_content_registry')
-        ->keys(['campaign_id' => $campaign_id, 'content_type' => 'npc', 'content_id' => $content_id])
-        ->fields([
-          'campaign_id'      => $campaign_id,
-          'content_type'     => 'npc',
-          'content_id'       => $content_id,
-          'name'             => $name,
-          'level'            => $npc_level,
-          'rarity'           => 'common',
-          'tags'             => $tags,
-          'schema_data'      => $schema_data,
-          'source_content_id' => $content_id,
-          'created'          => $now,
-          'updated'          => $now,
-        ])
-        ->execute();
-
-      // 3. Campaign character instance (dc_campaign_characters).
-      // Check first — avoid duplicating if this NPC was already registered.
-      $existing = $this->database->select('dc_campaign_characters', 'c')
-        ->fields('c', ['id'])
-        ->condition('campaign_id', $campaign_id)
-        ->condition('instance_id', $instance_id)
-        ->execute()
-        ->fetchField();
-
-      if (!$existing) {
-        $state_data = json_encode([
-          'content_id'  => $content_id,
-          'role'        => $npc['role'] ?? 'neutral',
-          'description' => $npc['description'] ?? '',
-          'level'       => $npc_level,
-          'stats'       => $npc['stats'] ?? [],
-          'inventory'   => $inventory,
-          'attitude'    => $npc['attitude'] ?? 'indifferent',
-        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-
-        $this->database->insert('dc_campaign_characters')
-          ->fields([
-            'campaign_id'   => $campaign_id,
-            'character_id'  => 0,
-            'source_character_id' => NULL,
-            'uid'           => 0,
-            'role'          => $npc['role'] ?? 'npc',
-            'is_active'     => 1,
-            'joined'        => $now,
-            'instance_id'   => $instance_id,
-            'type'          => 'npc',
-            'lifecycle_state' => 'campaign_npc',
-            'character_data' => $state_data,
-            'default_locations' => NULL,
-            'portrait' => NULL,
-            'location_type' => 'room',
-            'location_ref'  => $room_id,
-            'updated'       => $now,
-            'name'          => $name,
-            'level'         => $npc_level,
-            'ancestry'      => $npc['ancestry'] ?? 'humanoid',
-            'class'         => 'npc',
-            'status'        => 1,
-            'created'       => $now,
-            'changed'       => $now,
-            'hp_current'    => $npc['stats']['currentHp'] ?? 0,
-            'hp_max'        => $npc['stats']['maxHp'] ?? 0,
-            'armor_class'   => $npc['stats']['ac'] ?? 0,
-            'experience_points' => 0,
-            'position_q'    => 0,
-            'position_r'    => 0,
-            'position_h3'   => strtolower(trim((string) (
-              $npc['position']['h3_index_res14']
-              ?? $npc['position']['h3_index']
-              ?? ''
-            ))),
-            'last_room_id'  => $room_id,
-            'version'       => 0,
-          ])
-          ->execute();
-
-        $this->logger->info('NPC @name (@id) registered in campaign @cid, room @room', [
-          '@name' => $name,
-          '@id'   => $instance_id,
-          '@cid'  => $campaign_id,
-          '@room' => $room_id,
-        ]);
-      }
-
-      $this->npcSheetGenerationService->enqueueNpcSheetGeneration($campaign_id, $content_id, [
-        'instance_id' => $instance_id,
-        'entity_ref' => $content_id,
-        'name' => $name,
-        'ancestry' => $npc['ancestry'] ?? 'Human',
-        'class' => $npc['class'] ?? 'Commoner',
-        'role' => $npc['role'] ?? 'neutral',
-        'occupation' => $npc['occupation'] ?? '',
-        'description' => $npc['description'] ?? '',
-        'backstory' => $npc['backstory'] ?? '',
-        'attitude' => $npc['attitude'] ?? 'indifferent',
-        'stats' => $npc['stats'] ?? [],
-        'equipment' => $npc['equipment'] ?? [],
-        'languages' => $npc['languages'] ?? ['Common'],
-        'senses' => $npc['senses'] ?? [],
-      ], FALSE);
-    }
-
-    $this->npcSheetGenerationService->launchDetachedWorker();
-  }
-
-  /**
    * Extract lowercase search keywords from a text string.
    *
    * Filters out common stop words and short words.
@@ -2604,891 +1971,6 @@ class MapGeneratorService {
 
   // =========================================================================
   // AI-driven setting generation (fallback when no library match)
-  // =========================================================================
-
-  /**
-   * Use AI to generate a rich setting description with structured metadata.
-   *
-   * @param string $destination
-   *   Where the player wants to go.
-   * @param array $narrative_context
-   *   GM narrative, campaign theme, etc.
-   * @param array $dungeon_data
-   *   Current dungeon data (for world consistency).
-   *
-   * @return array
-   *   Structured setting data:
-   *   - name: string
-   *   - description: string
-   *   - setting_type: string (tavern, shop, market, forest, etc.)
-   *   - size: string (tiny, small, medium, large, huge)
-   *   - terrain_type: string
-   *   - lighting: string
-   *   - theme_tags: array
-   *   - npcs: array of NPC definitions
-   *   - objects: array of furniture/object definitions
-   *   - atmosphere: string
-   */
-  protected function generateSettingDescription(
-    string $destination,
-    array $narrative_context,
-    array $dungeon_data
-  ): array {
-    $existing_rooms = [];
-    foreach ($dungeon_data['rooms'] ?? [] as $r) {
-      $existing_rooms[] = $r['name'] ?? 'Unknown';
-    }
-
-    $gm_narration = $narrative_context['gm_narrative'] ?? '';
-    $time_of_day = $narrative_context['time_of_day'] ?? 'day';
-    $party_level = $narrative_context['party_level'] ?? 1;
-    $campaign_theme = $narrative_context['campaign_theme'] ?? 'high fantasy';
-    $existing_room_list = implode(', ', $existing_rooms);
-
-    $system_prompt = <<<'SYSTEM'
-You are the world-builder for a Pathfinder 2e tabletop RPG. Your job is to generate detailed, playable settings when players navigate to new locations.
-
-You must respond with ONLY valid JSON — no markdown, no explanation, no wrapping.
-
-The setting must be:
-- Internally consistent with a fantasy world
-- Appropriately sized for the location type
-- Populated with believable NPCs and objects
-- Rich enough for tactical play on a hex grid
-
-CRITICAL NPC RULE: If the DESTINATION or GM NARRATION mentions specific characters by name (e.g., "Gribbles", "a merchant", "the blacksmith"), you MUST include each of them as a fully-defined NPC in the npcs array. Never omit characters that the narrative has already placed in this location.
-
-NAME RULE: The "name" field must be a SHORT location name — 2 to 5 words maximum (e.g., "Gribbles' Cave", "The Ironheart Forge", "Town Market Square"). The full sensory description goes in the "description" field only.
-SYSTEM;
-
-    $prompt = <<<PROMPT
-Generate a detailed setting for a new location the players are traveling to.
-
-DESTINATION: {$destination}
-GM NARRATION: {$gm_narration}
-TIME OF DAY: {$time_of_day}
-PARTY LEVEL: {$party_level}
-CAMPAIGN THEME: {$campaign_theme}
-EXISTING LOCATIONS: {$existing_room_list}
-
-Respond with this exact JSON structure:
-{
-  "name": "The location name (e.g., 'Ironheart Forge', 'Town Market Square')",
-  "description": "A vivid 2-3 sentence description of the location as the players see it when they arrive. Include sensory details — sights, sounds, smells.",
-  "setting_type": "One of: tavern, shop, temple, market, street, forest, cave, dungeon, library, throne_room, dock, alley, sewer, garden, arena, prison, residential, wilderness",
-  "size": "One of: tiny, small, medium, large, huge — appropriate for the location",
-  "lighting": "One of: bright_light, normal_light, dim_light, darkness",
-  "theme_tags": ["tag1", "tag2", "tag3"],
-  "atmosphere": "A single sentence describing the mood/feeling of the place",
-  "npcs": [
-    {
-      "name": "NPC display name",
-      "content_id": "snake_case_unique_id",
-      "ancestry": "Human/Elf/Dwarf/etc",
-      "class": "Commoner/Fighter/Wizard/etc",
-      "role": "neutral/quest_giver/merchant/guard",
-      "team": "neutral/friendly/enemy",
-      "occupation": "What they do here",
-      "description": "1-2 sentence physical description",
-      "backstory": "1-2 sentence background",
-      "attitude": "friendly/indifferent/unfriendly/hostile",
-      "stats": {
-        "maxHp": 10,
-        "currentHp": 10,
-        "ac": 12,
-        "speed": 25,
-        "perception": 3
-      },
-      "equipment": ["item1", "item2"]
-    }
-  ],
-  "objects": [
-    {
-      "object_id": "snake_case_id",
-      "label": "Display Name",
-      "category": "bar/table/stool/crate/door/decor/wall/custom",
-      "description": "Brief description",
-      "passable": true,
-      "interactable": true
-    }
-  ]
-}
-
-Rules:
-- NPCs MUST be included for any characters mentioned in the destination or GM narration
-- NPCs should fit the setting (a blacksmith in a forge, a priest in a temple)
-- 0-4 NPCs is typical — 1-2 when specific characters are referenced
-- 2-8 objects/furniture is typical
-- size should match reality: a small shop is "small", a town square is "large"
-- content_id must be unique snake_case (e.g., "ironheart_blacksmith")
-- The "name" field MUST be 2-5 words only — keep it short
-PROMPT;
-
-    try {
-      $result = $this->aiApiService->invokeModelDirect(
-        $prompt,
-        'dungeoncrawler_content',
-        'map_setting_generation',
-        ['destination' => $destination],
-        [
-          'system_prompt' => $system_prompt,
-          'max_tokens' => 1500,
-          'skip_cache' => TRUE,
-        ]
-      );
-    }
-    catch (\Exception $e) {
-      $this->logger->error('AI setting generation failed: @err', ['@err' => $e->getMessage()]);
-      throw new \RuntimeException('AI setting generation failed: ' . $e->getMessage(), 0, $e);
-    }
-
-    if (empty($result['success']) || empty($result['response'])) {
-      throw new \RuntimeException('AI returned empty response for setting generation.');
-    }
-
-    $response = trim($result['response']);
-
-    // Strip markdown code fences if present.
-    $response = preg_replace('/^```(?:json)?\s*\n?/m', '', $response);
-    $response = preg_replace('/\n?\s*```\s*$/m', '', $response);
-
-    $setting = json_decode($response, TRUE);
-    if (!is_array($setting) || empty($setting['name'])) {
-      $this->logger->error('Failed to parse AI setting response: @resp', [
-        '@resp' => substr($response, 0, 500),
-      ]);
-      throw new \RuntimeException('Failed to parse AI setting response.');
-    }
-
-    // Validate and normalize.
-    return $this->normalizeSetting($setting);
-  }
-
-  /**
-   * Normalize and validate AI-generated setting data.
-   */
-  protected function normalizeSetting(array $setting): array {
-    $valid_types = array_keys(self::TERRAIN_MAP);
-    $valid_sizes = array_keys(self::SIZE_PRESETS);
-
-    $setting['setting_type'] = in_array($setting['setting_type'] ?? '', $valid_types, TRUE)
-      ? $setting['setting_type']
-      : 'default';
-
-    $setting['size'] = in_array($setting['size'] ?? '', $valid_sizes, TRUE)
-      ? $setting['size']
-      : 'medium';
-
-    $valid_lighting = ['bright_light', 'normal_light', 'dim_light', 'darkness'];
-    $setting['lighting'] = in_array($setting['lighting'] ?? '', $valid_lighting, TRUE)
-      ? $setting['lighting']
-      : (self::LIGHTING_MAP[$setting['setting_type']] ?? 'normal_light');
-
-    $setting['theme_tags'] = array_filter(
-      $setting['theme_tags'] ?? [],
-      fn($t) => is_string($t) && strlen($t) < 50
-    );
-
-    // Validate NPCs.
-    $used_npc_ids = [];
-    $setting['npcs'] = array_map(
-      function (array $npc) use (&$used_npc_ids): array {
-        return $this->normalizeGeneratedNpcContract($npc, $used_npc_ids);
-      },
-      $setting['npcs'] ?? []
-    );
-
-    // Validate objects.
-    $used_object_ids = [];
-    $setting['objects'] = array_map(
-      function (array $obj) use (&$used_object_ids): array {
-        return $this->normalizeGeneratedObjectContract($obj, $used_object_ids);
-      },
-      $setting['objects'] ?? []
-    );
-
-    return $setting;
-  }
-
-  /**
-   * Normalize one generated NPC contract payload with canonical defaults.
-   *
-   * @param array<string, mixed> $npc
-   * @param array<string, bool> $used_npc_ids
-   *
-   * @return array<string, mixed>
-   */
-  protected function normalizeGeneratedNpcContract(array $npc, array &$used_npc_ids): array {
-    $name = isset($npc['name']) && is_scalar($npc['name']) ? trim((string) $npc['name']) : '';
-    $content_id = isset($npc['content_id']) && is_scalar($npc['content_id']) ? trim((string) $npc['content_id']) : '';
-    $content_id = $this->buildStableMachineId($content_id !== '' ? $content_id : $name, 'npc', $used_npc_ids);
-
-    return [
-      'name' => $name !== '' ? $name : 'Unknown NPC',
-      'content_id' => $content_id,
-      'ancestry' => $npc['ancestry'] ?? 'Human',
-      'class' => $npc['class'] ?? 'Commoner',
-      'role' => $npc['role'] ?? 'neutral',
-      'team' => $npc['team'] ?? 'neutral',
-      'occupation' => $npc['occupation'] ?? '',
-      'description' => $npc['description'] ?? '',
-      'backstory' => $npc['backstory'] ?? '',
-      'attitude' => $npc['attitude'] ?? 'indifferent',
-      'stats' => [
-        'maxHp' => $npc['stats']['maxHp'] ?? 10,
-        'currentHp' => $npc['stats']['currentHp'] ?? $npc['stats']['maxHp'] ?? 10,
-        'ac' => $npc['stats']['ac'] ?? 12,
-        'speed' => $npc['stats']['speed'] ?? 25,
-        'perception' => $npc['stats']['perception'] ?? 3,
-        'initiative_bonus' => $npc['stats']['initiative_bonus'] ?? $npc['stats']['perception'] ?? 3,
-      ],
-      'equipment' => $npc['equipment'] ?? [],
-    ];
-  }
-
-  /**
-   * Normalize one generated object contract payload with canonical defaults.
-   *
-   * @param array<string, mixed> $object
-   * @param array<string, bool> $used_object_ids
-   *
-   * @return array<string, mixed>
-   */
-  protected function normalizeGeneratedObjectContract(array $object, array &$used_object_ids): array {
-    $label = isset($object['label']) && is_scalar($object['label']) ? trim((string) $object['label']) : '';
-    $object_id = isset($object['object_id']) && is_scalar($object['object_id']) ? trim((string) $object['object_id']) : '';
-    $object_id = $this->buildStableMachineId($object_id !== '' ? $object_id : $label, 'object', $used_object_ids);
-
-    return [
-      'object_id' => $object_id,
-      'label' => $label !== '' ? $label : 'Object',
-      'category' => $object['category'] ?? 'custom',
-      'description' => $object['description'] ?? '',
-      'passable' => $object['passable'] ?? TRUE,
-      'interactable' => $object['interactable'] ?? FALSE,
-    ];
-  }
-
-  /**
-   * Finalize generated NPC contracts once the room id is known.
-   */
-  protected function finalizeGeneratedSettingContracts(array $setting, string $room_id): array {
-    if (!is_array($setting['npcs'] ?? NULL)) {
-      return $setting;
-    }
-
-    $used_content_ids = [];
-    foreach ($setting['npcs'] as $index => $npc) {
-      if (!is_array($npc)) {
-        continue;
-      }
-
-      $base_content_id = isset($npc['content_id']) && is_scalar($npc['content_id'])
-        ? trim((string) $npc['content_id'])
-        : '';
-      if ($base_content_id === '') {
-        $base_content_id = isset($npc['name']) && is_scalar($npc['name'])
-          ? trim((string) $npc['name'])
-          : 'npc';
-      }
-
-      $equipment_labels = $this->normalizeGeneratedEquipmentLabels(
-        is_array($npc['equipment'] ?? NULL) ? $npc['equipment'] : []
-      );
-
-      $setting['npcs'][$index]['content_id'] = $this->buildGeneratedNpcContentId($room_id, $base_content_id, $used_content_ids);
-      $setting['npcs'][$index]['equipment'] = $equipment_labels;
-      $setting['npcs'][$index]['inventory'] = $this->buildGeneratedNpcInventory($equipment_labels);
-    }
-
-    return $setting;
-  }
-
-  // =========================================================================
-  // Step 2: Build room structure from setting
-  // =========================================================================
-
-  /**
-   * Build a complete room structure from a normalized setting.
-   *
-   * @param array $setting
-   *   Normalized setting data from generateSettingDescription().
-   * @param string $origin_room_id
-   *   Room the player is coming from (for connection).
-   *
-   * @return array
-   *   Complete room structure matching dungeon_data.rooms[] schema.
-   */
-  protected function buildRoomFromSetting(array $setting, string $origin_room_id): array {
-    $room_id = $this->generateUuid();
-    $size_preset = self::SIZE_PRESETS[$setting['size']] ?? self::SIZE_PRESETS['medium'];
-    $terrain = self::TERRAIN_MAP[$setting['setting_type']] ?? self::TERRAIN_MAP['default'];
-
-    // Generate hex grid.
-    $hexes = $this->generateHexGrid(
-      $size_preset['cols'],
-      $size_preset['rows'],
-      $setting['setting_type']
-    );
-
-    // Place objects on hexes.
-    $hexes = $this->placeObjectsOnHexes($hexes, $setting['objects']);
-    $entry_points = [];
-    $exit_points = [];
-    if ($hexes !== []) {
-      $entry_points[] = [
-        'q' => (int) ($hexes[0]['q'] ?? 0),
-        'r' => (int) ($hexes[0]['r'] ?? 0),
-      ];
-      $last_hex = end($hexes);
-      $exit_points[] = [
-        'q' => (int) ($last_hex['q'] ?? 0),
-        'r' => (int) ($last_hex['r'] ?? 0),
-      ];
-    }
-
-    return [
-      'room_id' => $room_id,
-      'name' => $setting['name'],
-      'description' => $setting['description'],
-      'hexes' => $hexes,
-      'room_type' => $this->settingTypeToRoomType($setting['setting_type']),
-      'size_category' => $size_preset['size'],
-      'terrain' => [
-        'type' => $terrain['type'],
-        'difficult_terrain' => $terrain['difficult'],
-        'greater_difficult_terrain' => FALSE,
-        'hazardous_terrain' => NULL,
-        'ceiling_height_ft' => $terrain['ceiling'],
-      ],
-      'lighting' => [
-        'level' => $setting['lighting'],
-      ],
-      'state' => [
-        'explored' => TRUE,
-        'explored_at' => date('c'),
-        'cleared' => FALSE,
-        'looted' => FALSE,
-        'traps_disarmed' => FALSE,
-        'visibility' => 'visible',
-      ],
-      'ai_generation' => [
-        'theme_tags' => $setting['theme_tags'],
-        'difficulty_target' => 'trivial',
-        'generation_model' => 'map_generator_ai',
-      ],
-      'gameplay_state' => [
-        'active_effects' => [],
-        'explored_hexes' => [],
-        'environmental_changes' => [],
-      ],
-      'entry_points' => $entry_points,
-      'exit_points' => $exit_points,
-      'exits' => [],
-      'connections' => [],
-      'chat' => [],
-      'entities' => NULL,
-    ];
-  }
-
-  /**
-   * Generate a hex grid for a room.
-   *
-   * Uses offset-coordinate hex grid (flat-top), matching the existing
-   * Gilded Tankard hex layout. Hexes are 5ft each.
-   *
-   * @param int $cols
-   *   Number of columns.
-   * @param int $rows
-   *   Number of rows.
-   * @param string $setting_type
-   *   For terrain variation (e.g., forest gets elevation changes).
-   *
-   * @return array
-   *   Array of hex definitions: [{q, r, elevation_ft, objects}, ...].
-   */
-  protected function generateHexGrid(int $cols, int $rows, string $setting_type): array {
-    $hexes = [];
-    $half_cols = intdiv($cols, 2);
-    $half_rows = intdiv($rows, 2);
-
-    // Natural settings get mild elevation variation.
-    $has_elevation = in_array($setting_type, ['forest', 'cave', 'wilderness', 'garden', 'dock'], TRUE);
-
-    for ($q = -$half_cols; $q <= $half_cols; $q++) {
-      for ($r = -$half_rows; $r <= $half_rows; $r++) {
-        // Skip some edge hexes to create organic shapes for natural settings.
-        if ($this->shouldSkipEdgeHex($q, $r, $half_cols, $half_rows, $setting_type)) {
-          continue;
-        }
-
-        $elevation = 0;
-        if ($has_elevation) {
-          // Gentle terrain variation.
-          $elevation = (int) (sin($q * 0.7 + $r * 0.5) * 2.5);
-          $elevation = max(0, $elevation);
-        }
-
-        $hexes[] = [
-          'q' => $q,
-          'r' => $r,
-          'elevation_ft' => $elevation,
-          'objects' => [],
-        ];
-      }
-    }
-
-    return $hexes;
-  }
-
-  /**
-   * Skip edge hexes for organic-shaped rooms (forests, caves, etc.).
-   */
-  protected function shouldSkipEdgeHex(int $q, int $r, int $max_q, int $max_r, string $setting_type): bool {
-    $is_edge = abs($q) === $max_q || abs($r) === $max_r;
-    if (!$is_edge) {
-      return FALSE;
-    }
-
-    // Structured settings (buildings) keep their rectangular shape.
-    $structured = ['tavern', 'shop', 'temple', 'library', 'prison', 'residential', 'throne_room'];
-    if (in_array($setting_type, $structured, TRUE)) {
-      return FALSE;
-    }
-
-    // Natural settings: remove some corner/edge hexes for organic shape.
-    $corner_dist = abs($q) + abs($r);
-    $max_dist = $max_q + $max_r;
-    if ($corner_dist >= $max_dist) {
-      // Always remove extreme corners.
-      return TRUE;
-    }
-
-    // Pseudo-random edge removal based on coordinates.
-    $hash = crc32("{$q},{$r}");
-    return ($hash % 4) === 0;
-  }
-
-  /**
-   * Place furniture/objects on specific hexes.
-   */
-  protected function placeObjectsOnHexes(array $hexes, array $objects): array {
-    if (empty($objects) || empty($hexes)) {
-      return $hexes;
-    }
-
-    // Distribute objects around the room, avoiding the center and edges.
-    $placeable = [];
-    foreach ($hexes as $idx => $hex) {
-      $dist_from_center = abs($hex['q']) + abs($hex['r']);
-      if ($dist_from_center >= 1 && $dist_from_center <= 4) {
-        $placeable[] = $idx;
-      }
-    }
-
-    if (empty($placeable)) {
-      $placeable = array_keys($hexes);
-    }
-
-    usort($placeable, function (int $a, int $b) use ($hexes): int {
-      $hexA = $hexes[$a] ?? ['q' => 0, 'r' => 0];
-      $hexB = $hexes[$b] ?? ['q' => 0, 'r' => 0];
-      $distanceCompare = (abs((int) $hexA['q']) + abs((int) $hexA['r'])) <=> (abs((int) $hexB['q']) + abs((int) $hexB['r']));
-      if ($distanceCompare !== 0) {
-        return $distanceCompare;
-      }
-      $rowCompare = ((int) $hexA['r']) <=> ((int) $hexB['r']);
-      if ($rowCompare !== 0) {
-        return $rowCompare;
-      }
-      return ((int) $hexA['q']) <=> ((int) $hexB['q']);
-    });
-
-    foreach ($objects as $i => $obj) {
-      if (!isset($placeable[$i])) {
-        break;
-      }
-      $hex_idx = $placeable[$i];
-      $hexes[$hex_idx]['objects'][] = [
-        'object_id' => (string) ($obj['object_id'] ?? ''),
-        'label' => (string) ($obj['label'] ?? $obj['object_id'] ?? 'Object'),
-        'category' => (string) ($obj['category'] ?? 'custom'),
-        'orientation' => 'n',
-      ];
-    }
-
-    return $hexes;
-  }
-
-  // =========================================================================
-  // Step 3: Generate entities
-  // =========================================================================
-
-  /**
-   * Generate entity structures for NPCs and objects defined in the setting.
-   *
-   * @param array $setting
-   *   Normalized setting with npcs[] and objects[].
-   * @param string $room_id
-   *   The new room's UUID.
-   * @param int $campaign_id
-   *   Campaign ID.
-   *
-   * @return array
-   *   Array of entity structures for dungeon_data.entities[].
-   */
-  protected function generateSettingEntities(array $setting, string $room_id, int $campaign_id): array {
-    $entities = [];
-    $hexes_for_npcs = $this->getNpcPlacementHexes(count($setting['npcs']));
-
-    // Generate NPC entities.
-    foreach ($setting['npcs'] as $i => $npc) {
-      $hex = $hexes_for_npcs[$i] ?? ['q' => $i, 'r' => 0];
-
-      $entities[] = [
-        'schema_version' => '1.0.0',
-        'entity_instance_id' => $this->generateUuid(),
-        'entity_type' => 'npc',
-        'entity_ref' => [
-          'content_type' => 'npc',
-          'content_id' => $npc['content_id'],
-        ],
-        'placement' => [
-          'room_id' => $room_id,
-          'hex' => $hex,
-          'spawn_type' => 'permanent',
-          'facing' => 0,
-        ],
-        'state' => [
-          'active' => TRUE,
-          'hit_points' => [
-            'current' => (int) ($npc['stats']['currentHp'] ?? $npc['stats']['maxHp'] ?? 10),
-            'max' => (int) ($npc['stats']['maxHp'] ?? 10),
-          ],
-          'inventory' => is_array($npc['inventory'] ?? NULL) ? array_values($npc['inventory']) : [],
-          'metadata' => [
-            'display_name' => $npc['name'],
-            'team' => $npc['team'],
-            'role' => $npc['role'],
-            'ancestry' => $npc['ancestry'],
-            'class' => $npc['class'],
-            'occupation' => $npc['occupation'],
-            'description' => $npc['description'],
-            'backstory' => $npc['backstory'],
-            'stats' => $npc['stats'],
-            'languages' => ['Common'],
-            'senses' => [],
-            'abilities' => [],
-            'orientation' => 'n',
-          ],
-        ],
-      ];
-    }
-
-    // Generate object/furniture entities.
-    foreach ($setting['objects'] as $obj) {
-      // Objects are placed ON hexes via the hex.objects[] array, but we also
-      // add them to object_definitions if they don't exist yet.
-      // The hex placement was already handled in placeObjectsOnHexes().
-    }
-
-    return $entities;
-  }
-
-  /**
-   * Get hex coordinates for NPC placement — spread them around the room.
-   */
-  protected function getNpcPlacementHexes(int $count): array {
-    // Place NPCs at various positions around the room.
-    $positions = [
-      ['q' => 1,  'r' => 0],
-      ['q' => -1, 'r' => 1],
-      ['q' => 2,  'r' => -1],
-      ['q' => -2, 'r' => 0],
-      ['q' => 0,  'r' => 2],
-      ['q' => 1,  'r' => -2],
-      ['q' => -1, 'r' => -1],
-      ['q' => 3,  'r' => 0],
-    ];
-
-    return array_slice($positions, 0, $count);
-  }
-
-  /**
-   * Build a stable snake_case identifier and keep it unique within a collection.
-   *
-   * @param string $source
-   *   Preferred source string, such as a name or existing ID.
-   * @param string $fallback_prefix
-   *   Prefix used when the source normalizes to an empty string.
-   * @param array<string, bool> $used_ids
-   *   Set of identifiers already used in the current collection.
-   */
-  protected function buildStableMachineId(string $source, string $fallback_prefix, array &$used_ids): string {
-    $base = strtolower(trim(preg_replace('/[^a-z0-9]+/i', '_', $source), '_'));
-    if ($base === '') {
-      $base = $fallback_prefix;
-    }
-
-    $candidate = $base;
-    $suffix = 2;
-    while (isset($used_ids[$candidate])) {
-      $candidate = $base . '_' . $suffix;
-      $suffix++;
-    }
-
-    $used_ids[$candidate] = TRUE;
-    return $candidate;
-  }
-
-  /**
-   * Build a room-scoped canonical content id for generated NPCs.
-   *
-   * @param array<string, bool> $used_ids
-   *   Set of ids already used within the generated room payload.
-   */
-  protected function buildGeneratedNpcContentId(string $room_id, string $source, array &$used_ids): string {
-    $normalized_room = strtolower(trim((string) preg_replace('/[^a-z0-9]+/i', '_', $room_id), '_'));
-    $normalized_room = $normalized_room !== '' ? $normalized_room : 'room';
-
-    return $this->buildStableMachineId(
-      $normalized_room . '_' . $source,
-      'npc_' . $normalized_room,
-      $used_ids
-    );
-  }
-
-  /**
-   * Normalize generated equipment labels into trimmed strings.
-   *
-   * @return string[]
-   *   Equipment labels, preserving duplicates for quantity counting.
-   */
-  protected function normalizeGeneratedEquipmentLabels(array $equipment): array {
-    $labels = [];
-    foreach ($equipment as $item) {
-      if (!is_scalar($item)) {
-        continue;
-      }
-      $label = trim((string) $item);
-      if ($label === '') {
-        continue;
-      }
-      $labels[] = $label;
-    }
-    return $labels;
-  }
-
-  /**
-   * Build canonical inventory refs from generated equipment labels.
-   *
-   * @param string[] $equipment_labels
-   *   Raw generated equipment labels.
-   *
-   * @return array<int, array{content_id:string, quantity:int}>
-   *   Inventory refs keyed numerically for entity state payloads.
-   */
-  protected function buildGeneratedNpcInventory(array $equipment_labels): array {
-    $inventory = [];
-
-    foreach ($equipment_labels as $label) {
-      $content_id = $this->buildGeneratedItemContentId($label);
-      if (!isset($inventory[$content_id])) {
-        $inventory[$content_id] = [
-          'content_id' => $content_id,
-          'quantity' => 0,
-        ];
-      }
-      $inventory[$content_id]['quantity']++;
-    }
-
-    return array_values($inventory);
-  }
-
-  /**
-   * Build a stable canonical item content id for generated equipment.
-   *
-   * Resolves to an existing curated catalog item (by normalized name) when
-   * one already exists, instead of always minting a new `generated_item_*`
-   * id. Historically this always prefixed a fresh id even when a real
-   * catalog entry (e.g. `breastplate`) already existed for the same name,
-   * producing duplicate rows (`breastplate` + `generated_item_breastplate`)
-   * that both surfaced in catalog/pick lists such as the Room Editor.
-   */
-  protected function buildGeneratedItemContentId(string $label): string {
-    $normalized = strtolower(trim((string) preg_replace('/[^a-z0-9]+/i', '_', $label), '_'));
-    $normalized = preg_replace('/_+/', '_', (string) $normalized);
-    if ($normalized === '') {
-      return 'generated_item';
-    }
-
-    $existing = $this->findCanonicalItemContentId($normalized, $label);
-    if ($existing !== NULL) {
-      return $existing;
-    }
-
-    return 'generated_item_' . $normalized;
-  }
-
-  /**
-   * Looks up an already-registered, non-generated item by slug or name.
-   *
-   * @param string $normalized_slug
-   *   Slugified label (e.g. "breastplate").
-   * @param string $label
-   *   Original display label (e.g. "Breastplate").
-   *
-   * @return string|null
-   *   The existing content_id if a curated match is found, otherwise NULL.
-   */
-  protected function findCanonicalItemContentId(string $normalized_slug, string $label): ?string {
-    // Guard for unit-test subclasses / partial constructions that never wire
-    // up a database connection (typed property access would otherwise
-    // fatal with "must not be accessed before initialization").
-    if (!isset($this->database)) {
-      return NULL;
-    }
-
-    $query = $this->database->select('dungeoncrawler_content_registry', 'r')
-      ->fields('r', ['content_id', 'source_file'])
-      ->condition('content_type', 'item')
-      ->condition('source_file', 'ai_generated', '<>');
-    $or = $query->orConditionGroup()
-      ->condition('content_id', $normalized_slug)
-      ->condition('name', $label);
-    $query->condition($or);
-    $query->range(0, 1);
-    $content_id = $query->execute()->fetchField();
-    return $content_id !== FALSE ? (string) $content_id : NULL;
-  }
-
-  /**
-   * Persist generated equipment items into the library and campaign registries.
-   *
-   * @param string[] $equipment_labels
-   *   Generated equipment labels from the NPC setting.
-   */
-  protected function registerGeneratedEquipmentItems(int $campaign_id, array $equipment_labels): void {
-    $now = time();
-    $registered = [];
-
-    foreach ($equipment_labels as $label) {
-      $content_id = $this->buildGeneratedItemContentId($label);
-      if (isset($registered[$content_id])) {
-        continue;
-      }
-      $registered[$content_id] = TRUE;
-
-      $contract = $this->buildGeneratedItemContract($content_id, $label);
-      $schema_data = json_encode($contract);
-      $tags = json_encode(array_values(array_filter([
-        'item',
-        $contract['item_type'] ?? NULL,
-        'ai_generated',
-      ])));
-
-      $this->database->merge('dungeoncrawler_content_registry')
-        ->keys(['content_type' => 'item', 'content_id' => $content_id])
-        ->fields([
-          'content_type' => 'item',
-          'content_id' => $content_id,
-          'name' => $contract['name'],
-          'level' => $contract['level'],
-          'rarity' => $contract['rarity'],
-          'tags' => $tags,
-          'schema_data' => $schema_data,
-          'source_file' => 'ai_generated',
-          'version' => '1.0.0',
-          'updated' => $now,
-        ])
-        ->expression('created', 'COALESCE(created, :created)', [':created' => $now])
-        ->execute();
-
-      $this->database->merge('dc_campaign_content_registry')
-        ->keys(['campaign_id' => $campaign_id, 'content_type' => 'item', 'content_id' => $content_id])
-        ->fields([
-          'campaign_id' => $campaign_id,
-          'content_type' => 'item',
-          'content_id' => $content_id,
-          'name' => $contract['name'],
-          'level' => $contract['level'],
-          'rarity' => $contract['rarity'],
-          'tags' => $tags,
-          'schema_data' => $schema_data,
-          'source_content_id' => $content_id,
-          'updated' => $now,
-        ])
-        ->expression('created', 'COALESCE(created, :created)', [':created' => $now])
-        ->execute();
-    }
-  }
-
-  /**
-   * Build a minimal canonical item contract for generated equipment.
-   */
-  protected function buildGeneratedItemContract(string $content_id, string $label): array {
-    $item_type = $this->inferGeneratedEquipmentItemType($label);
-
-    return [
-      'schema_version' => '1.0.0',
-      'item_id' => $content_id,
-      'name' => $label,
-      'item_type' => $item_type,
-      'level' => 0,
-      'rarity' => 'common',
-      'description' => 'Generated NPC equipment item.',
-    ];
-  }
-
-  /**
-   * Infer a coarse canonical item type from generated equipment text.
-   */
-  protected function inferGeneratedEquipmentItemType(string $label): string {
-    $normalized = strtolower($label);
-
-    foreach ([
-      'shield' => 'shield',
-      'armor' => 'armor',
-      'mail' => 'armor',
-      'plate' => 'armor',
-      'helm' => 'armor',
-      'dagger' => 'weapon',
-      'sword' => 'weapon',
-      'spear' => 'weapon',
-      'axe' => 'weapon',
-      'bow' => 'weapon',
-      'staff' => 'weapon',
-      'mace' => 'weapon',
-      'hammer' => 'weapon',
-      'crossbow' => 'weapon',
-      'club' => 'weapon',
-    ] as $needle => $item_type) {
-      if (str_contains($normalized, $needle)) {
-        return $item_type;
-      }
-    }
-
-    return 'adventuring_gear';
-  }
-
-  /**
-   * Builds a stable room-scoped instance id for generated NPC campaign rows.
-   */
-  protected function buildGeneratedNpcInstanceId(string $content_id): string {
-    $normalized_content_id = strtolower(trim((string) preg_replace('/[^a-z0-9]+/i', '_', $content_id), '_'));
-    $candidate = 'npc_instance_' . ($normalized_content_id !== '' ? $normalized_content_id : 'npc');
-    if (strlen($candidate) <= 100) {
-      return $candidate;
-    }
-
-    $hash = substr(hash('sha256', $candidate), 0, 16);
-    $prefix_length = 100 - strlen($hash) - 1;
-    $prefix = rtrim(substr($candidate, 0, $prefix_length), '_');
-    return $prefix . '_' . $hash;
-  }
-
-  // =========================================================================
-  // Step 4-7: Wiring — connections, regions, object_definitions
   // =========================================================================
 
   /**
@@ -3846,39 +2328,6 @@ PROMPT;
 
     return $room;
   }
-
-  /**
-   * Shift generated entity placement hexes by one axial offset.
-   */
-  protected function offsetGeneratedEntitiesByHex(array $entities, int $offset_q, int $offset_r): array {
-    if ($offset_q === 0 && $offset_r === 0) {
-      return $entities;
-    }
-
-    $shifted = [];
-    foreach ($entities as $entity) {
-      if (!is_array($entity)) {
-        $shifted[] = $entity;
-        continue;
-      }
-      if (
-        is_array($entity['placement'] ?? NULL)
-        && is_array($entity['placement']['hex'] ?? NULL)
-        && is_numeric($entity['placement']['hex']['q'] ?? NULL)
-        && is_numeric($entity['placement']['hex']['r'] ?? NULL)
-      ) {
-        $entity['placement']['hex']['q'] = (int) $entity['placement']['hex']['q'] + $offset_q;
-        $entity['placement']['hex']['r'] = (int) $entity['placement']['hex']['r'] + $offset_r;
-      }
-      $shifted[] = $entity;
-    }
-
-    return $shifted;
-  }
-
-  // =========================================================================
-  // Utility helpers
-  // =========================================================================
 
   /**
    * Map setting_type to room_type enum.

@@ -4,6 +4,7 @@ namespace Drupal\Tests\dungeoncrawler_content\Unit\Generation;
 
 use Drupal\Core\Config\Config;
 use Drupal\Core\Config\ConfigFactoryInterface;
+use Drupal\dungeoncrawler_content\Service\EditorGm\EditorCanonicalGenerationPlanService;
 use Drupal\dungeoncrawler_content\Service\Generation\CanonicalRoomProjectionService;
 use Drupal\dungeoncrawler_content\Service\Generation\RuntimeCanonicalRoomService;
 use Drupal\dungeoncrawler_content\Service\Generation\RuntimeCanonicalContentResolver;
@@ -62,6 +63,39 @@ final class RoomGeneratorCanonicalRuntimeShimTest extends UnitTestCase {
     ]);
   }
 
+  public function testHotPathSelectionDoesNotCallGenerationAdapter(): void {
+    $generation_adapter = new class extends EditorCanonicalGenerationPlanService {
+      public function __construct() {}
+
+      public function generateRoomLayout(array $arguments, \Drupal\dungeoncrawler_content\Service\EditorGm\RoomEditorGmToolContext $context): array {
+        throw new \RuntimeException('generation adapter must not be called on hot path');
+      }
+    };
+    $service = new RuntimeCanonicalRoomService(
+      $this->resolver(),
+      new CanonicalRoomProjectionService(),
+      $generation_adapter
+    );
+
+    $started = microtime(TRUE);
+    $room = $service->generateRoom([
+      'campaign_id' => 11,
+      'dungeon_id' => 'runtime-dungeon',
+      'level_id' => 'level-1',
+      'room_index' => 2,
+      'theme' => 'sewer',
+      'room_type' => 'chamber',
+      'terrain_type' => 'stone_floor',
+      'room_size' => 'medium',
+      'defer_room_persistence' => TRUE,
+      'seed' => 42,
+    ]);
+    $elapsed_ms = (microtime(TRUE) - $started) * 1000;
+
+    $this->assertSame('version-a', $room['source_room_version_id']);
+    $this->assertLessThan(2000, $elapsed_ms, 'Navigation hot path must stay within the selection/projection latency budget.');
+  }
+
   private function resolver(): RuntimeCanonicalContentResolver {
     return new class extends RuntimeCanonicalContentResolver {
       public function __construct() {}
@@ -95,7 +129,7 @@ final class RoomGeneratorCanonicalRuntimeShimTest extends UnitTestCase {
   private function configFactory(bool $enabled): ConfigFactoryInterface {
     $config = $this->createMock(Config::class);
     $config->method('get')
-      ->with('canonical_runtime_generation.r3')
+      ->with('canonical_runtime_generation.r4')
       ->willReturn($enabled);
     $factory = $this->createMock(ConfigFactoryInterface::class);
     $factory->method('get')

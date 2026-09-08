@@ -140,6 +140,7 @@ class RoomGeneratorController extends ControllerBase {
       'party_size' => (int) ($data['party_size'] ?? 4),
       'prompt' => (string) ($data['prompt'] ?? $data['description'] ?? ''),
       'seed' => isset($data['seed']) && is_numeric($data['seed']) ? (int) $data['seed'] : NULL,
+      'required_tags' => is_array($data['required_tags'] ?? NULL) ? $data['required_tags'] : [],
       'canonical_generation_wait' => !empty($data['canonical_generation_wait']) || !empty($data['wait_for_generator']) || (($data['generation_mode'] ?? '') === 'llm'),
       'requested_by_uid' => (int) $this->currentUser()->id(),
     ];
@@ -335,6 +336,7 @@ class RoomGeneratorController extends ControllerBase {
         'party_size' => 4,
         'prompt' => (string) ($data['prompt'] ?? 'Regenerate this room through the canonical room generator.'),
         'seed' => isset($data['seed']) && is_numeric($data['seed']) ? (int) $data['seed'] : NULL,
+        'required_tags' => is_array($data['required_tags'] ?? NULL) ? $data['required_tags'] : [],
         'canonical_generation_wait' => !empty($data['canonical_generation_wait']) || !empty($data['wait_for_generator']) || (($data['generation_mode'] ?? '') === 'llm'),
         'requested_by_uid' => (int) $this->currentUser()->id(),
       ];
@@ -372,7 +374,7 @@ class RoomGeneratorController extends ControllerBase {
   private function runtimeGenerationFailureResponse(RuntimeGenerationException $exception): JsonResponse {
     return new JsonResponse([
       'success' => FALSE,
-      'error' => 'runtime_generation_failed',
+      'error' => $exception->getMessage(),
       'receipt' => [
         'code' => $exception->getMessage(),
         'findings' => $exception->getFindings(),
