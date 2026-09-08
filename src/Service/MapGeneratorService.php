@@ -24,6 +24,9 @@ use Psr\Log\LoggerInterface;
  *
  * Validation pair: StateValidationService::validateNavigationReceipt() plus
  * navigation connection parity assertions.
+ *
+ * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
+ * CanonicalGenerationService.
  */
 class MapGeneratorService {
 
@@ -168,6 +171,9 @@ class MapGeneratorService {
    *
    * @throws \RuntimeException
    *   If generation fails.
+   *
+   * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
+   * CanonicalGenerationService.
    */
   public function generateSetting(
     int $campaign_id,

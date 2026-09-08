@@ -15,6 +15,8 @@ use Drupal\Core\Database\Connection;
  *   a legacy compatibility stub and should not be used for new generation
  *   flows.
  *   Validation pair: none (legacy/deprecated path).
+ *   Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
+ *   CanonicalGenerationService.
  *
  * @see /docs/dungeoncrawler/issues/issue-4-procedural-dungeon-generation-design.md
  */
@@ -103,6 +105,9 @@ class DungeonGenerationEngine {
    *
    * @return array
    *   Dungeon data array.
+   *
+   * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
+   * CanonicalGenerationService.
    */
   public function generateDungeon(
     int $campaign_id,
@@ -219,6 +224,9 @@ class DungeonGenerationEngine {
    *
    * @return array
    *   Level data.
+   *
+   * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
+   * CanonicalGenerationService.
    */
   private function generateLevel(
     array $dungeon,

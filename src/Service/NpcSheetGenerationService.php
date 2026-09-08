@@ -13,7 +13,7 @@ use Psr\Log\LoggerInterface;
  *
  * Validation pair: StateValidationService::validateNpcSheet() contract checks.
  *
- * Runtime generator scheduled for reconciliation into the canonical generation path (Board decision 2026-09-08, item 20260908-dc-editor-generation-tools). No new callers.
+ * Runtime generator scheduled for reconciliation into the canonical generation path (Board decision 2026-09-08, item 20260908-dc-editor-generation-tools). No new callers; use CanonicalGenerationService.
  */
 class NpcSheetGenerationService {
 
@@ -33,6 +33,9 @@ class NpcSheetGenerationService {
 
   /**
    * Enqueue NPC sheet generation and ensure library placeholders exist.
+   *
+   * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
+   * CanonicalGenerationService.
    */
   public function enqueueNpcSheetGeneration(
     int $campaign_id,
@@ -89,6 +92,9 @@ class NpcSheetGenerationService {
 
   /**
    * Process queued jobs synchronously.
+   *
+   * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
+   * CanonicalGenerationService.
    */
   public function processPendingJobs(int $limit = 3): array {
     $limit = max(1, $limit);
@@ -171,6 +177,9 @@ class NpcSheetGenerationService {
 
   /**
    * Launch a detached Drush worker so chat can continue immediately.
+   *
+   * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
+   * CanonicalGenerationService.
    */
   public function launchDetachedWorker(int $limit = 3): void {
     $has_pending = (bool) $this->database->select('dc_npc_sheet_generation_jobs', 'j')
@@ -225,6 +234,9 @@ class NpcSheetGenerationService {
 
   /**
    * Generate a richer NPC sheet, using AI when available.
+   *
+   * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
+   * CanonicalGenerationService.
    */
   protected function generateNpcSheet(int $campaign_id, string $content_id, array $seed_data): array {
     if ($this->aiApiService) {

@@ -17,7 +17,7 @@ use Drupal\dungeoncrawler_content\Service\Generation\Pf2eGenerationRules;
  *   generation paths.
  *   Validation pair: none (legacy/deprecated path).
  *
- * Runtime generator scheduled for reconciliation into the canonical generation path (Board decision 2026-09-08, item 20260908-dc-editor-generation-tools). No new callers.
+ * Runtime generator scheduled for reconciliation into the canonical generation path (Board decision 2026-09-08, item 20260908-dc-editor-generation-tools). No new callers; use CanonicalGenerationService.
  *
  * @see docs/dungeoncrawler/issues/issue-3-game-content-system-design.md
  *   Section: Service Layer Design > ContentGenerator Service
@@ -72,6 +72,9 @@ class ContentGenerator {
    *
    * @see docs/dungeoncrawler/issues/issue-3-game-content-system-design.md
    *   Line 416: generateRoomContent method specification
+   *
+   * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
+   * CanonicalGenerationService.
    */
   public function generateRoomContent(int $dungeon_level, string $theme, string $room_type): array {
     $content = [
@@ -130,6 +133,9 @@ class ContentGenerator {
    *
    * @see docs/dungeoncrawler/issues/issue-3-game-content-system-design.md
    *   Section: Encounter Generation Algorithm (lines 834-902)
+   *
+   * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
+   * CanonicalGenerationService.
    */
   public function generateEncounter(int $party_level, int $party_size, string $threat_level, string $theme): array {
     // Calculate XP budget
@@ -230,6 +236,9 @@ class ContentGenerator {
    *
    * @see docs/dungeoncrawler/issues/issue-3-game-content-system-design.md
    *   Line 432: generateCreaturePersonality method specification
+   *
+   * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
+   * CanonicalGenerationService.
    */
   public function generateCreaturePersonality(array $creature_data): array {
     // TODO: Implement AI personality generation
@@ -259,6 +268,9 @@ class ContentGenerator {
    * @see docs/dungeoncrawler/issues/issue-3-game-content-system-design.md
    *   Line 440: generateTreasureHoard method specification
    *   Section: Treasure Hoard Generation Algorithm (lines 1014-1079)
+   *
+   * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
+   * CanonicalGenerationService.
    */
   public function generateTreasureHoard(int $level, string $hoard_type): array {
     $currency = $this->generateCurrency($hoard_type);

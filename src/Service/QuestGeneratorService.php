@@ -19,6 +19,9 @@ use Psr\Log\LoggerInterface;
  * Validation pair: QuestDestinationValidatorService,
  * ObjectiveTypeService objective-phase assertions, and
  * StateValidationService quest-summary validation.
+ *
+ * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
+ * CanonicalGenerationService.
  */
 class QuestGeneratorService {
 
@@ -132,6 +135,9 @@ class QuestGeneratorService {
    * @throws \Throwable
    *   Throws when quest generation fails, including destination contract
    *   violations.
+   *
+   * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
+   * CanonicalGenerationService.
    */
   public function generateQuestFromTemplate(
     string $template_id,
@@ -427,6 +433,9 @@ class QuestGeneratorService {
    *
    * @return array
    *   Array of generated quests.
+   *
+   * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
+   * CanonicalGenerationService.
    */
   public function generateQuestsForLocation(
     int $campaign_id,

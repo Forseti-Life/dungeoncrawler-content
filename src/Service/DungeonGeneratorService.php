@@ -24,7 +24,7 @@ use Psr\Log\LoggerInterface;
  * DungeonLayoutProfileResolver::validateContext()) with downstream room/schema
  * validation delegated to RoomGeneratorService.
  *
- * Runtime generator scheduled for reconciliation into the canonical generation path (Board decision 2026-09-08, item 20260908-dc-editor-generation-tools). No new callers.
+ * Runtime generator scheduled for reconciliation into the canonical generation path (Board decision 2026-09-08, item 20260908-dc-editor-generation-tools). No new callers; use CanonicalGenerationService.
  *
  * @see /docs/dungeoncrawler/ROOM_DUNGEON_GENERATOR_ARCHITECTURE.md
  */
@@ -201,6 +201,9 @@ class DungeonGeneratorService {
    * @throws \Drupal\dungeoncrawler_content\Exception\GenerationException
    *   If generation fails
    *
+   * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
+   * CanonicalGenerationService.
+   *
    * @see /docs/dungeoncrawler/ROOM_DUNGEON_GENERATOR_ARCHITECTURE.md
    */
   public function generateDungeon(array $context): array {
@@ -343,6 +346,9 @@ class DungeonGeneratorService {
    *   - rooms: array of room.schema.json objects
    *   - entities: array of placed entity_instance objects
    *   - generation_rules: object with party_level_target, etc.
+   *
+   * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
+   * CanonicalGenerationService.
    *
    * @see /docs/dungeoncrawler/ROOM_DUNGEON_GENERATOR_ARCHITECTURE.md
    */

@@ -14,6 +14,9 @@ use Psr\Log\LoggerInterface;
  *
  * Validation pair: StorylineManagerService end-to-end storyline contract
  * validation plus this service's generation-bundle contract gates.
+ *
+ * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
+ * CanonicalGenerationService.
  */
 class StorylineGenerationService {
 
@@ -48,6 +51,9 @@ class StorylineGenerationService {
 
   /**
    * Generate a storyline package from prompt and campaign context.
+   *
+   * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
+   * CanonicalGenerationService.
    */
   public function generateStorylinePackage(int $campaign_id, array $request): array {
     $request = $this->normalizeRequest($request);
@@ -69,6 +75,9 @@ class StorylineGenerationService {
 
   /**
    * Generate the minimal synchronous storyline bootstrap package.
+   *
+   * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
+   * CanonicalGenerationService.
    */
   public function generateStorylineBootstrapPackage(int $campaign_id, array $request): array {
     $request = $this->normalizeBootstrapRequest($request);
@@ -91,6 +100,9 @@ class StorylineGenerationService {
 
   /**
    * Create a minimal storyline immediately, then queue async expansion.
+   *
+   * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
+   * CanonicalGenerationService.
    */
   public function bootstrapCampaignStoryline(int $campaign_id, array $request): array {
     $request = $this->normalizeBootstrapRequest($request);
@@ -179,6 +191,9 @@ class StorylineGenerationService {
 
   /**
    * Queue deferred storyline expansion for detached processing.
+   *
+   * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
+   * CanonicalGenerationService.
    */
   public function enqueueStorylineExpansion(int $campaign_id, string $storyline_id, array $request, bool $auto_start = TRUE): bool {
     $storyline_id = trim($storyline_id);
@@ -214,6 +229,9 @@ class StorylineGenerationService {
 
   /**
    * Process queued expansion jobs.
+   *
+   * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
+   * CanonicalGenerationService.
    */
   public function processPendingExpansionJobs(int $limit = 2): array {
     $limit = max(1, $limit);
