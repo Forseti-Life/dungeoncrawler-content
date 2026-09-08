@@ -479,6 +479,12 @@ services:
       - '@dungeoncrawler_content.canonical_generation'
       - '@dungeoncrawler_content.canonical_definitions'
 
+  dungeoncrawler_content.editor_definition_generation:
+    class: Drupal\dungeoncrawler_content\Service\EditorGm\EditorDefinitionGenerationService
+    arguments:
+      - '@dungeoncrawler_content.canonical_generation'
+      - '@dungeoncrawler_content.canonical_definitions'
+
   # One surface per editor. Each surface owns its toolset and reads/writes only
   # through its own editor authority; the harness resolves the surface from the
   # route and the request envelope's tool_id.
@@ -505,6 +511,7 @@ services:
     arguments:
       - '@dungeoncrawler_content.canonical_definitions'
       - '@dungeoncrawler_content.editor_gm_intent_parser'
+      - '@dungeoncrawler_content.editor_definition_generation'
 
   dungeoncrawler_content.editor_review_flags:
     class: Drupal\dungeoncrawler_content\Service\EditorSuite\EditorReviewFlagService

@@ -5,6 +5,9 @@ namespace Drupal\dungeoncrawler_content\Service\EditorGm;
 use Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Definition\CreateDefinitionTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Definition\DescribeDefinitionSchemaTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Definition\GenerateCreatureDefinitionTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Definition\GenerateItemDefinitionTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Definition\GenerateNpcDefinitionTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Definition\ListDefinitionsTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Definition\LoadDefinitionTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Definition\PlanDefinitionPatchTool;
@@ -25,8 +28,9 @@ final class DefinitionEditorGmSurface implements EditorGmSurfaceInterface {
   public function __construct(
     private readonly CanonicalDefinitionService $definitions,
     EditorGmIntentParser $intentParser,
+    ?EditorDefinitionGenerationService $generation = NULL,
   ) {
-    $this->registry = new EditorGmToolRegistry([
+    $tools = [
       new ListDefinitionsTool(),
       new LoadDefinitionTool(),
       new DescribeDefinitionSchemaTool(),
@@ -34,7 +38,15 @@ final class DefinitionEditorGmSurface implements EditorGmSurfaceInterface {
       new PlanDefinitionPatchTool(),
       new UpdateDefinitionTool(),
       new CreateDefinitionTool(),
-    ], [], NULL);
+    ];
+    if ($generation !== NULL) {
+      array_splice($tools, 4, 0, [
+        new GenerateItemDefinitionTool($generation),
+        new GenerateCreatureDefinitionTool($generation),
+        new GenerateNpcDefinitionTool($generation),
+      ]);
+    }
+    $this->registry = new EditorGmToolRegistry($tools, [], NULL);
     $this->assembler = new DefinitionEditorGmContextAssembler($this->registry, $intentParser);
   }
 

@@ -309,6 +309,49 @@ final class DefinitionEditorController extends ControllerBase {
     <button type="button" class="room-editor__gm-disclosure" data-definition-editor-action="gm-toggle-tools" aria-expanded="false" aria-controls="definition-editor-gm-tools-body">Toolset</button>
     <div id="definition-editor-gm-tools-body" class="room-editor__gm-tools-body" data-definition-editor-gm-tools hidden></div>
   </section>
+  <section class="room-editor__drawer-section definition-editor__generation" data-definition-editor-generation aria-label="Generate definition">
+    <p class="room-editor__eyebrow">Generate…</p>
+    <label class="room-editor__field">Family
+      <select data-definition-editor-generation-family>
+        <option value="item">Item</option>
+        <option value="creature">Creature</option>
+        <option value="actor">NPC</option>
+      </select>
+    </label>
+    <label class="room-editor__field">Prompt
+      <textarea data-definition-editor-generation-prompt rows="3" maxlength="2000" placeholder="A rusted but enchanted sewer-worker's lantern"></textarea>
+    </label>
+    <label class="room-editor__field">Level
+      <input type="number" data-definition-editor-generation-level min="-1" max="30" step="1" value="1">
+    </label>
+    <label class="room-editor__field" data-definition-editor-generation-rarity-field>Rarity
+      <select data-definition-editor-generation-rarity>
+        <option value="common">Common</option>
+        <option value="uncommon">Uncommon</option>
+        <option value="rare">Rare</option>
+        <option value="epic">Epic</option>
+        <option value="legendary">Legendary</option>
+      </select>
+    </label>
+    <label class="room-editor__field" data-definition-editor-generation-role-field>Role
+      <input type="text" data-definition-editor-generation-role maxlength="100" placeholder="informant, guardian, skirmisher">
+    </label>
+    <label class="room-editor__field" data-definition-editor-generation-attitude-field>Attitude
+      <select data-definition-editor-generation-attitude>
+        <option value="">Default</option>
+        <option value="hostile">Hostile</option>
+        <option value="unfriendly">Unfriendly</option>
+        <option value="indifferent">Indifferent</option>
+        <option value="friendly">Friendly</option>
+        <option value="helpful">Helpful</option>
+      </select>
+    </label>
+    <label class="room-editor__field">Seed (optional)
+      <input type="number" data-definition-editor-generation-seed min="0" max="2147483647" step="1">
+    </label>
+    <button type="button" class="room-editor__button room-editor__button--primary" data-definition-editor-action="generate-definition">Generate definition</button>
+    <p class="room-editor__hint" data-definition-editor-generation-unavailable hidden>Generation is available only for item, creature, and actor/NPC scopes.</p>
+  </section>
   <ol class="room-editor__gm-transcript" data-definition-editor-gm-transcript aria-label="Assistant transcript" aria-live="polite"></ol>
   <div class="room-editor__gm-plan" data-definition-editor-gm-plan hidden>
     <p class="room-editor__eyebrow">Proposed definition update</p>

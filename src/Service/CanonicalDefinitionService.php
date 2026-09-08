@@ -146,13 +146,21 @@ class CanonicalDefinitionService {
       return $entry['schema_data'];
     }
 
-    return [
+    $payload = [
       'actor_id' => $entry['definition_id'],
       'version' => $entry['version'],
       'actor_type' => $entry['category'],
       'display_name' => $entry['name'],
       'state_data' => $entry['schema_data'],
     ];
+    if (array_key_exists('source_module', $entry)) {
+      $payload['source_module'] = $entry['source_module'];
+    }
+    if (isset($entry['metadata']) && is_array($entry['metadata'])) {
+      $payload['metadata'] = $entry['metadata'];
+    }
+
+    return $payload;
   }
 
   /**
@@ -292,6 +300,8 @@ class CanonicalDefinitionService {
         'version' => $version,
         'actor_type' => (string) $payload['actor_type'],
         'display_name' => $name,
+        'source_module' => isset($payload['source_module']) ? (string) $payload['source_module'] : NULL,
+        'metadata' => isset($payload['metadata']) ? $this->encode($payload['metadata']) : NULL,
         'state_data' => $this->encode($payload['state_data']),
         'updated_at' => $now,
       ];
@@ -429,7 +439,7 @@ class CanonicalDefinitionService {
     foreach ($families as $current_family) {
       if ($current_family === self::ACTOR_FAMILY) {
         $query = $this->database->select('dc_canonical_actors', 'a')
-          ->fields('a', ['actor_id', 'version', 'display_name', 'actor_type', 'state_data']);
+          ->fields('a', ['actor_id', 'version', 'display_name', 'actor_type', 'source_module', 'metadata', 'state_data']);
         if ($search !== '') {
           $or = $query->orConditionGroup()
             ->condition('display_name', '%' . $this->database->escapeLike($search) . '%', 'LIKE')
@@ -502,7 +512,7 @@ class CanonicalDefinitionService {
 
     if ($family === self::ACTOR_FAMILY) {
       $row = $this->database->select('dc_canonical_actors', 'a')
-        ->fields('a', ['actor_id', 'version', 'display_name', 'actor_type', 'state_data'])
+        ->fields('a', ['actor_id', 'version', 'display_name', 'actor_type', 'source_module', 'metadata', 'state_data'])
         ->condition('actor_id', $definition_id)
         ->execute()
         ->fetchAssoc();
@@ -560,7 +570,7 @@ class CanonicalDefinitionService {
 
     if ($family === self::ACTOR_FAMILY) {
       $row = $this->database->select('dc_canonical_actors', 'a')
-        ->fields('a', ['actor_id', 'version', 'display_name', 'actor_type', 'state_data'])
+        ->fields('a', ['actor_id', 'version', 'display_name', 'actor_type', 'source_module', 'metadata', 'state_data'])
         ->condition('actor_id', $definition_id)
         ->execute()
         ->fetchAssoc();
@@ -575,6 +585,8 @@ class CanonicalDefinitionService {
         'category' => (string) $row['actor_type'],
         'version' => (string) $row['version'],
         'schema_data' => json_decode((string) $row['state_data'], TRUE) ?: [],
+        'source_module' => $row['source_module'] ?? NULL,
+        'metadata' => json_decode((string) ($row['metadata'] ?? ''), TRUE) ?: NULL,
         'source_table' => 'dc_canonical_actors',
       ];
     }

@@ -374,6 +374,9 @@ final class DefinitionFormMapper {
         return (!$required && $bool === (bool) ($schema['default'] ?? FALSE)) ? self::ABSENT : $bool;
 
       case 'object':
+        if (!$required && !$this->objectInputHasMeaningfulValue($input)) {
+          return $absent;
+        }
         $object = [];
         $required_children = (array) ($schema['required'] ?? []);
         foreach ($schema['properties'] as $child_name => $child_schema) {
@@ -407,6 +410,30 @@ final class DefinitionFormMapper {
         return $list === [] ? ($required ? [] : $absent) : $list;
     }
     throw self::unsupported($schema_pointer, 'type');
+  }
+
+  private function objectInputHasMeaningfulValue(mixed $input): bool {
+    if (!is_array($input)) {
+      return $input !== NULL && $input !== '';
+    }
+    foreach ($input as $value) {
+      if (is_array($value)) {
+        if ($this->objectInputHasMeaningfulValue($value)) {
+          return TRUE;
+        }
+        continue;
+      }
+      if (is_bool($value)) {
+        if ($value) {
+          return TRUE;
+        }
+        continue;
+      }
+      if ($value !== NULL && trim((string) $value) !== '') {
+        return TRUE;
+      }
+    }
+    return FALSE;
   }
 
   /**

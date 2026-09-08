@@ -3,6 +3,7 @@
 namespace Drupal\Tests\dungeoncrawler_content\Unit\Schema;
 
 use Drupal\Core\Access\CsrfTokenGenerator;
+use Drupal\Component\Datetime\TimeInterface;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\Core\Logger\LoggerChannelInterface;
 use Drupal\dungeoncrawler_content\Controller\EditorGmController;
@@ -10,8 +11,10 @@ use Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService;
 use Drupal\dungeoncrawler_content\Service\Definition\DefinitionValidationException;
 use Drupal\dungeoncrawler_content\Service\EditorGm\DefinitionEditorGmSurface;
 use Drupal\dungeoncrawler_content\Service\EditorGm\DefinitionEditorGmToolContext;
+use Drupal\dungeoncrawler_content\Service\EditorGm\EditorDefinitionGenerationService;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmHarnessService;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmIntentParser;
+use Drupal\dungeoncrawler_content\Service\Generation\CanonicalGenerationService;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Yaml\Yaml;
 
@@ -27,6 +30,9 @@ final class DefinitionEditorGmContractTest extends TestCase {
     'load_definition',
     'describe_definition_schema',
     'validate_definition',
+    'generate_item_definition',
+    'generate_creature_definition',
+    'generate_npc_definition',
     'plan_definition_patch',
     'update_definition',
     'create_definition',
@@ -42,10 +48,14 @@ final class DefinitionEditorGmContractTest extends TestCase {
     return (string) file_get_contents($path);
   }
 
-  private function parser(): EditorGmIntentParser {
+  private function loggerFactory(): LoggerChannelFactoryInterface {
     $factory = $this->createMock(LoggerChannelFactoryInterface::class);
     $factory->method('get')->willReturn($this->createMock(LoggerChannelInterface::class));
-    return new EditorGmIntentParser(NULL, $factory);
+    return $factory;
+  }
+
+  private function parser(): EditorGmIntentParser {
+    return new EditorGmIntentParser(NULL, $this->loggerFactory());
   }
 
   private function definitions(): CanonicalDefinitionService {
@@ -88,10 +98,20 @@ final class DefinitionEditorGmContractTest extends TestCase {
     return $definitions;
   }
 
+  private function generation(CanonicalDefinitionService $definitions): EditorDefinitionGenerationService {
+    $time = $this->createMock(TimeInterface::class);
+    $time->method('getRequestTime')->willReturn(1788888888);
+    return new EditorDefinitionGenerationService(
+      new CanonicalGenerationService(NULL, $time, $this->loggerFactory()),
+      $definitions,
+    );
+  }
+
   private function harness(?CanonicalDefinitionService $definitions = NULL): EditorGmHarnessService {
     $parser = $this->parser();
+    $definitions ??= $this->definitions();
     return new EditorGmHarnessService([
-      new DefinitionEditorGmSurface($definitions ?? $this->definitions(), $parser),
+      new DefinitionEditorGmSurface($definitions, $parser, $this->generation($definitions)),
     ], $parser);
   }
 
@@ -101,7 +121,7 @@ final class DefinitionEditorGmContractTest extends TestCase {
   public function testDefinitionGmToolsetMatchesApiParity(): void {
     $harness = $this->harness();
     $manifest = $harness->manifest('definition_editor');
-    $this->assertSame(7, $manifest['tool_count']);
+    $this->assertSame(10, $manifest['tool_count']);
     $this->assertSame([], $manifest['supported_command_types']);
     $this->assertSame([], $manifest['command_payload_contracts']);
 

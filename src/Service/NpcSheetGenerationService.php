@@ -5,6 +5,7 @@ namespace Drupal\dungeoncrawler_content\Service;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\ai_conversation\Service\AIApiService;
+use Drupal\dungeoncrawler_content\Service\Generation\Pf2eGenerationRules;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -319,29 +320,8 @@ class NpcSheetGenerationService {
     $ancestry = (string) ($seed_data['ancestry'] ?? 'Humanoid');
     $occupation = (string) ($seed_data['occupation'] ?? $role);
 
-    $abilities = [
-      'strength' => 10,
-      'dexterity' => 10,
-      'constitution' => 10,
-      'intelligence' => 10,
-      'wisdom' => 10,
-      'charisma' => 10,
-    ];
-
-    if (in_array(strtolower($class), ['wizard', 'sage', 'scholar'], TRUE)) {
-      $abilities['intelligence'] = 16;
-      $abilities['wisdom'] = 12;
-    }
-    elseif (in_array(strtolower($role), ['merchant', 'contact'], TRUE)) {
-      $abilities['charisma'] = 14;
-      $abilities['intelligence'] = 12;
-    }
-    elseif (in_array(strtolower($role), ['villain', 'guard'], TRUE)) {
-      $abilities['strength'] = 14;
-      $abilities['constitution'] = 12;
-    }
-
-    $default_hp = max(8, 8 + ($level * 6));
+    $abilities = Pf2eGenerationRules::npcFallbackAbilityScores($role, $class);
+    $default_stats = Pf2eGenerationRules::npcFallbackStats($level, $stats);
     $psychology = $this->normalizePsychologyPayload([
       'role' => $role,
       'class' => $class,
@@ -368,17 +348,9 @@ class NpcSheetGenerationService {
       'fears' => $seed_data['fears'] ?? $this->deriveFearsFromPsychology($psychology),
       'bonds' => $seed_data['bonds'] ?? $this->deriveBondsFromPsychology($psychology),
       'abilities' => $abilities,
-      'stats' => [
-        'ac' => (int) ($stats['ac'] ?? 14 + max(0, $level - 1)),
-        'perception' => (int) ($stats['perception'] ?? 4 + $level),
-        'fortitude' => (int) ($stats['fortitude'] ?? 4 + $level),
-        'reflex' => (int) ($stats['reflex'] ?? 4 + $level),
-        'will' => (int) ($stats['will'] ?? 4 + $level),
-        'currentHp' => (int) ($stats['currentHp'] ?? $stats['maxHp'] ?? $default_hp),
-        'maxHp' => (int) ($stats['maxHp'] ?? $default_hp),
-      ],
+      'stats' => $default_stats,
       'skills' => [
-        ['name' => 'Perception', 'modifier' => (int) ($stats['perception'] ?? 4 + $level)],
+        ['name' => 'Perception', 'modifier' => $default_stats['perception']],
         ['name' => 'Diplomacy', 'modifier' => in_array($role, ['merchant', 'contact'], TRUE) ? 6 + $level : 2 + $level],
         ['name' => 'Society', 'modifier' => 3 + $level],
       ],
@@ -439,15 +411,7 @@ class NpcSheetGenerationService {
     }
     $senses = $this->normalizeStringList($sheet['senses'] ?? $seed_data['senses'] ?? []);
     $spells = $this->normalizeStringList($sheet['spells'] ?? []);
-    $normalized_stats = [
-      'ac' => max(1, (int) ($stats['ac'] ?? $seed_data['stats']['ac'] ?? 10)),
-      'perception' => (int) ($stats['perception'] ?? $seed_data['stats']['perception'] ?? 0),
-      'fortitude' => (int) ($stats['fortitude'] ?? $seed_data['stats']['fortitude'] ?? 0),
-      'reflex' => (int) ($stats['reflex'] ?? $seed_data['stats']['reflex'] ?? 0),
-      'will' => (int) ($stats['will'] ?? $seed_data['stats']['will'] ?? 0),
-      'currentHp' => max(0, (int) ($stats['currentHp'] ?? $stats['maxHp'] ?? $seed_data['stats']['currentHp'] ?? $seed_data['stats']['maxHp'] ?? 1)),
-      'maxHp' => max(1, (int) ($stats['maxHp'] ?? $seed_data['stats']['maxHp'] ?? $stats['currentHp'] ?? 1)),
-    ];
+    $normalized_stats = Pf2eGenerationRules::normalizeNpcSheetStats($stats, is_array($seed_data['stats'] ?? NULL) ? $seed_data['stats'] : []);
 
     return $this->finalizeNpcSheetContract([
       'schema_version' => self::NPC_SHEET_SCHEMA_VERSION,

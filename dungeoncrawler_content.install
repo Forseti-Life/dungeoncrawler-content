@@ -2485,6 +2485,7 @@ function dungeoncrawler_content_schema() {
       'actor_type' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'npc'],
       'display_name' => ['type' => 'varchar', 'length' => 255, 'not null' => FALSE],
       'source_module' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE],
+      'metadata' => ['type' => 'text', 'size' => 'big', 'not null' => FALSE],
       'state_data' => ['type' => 'text', 'size' => 'big', 'not null' => FALSE],
       'created_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0],
       'updated_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0],
@@ -5108,6 +5109,24 @@ function dungeoncrawler_content_update_10200() {
     '@added' => (string) count($added),
     '@backfilled' => (string) $backfilled,
   ]);
+}
+
+/**
+ * Add canonical actor metadata storage for generated definition provenance.
+ */
+function dungeoncrawler_content_update_10201() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  $schema = dungeoncrawler_content_schema();
+  $table = 'dc_canonical_actors';
+  if (!$schema_handler->tableExists($table)) {
+    throw new \RuntimeException('canonical_actor_table_missing');
+  }
+  if (!$schema_handler->fieldExists($table, 'metadata')) {
+    $schema_handler->addField($table, 'metadata', $schema[$table]['fields']['metadata']);
+    return t('Added dc_canonical_actors.metadata for definition provenance.');
+  }
+  return t('dc_canonical_actors.metadata already exists.');
 }
 
 /**

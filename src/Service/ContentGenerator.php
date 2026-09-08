@@ -2,6 +2,8 @@
 
 namespace Drupal\dungeoncrawler_content\Service;
 
+use Drupal\dungeoncrawler_content\Service\Generation\Pf2eGenerationRules;
+
 /**
  * Service for generating game content procedurally.
  *
@@ -214,22 +216,7 @@ class ContentGenerator {
    *   XP value.
    */
   protected function getCreatureXP(int $level): int {
-    $xp_chart = [
-      -1 => 2,
-      0 => 5,
-      1 => 10,
-      2 => 15,
-      3 => 20,
-      4 => 30,
-      5 => 40,
-      6 => 60,
-      7 => 80,
-      8 => 120,
-      9 => 160,
-      10 => 240,
-    ];
-    
-    return $xp_chart[$level] ?? max(240, $level * 24);
+    return Pf2eGenerationRules::creatureXp($level);
   }
 
   /**
@@ -422,17 +409,7 @@ class ContentGenerator {
    *   XP budget for encounter.
    */
   protected function calculateXPBudget(int $party_level, int $party_size, string $threat_level): int {
-    // TODO: Implement XP budget calculation
-    $multipliers = [
-      'trivial' => 10,
-      'low' => 15,
-      'moderate' => 20,
-      'severe' => 30,
-      'extreme' => 40,
-    ];
-    
-    $multiplier = $multipliers[$threat_level] ?? 20;
-    return $party_size * $multiplier;
+    return Pf2eGenerationRules::encounterXpBudget($party_size, $threat_level);
   }
 
 }

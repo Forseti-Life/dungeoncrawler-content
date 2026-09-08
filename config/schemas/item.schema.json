@@ -566,6 +566,25 @@
         }
       }
     },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["generated_by"],
+      "properties": {
+        "generated_by": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["tool", "model", "prompt_hash", "seed", "generated_at"],
+          "properties": {
+            "tool": {"type": "string", "enum": ["generate_item_definition", "generate_creature_definition", "generate_npc_definition"]},
+            "model": {"type": "string", "minLength": 1, "maxLength": 200},
+            "prompt_hash": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+            "seed": {"type": "integer", "minimum": 0, "maximum": 2147483647},
+            "generated_at": {"type": "string", "format": "date-time"}
+          }
+        }
+      }
+    },
     "created_at": {
       "type": "string",
       "format": "date-time",

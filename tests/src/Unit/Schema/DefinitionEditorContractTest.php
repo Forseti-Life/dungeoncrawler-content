@@ -4,6 +4,7 @@ namespace Drupal\Tests\dungeoncrawler_content\Unit\Schema;
 
 use Drupal\dungeoncrawler_content\Service\Definition\DefinitionFormMapper;
 use Drupal\dungeoncrawler_content\Service\Definition\DefinitionSchemaValidator;
+use Drupal\dungeoncrawler_content\Service\Generation\Pf2eGenerationRules;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -135,6 +136,29 @@ class DefinitionEditorContractTest extends TestCase {
   }
 
   /**
+   * Freeze amendment: generated item/creature/actor definitions may carry provenance.
+   */
+  public function testGeneratedByMetadataAmendmentShapeIsAcceptedOnlyForKnownFields(): void {
+    $validator = new DefinitionSchemaValidator();
+    foreach ([
+      'item' => [$this->schema('item.schema.json'), $this->validGeneratedItem()],
+      'creature' => [$this->schema('creature.schema.json'), $this->validGeneratedCreature()],
+      'actor' => [$this->schema('canonical_actor.schema.json'), $this->validGeneratedActor()],
+    ] as $family => [$schema, $payload]) {
+      $this->assertSame([], $validator->validate($schema, $payload), $family . ' generated_by metadata must validate.');
+
+      $unknownTop = $payload + ['unexpected_top_level' => TRUE];
+      $topFindings = $validator->validate($schema, $unknownTop);
+      $this->assertNotEmpty($topFindings, $family . ' unknown top-level keys must still fail.');
+
+      $unknownMetadata = $payload;
+      $unknownMetadata['metadata']['generated_by']['finish_reason'] = 'stop';
+      $metadataFindings = $validator->validate($schema, $unknownMetadata);
+      $this->assertNotEmpty($metadataFindings, $family . ' metadata.generated_by unknown keys must fail.');
+    }
+  }
+
+  /**
    * A valid payload survives a build/extract round trip unchanged.
    */
   public function testMapperRoundTripsValidPayload(): void {
@@ -162,6 +186,78 @@ class DefinitionEditorContractTest extends TestCase {
 
     $this->assertSame([], $validator->validate($schema, $extracted));
     $this->assertEquals($payload, $this->sortKeys($extracted));
+  }
+
+  private function generatedBy(string $tool): array {
+    return [
+      'tool' => $tool,
+      'model' => 'fixture-model',
+      'prompt_hash' => 'sha256:' . str_repeat('a', 64),
+      'seed' => 42,
+      'generated_at' => '2026-09-08T00:00:00+00:00',
+    ];
+  }
+
+  private function validGeneratedItem(): array {
+    return [
+      'schema_version' => '1.0.0',
+      'item_id' => 'gen_evidence_lantern',
+      'name' => 'Rusted Sewer Lantern',
+      'item_type' => 'held_item',
+      'level' => 2,
+      'rarity' => 'uncommon',
+      'traits' => ['magical', 'gen-evidence'],
+      'description' => 'An original sewer-worker lantern with a dim magical flame.',
+      'metadata' => ['generated_by' => $this->generatedBy('generate_item_definition')],
+    ];
+  }
+
+  private function validGeneratedCreature(): array {
+    return [
+      'schema_version' => '1.0.0',
+      'creature_id' => '11111111-1111-4111-8111-111111111111',
+      'name' => 'Bloated Sewer Leech Swarm',
+      'level' => 1,
+      'creature_type' => 'animal',
+      'rarity' => 'common',
+      'traits' => ['swarm', 'aquatic', 'gen-evidence'],
+      'size' => 'tiny',
+      'hex_footprint' => 1,
+      'pf2e_stats' => Pf2eGenerationRules::baselineCreaturePf2eStats(1, 'skirmisher'),
+      'ai_personality' => [
+        'disposition' => 'hostile',
+        'personality_traits' => ['hungry'],
+        'goals' => ['primary' => 'Feed in the sewer dark.'],
+      ],
+      'lifecycle' => ['spawn_type' => 'permanent', 'is_alive' => TRUE],
+      'description' => 'A crawling mass of pallid leeches bred in cistern sludge.',
+      'source' => 'gen-evidence',
+      'metadata' => ['generated_by' => $this->generatedBy('generate_creature_definition')],
+    ];
+  }
+
+  private function validGeneratedActor(): array {
+    return [
+      'actor_id' => 'nervous_cistern_warden',
+      'version' => '1.0.0',
+      'actor_type' => 'npc',
+      'display_name' => 'Nervous Cistern Warden',
+      'source_module' => 'gen-evidence',
+      'state_data' => [
+        'name' => 'Nervous Cistern Warden',
+        'class' => 'informant',
+        'level' => 2,
+        'hp_current' => 20,
+        'max_hp' => 20,
+        'ac' => 15,
+        'species' => 'human',
+        'attitude' => 'friendly',
+        'source_module' => 'gen-evidence',
+        'description' => 'An original anxious warden who knows every leaking valve.',
+        'conditions' => [],
+      ],
+      'metadata' => ['generated_by' => $this->generatedBy('generate_npc_definition')],
+    ];
   }
 
   /**

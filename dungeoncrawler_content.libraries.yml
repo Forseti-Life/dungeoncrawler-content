@@ -257,7 +257,7 @@ dungeon-editor:
     - core/once
 
 definition-editor:
-  version: 20260908-slice-7b
+  version: 20260908-g2g3-generation
   js:
     js/definition-editor.js: { attributes: { type: module } }
   css:

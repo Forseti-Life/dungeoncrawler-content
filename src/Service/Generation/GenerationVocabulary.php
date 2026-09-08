@@ -30,6 +30,11 @@ final class GenerationVocabulary {
   public const LINK_KINDS = ['hallway', 'archway', 'door', 'hatch', 'portcullis', 'secret_door', 'magical_barrier', 'collapsed', 'bridge', 'one_way_drop'];
   public const LINK_DIRECTIONS = ['bidirectional', 'one_way'];
   public const LINK_STATES = ['open', 'closed', 'locked', 'barred', 'trapped', 'triggered', 'destroyed'];
+  public const ITEM_TYPES = ['weapon', 'armor', 'shield', 'consumable', 'potion', 'scroll', 'wand', 'talisman', 'worn_item', 'held_item', 'material', 'adventuring_gear', 'relic', 'artifact'];
+  public const ITEM_RARITIES = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
+  public const CREATURE_TYPES = ['aberration', 'animal', 'astral', 'beast', 'celestial', 'construct', 'dragon', 'dream', 'elemental', 'ethereal', 'fey', 'fiend', 'fungus', 'giant', 'humanoid', 'monitor', 'ooze', 'plant', 'spirit', 'undead'];
+  public const CREATURE_RARITIES = ['common', 'uncommon', 'rare', 'unique'];
+  public const NPC_ATTITUDES = ['hostile', 'unfriendly', 'indifferent', 'friendly', 'helpful'];
 
   /**
    * Legacy runtime terrain choices by dungeon theme.
