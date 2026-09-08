@@ -137,6 +137,7 @@ export class DungeonEditorShell {
       this.loadDungeon(initialDungeonId);
     } else {
       this._setStatus('Select a dungeon to view, or start a new one.', 'info');
+      this._syncDungeonLoadState();
     }
   }
 
@@ -159,6 +160,12 @@ export class DungeonEditorShell {
   // ---------------------------------------------------------------------------
 
   async loadDungeon(dungeonId) {
+    const selected = this._dungeonOption(dungeonId);
+    if (selected && !selected.published_version_id) {
+      this._setStatus(`${selected.name} is not published in the Dungeon Editor yet. Start New Dungeon, or publish it before loading it as an editor draft.`, 'warning');
+      this._syncDungeonLoadState();
+      return null;
+    }
     return this._createOrLoadDraft(dungeonId ? String(dungeonId) : null);
   }
 
@@ -305,6 +312,7 @@ export class DungeonEditorShell {
   }
 
   _bindHeaderEvents() {
+    this._dom.dungeonSelect?.addEventListener('change', () => this._syncDungeonLoadState());
     this._dom.loadBtn?.addEventListener('click', () => {
       const id = this._dom.dungeonSelect?.value || '';
       if (!id) {
@@ -901,8 +909,32 @@ export class DungeonEditorShell {
       );
     } catch (err) {
       this._showError(err, dungeonId ? `Could not load ${dungeonId}` : 'Could not create draft');
+      this._syncDungeonLoadState();
     } finally {
       this._setBusy(false);
+    }
+  }
+
+  _dungeonOption(dungeonId) {
+    const id = String(dungeonId || '').trim();
+    if (!id) {
+      return null;
+    }
+    return (this.settings.dungeons || []).find((dungeon) => String(dungeon.dungeon_id || '') === id) || null;
+  }
+
+  _syncDungeonLoadState() {
+    const id = this._dom.dungeonSelect?.value || '';
+    const selected = this._dungeonOption(id);
+    const disabled = !!(selected && !selected.published_version_id);
+    if (this._dom.loadBtn) {
+      this._dom.loadBtn.disabled = disabled;
+      this._dom.loadBtn.title = disabled
+        ? 'This dungeon has no published editor version yet. Use New Dungeon or publish it before loading.'
+        : '';
+    }
+    if (selected && !selected.published_version_id) {
+      this._setStatus(`${selected.name} is listed from legacy dungeon data but has no published editor version yet.`, 'warning');
     }
   }
 

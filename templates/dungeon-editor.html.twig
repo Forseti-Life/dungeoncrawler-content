@@ -38,8 +38,10 @@
           <select id="dungeon-editor-dungeon-select" data-dungeon-editor-dungeon-select>
             <option value="">{{ '- Select a dungeon -'|t }}</option>
             {% for dungeon in dungeons %}
-              <option value="{{ dungeon.dungeon_id }}"{% if dungeon.dungeon_id == selected_dungeon_id %} selected{% endif %}>
-                {{ dungeon.name }} ({{ dungeon.publication_status }})
+              <option value="{{ dungeon.dungeon_id }}"
+                      data-published-version-id="{{ dungeon.published_version_id }}"
+                      {% if dungeon.dungeon_id == selected_dungeon_id %} selected{% endif %}>
+                {{ dungeon.name }} ({% if dungeon.published_version_id %}{{ dungeon.publication_status }}{% else %}{{ 'legacy/unpublished - not loadable'|t }}{% endif %})
               </option>
             {% endfor %}
           </select>
