@@ -17,6 +17,8 @@ use Psr\Log\LoggerInterface;
  *
  * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
  * CanonicalGenerationService.
+ * Runtime generation failures hard-fail with runtime_generation_failed; no generic
+ * pool, cached fallback, or legacy generator on failure.
  */
 class StorylineGenerationService {
 
@@ -54,6 +56,8 @@ class StorylineGenerationService {
    *
    * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
    * CanonicalGenerationService.
+   * Runtime generation failures hard-fail with runtime_generation_failed; no generic
+   * pool, cached fallback, or legacy generator on failure.
    */
   public function generateStorylinePackage(int $campaign_id, array $request): array {
     $request = $this->normalizeRequest($request);
@@ -78,6 +82,8 @@ class StorylineGenerationService {
    *
    * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
    * CanonicalGenerationService.
+   * Runtime generation failures hard-fail with runtime_generation_failed; no generic
+   * pool, cached fallback, or legacy generator on failure.
    */
   public function generateStorylineBootstrapPackage(int $campaign_id, array $request): array {
     $request = $this->normalizeBootstrapRequest($request);
@@ -103,6 +109,8 @@ class StorylineGenerationService {
    *
    * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
    * CanonicalGenerationService.
+   * Runtime generation failures hard-fail with runtime_generation_failed; no generic
+   * pool, cached fallback, or legacy generator on failure.
    */
   public function bootstrapCampaignStoryline(int $campaign_id, array $request): array {
     $request = $this->normalizeBootstrapRequest($request);
@@ -194,6 +202,8 @@ class StorylineGenerationService {
    *
    * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
    * CanonicalGenerationService.
+   * Runtime generation failures hard-fail with runtime_generation_failed; no generic
+   * pool, cached fallback, or legacy generator on failure.
    */
   public function enqueueStorylineExpansion(int $campaign_id, string $storyline_id, array $request, bool $auto_start = TRUE): bool {
     $storyline_id = trim($storyline_id);
@@ -232,6 +242,8 @@ class StorylineGenerationService {
    *
    * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
    * CanonicalGenerationService.
+   * Runtime generation failures hard-fail with runtime_generation_failed; no generic
+   * pool, cached fallback, or legacy generator on failure.
    */
   public function processPendingExpansionJobs(int $limit = 2): array {
     $limit = max(1, $limit);

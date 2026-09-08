@@ -17,6 +17,8 @@ use Drupal\Core\Database\Connection;
  *   Validation pair: none (legacy/deprecated path).
  *   Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
  *   CanonicalGenerationService.
+ * Runtime generation failures hard-fail with runtime_generation_failed; no generic
+ * pool, cached fallback, or legacy generator on failure.
  *
  * @see /docs/dungeoncrawler/issues/issue-4-procedural-dungeon-generation-design.md
  */
@@ -108,6 +110,8 @@ class DungeonGenerationEngine {
    *
    * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
    * CanonicalGenerationService.
+   * Runtime generation failures hard-fail with runtime_generation_failed; no generic
+   * pool, cached fallback, or legacy generator on failure.
    */
   public function generateDungeon(
     int $campaign_id,
@@ -227,6 +231,8 @@ class DungeonGenerationEngine {
    *
    * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
    * CanonicalGenerationService.
+   * Runtime generation failures hard-fail with runtime_generation_failed; no generic
+   * pool, cached fallback, or legacy generator on failure.
    */
   private function generateLevel(
     array $dungeon,

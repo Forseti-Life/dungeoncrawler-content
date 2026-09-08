@@ -18,6 +18,8 @@ use Drupal\dungeoncrawler_content\Service\Generation\Pf2eGenerationRules;
  *   Validation pair: none (legacy/deprecated path).
  *
  * Runtime generator scheduled for reconciliation into the canonical generation path (Board decision 2026-09-08, item 20260908-dc-editor-generation-tools). No new callers; use CanonicalGenerationService.
+ * Runtime generation failures hard-fail with runtime_generation_failed; no generic
+ * pool, cached fallback, or legacy generator on failure.
  *
  * @see docs/dungeoncrawler/issues/issue-3-game-content-system-design.md
  *   Section: Service Layer Design > ContentGenerator Service
@@ -75,6 +77,8 @@ class ContentGenerator {
    *
    * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
    * CanonicalGenerationService.
+   * Runtime generation failures hard-fail with runtime_generation_failed; no generic
+   * pool, cached fallback, or legacy generator on failure.
    */
   public function generateRoomContent(int $dungeon_level, string $theme, string $room_type): array {
     $content = [
@@ -136,6 +140,8 @@ class ContentGenerator {
    *
    * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
    * CanonicalGenerationService.
+   * Runtime generation failures hard-fail with runtime_generation_failed; no generic
+   * pool, cached fallback, or legacy generator on failure.
    */
   public function generateEncounter(int $party_level, int $party_size, string $threat_level, string $theme): array {
     // Calculate XP budget
@@ -239,6 +245,8 @@ class ContentGenerator {
    *
    * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
    * CanonicalGenerationService.
+   * Runtime generation failures hard-fail with runtime_generation_failed; no generic
+   * pool, cached fallback, or legacy generator on failure.
    */
   public function generateCreaturePersonality(array $creature_data): array {
     // TODO: Implement AI personality generation
@@ -271,6 +279,8 @@ class ContentGenerator {
    *
    * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
    * CanonicalGenerationService.
+   * Runtime generation failures hard-fail with runtime_generation_failed; no generic
+   * pool, cached fallback, or legacy generator on failure.
    */
   public function generateTreasureHoard(int $level, string $hoard_type): array {
     $currency = $this->generateCurrency($hoard_type);

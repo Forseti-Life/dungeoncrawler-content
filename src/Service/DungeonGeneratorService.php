@@ -25,6 +25,8 @@ use Psr\Log\LoggerInterface;
  * validation delegated to RoomGeneratorService.
  *
  * Runtime generator scheduled for reconciliation into the canonical generation path (Board decision 2026-09-08, item 20260908-dc-editor-generation-tools). No new callers; use CanonicalGenerationService.
+ * Runtime generation failures hard-fail with runtime_generation_failed; no generic
+ * pool, cached fallback, or legacy generator on failure.
  *
  * @see /docs/dungeoncrawler/ROOM_DUNGEON_GENERATOR_ARCHITECTURE.md
  */
@@ -203,6 +205,8 @@ class DungeonGeneratorService {
    *
    * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
    * CanonicalGenerationService.
+   * Runtime generation failures hard-fail with runtime_generation_failed; no generic
+   * pool, cached fallback, or legacy generator on failure.
    *
    * @see /docs/dungeoncrawler/ROOM_DUNGEON_GENERATOR_ARCHITECTURE.md
    */
@@ -349,6 +353,8 @@ class DungeonGeneratorService {
    *
    * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
    * CanonicalGenerationService.
+   * Runtime generation failures hard-fail with runtime_generation_failed; no generic
+   * pool, cached fallback, or legacy generator on failure.
    *
    * @see /docs/dungeoncrawler/ROOM_DUNGEON_GENERATOR_ARCHITECTURE.md
    */

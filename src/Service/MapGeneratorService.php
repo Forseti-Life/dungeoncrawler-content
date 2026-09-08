@@ -27,6 +27,8 @@ use Psr\Log\LoggerInterface;
  *
  * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
  * CanonicalGenerationService.
+ * Runtime generation failures hard-fail with runtime_generation_failed; no generic
+ * pool, cached fallback, or legacy generator on failure.
  */
 class MapGeneratorService {
 
@@ -174,6 +176,8 @@ class MapGeneratorService {
    *
    * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
    * CanonicalGenerationService.
+   * Runtime generation failures hard-fail with runtime_generation_failed; no generic
+   * pool, cached fallback, or legacy generator on failure.
    */
   public function generateSetting(
     int $campaign_id,

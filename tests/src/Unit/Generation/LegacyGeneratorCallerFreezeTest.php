@@ -19,6 +19,8 @@ final class LegacyGeneratorCallerFreezeTest extends TestCase {
 
   private const FREEZE_PHRASE = 'no new callers; use CanonicalGenerationService';
 
+  private const HARD_FAIL_PHRASE = 'runtime generation failures hard-fail with runtime_generation_failed; no generic pool, cached fallback, or legacy generator on failure';
+
   private const LEGACY_REFERENCE_TOKENS = [
     'dungeoncrawler_content.room_generator',
     'dungeoncrawler_content.dungeon_generator',
@@ -158,6 +160,8 @@ final class LegacyGeneratorCallerFreezeTest extends TestCase {
     $normalized = strtolower(preg_replace('/[^a-zA-Z0-9]+/', ' ', $prefix) ?? $prefix);
     $needle = strtolower(preg_replace('/[^a-zA-Z0-9]+/', ' ', self::FREEZE_PHRASE) ?? self::FREEZE_PHRASE);
     $this->assertStringContainsString($needle, $normalized, $relative . ' ' . $marker . ' must declare the R1 freeze.');
+    $hard_fail_needle = strtolower(preg_replace('/[^a-zA-Z0-9]+/', ' ', self::HARD_FAIL_PHRASE) ?? self::HARD_FAIL_PHRASE);
+    $this->assertStringContainsString($hard_fail_needle, $normalized, $relative . ' ' . $marker . ' must declare hard-fail/no-fallback generation policy.');
   }
 
 }

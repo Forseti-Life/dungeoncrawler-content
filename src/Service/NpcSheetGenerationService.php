@@ -14,6 +14,8 @@ use Psr\Log\LoggerInterface;
  * Validation pair: StateValidationService::validateNpcSheet() contract checks.
  *
  * Runtime generator scheduled for reconciliation into the canonical generation path (Board decision 2026-09-08, item 20260908-dc-editor-generation-tools). No new callers; use CanonicalGenerationService.
+ * Runtime generation failures hard-fail with runtime_generation_failed; no generic
+ * pool, cached fallback, or legacy generator on failure.
  */
 class NpcSheetGenerationService {
 
@@ -36,6 +38,8 @@ class NpcSheetGenerationService {
    *
    * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
    * CanonicalGenerationService.
+   * Runtime generation failures hard-fail with runtime_generation_failed; no generic
+   * pool, cached fallback, or legacy generator on failure.
    */
   public function enqueueNpcSheetGeneration(
     int $campaign_id,
@@ -95,6 +99,8 @@ class NpcSheetGenerationService {
    *
    * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
    * CanonicalGenerationService.
+   * Runtime generation failures hard-fail with runtime_generation_failed; no generic
+   * pool, cached fallback, or legacy generator on failure.
    */
   public function processPendingJobs(int $limit = 3): array {
     $limit = max(1, $limit);
@@ -180,6 +186,8 @@ class NpcSheetGenerationService {
    *
    * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
    * CanonicalGenerationService.
+   * Runtime generation failures hard-fail with runtime_generation_failed; no generic
+   * pool, cached fallback, or legacy generator on failure.
    */
   public function launchDetachedWorker(int $limit = 3): void {
     $has_pending = (bool) $this->database->select('dc_npc_sheet_generation_jobs', 'j')
@@ -237,6 +245,8 @@ class NpcSheetGenerationService {
    *
    * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
    * CanonicalGenerationService.
+   * Runtime generation failures hard-fail with runtime_generation_failed; no generic
+   * pool, cached fallback, or legacy generator on failure.
    */
   protected function generateNpcSheet(int $campaign_id, string $content_id, array $seed_data): array {
     if ($this->aiApiService) {
