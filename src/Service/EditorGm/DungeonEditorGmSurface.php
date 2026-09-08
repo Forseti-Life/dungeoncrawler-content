@@ -6,6 +6,7 @@ use Drupal\Component\Uuid\UuidInterface;
 use Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService;
 use Drupal\dungeoncrawler_content\Service\DungeonEditorService;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\ApplyDungeonCommandsTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\DescribePublicationReadinessTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\ExplainDungeonValidationFindingsTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\InspectRoomVersionTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\ListPublishedRoomsTool;
@@ -14,6 +15,7 @@ use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\PlanDungeonComma
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\PlanPortLinksTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\PlanRoomPlacementTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\PreviewDungeonCommandPlanTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\PublishDungeonVersionTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\SummarizeLevelTopologyTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\ValidateDungeonTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\InspectCatalogEntryTool;
@@ -30,10 +32,8 @@ use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\UpdateCanonicalDefinitio
  * the same classes the Room Editor surface registers, because that authority
  * is surface-independent.
  *
- * Publication tools (publish, diff against published, readiness) are absent
- * on purpose: dungeon publication does not exist until Slice 6 ships. A
- * request for them fails with editor_gm_tool_unsupported rather than being
- * stubbed.
+ * Publication readiness and publish execute through DungeonEditorService and
+ * expose the same findings and hard blockers as the browser route.
  */
 final class DungeonEditorGmSurface implements EditorGmSurfaceInterface {
 
@@ -64,6 +64,7 @@ final class DungeonEditorGmSurface implements EditorGmSurfaceInterface {
       new ListCatalogDefinitionsTool(),
       new InspectCatalogEntryTool(),
       new ValidateDungeonTool(),
+      new DescribePublicationReadinessTool(),
       new ExplainDungeonValidationFindingsTool(),
       new LoadCanonicalDefinitionTool(),
       new UpdateCanonicalDefinitionTool(),
@@ -73,6 +74,7 @@ final class DungeonEditorGmSurface implements EditorGmSurfaceInterface {
       new PreviewDungeonCommandPlanTool($uuid),
       new PlanCanonicalDefinitionPatchTool(),
       new ApplyDungeonCommandsTool($uuid),
+      new PublishDungeonVersionTool(),
     ], self::SUPPORTED_COMMAND_TYPES, DungeonEditorService::COMMAND_SCHEMA_FILE);
     $this->assembler = new DungeonEditorGmContextAssembler($this->registry, $intentParser);
   }

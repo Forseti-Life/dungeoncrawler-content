@@ -187,6 +187,26 @@ dungeoncrawler_content.dungeon_editor_draft_validate:
     _permission: 'edit canonical dungeoncrawler dungeons'
     draft_id: '[0-9a-f-]{36}'
 
+dungeoncrawler_content.dungeon_editor_draft_publish_readiness:
+  path: '/api/dungeon-editor/drafts/{draft_id}/publish-readiness'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\DungeonEditorController::publishReadiness'
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'edit canonical dungeoncrawler dungeons'
+    draft_id: '[0-9a-f-]{36}'
+
+dungeoncrawler_content.dungeon_editor_draft_publish:
+  path: '/api/dungeon-editor/drafts/{draft_id}/publish'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\DungeonEditorController::publish'
+  methods: [POST]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'publish canonical dungeoncrawler dungeons'
+    draft_id: '[0-9a-f-]{36}'
+
 dungeoncrawler_content.dungeon_editor_rooms:
   path: '/api/dungeon-editor/rooms'
   defaults:

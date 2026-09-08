@@ -25,7 +25,7 @@
  * Link legality is decided by the server; the shell only pre-computes the
  * legal targets for highlighting with the same sealed-link geometry
  * (10-placement-transform-spec.md §5: Hb == neighbor(Ha, Ea), Eb == opposite(Ea)).
- * Publication is a later slice.
+ * Publication is available only through the server readiness and publish routes.
  */
 
 import { GameEventBus } from '../GameEventBus.js';
@@ -86,6 +86,8 @@ export class DungeonEditorShell {
     this.model = null;
     /** @type {Array} Published room library entries. */
     this.roomLibrary = [];
+    /** @type {object|null} Publication readiness from the server. */
+    this.publicationReadiness = null;
     /** @type {string|null} Selected placement_id. */
     this.selectedPlacementId = null;
     /** @type {string|null} Selected link_id (exclusive with the others). */
@@ -258,6 +260,67 @@ export class DungeonEditorShell {
     return result;
   }
 
+  async refreshPublicationReadiness() {
+    if (!this.draft?.draft_id || !this.urls.publishReadiness) {
+      this.publicationReadiness = null;
+      this._renderPublicationReadiness();
+      return null;
+    }
+    try {
+      const response = await this._getJson(this._draftUrl('publishReadiness'));
+      this.publicationReadiness = response.data;
+      this._renderPublicationReadiness();
+      return response.data;
+    } catch (err) {
+      this.publicationReadiness = null;
+      this._renderPublicationReadiness(err);
+      return null;
+    }
+  }
+
+  async publish() {
+    if (!this.model || this._busy) {
+      return null;
+    }
+    if (!this.publicationReadiness?.ready) {
+      this._setStatus('Resolve publication blockers before publishing.', 'warning');
+      return null;
+    }
+    const version = String(this._dom.publishVersion?.value || '').trim();
+    if (!version) {
+      this._setStatus('Version is required before publishing.', 'error');
+      return null;
+    }
+    this._setBusy(true);
+    try {
+      const response = await this._postJson(this._draftUrl('publish'), {
+        expected_revision: this.model.revision,
+        expected_base_version_id: this.draft?.base_version_id || null,
+        version,
+        publication_note: String(this._dom.publishNote?.value || ''),
+      });
+      const result = response.data;
+      this.draft = result.model ? {
+        ...this.draft,
+        status: result.model.status,
+        published_version_id: result.published_version_id,
+      } : this.draft;
+      this._setModel(result.model);
+      if (this._dom.publishedVersion) {
+        this._dom.publishedVersion.textContent = result.published_version_id;
+        this._dom.publishedVersion.hidden = false;
+      }
+      this._setStatus(`Published dungeon version ${result.version} (${result.published_version_id}).`, 'info');
+      return result;
+    } catch (err) {
+      this._showError(err, 'Publish rejected');
+      await this.refreshPublicationReadiness();
+      return null;
+    } finally {
+      this._setBusy(false);
+    }
+  }
+
   _draftUrl(key) {
     return String(this.urls[key] || '').replace('{draft_id}', encodeURIComponent(this.draft.draft_id));
   }
@@ -294,6 +357,12 @@ export class DungeonEditorShell {
       regionEmpty: q('[data-dungeon-editor-region-empty]'),
       regionForm: q('[data-dungeon-editor-region-form]'),
       validationList: q('[data-dungeon-editor-validation-list]'),
+      publishForm: q('[data-dungeon-editor-publish-form]'),
+      publishVersion: q('[data-dungeon-editor-publish-version]'),
+      publishNote: q('[data-dungeon-editor-publish-note]'),
+      publishButton: q('[data-dungeon-editor-action="publish"]'),
+      publishReadiness: q('[data-dungeon-editor-publish-readiness]'),
+      publishedVersion: q('[data-dungeon-editor-published-version]'),
       gmPanel: q('[data-dungeon-editor-gm-panel]'),
       gmState: q('[data-dungeon-editor-gm-state]'),
       gmContext: q('[data-dungeon-editor-gm-context]'),
@@ -375,6 +444,10 @@ export class DungeonEditorShell {
           this._selectRegion(regionId);
         }
       });
+    });
+    this._dom.publishForm?.addEventListener('submit', (event) => {
+      event.preventDefault();
+      this.publish();
     });
   }
 
@@ -981,6 +1054,8 @@ export class DungeonEditorShell {
     this._renderRegionList();
     this._renderInspector();
     this._renderValidation(model.validation);
+    this._renderPublicationReadiness();
+    this.refreshPublicationReadiness();
     this._refreshGmContext();
     this._updateHistoryButtons();
   }
@@ -1683,6 +1758,40 @@ export class DungeonEditorShell {
     });
   }
 
+  _renderPublicationReadiness(err = null) {
+    const list = this._dom.publishReadiness;
+    if (!list) {
+      return;
+    }
+    clearElement(list);
+    if (!this.model) {
+      list.appendChild(makeEl('li', 'room-editor__validation-item', 'Load a draft before publishing.'));
+      if (this._dom.publishButton) {
+        this._dom.publishButton.disabled = true;
+      }
+      return;
+    }
+    if (err) {
+      list.appendChild(makeEl('li', 'room-editor__validation-item room-editor__validation-item--error', `${err.message || 'Readiness unavailable'} (${err.code || 'readiness_unavailable'})`));
+    } else if (!this.publicationReadiness) {
+      list.appendChild(makeEl('li', 'room-editor__validation-item', 'Checking publication readiness...'));
+    } else if (this.publicationReadiness.ready) {
+      list.appendChild(makeEl('li', 'room-editor__validation-item room-editor__validation-item--ok', 'Ready to publish.'));
+    } else {
+      (this.publicationReadiness.blockers || []).forEach((finding) => {
+        const where = finding.hex ? ` @ (${finding.hex.q}, ${finding.hex.r})` : (finding.pointer ? ` at ${finding.pointer}` : '');
+        list.appendChild(makeEl(
+          'li',
+          `room-editor__validation-item room-editor__validation-item--${finding.severity || 'error'}`,
+          `${finding.message}${where} (${finding.code})`,
+        ));
+      });
+    }
+    if (this._dom.publishButton) {
+      this._dom.publishButton.disabled = this._busy || !this.publicationReadiness?.ready || !this.model;
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // GM assistant (dungeon_editor surface of the editor GM harness)
   // ---------------------------------------------------------------------------
@@ -2046,12 +2155,13 @@ export class DungeonEditorShell {
 
   _setBusy(busy) {
     this._busy = busy;
-    [this._dom.loadBtn, this._dom.newBtn, this._dom.dungeonSelect].forEach((el) => {
+    [this._dom.loadBtn, this._dom.newBtn, this._dom.dungeonSelect, this._dom.publishButton].forEach((el) => {
       if (el) {
         el.disabled = busy;
       }
     });
     this._updateHistoryButtons();
+    this._renderPublicationReadiness();
   }
 
   _setStatus(message, level = 'info') {

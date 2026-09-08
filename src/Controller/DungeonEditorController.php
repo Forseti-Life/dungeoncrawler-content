@@ -62,6 +62,8 @@ class DungeonEditorController extends ControllerBase {
                 'command' => $this->draftUrl('dungeoncrawler_content.dungeon_editor_draft_command'),
                 'simulate' => $this->draftUrl('dungeoncrawler_content.dungeon_editor_draft_simulate'),
                 'validate' => $this->draftUrl('dungeoncrawler_content.dungeon_editor_draft_validate'),
+                'publishReadiness' => $this->draftUrl('dungeoncrawler_content.dungeon_editor_draft_publish_readiness'),
+                'publish' => $this->draftUrl('dungeoncrawler_content.dungeon_editor_draft_publish'),
                 'gm' => $this->draftUrl('dungeoncrawler_content.dungeon_editor_gm_describe'),
                 'roomEditor' => str_replace('placeholder-room', '{room_id}', Url::fromRoute('dungeoncrawler_content.room_editor_edit', ['room_id' => 'placeholder-room'])->toString()),
               ],
@@ -172,6 +174,38 @@ class DungeonEditorController extends ControllerBase {
   }
 
   /**
+   * Returns publication-profile readiness and active-campaign blockers.
+   */
+  public function publishReadiness(string $draft_id): JsonResponse {
+    try {
+      return new JsonResponse(['data' => $this->dungeonEditor->publicationReadiness($draft_id)]);
+    }
+    catch (\Throwable $exception) {
+      return $this->errorResponse($exception);
+    }
+  }
+
+  /**
+   * Publishes a canonical dungeon version and connector projection.
+   */
+  public function publish(string $draft_id, Request $request): JsonResponse {
+    if ($csrf = $this->validateCsrf($request)) {
+      return $csrf;
+    }
+    try {
+      $body = $this->decodeBody($request);
+      if (!is_int($body['expected_revision'] ?? NULL)) {
+        throw new \InvalidArgumentException('expected_revision_required');
+      }
+      $result = $this->dungeonEditor->publish($draft_id, (int) $body['expected_revision'], (int) $this->currentUser()->id(), $body);
+      return new JsonResponse(['data' => $result], 201);
+    }
+    catch (\Throwable $exception) {
+      return $this->errorResponse($exception);
+    }
+  }
+
+  /**
    * Returns the published room library for the author drawer.
    */
   public function rooms(): JsonResponse {
@@ -236,7 +270,7 @@ class DungeonEditorController extends ControllerBase {
       $exception instanceof \InvalidArgumentException => 400,
       $exception instanceof \OutOfBoundsException => 404,
       $exception instanceof \UnexpectedValueException => 403,
-      $exception instanceof \RuntimeException && in_array($code, ['revision_conflict', 'idempotency_conflict', 'base_version_conflict'], TRUE) => 409,
+      in_array($code, ['revision_conflict', 'idempotency_conflict', 'base_version_conflict', 'connector_identity_conflict', 'publication_blocked_by_active_campaign'], TRUE) => 409,
       $exception instanceof \DomainException => 422,
       default => 500,
     };

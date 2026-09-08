@@ -38,6 +38,7 @@ class DungeonEditorGmContractTest extends TestCase {
     'list_catalog_definitions',
     'inspect_catalog_entry',
     'validate_dungeon',
+    'describe_publication_readiness',
     'explain_validation_findings',
     'load_canonical_definition',
     'update_canonical_definition',
@@ -47,6 +48,7 @@ class DungeonEditorGmContractTest extends TestCase {
     'preview_command_plan',
     'plan_canonical_definition_patch',
     'apply_dungeon_commands',
+    'publish_dungeon_version',
   ];
 
   private function root(): string {
@@ -146,6 +148,8 @@ class DungeonEditorGmContractTest extends TestCase {
     $this->assertFalse($harness->surface('room_editor')->registry()->has('apply_dungeon_commands'));
     $this->assertFalse($harness->surface('dungeon_editor')->registry()->has('apply_room_commands'));
     $this->assertFalse($harness->surface('dungeon_editor')->registry()->has('publish_room_version'));
+    $this->assertTrue($harness->surface('dungeon_editor')->registry()->has('publish_dungeon_version'));
+    $this->assertTrue($harness->surface('dungeon_editor')->registry()->has('describe_publication_readiness'));
   }
 
   /**

@@ -5,6 +5,7 @@ namespace Drupal\dungeoncrawler_content\Controller;
 use Drupal\Core\Access\CsrfRequestHeaderAccessCheck;
 use Drupal\Core\Access\CsrfTokenGenerator;
 use Drupal\Core\Controller\ControllerBase;
+use Drupal\dungeoncrawler_content\Service\DungeonEditorFindingsInterface;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmHarnessService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -105,7 +106,7 @@ class EditorGmController extends ControllerBase {
       $exception instanceof \InvalidArgumentException => 400,
       $exception instanceof \OutOfBoundsException => 404,
       $exception instanceof \UnexpectedValueException => 403,
-      $exception instanceof \RuntimeException && in_array($code, ['revision_conflict', 'idempotency_conflict', 'base_version_conflict'], TRUE) => 409,
+      in_array($code, ['revision_conflict', 'idempotency_conflict', 'base_version_conflict', 'connector_identity_conflict', 'publication_blocked_by_active_campaign'], TRUE) => 409,
       $exception instanceof \DomainException => 422,
       default => 500,
     };
@@ -115,12 +116,14 @@ class EditorGmController extends ControllerBase {
       ]);
       $code = 'editor_gm_internal_error';
     }
-    return new JsonResponse([
-      'error' => [
-        'code' => $code,
-        'message' => str_replace('_', ' ', ucfirst($code)),
-      ],
-    ], $status);
+    $error = [
+      'code' => $code,
+      'message' => str_replace('_', ' ', ucfirst($code)),
+    ];
+    if ($exception instanceof DungeonEditorFindingsInterface) {
+      $error['findings'] = $exception->getFindings();
+    }
+    return new JsonResponse(['error' => $error], $status);
   }
 
 }

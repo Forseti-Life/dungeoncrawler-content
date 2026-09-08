@@ -276,7 +276,7 @@ class DungeonEditorShellContractTest extends TestCase {
   }
 
   /**
-   * Exactly two write paths exist: draft creation and the command pipeline.
+   * Writes exist only for draft creation, command mutation, and publication.
    *
    * Every mutation goes through applyCommand: one command log insert and one
    * revision-guarded draft update inside one transaction. Nothing else in the
@@ -284,11 +284,13 @@ class DungeonEditorShellContractTest extends TestCase {
    */
   public function testAllMutationFlowsThroughTheCommandPipeline(): void {
     $service = $this->source('src/Service/DungeonEditorService.php');
-    $this->assertSame(2, substr_count($service, '->insert('), 'createDraft and applyCommand are the only inserts.');
-    $this->assertSame(1, substr_count($service, '->update('), 'applyCommand is the only update.');
+    $this->assertSame(6, substr_count($service, '->insert('), 'createDraft, applyCommand, and publish are the only insert sites.');
+    $this->assertSame(3, substr_count($service, '->update('), 'applyCommand and publish are the only update sites.');
     $this->assertSame(0, substr_count($service, '->merge('));
-    $this->assertSame(0, substr_count($service, '->delete('));
-    $this->assertStringNotContainsString("->insert('dungeoncrawler_content_dungeon_versions')", $service, 'Publication is a later slice.');
+    $this->assertSame(1, substr_count($service, '->delete('), 'publish replaces only scoped canonical connector rows.');
+    $this->assertStringContainsString("->insert('dungeoncrawler_content_dungeon_versions')", $service);
+    $this->assertStringContainsString("->delete('dungeoncrawler_content_connections')", $service);
+    $this->assertStringContainsString("->condition('dungeon_id', \$dungeon_id)", $service);
     $this->assertStringContainsString('->startTransaction()', $service);
     $this->assertStringContainsString("->condition('revision', (int) \$row['revision'])", $service, 'The draft update must be revision-guarded.');
     $this->assertStringContainsString("throw new \\RuntimeException('revision_conflict')", $service);
@@ -303,7 +305,8 @@ class DungeonEditorShellContractTest extends TestCase {
     $this->assertStringContainsString("'simulation_mutated_draft'", $body);
 
     $controller = $this->source('src/Controller/DungeonEditorController.php');
-    $this->assertStringNotContainsString('public function publish(', $controller);
+    $this->assertStringContainsString('public function publish(', $controller);
+    $this->assertStringContainsString('public function publishReadiness(', $controller);
 
     $shell = $this->source('js/v2/editor/DungeonEditorShell.js');
     $this->assertStringNotContainsString("'PUT'", $shell);
@@ -498,7 +501,10 @@ class DungeonEditorShellContractTest extends TestCase {
     $before = $service->validateAggregate($this->draft($dungeon));
     $this->assertTrue($before['is_valid']);
     $this->assertEqualsCanonicalizing(['placement_unreachable', 'exit_port_dangling'], array_column($before['findings'], 'code'));
-    $this->assertFalse($service->validateAggregate($this->draft($dungeon), 'publication')['is_valid']);
+    $publication_before = $service->validateAggregate($this->draft($dungeon), 'publication');
+    $this->assertFalse($publication_before['is_valid']);
+    $dangling = array_values(array_filter($publication_before['findings'], static fn(array $finding): bool => $finding['code'] === 'exit_port_dangling'));
+    $this->assertSame('error', $dangling[0]['severity']);
 
     // Sealed link: everything resolves, nothing dangles.
     $linked = $this->transition($service, $dungeon, 'link_ports', $this->link($a, $b));
@@ -649,7 +655,7 @@ class DungeonEditorShellContractTest extends TestCase {
     $routing = $this->source('dungeoncrawler_content.routing.yml');
     preg_match_all('/^dungeoncrawler_content\.(dungeon_editor[a-z_]*):\n(.*?)(?=\n\S|\z)/ms', $routing, $matches, PREG_SET_ORDER);
     $names = array_column($matches, 1);
-    foreach (['dungeon_editor', 'dungeon_editor_edit', 'dungeon_editor_draft_create', 'dungeon_editor_draft_get', 'dungeon_editor_draft_describe', 'dungeon_editor_rooms', 'dungeon_editor_draft_command', 'dungeon_editor_draft_simulate', 'dungeon_editor_draft_validate'] as $route) {
+    foreach (['dungeon_editor', 'dungeon_editor_edit', 'dungeon_editor_draft_create', 'dungeon_editor_draft_get', 'dungeon_editor_draft_describe', 'dungeon_editor_rooms', 'dungeon_editor_draft_command', 'dungeon_editor_draft_simulate', 'dungeon_editor_draft_validate', 'dungeon_editor_draft_publish_readiness', 'dungeon_editor_draft_publish'] as $route) {
       $this->assertContains($route, $names, $route . ' must exist.');
     }
     foreach (['dungeon_editor_gm_describe', 'dungeon_editor_gm_execute'] as $route) {
@@ -657,7 +663,10 @@ class DungeonEditorShellContractTest extends TestCase {
     }
     foreach ($matches as $match) {
       $this->assertStringContainsString("_user_is_logged_in: 'TRUE'", $match[2], $match[1]);
-      $this->assertStringContainsString("_permission: 'edit canonical dungeoncrawler dungeons'", $match[2], $match[1]);
+      $expected_permission = $match[1] === 'dungeon_editor_draft_publish'
+        ? "_permission: 'publish canonical dungeoncrawler dungeons'"
+        : "_permission: 'edit canonical dungeoncrawler dungeons'";
+      $this->assertStringContainsString($expected_permission, $match[2], $match[1]);
       if (str_contains($match[1], '_gm_')) {
         $this->assertStringContainsString('EditorGmController::', $match[2], $match[1]);
         $this->assertStringContainsString('_surface: dungeon_editor', $match[2], $match[1] . ' must bind the dungeon_editor surface.');

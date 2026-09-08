@@ -7,11 +7,8 @@
  *   [author drawer] | [level canvas] | [GM assistant panel]
  * The drawer starts collapsed; the assistant panel owns the freed space.
  *
- * Slice 4 places, moves, rotates, retargets and removes rooms through the
- * command pipeline, with undo/redo. Links, regions, publication, and the
- * assistant's dungeon_editor surface arrive in later slices; controls for
- * them are absent, not disabled, so nothing on this page promises a
- * capability the server does not yet have.
+ * The shell places rooms, links ports, manages regions, publishes canonical
+ * dungeon versions, and exposes the dungeon_editor GM surface.
  *
  * Available variables:
  * - dungeons: List of { dungeon_id, name, publication_status, published_version_id, has_active_draft }.
@@ -123,6 +120,19 @@
         <section class="room-editor__drawer-section room-editor__validation" data-dungeon-editor-validation aria-label="{{ 'Validation results'|t }}">
           <p class="room-editor__eyebrow">{{ 'Validation'|t }}</p>
           <ul class="room-editor__validation-list" data-dungeon-editor-validation-list></ul>
+        </section>
+
+        <section class="room-editor__drawer-section room-editor__validation" data-dungeon-editor-publication aria-label="{{ 'Publication'|t }}">
+          <p class="room-editor__eyebrow">{{ 'Publish'|t }}</p>
+          <ul class="room-editor__validation-list" data-dungeon-editor-publish-readiness>
+            <li class="room-editor__validation-item">{{ 'Load a draft before publishing.'|t }}</li>
+          </ul>
+          <form class="dungeon-editor__publish-form" data-dungeon-editor-publish-form>
+            <label class="room-editor__field">{{ 'Version'|t }}<input type="text" name="version" maxlength="32" required placeholder="1.0.0" data-dungeon-editor-publish-version></label>
+            <label class="room-editor__field">{{ 'Publication note'|t }}<textarea name="publication_note" rows="2" maxlength="4000" data-dungeon-editor-publish-note></textarea></label>
+            <button type="submit" class="room-editor__button room-editor__button--primary" data-dungeon-editor-action="publish" disabled>{{ 'Publish'|t }}</button>
+            <p class="room-editor__hint" data-dungeon-editor-published-version hidden></p>
+          </form>
         </section>
 
       </aside>

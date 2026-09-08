@@ -80,8 +80,10 @@ class DungeonEditorService {
     protected DefinitionSchemaValidator $validator,
     protected CanonicalDefinitionService $definitions,
     protected ?string $schemaDirectory = NULL,
+    protected ?ConnectorProjectionService $connectorProjection = NULL,
   ) {
     $this->schemaDirectory ??= dirname(__DIR__, 2) . '/config/schemas';
+    $this->connectorProjection ??= new ConnectorProjectionService($database);
   }
 
   /**
@@ -224,6 +226,7 @@ class DungeonEditorService {
     $base_version_id = NULL;
     if ($dungeon_id === NULL) {
       $dungeon = $this->blankDungeon();
+      $dungeon_id = $dungeon['dungeon_id'];
     }
     else {
       $row = $this->database->select('dungeoncrawler_content_dungeons', 'd')
@@ -550,6 +553,238 @@ class DungeonEditorService {
   public function validateDraft(string $draft_id, string $profile = 'editing'): array {
     $draft = $this->decodeDraft($this->loadDraftRow($draft_id));
     return $this->validateAggregate($draft, $profile);
+  }
+
+  /**
+   * Publication-profile validation plus non-ended campaign guard state.
+   */
+  public function publicationReadiness(string $draft_id): array {
+    $draft = $this->decodeDraft($this->loadDraftRow($draft_id));
+    $dungeon_id = (string) ($draft['dungeon_id'] ?: ($draft['dungeon']['dungeon_id'] ?? ''));
+    try {
+      $validation = $this->validateAggregate($draft, 'publication');
+    }
+    catch (DungeonAggregateException $exception) {
+      $findings = array_map(fn(array $finding): array => $this->schemaFinding($finding), $exception->getFindings());
+      $validation = [
+        'schema_version' => 'dungeon-editor-validation-result-v1',
+        'profile' => 'publication',
+        'draft_id' => $draft['draft_id'],
+        'revision' => (int) $draft['revision'],
+        'is_valid' => FALSE,
+        'findings' => $findings,
+        'counts' => ['error' => count($findings), 'warning' => 0, 'info' => 0],
+        'validated_at' => gmdate(DATE_RFC3339),
+      ];
+    }
+    $campaign_blockers = $dungeon_id !== '' ? $this->activeCampaignBlockers($dungeon_id) : [];
+    $blockers = array_values(array_merge(
+      array_filter($validation['findings'], static fn(array $finding): bool => ($finding['severity'] ?? 'error') === 'error'),
+      $campaign_blockers
+    ));
+
+    return [
+      'schema_version' => 'dungeon-editor-publication-readiness-v1',
+      'draft_id' => $draft['draft_id'],
+      'dungeon_id' => $dungeon_id,
+      'revision' => (int) $draft['revision'],
+      'ready' => $blockers === [],
+      'blockers' => $blockers,
+      'validation' => $validation,
+      'campaign_guard' => [
+        'blocked' => $campaign_blockers !== [],
+        'blockers' => $campaign_blockers,
+      ],
+    ];
+  }
+
+  /**
+   * Publishes one revision-checked draft and projects canonical connectors.
+   */
+  public function publish(string $draft_id, int $expected_revision, int $uid, array $request = []): array {
+    if (!$this->isUuid($draft_id)) {
+      throw new \InvalidArgumentException('draft_id_invalid');
+    }
+    $version = trim((string) ($request['version'] ?? ''));
+    if ($version === '' || strlen($version) > 32 || !preg_match('/^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$/', $version)) {
+      throw new \DomainException('publication_version_invalid');
+    }
+    $publication_note = isset($request['publication_note']) ? (string) $request['publication_note'] : NULL;
+    $expected_base = array_key_exists('expected_base_version_id', $request) && $request['expected_base_version_id'] !== NULL
+      ? (string) $request['expected_base_version_id']
+      : NULL;
+    $version_id = $this->uuid->generate();
+
+    $transaction = $this->database->startTransaction();
+    try {
+      $row = $this->database->select('dungeoncrawler_content_dungeon_editor_drafts', 'd')
+        ->fields('d')
+        ->condition('draft_id', $draft_id)
+        ->forUpdate()
+        ->execute()
+        ->fetchAssoc();
+      if (!$row) {
+        throw new \OutOfBoundsException('dungeon_draft_not_found');
+      }
+      $this->assertDraftAccess($row);
+      if ($row['status'] !== 'active') {
+        throw new \DomainException('dungeon_draft_not_active');
+      }
+      if ((int) $row['revision'] !== $expected_revision) {
+        throw new \RuntimeException('revision_conflict');
+      }
+      if ($expected_base !== NULL && (string) ($row['base_version_id'] ?? '') !== $expected_base) {
+        throw new \RuntimeException('base_version_conflict');
+      }
+
+      $draft = $this->decodeDraft($row);
+      $dungeon = $draft['dungeon'];
+      $dungeon_id = (string) ($row['dungeon_id'] ?? '');
+      if ($dungeon_id === '' || (string) ($dungeon['dungeon_id'] ?? '') !== $dungeon_id) {
+        throw new DungeonCommandRejectedException('connector_projection_failed', [
+          $this->finding('error', 'dungeon_id_scope_mismatch', 'Draft dungeon_id must match the aggregate dungeon_id before publication.', [['dungeon_id' => (string) ($dungeon['dungeon_id'] ?? '')]]),
+        ]);
+      }
+
+      $identity = $this->database->select('dungeoncrawler_content_dungeons', 'd')
+        ->fields('d', ['published_version_id'])
+        ->condition('dungeon_id', $dungeon_id)
+        ->forUpdate()
+        ->execute()
+        ->fetchAssoc();
+      $now = time();
+      if (!$identity) {
+        $this->database->insert('dungeoncrawler_content_dungeons')
+          ->fields([
+            'dungeon_id' => $dungeon_id,
+            'name' => (string) $dungeon['name'],
+            'description' => (string) $dungeon['description'],
+            'theme' => (string) ($dungeon['theme'] ?? ''),
+            'dungeon_data' => $this->encodeDungeon($dungeon),
+            'source_dungeon_id' => NULL,
+            'created' => $now,
+            'updated' => $now,
+            'published_version_id' => NULL,
+            'publication_status' => 'unpublished',
+            'created_by' => $uid,
+            'updated_by' => $uid,
+          ])
+          ->execute();
+        $identity = ['published_version_id' => NULL];
+      }
+      if ((string) ($identity['published_version_id'] ?? '') !== (string) ($row['base_version_id'] ?? '')) {
+        throw new \RuntimeException('base_version_conflict');
+      }
+
+      try {
+        $validation = $this->validateAggregate($draft, 'publication');
+      }
+      catch (DungeonAggregateException $exception) {
+        throw new DungeonCommandRejectedException('dungeon_validation_failed', array_map(fn(array $finding): array => $this->schemaFinding($finding), $exception->getFindings()), $exception);
+      }
+      $errors = array_values(array_filter($validation['findings'], static fn(array $finding): bool => $finding['severity'] === 'error'));
+      if ($errors !== []) {
+        throw new DungeonCommandRejectedException('dungeon_validation_failed', $validation['findings']);
+      }
+      $campaign_blockers = $this->activeCampaignBlockers($dungeon_id);
+      if ($campaign_blockers !== []) {
+        throw new DungeonCommandRejectedException('publication_blocked_by_active_campaign', $campaign_blockers);
+      }
+      $projected_rows = $this->connectorProjection->project($dungeon_id, $dungeon);
+
+      $existing_version = $this->database->select('dungeoncrawler_content_dungeon_versions', 'v')
+        ->fields('v', ['version_id'])
+        ->condition('dungeon_id', $dungeon_id)
+        ->condition('version', $version)
+        ->range(0, 1)
+        ->execute()
+        ->fetchField();
+      if ($existing_version) {
+        throw new \DomainException('publication_version_invalid');
+      }
+
+      $encoded = $this->encodeDungeon($dungeon);
+      $hash = hash('sha256', $encoded);
+      $this->database->insert('dungeoncrawler_content_dungeon_versions')
+        ->fields([
+          'version_id' => $version_id,
+          'dungeon_id' => $dungeon_id,
+          'version' => $version,
+          'schema_version' => self::SCHEMA_VERSION,
+          'dungeon_payload' => $encoded,
+          'payload_hash' => $hash,
+          'catalog_version' => (string) ($dungeon['metadata']['catalog_version'] ?? ''),
+          'publication_note' => $publication_note,
+          'source' => 'dungeon_editor',
+          'published_by' => $uid,
+          'published_at' => $now,
+        ])
+        ->execute();
+
+      $this->database->delete('dungeoncrawler_content_connections')
+        ->condition('dungeon_id', $dungeon_id)
+        ->execute();
+      foreach ($projected_rows as $projected_row) {
+        $this->database->insert('dungeoncrawler_content_connections')
+          ->fields($projected_row + ['created' => $now, 'updated' => $now])
+          ->execute();
+      }
+
+      $this->database->update('dungeoncrawler_content_dungeons')
+        ->fields([
+          'name' => (string) $dungeon['name'],
+          'description' => (string) $dungeon['description'],
+          'theme' => (string) ($dungeon['theme'] ?? ''),
+          'dungeon_data' => $encoded,
+          'published_version_id' => $version_id,
+          'publication_status' => 'published',
+          'updated_by' => $uid,
+          'updated' => $now,
+        ])
+        ->condition('dungeon_id', $dungeon_id)
+        ->execute();
+
+      $this->database->update('dungeoncrawler_content_dungeon_editor_drafts')
+        ->fields([
+          'status' => 'published',
+          'published_version_id' => $version_id,
+          'updated_by' => $uid,
+          'updated_at' => $now,
+        ])
+        ->condition('draft_id', $draft_id)
+        ->condition('revision', (int) $row['revision'])
+        ->execute();
+
+      $this->database->insert('dungeoncrawler_content_dungeon_editor_commands')
+        ->fields([
+          'command_id' => $this->uuid->generate(),
+          'draft_id' => $draft_id,
+          'base_revision' => (int) $row['revision'],
+          'result_revision' => (int) $row['revision'],
+          'command_type' => 'publish_dungeon_version',
+          'command_payload' => $this->encode(['expected_revision' => $expected_revision, 'version' => $version, 'publication_note' => $publication_note]),
+          'inverse_payload' => NULL,
+          'issued_by' => $uid,
+          'issued_at' => $now,
+          'result_hash' => $hash,
+        ])
+        ->execute();
+    }
+    catch (\Throwable $exception) {
+      $transaction->rollBack();
+      throw $exception;
+    }
+    unset($transaction);
+
+    return [
+      'schema_version' => 'dungeon-editor-publication-result-v1',
+      'draft_id' => $draft_id,
+      'dungeon_id' => $dungeon_id,
+      'published_version_id' => $version_id,
+      'version' => $version,
+      'projected_connector_count' => count($projected_rows),
+      'model' => $this->describe($draft_id),
+    ];
   }
 
   /**
@@ -1131,7 +1366,7 @@ class DungeonEditorService {
     foreach ($level_ports as $key => $port) {
       if ($port['kind'] === 'exit' && !isset($exit_use[$key])) {
         [$pid, $port_id] = explode(':', $key, 2);
-        $findings[] = $this->finding($profile === 'publication' ? 'warning' : 'info', 'exit_port_dangling', sprintf('Exit port "%s" on "%s" is not linked.', $port_id, $port['label']), [['placement_id' => $pid], ['port_id' => $port_id]], ['q' => $port['q'], 'r' => $port['r']]);
+        $findings[] = $this->finding($profile === 'publication' ? 'error' : 'info', 'exit_port_dangling', sprintf('Exit port "%s" on "%s" is not linked.', $port_id, $port['label']), [['placement_id' => $pid], ['port_id' => $port_id]], ['q' => $port['q'], 'r' => $port['r']]);
       }
     }
 
@@ -1354,6 +1589,46 @@ class DungeonEditorService {
       $finding['hex'] = $hex;
     }
     return $finding;
+  }
+
+  private function schemaFinding(array $finding): array {
+    $normalized = [
+      'severity' => 'error',
+      'code' => (string) ($finding['code'] ?? 'schema_violation'),
+      'message' => (string) ($finding['message'] ?? 'Dungeon aggregate does not satisfy the publication schema.'),
+      'subjects' => isset($finding['pointer']) ? [['pointer' => (string) $finding['pointer']]] : [],
+    ];
+    foreach (['pointer', 'schema_pointer'] as $key) {
+      if (isset($finding[$key])) {
+        $normalized[$key] = $finding[$key];
+      }
+    }
+    return $normalized;
+  }
+
+  /**
+   * Reads only campaign identity tables to block republishing live dungeons.
+   */
+  private function activeCampaignBlockers(string $dungeon_id): array {
+    $rows = $this->database->query(
+      'SELECT c.id AS campaign_id, c.name AS campaign_name, c.status, cd.dungeon_id, cd.source_dungeon_id
+       FROM {dc_campaign_dungeons} cd
+       INNER JOIN {dc_campaigns} c ON c.id = cd.campaign_id
+       WHERE (cd.dungeon_id = :dungeon_id OR cd.source_dungeon_id = :dungeon_id)
+       AND c.status NOT IN (:ended[])',
+      [
+        ':dungeon_id' => $dungeon_id,
+        ':ended[]' => ['completed', 'archived', 'ended', 'cancelled'],
+      ]
+    )->fetchAll(\PDO::FETCH_ASSOC);
+    return array_map(function (array $row) use ($dungeon_id): array {
+      return $this->finding(
+        'error',
+        'publication_blocked_by_active_campaign',
+        sprintf('Dungeon %s is referenced by non-ended campaign %s (%s).', $dungeon_id, $row['campaign_name'] ?? $row['campaign_id'], $row['status'] ?? 'unknown'),
+        [['campaign_id' => (int) $row['campaign_id']], ['dungeon_id' => $dungeon_id]]
+      );
+    }, $rows ?: []);
   }
 
   private function isUuid(string $value): bool {
