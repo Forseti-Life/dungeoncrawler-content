@@ -726,6 +726,7 @@ export class DungeonEditorShell {
     }
     this.hexCanvas = new HexCanvas(this._dom.canvasContainer, this.bus, {
       hexSize: 24,
+      minZoom: 0.01,
       showGrid: true,
       showHexIndicators: false,
     });
