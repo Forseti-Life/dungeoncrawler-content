@@ -141,20 +141,47 @@ class EditorSuiteContractTest extends TestCase {
   }
 
   /**
-   * AC 45, 46, 52: one admin entry point, no editor links in the public menu.
+   * AC 45, 46, 52: admin hub plus permission-filtered editor links under Explorer Hub.
    */
   public function testNavigationHasOneEntryPointAndNoCollisions(): void {
     $links = Yaml::parseFile($this->root() . '/dungeoncrawler_content.links.menu.yml');
     $editor_routes = array_keys($this->editorRoutes());
 
     $to_editors = array_filter($links, static fn(array $link): bool => in_array($link['route_name'], $editor_routes, TRUE));
-    $this->assertSame(['dungeoncrawler_content.menu.editor_suite'], array_keys($to_editors), 'Exactly one menu link may resolve into the editor suite, and it must be the hub.');
+    $this->assertSame([
+      'dungeoncrawler_content.menu.editor_suite',
+      'dungeoncrawler_content.menu.explorer_hub_editor_suite',
+      'dungeoncrawler_content.menu.explorer_hub_room_editor',
+      'dungeoncrawler_content.menu.explorer_hub_dungeon_editor',
+      'dungeoncrawler_content.menu.explorer_hub_definition_index',
+      'dungeoncrawler_content.menu.explorer_hub_definition_actors',
+      'dungeoncrawler_content.menu.explorer_hub_definition_creatures',
+      'dungeoncrawler_content.menu.explorer_hub_definition_items',
+      'dungeoncrawler_content.menu.explorer_hub_definition_obstacles',
+      'dungeoncrawler_content.menu.explorer_hub_definition_traps',
+      'dungeoncrawler_content.menu.explorer_hub_definition_hazards',
+    ], array_keys($to_editors), 'Editor navigation must be limited to the admin hub and Explorer Hub subtree.');
     $this->assertSame('dungeoncrawler_content.editor_suite', $to_editors['dungeoncrawler_content.menu.editor_suite']['route_name']);
     $this->assertSame('system.admin_content', $to_editors['dungeoncrawler_content.menu.editor_suite']['parent']);
     $this->assertArrayNotHasKey('menu_name', $to_editors['dungeoncrawler_content.menu.editor_suite']);
+    $this->assertSame('dungeoncrawler_content.menu.storyline_explorer', $to_editors['dungeoncrawler_content.menu.explorer_hub_editor_suite']['parent']);
+    $this->assertSame('dungeoncrawler_content.menu.storyline_explorer', $to_editors['dungeoncrawler_content.menu.explorer_hub_room_editor']['parent']);
+    $this->assertSame('dungeoncrawler_content.menu.storyline_explorer', $to_editors['dungeoncrawler_content.menu.explorer_hub_dungeon_editor']['parent']);
+    $this->assertSame('dungeoncrawler_content.menu.storyline_explorer', $to_editors['dungeoncrawler_content.menu.explorer_hub_definition_index']['parent']);
+    foreach ([
+      'dungeoncrawler_content.menu.explorer_hub_definition_actors' => 'actor',
+      'dungeoncrawler_content.menu.explorer_hub_definition_creatures' => 'creature',
+      'dungeoncrawler_content.menu.explorer_hub_definition_items' => 'item',
+      'dungeoncrawler_content.menu.explorer_hub_definition_obstacles' => 'obstacle',
+      'dungeoncrawler_content.menu.explorer_hub_definition_traps' => 'trap',
+      'dungeoncrawler_content.menu.explorer_hub_definition_hazards' => 'hazard',
+    ] as $id => $family) {
+      $this->assertSame('dungeoncrawler_content.menu.explorer_hub_definition_index', $to_editors[$id]['parent']);
+      $this->assertSame(['family' => $family], $to_editors[$id]['route_parameters']);
+    }
 
     foreach ($links as $id => $link) {
-      if (($link['menu_name'] ?? '') === 'main' || str_contains((string) ($link['parent'] ?? ''), 'dc_administration')) {
+      if ((($link['menu_name'] ?? '') === 'main' && !str_contains($id, 'explorer_hub')) || str_contains((string) ($link['parent'] ?? ''), 'dc_administration')) {
         $this->assertNotContains($link['route_name'], $editor_routes, $id . ' must not advertise an authoring surface in public navigation.');
       }
       if (str_contains($id, 'dc_administration') || str_contains($id, 'editor_suite')) {

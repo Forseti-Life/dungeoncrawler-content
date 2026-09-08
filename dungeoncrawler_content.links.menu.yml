@@ -135,6 +135,88 @@ dungeoncrawler_content.menu.explorer_hub_actor_explorer:
   parent: dungeoncrawler_content.menu.storyline_explorer
   weight: 5
 
+dungeoncrawler_content.menu.explorer_hub_editor_suite:
+  title: 'Editor Suite'
+  description: 'Open the room, dungeon, and canonical library editor hub.'
+  route_name: dungeoncrawler_content.editor_suite
+  parent: dungeoncrawler_content.menu.storyline_explorer
+  weight: 6
+
+dungeoncrawler_content.menu.explorer_hub_room_editor:
+  title: 'Room Editor'
+  description: 'Edit canonical room layout, terrain, ports, and placed objects.'
+  route_name: dungeoncrawler_content.room_editor
+  parent: dungeoncrawler_content.menu.storyline_explorer
+  weight: 7
+
+dungeoncrawler_content.menu.explorer_hub_dungeon_editor:
+  title: 'Dungeon Editor'
+  description: 'Edit canonical dungeon topology, room links, and navigation.'
+  route_name: dungeoncrawler_content.dungeon_editor
+  parent: dungeoncrawler_content.menu.storyline_explorer
+  weight: 8
+
+dungeoncrawler_content.menu.explorer_hub_definition_index:
+  title: 'Canonical Library'
+  description: 'Edit canonical actors, creatures, items, obstacles, traps, and hazards.'
+  route_name: dungeoncrawler_content.definition_index
+  parent: dungeoncrawler_content.menu.storyline_explorer
+  weight: 9
+
+dungeoncrawler_content.menu.explorer_hub_definition_actors:
+  title: 'Actor Definitions'
+  description: 'Edit canonical actor definitions.'
+  route_name: dungeoncrawler_content.definition_family
+  route_parameters:
+    family: actor
+  parent: dungeoncrawler_content.menu.explorer_hub_definition_index
+  weight: 1
+
+dungeoncrawler_content.menu.explorer_hub_definition_creatures:
+  title: 'Creature Definitions'
+  description: 'Edit canonical creature definitions.'
+  route_name: dungeoncrawler_content.definition_family
+  route_parameters:
+    family: creature
+  parent: dungeoncrawler_content.menu.explorer_hub_definition_index
+  weight: 2
+
+dungeoncrawler_content.menu.explorer_hub_definition_items:
+  title: 'Item Definitions'
+  description: 'Edit canonical item definitions.'
+  route_name: dungeoncrawler_content.definition_family
+  route_parameters:
+    family: item
+  parent: dungeoncrawler_content.menu.explorer_hub_definition_index
+  weight: 3
+
+dungeoncrawler_content.menu.explorer_hub_definition_obstacles:
+  title: 'Obstacle Definitions'
+  description: 'Edit canonical obstacle definitions.'
+  route_name: dungeoncrawler_content.definition_family
+  route_parameters:
+    family: obstacle
+  parent: dungeoncrawler_content.menu.explorer_hub_definition_index
+  weight: 4
+
+dungeoncrawler_content.menu.explorer_hub_definition_traps:
+  title: 'Trap Definitions'
+  description: 'Edit canonical trap definitions.'
+  route_name: dungeoncrawler_content.definition_family
+  route_parameters:
+    family: trap
+  parent: dungeoncrawler_content.menu.explorer_hub_definition_index
+  weight: 5
+
+dungeoncrawler_content.menu.explorer_hub_definition_hazards:
+  title: 'Hazard Definitions'
+  description: 'Edit canonical hazard definitions.'
+  route_name: dungeoncrawler_content.definition_family
+  route_parameters:
+    family: hazard
+  parent: dungeoncrawler_content.menu.explorer_hub_definition_index
+  weight: 6
+
 dungeoncrawler_content.menu.character_setup:
   title: 'Character Setup'
   description: 'Create a new character or continue your current setup flow'
