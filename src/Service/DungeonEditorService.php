@@ -90,8 +90,11 @@ class DungeonEditorService {
    * Lists dungeons available to the editor.
    */
   public function listDungeons(): array {
-    $rows = $this->database->select('dungeoncrawler_content_dungeons', 'd')
+    $query = $this->database->select('dungeoncrawler_content_dungeons', 'd');
+    $query->leftJoin('dungeoncrawler_content_dungeon_versions', 'v', 'v.version_id = d.published_version_id');
+    $rows = $query
       ->fields('d', ['dungeon_id', 'name', 'publication_status', 'published_version_id'])
+      ->fields('v', ['version', 'dungeon_payload'])
       ->orderBy('name')
       ->execute()
       ->fetchAll();
@@ -105,13 +108,29 @@ class DungeonEditorService {
         $active_drafts[(string) $dungeon_id] = TRUE;
       }
     }
-    return array_map(static fn(object $row): array => [
-      'dungeon_id' => $row->dungeon_id,
-      'name' => $row->name,
-      'publication_status' => $row->publication_status ?? 'unpublished',
-      'published_version_id' => $row->published_version_id ?? NULL,
-      'has_active_draft' => isset($active_drafts[(string) $row->dungeon_id]),
-    ], $rows);
+    return array_map(static function (object $row) use ($active_drafts): array {
+      $published_version_id = trim((string) ($row->published_version_id ?? ''));
+      $metadata = [];
+      $room_count = 0;
+      if ($published_version_id !== '') {
+        $payload = json_decode((string) ($row->dungeon_payload ?? ''), TRUE, 512, JSON_THROW_ON_ERROR);
+        if (!is_array($payload)) {
+          throw new \RuntimeException(sprintf('dungeon_aggregate_invalid: published dungeon %s payload is not an object.', (string) $row->dungeon_id));
+        }
+        $metadata = is_array($payload['metadata'] ?? NULL) ? $payload['metadata'] : [];
+        $room_count = count((array) ($payload['room_placements'] ?? []));
+      }
+      return [
+        'dungeon_id' => $row->dungeon_id,
+        'name' => $row->name,
+        'publication_status' => $row->publication_status ?? 'unpublished',
+        'published_version_id' => $row->published_version_id ?? NULL,
+        'published_version' => $row->version ?? NULL,
+        'published_room_count' => $room_count,
+        'metadata' => $metadata,
+        'has_active_draft' => isset($active_drafts[(string) $row->dungeon_id]),
+      ];
+    }, $rows);
   }
 
   /**

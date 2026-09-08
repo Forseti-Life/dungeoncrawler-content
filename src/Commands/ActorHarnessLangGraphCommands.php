@@ -82,7 +82,8 @@ class ActorHarnessLangGraphCommands extends DrushCommands {
       $uid,
       $campaign_name,
       $theme,
-      $difficulty
+      $difficulty,
+      ['kind' => 'theme', 'theme' => $theme]
     );
     if ($campaign_id <= 0) {
       $this->io()->error('Campaign initialization failed.');
@@ -150,6 +151,86 @@ class ActorHarnessLangGraphCommands extends DrushCommands {
     ];
 
     $this->io()->writeln(json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    return self::EXIT_SUCCESS;
+  }
+
+  /**
+   * Create a campaign from the current published version of a dungeon.
+   *
+   * @command dungeoncrawler_content:campaign-create
+   * @option uid Owner user ID for campaign creation.
+   * @option name Campaign display name.
+   * @option dungeon Published canonical dungeon_id to launch.
+   * @option difficulty Campaign difficulty.
+   * @aliases dc:campaign-create
+   */
+  public function campaignCreate(array $options = [
+    'uid' => NULL,
+    'name' => NULL,
+    'dungeon' => NULL,
+    'difficulty' => 'normal',
+  ]): int {
+    $uid = (int) ($options['uid'] ?? $this->currentUser->id());
+    if ($uid <= 0) {
+      $this->io()->error('A valid owner user id is required. Provide --uid for CLI execution.');
+      return self::EXIT_FAILURE;
+    }
+    $name = trim((string) ($options['name'] ?? ''));
+    if ($name === '') {
+      $this->io()->error('The --name option is required.');
+      return self::EXIT_FAILURE;
+    }
+    $dungeon_id = trim((string) ($options['dungeon'] ?? ''));
+    if ($dungeon_id === '') {
+      $this->io()->error('The --dungeon option is required.');
+      return self::EXIT_FAILURE;
+    }
+    $difficulty = trim((string) ($options['difficulty'] ?? 'normal'));
+    if ($difficulty === '') {
+      $difficulty = 'normal';
+    }
+
+    $version_id = $this->database->select('dungeoncrawler_content_dungeons', 'd')
+      ->fields('d', ['published_version_id'])
+      ->condition('dungeon_id', $dungeon_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+    $version_id = trim((string) $version_id);
+    if ($version_id === '') {
+      $this->io()->error(sprintf('campaign_source_dungeon_version_not_published: dungeon_id=%s.', $dungeon_id));
+      return self::EXIT_FAILURE;
+    }
+
+    try {
+      $campaign_id = (int) $this->campaignInitialization->initializeCampaign(
+        $uid,
+        $name,
+        'authored',
+        $difficulty,
+        [
+          'kind' => 'published_dungeon',
+          'dungeon_id' => $dungeon_id,
+          'version_id' => $version_id,
+        ]
+      );
+    }
+    catch (\Throwable $e) {
+      $this->io()->error($e->getMessage());
+      return self::EXIT_FAILURE;
+    }
+    if ($campaign_id <= 0) {
+      $this->io()->error('Campaign initialization failed.');
+      return self::EXIT_FAILURE;
+    }
+
+    $this->io()->success(sprintf('Created campaign %d from published dungeon %s version %s.', $campaign_id, $dungeon_id, $version_id));
+    $this->io()->writeln((string) json_encode([
+      'campaign_id' => $campaign_id,
+      'dungeon_id' => $dungeon_id,
+      'version_id' => $version_id,
+      'difficulty' => $difficulty,
+    ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
     return self::EXIT_SUCCESS;
   }
 

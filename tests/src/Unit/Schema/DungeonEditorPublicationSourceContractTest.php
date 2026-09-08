@@ -23,7 +23,7 @@ class DungeonEditorPublicationSourceContractTest extends TestCase {
     foreach ($expected as $relative => $hash) {
       $path = $this->root() . '/' . $relative;
       $this->assertFileExists($path);
-      $this->assertSame($hash, hash_file('sha256', $path), $relative . ' must remain byte-identical to HEAD f02d9eceb08.');
+      $this->assertSame($hash, hash_file('sha256', $path), $relative . ' must remain byte-identical to HEAD d8bc00acfc3.');
     }
   }
 
@@ -172,6 +172,55 @@ class DungeonEditorPublicationSourceContractTest extends TestCase {
     }
     sort($violations);
     $this->assertSame([], $violations, 'Only the pinned pre-Slice-6 allowlist may write dc_campaign_* tables.');
+  }
+
+  public function testCampaignBootstrapFromPublishedDungeonPinsSourceContract(): void {
+    $source = (string) file_get_contents($this->root() . '/src/Service/CampaignInitializationService.php');
+    foreach ([
+      'campaign_source_invalid',
+      'campaign_source_dungeon_version_not_found',
+      'campaign_source_dungeon_version_not_published',
+      'campaign_source_entrance_ambiguous',
+      'campaign_source_connector_unresolvable',
+      'campaign_source_connector_h3_missing',
+      'campaign_source_placement_id_conflict',
+      'campaign_source_room_instantiation_invalid',
+      'campaign_source_room_version_not_found',
+      'assertAggregateConforms($aggregate, \'publication\')',
+      'RoomPlacementTransformer::toLevel',
+      'RoomPlacementTransformer::hexKey',
+      'saveCampaignConnector($campaign_id, $payload)',
+      '\'from_h3_index_res14\' => $from_h3',
+      '\'to_h3_index_res14\' => $to_h3',
+      "'fallback_mode' => 'campaign_profile'",
+      "'runtime_fallback_mode' => 'campaign_profile_only'",
+    ] as $needle) {
+      $this->assertStringContainsString($needle, $source);
+    }
+  }
+
+  public function testPublishedDungeonBranchCannotReachCanonicalConnectorSeeding(): void {
+    $source = (string) file_get_contents($this->root() . '/src/Service/CampaignInitializationService.php');
+    $start = strpos($source, 'private function initializeCampaignFromPublishedDungeon(');
+    $this->assertNotFalse($start);
+    $end = strpos($source, "\n  /**\n   * Record a campaign initialization step claim", $start);
+    $this->assertNotFalse($end);
+    $body = substr($source, $start, $end - $start);
+    $this->assertStringNotContainsString('seedStarterConnectorAuthority', $body);
+    $this->assertStringNotContainsString('saveCanonicalConnector', $body);
+    $this->assertStringContainsString('seedPublishedDungeonCampaignConnectors', $body);
+  }
+
+  public function testThemeStarterProfileSnapshotRemainsPinned(): void {
+    $source = (string) file_get_contents($this->root() . '/src/Service/CampaignInitializationService.php');
+    $this->assertStringContainsString("'content_profile_id' => 'starter-city-tavern-v1'", $source);
+    $this->assertStringContainsString("'starter_profile_id' => 'starter-tavern-room-v1'", $source);
+    $this->assertStringContainsString("'starter_source_room_id' => self::STARTER_DEFAULT_SOURCE_ROOM_ID", $source);
+    $this->assertStringContainsString("'starter_runtime_room_id' => self::STARTER_DEFAULT_RUNTIME_ROOM_ID", $source);
+    $this->assertStringContainsString("'starter_source_dungeon_id' => self::STARTER_LIBRARY_CONNECTOR_DUNGEON_ID", $source);
+    $this->assertStringContainsString("'connected_room_source_id' => self::STARTER_CITY_STREETS_ROOM_ID", $source);
+    $this->assertStringContainsString("'primary_contact_actor_id' => 'npc_tavern_keeper'", $source);
+    $this->assertStringContainsString('$this->seedStarterConnectorAuthority($campaign_id, $dungeon_id, $starter_runtime_room_id);', $source);
   }
 
 }

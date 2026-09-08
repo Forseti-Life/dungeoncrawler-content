@@ -1434,6 +1434,8 @@ services:
       - '@?dungeoncrawler_content.navigation_runtime'
       - '@dungeoncrawler_content.h3_projection_queue'
       - '@dungeoncrawler_content.starter_projection_artifact_registry'
+      - '@config.factory'
+      - '@?dungeoncrawler_content.dungeon_editor'
 
   dungeoncrawler_content.room_state_service:
     class: Drupal\dungeoncrawler_content\Service\RoomStateService
