@@ -229,7 +229,7 @@ room-editor:
     - core/once
 
 editor-suite:
-  version: 20260905-slice8-hub
+  version: 20260908-show-me-walkthrough
   js:
     js/editor-suite.js: { attributes: { type: module } }
   css:

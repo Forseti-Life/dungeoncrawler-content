@@ -32,6 +32,29 @@ function formatTime(seconds) {
   return new Date(seconds * 1000).toLocaleString();
 }
 
+const TOUR_STEPS = [
+  {
+    target: 'recent',
+    title: 'Continue where you left off',
+    body: 'Resume your active room or dungeon drafts from here. Each row shows the editor type, state, revision, object count when available, and the last update time.',
+  },
+  {
+    target: 'editors',
+    title: 'Editor tiles',
+    body: 'Open the room editor, dungeon editor, or canonical library editors from these cards. The counts come from the live summary API, and each tile is only shown when your account has permission to use it.',
+  },
+  {
+    target: 'attention',
+    title: 'Needs attention',
+    body: 'This queue calls out validation or workflow items across the editor suite. If something needs action, use the linked button on that row to jump directly to the right surface.',
+  },
+  {
+    target: 'gm',
+    title: 'GM assistant',
+    body: 'Use the assistant for grounded help across the suite: summarize editor state, list attention items, inspect recent drafts, or ask where to go next. This hub assistant is read/routing only and never mutates drafts.',
+  },
+];
+
 export class EditorSuiteShell {
   constructor(root, settings) {
     this.root = root;
@@ -44,6 +67,7 @@ export class EditorSuiteShell {
     this._dom = {};
     this._destroyed = false;
     this._handlers = [];
+    this._tour = { index: 0, overlay: null, highlighted: null };
   }
 
   init() {
@@ -60,6 +84,7 @@ export class EditorSuiteShell {
 
   destroy() {
     this._destroyed = true;
+    this._closeTour();
     this._handlers.forEach(([el, type, fn]) => el.removeEventListener(type, fn));
     this._handlers = [];
   }
@@ -367,6 +392,7 @@ export class EditorSuiteShell {
       gmTranscript: q('[data-editor-suite-gm-transcript]'),
       gmForm: q('[data-editor-suite-gm-form]'),
       gmInput: q('[data-editor-suite-gm-input]'),
+      showMe: q('[data-editor-suite-action="show-me"]'),
     };
     Object.entries(this._dom).forEach(([key, el]) => {
       if (!el) {
@@ -381,6 +407,12 @@ export class EditorSuiteShell {
   }
 
   _bindEvents() {
+    this._on(document, 'keydown', (event) => {
+      if (event.key === 'Escape' && this._tour.overlay) {
+        event.preventDefault();
+        this._closeTour();
+      }
+    });
     this._on(this._dom.gmForm, 'submit', (event) => {
       event.preventDefault();
       this._submitGmMessage();
@@ -403,6 +435,9 @@ export class EditorSuiteShell {
         return;
       }
       switch (action.getAttribute('data-editor-suite-action')) {
+        case 'show-me':
+          this._startTour();
+          break;
         case 'gm-toggle-context':
           this._toggleDisclosure(action, this._dom.gmContext);
           break;
@@ -413,6 +448,92 @@ export class EditorSuiteShell {
           break;
       }
     });
+  }
+
+  _startTour() {
+    this._tour.index = 0;
+    this._renderTour();
+  }
+
+  _renderTour() {
+    const step = TOUR_STEPS[this._tour.index];
+    if (!step) {
+      this._closeTour();
+      return;
+    }
+    if (this._tour.highlighted) {
+      this._tour.highlighted.classList.remove('editor-suite__tour-highlight');
+      this._tour.highlighted = null;
+    }
+    const target = this.root.querySelector(`[data-editor-suite-tour="${step.target}"]`);
+    if (target) {
+      target.classList.add('editor-suite__tour-highlight');
+      this._tour.highlighted = target;
+      target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+
+    if (!this._tour.overlay) {
+      const overlay = makeEl('div', 'editor-suite__tour');
+      overlay.setAttribute('role', 'dialog');
+      overlay.setAttribute('aria-modal', 'false');
+      overlay.setAttribute('aria-live', 'polite');
+      this.root.appendChild(overlay);
+      this._tour.overlay = overlay;
+    }
+
+    const overlay = this._tour.overlay;
+    clearElement(overlay);
+    overlay.appendChild(makeEl('p', 'room-editor__eyebrow', `Walkthrough ${this._tour.index + 1} of ${TOUR_STEPS.length}`));
+    overlay.appendChild(makeEl('h2', 'editor-suite__tour-title', step.title));
+    overlay.appendChild(makeEl('p', 'editor-suite__tour-body', step.body));
+
+    const actions = makeEl('div', 'editor-suite__tour-actions');
+    const close = makeEl('button', 'room-editor__button', 'Close');
+    close.type = 'button';
+    close.setAttribute('data-editor-suite-tour-action', 'close');
+    actions.appendChild(close);
+
+    if (this._tour.index > 0) {
+      const prev = makeEl('button', 'room-editor__button', 'Back');
+      prev.type = 'button';
+      prev.setAttribute('data-editor-suite-tour-action', 'prev');
+      actions.appendChild(prev);
+    }
+
+    const next = makeEl('button', 'room-editor__button room-editor__button--primary', this._tour.index === TOUR_STEPS.length - 1 ? 'Done' : 'Next');
+    next.type = 'button';
+    next.setAttribute('data-editor-suite-tour-action', this._tour.index === TOUR_STEPS.length - 1 ? 'close' : 'next');
+    actions.appendChild(next);
+    overlay.appendChild(actions);
+
+    overlay.querySelector('[data-editor-suite-tour-action="close"], [data-editor-suite-tour-action="next"]')?.focus();
+    overlay.onclick = (event) => {
+      const button = event.target.closest('[data-editor-suite-tour-action]');
+      if (!button) {
+        return;
+      }
+      const action = button.getAttribute('data-editor-suite-tour-action');
+      if (action === 'close') {
+        this._closeTour();
+      } else if (action === 'next') {
+        this._tour.index += 1;
+        this._renderTour();
+      } else if (action === 'prev') {
+        this._tour.index = Math.max(0, this._tour.index - 1);
+        this._renderTour();
+      }
+    };
+  }
+
+  _closeTour() {
+    if (this._tour.highlighted) {
+      this._tour.highlighted.classList.remove('editor-suite__tour-highlight');
+      this._tour.highlighted = null;
+    }
+    if (this._tour.overlay) {
+      this._tour.overlay.remove();
+      this._tour.overlay = null;
+    }
   }
 
   _toggleDisclosure(button, body) {

@@ -21,31 +21,36 @@
           <p class="room-editor__eyebrow">{{ 'DungeonCrawler'|t }}</p>
           <h1 class="room-editor__title">{{ 'Editors'|t }}</h1>
         </div>
-        <p class="room-editor__status" data-editor-suite-status role="status" aria-live="polite">{{ 'Loading suite…'|t }}</p>
+        <div class="editor-suite__header-actions">
+          <button type="button"
+                  class="room-editor__button room-editor__button--primary editor-suite__show-me"
+                  data-editor-suite-action="show-me">{{ 'Show me'|t }}</button>
+          <p class="room-editor__status" data-editor-suite-status role="status" aria-live="polite">{{ 'Loading suite…'|t }}</p>
+        </div>
       </div>
     </header>
 
     <div class="editor-suite__body">
       <main class="editor-suite__console" aria-label="{{ 'Editor suite console'|t }}">
 
-        <section class="editor-suite__section" aria-labelledby="editor-suite-recent-heading">
+        <section class="editor-suite__section" data-editor-suite-tour="recent" aria-labelledby="editor-suite-recent-heading">
           <h2 id="editor-suite-recent-heading" class="room-editor__eyebrow">{{ 'Continue where you left off'|t }}</h2>
           <ol class="editor-suite__recent" data-editor-suite-recent></ol>
         </section>
 
-        <section class="editor-suite__section" aria-labelledby="editor-suite-tiles-heading">
+        <section class="editor-suite__section" data-editor-suite-tour="editors" aria-labelledby="editor-suite-tiles-heading">
           <h2 id="editor-suite-tiles-heading" class="room-editor__eyebrow">{{ 'Editors'|t }}</h2>
           <div class="editor-suite__tiles" data-editor-suite-tiles></div>
         </section>
 
-        <section class="editor-suite__section" aria-labelledby="editor-suite-attention-heading">
+        <section class="editor-suite__section" data-editor-suite-tour="attention" aria-labelledby="editor-suite-attention-heading">
           <h2 id="editor-suite-attention-heading" class="room-editor__eyebrow">{{ 'Needs attention'|t }}</h2>
           <ol class="editor-suite__attention" data-editor-suite-attention></ol>
         </section>
 
       </main>
 
-      <aside class="room-editor__gm-panel editor-suite__gm-panel" data-editor-suite-gm-panel aria-label="{{ 'GM assistant'|t }}">
+      <aside class="room-editor__gm-panel editor-suite__gm-panel" data-editor-suite-tour="gm" data-editor-suite-gm-panel aria-label="{{ 'GM assistant'|t }}">
         <header class="room-editor__gm-header">
           <p class="room-editor__eyebrow">{{ 'GM Assistant'|t }}</p>
           <span class="room-editor__gm-state" data-editor-suite-gm-state role="status" aria-live="polite">{{ 'Idle'|t }}</span>
