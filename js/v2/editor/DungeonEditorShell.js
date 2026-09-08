@@ -275,6 +275,7 @@ export class DungeonEditorShell {
       dungeonSelect: q('[data-dungeon-editor-dungeon-select]'),
       loadBtn: q('[data-dungeon-editor-action="load-dungeon"]'),
       newBtn: q('[data-dungeon-editor-action="new-dungeon"]'),
+      recenterBtn: q('[data-dungeon-editor-action="recenter"]'),
       undoBtn: q('[data-dungeon-editor-action="undo"]'),
       redoBtn: q('[data-dungeon-editor-action="redo"]'),
       metadataForm: q('[data-dungeon-editor-metadata-form]'),
@@ -322,6 +323,14 @@ export class DungeonEditorShell {
       this.loadDungeon(id);
     });
     this._dom.newBtn?.addEventListener('click', () => this.newDungeon());
+    this._dom.recenterBtn?.addEventListener('click', () => {
+      if (!this.model) {
+        this._setStatus('Load a dungeon before recentering the map.', 'warning');
+        return;
+      }
+      this._fitMapToView();
+      this._setStatus('Map recentered.', 'info');
+    });
   }
 
   _bindAuthorDrawerEvents() {
@@ -960,6 +969,9 @@ export class DungeonEditorShell {
     }
     if (this._dom.revision) {
       this._dom.revision.textContent = `rev ${model.revision} · ${model.placements.length} rooms · ${(model.port_links || []).length} links`;
+    }
+    if (this._dom.recenterBtn) {
+      this._dom.recenterBtn.disabled = false;
     }
     this._emitMap();
     this._fitMapToView();
