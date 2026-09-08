@@ -7,6 +7,7 @@ use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\Core\Logger\LoggerChannelInterface;
 use Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService;
 use Drupal\dungeoncrawler_content\Service\DungeonEditorService;
+use Drupal\dungeoncrawler_content\Service\EditorGm\DefinitionEditorGmSurface;
 use Drupal\dungeoncrawler_content\Service\EditorGm\DungeonEditorGmSurface;
 use Drupal\dungeoncrawler_content\Service\EditorGm\DungeonEditorGmToolContext;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmHarnessService;
@@ -73,6 +74,7 @@ class DungeonEditorGmContractTest extends TestCase {
     return new EditorGmHarnessService([
       new RoomEditorGmSurface($this->createMock(RoomEditorService::class), $definitions, $parser, new Php()),
       new DungeonEditorGmSurface($this->createMock(DungeonEditorService::class), $definitions, $parser, new Php()),
+      new DefinitionEditorGmSurface($definitions, $parser),
       new EditorSuiteGmSurface($this->createMock(EditorSuiteService::class), $this->createMock(EditorReviewFlagService::class), $definitions, $parser),
     ], $parser);
   }
@@ -112,7 +114,7 @@ class DungeonEditorGmContractTest extends TestCase {
    */
   public function testDungeonSurfaceManifest(): void {
     $harness = $this->harness();
-    $this->assertSame(['room_editor', 'dungeon_editor', 'editor_suite'], $harness->surfaceIds());
+    $this->assertSame(['room_editor', 'dungeon_editor', 'definition_editor', 'editor_suite'], $harness->surfaceIds());
 
     $manifest = $harness->manifest('dungeon_editor');
     $this->assertSame(DungeonEditorService::SUPPORTED_COMMANDS, $manifest['supported_command_types']);
@@ -159,11 +161,11 @@ class DungeonEditorGmContractTest extends TestCase {
     $harness = $this->harness();
 
     try {
-      $harness->surface('definition_editor');
+      $harness->surface('campaign_editor');
       $this->fail('Unknown surface must be rejected.');
     }
     catch (\InvalidArgumentException $e) {
-      $this->assertSame('editor_gm_surface_unsupported:definition_editor', $e->getMessage());
+      $this->assertSame('editor_gm_surface_unsupported:campaign_editor', $e->getMessage());
     }
 
     $draft_id = '11111111-1111-4111-8111-111111111111';
@@ -258,7 +260,7 @@ class DungeonEditorGmContractTest extends TestCase {
     $this->assertStringNotContainsString('$this->registry', $this->source('src/Service/EditorGm/EditorGmIntentParser.php'), 'The parser is grounded per call on the surface registry.');
 
     $request = json_decode($this->source('config/schemas/editor_gm_request.schema.json'), TRUE, 512, JSON_THROW_ON_ERROR);
-    $this->assertSame(['room_editor', 'dungeon_editor', 'editor_suite'], $request['properties']['tool_context']['properties']['tool_id']['enum']);
+    $this->assertSame(['room_editor', 'dungeon_editor', 'definition_editor', 'editor_suite'], $request['properties']['tool_context']['properties']['tool_id']['enum']);
   }
 
 }

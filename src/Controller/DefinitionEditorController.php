@@ -67,13 +67,13 @@ final class DefinitionEditorController extends ControllerBase {
       ];
     }
 
-    return [
+    return $this->withGmPanel([
       '#type' => 'table',
       '#header' => [$this->t('Family'), $this->t('Definitions'), $this->t('Schema'), $this->t('Storage'), ''],
       '#rows' => $rows,
       '#attributes' => ['class' => ['dc-definition-index']],
       '#cache' => ['max-age' => 0],
-    ];
+    ], ['family' => 'creature']);
   }
 
   /**
@@ -104,7 +104,7 @@ final class DefinitionEditorController extends ControllerBase {
       ];
     }
 
-    return [
+    return $this->withGmPanel([
       'header' => [
         '#type' => 'container',
         'title' => ['#markup' => '<h2>' . $this->t('@title definitions', ['@title' => (string) ($schema['title'] ?? ucfirst($family))]) . '</h2>'],
@@ -134,7 +134,7 @@ final class DefinitionEditorController extends ControllerBase {
         '#attributes' => ['class' => ['dc-definition-list']],
       ],
       '#cache' => ['max-age' => 0],
-    ];
+    ], ['family' => $family]);
   }
 
   /**
@@ -243,6 +243,91 @@ final class DefinitionEditorController extends ControllerBase {
     catch (\Throwable $exception) {
       return $this->errorResponse($exception);
     }
+  }
+
+  /**
+   * Wraps canonical-library pages with the shared editor GM panel.
+   */
+  private function withGmPanel(array $content, array $scope): array {
+    return [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['room-editor', 'definition-editor'], 'data-definition-editor' => ''],
+      '#attached' => $this->gmAttachment($scope),
+      'body' => [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['definition-editor__body']],
+        'content' => [
+          '#type' => 'container',
+          '#attributes' => ['class' => ['definition-editor__content']],
+          'inner' => $content,
+        ],
+        'gm' => $this->gmPanel(),
+      ],
+    ];
+  }
+
+  /**
+   * Browser settings for the definition GM panel.
+   */
+  private function gmAttachment(array $scope): array {
+    return [
+      'library' => ['dungeoncrawler_content/definition-editor'],
+      'drupalSettings' => [
+        'dungeoncrawlerContent' => [
+          'definitionEditor' => [
+            'gmUrl' => Url::fromRoute('dungeoncrawler_content.definition_editor_gm_describe')->toString(),
+            'csrfToken' => $this->csrfToken->get(CsrfRequestHeaderAccessCheck::TOKEN_KEY),
+            'scope' => $scope,
+          ],
+        ],
+      ],
+    ];
+  }
+
+  /**
+   * Shared GM panel structure consumed by DefinitionEditorShell.js.
+   */
+  private function gmPanel(): array {
+    return [
+      '#type' => 'inline_template',
+      '#template' => $this->gmPanelMarkup(),
+    ];
+  }
+
+  private function gmPanelMarkup(): string {
+    return <<<'TWIG'
+<aside class="room-editor__gm-panel definition-editor__gm-panel" data-definition-editor-gm-panel aria-label="GM assistant">
+  <header class="room-editor__gm-header">
+    <p class="room-editor__eyebrow">GM Assistant</p>
+    <span class="room-editor__gm-state" data-definition-editor-gm-state role="status" aria-live="polite">Idle</span>
+  </header>
+  <section class="room-editor__gm-disclosure-group" aria-label="Grounded definition context">
+    <button type="button" class="room-editor__gm-disclosure" data-definition-editor-action="gm-toggle-context" aria-expanded="false" aria-controls="definition-editor-gm-context-body">Grounded context</button>
+    <div id="definition-editor-gm-context-body" class="room-editor__gm-context-body" data-definition-editor-gm-context hidden></div>
+  </section>
+  <section class="room-editor__gm-disclosure-group" aria-label="Assistant toolset">
+    <button type="button" class="room-editor__gm-disclosure" data-definition-editor-action="gm-toggle-tools" aria-expanded="false" aria-controls="definition-editor-gm-tools-body">Toolset</button>
+    <div id="definition-editor-gm-tools-body" class="room-editor__gm-tools-body" data-definition-editor-gm-tools hidden></div>
+  </section>
+  <ol class="room-editor__gm-transcript" data-definition-editor-gm-transcript aria-label="Assistant transcript" aria-live="polite"></ol>
+  <div class="room-editor__gm-plan" data-definition-editor-gm-plan hidden>
+    <p class="room-editor__eyebrow">Proposed definition update</p>
+    <ol class="room-editor__gm-plan-list" data-definition-editor-gm-plan-list></ol>
+    <div class="room-editor__gm-plan-actions">
+      <button type="button" class="room-editor__button" data-definition-editor-action="gm-preview-definition">Preview</button>
+      <button type="button" class="room-editor__button room-editor__button--primary" data-definition-editor-action="gm-apply-definition">Apply</button>
+      <button type="button" class="room-editor__button" data-definition-editor-action="gm-discard-definition">Discard</button>
+    </div>
+  </div>
+  <div class="room-editor__gm-composer" data-definition-editor-gm-form>
+    <label class="visually-hidden" for="definition-editor-gm-input">Message the GM assistant</label>
+    <textarea id="definition-editor-gm-input" data-definition-editor-gm-input rows="3" placeholder="Ask the assistant, or run a tool: describe_definition_schema {}"></textarea>
+    <div class="room-editor__gm-composer-actions">
+      <button type="button" class="room-editor__button room-editor__button--primary" data-definition-editor-action="gm-send">Send</button>
+    </div>
+  </div>
+</aside>
+TWIG;
   }
 
   private function validateCsrf(Request $request): ?JsonResponse {

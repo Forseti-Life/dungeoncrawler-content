@@ -25,6 +25,7 @@
           "enum": [
             "room_editor",
             "dungeon_editor",
+            "definition_editor",
             "editor_suite"
           ]
         },
@@ -38,6 +39,30 @@
             "preview",
             "publication"
           ]
+        },
+        "scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "family"
+          ],
+          "properties": {
+            "family": {
+              "enum": [
+                "creature",
+                "actor",
+                "item",
+                "obstacle",
+                "trap",
+                "hazard"
+              ]
+            },
+            "definition_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 150
+            }
+          }
         }
       }
     },

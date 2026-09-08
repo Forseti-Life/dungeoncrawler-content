@@ -80,7 +80,7 @@ final class EditorSuiteGmSurface implements EditorGmSurfaceInterface {
     return self::SCOPE_SUITE;
   }
 
-  public function createContext(?string $draft_id, string $profile): EditorGmToolContext {
+  public function createContext(?string $draft_id, string $profile, array $scope = []): EditorGmToolContext {
     if ($draft_id !== NULL) {
       throw new \LogicException('editor_gm_draft_not_applicable:editor_suite');
     }

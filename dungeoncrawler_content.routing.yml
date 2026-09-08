@@ -314,6 +314,26 @@ dungeoncrawler_content.definition_api_save:
     family: 'creature|actor|item|obstacle|trap|hazard'
     definition_id: '(?!schema$)[a-zA-Z0-9][a-zA-Z0-9_-]{0,149}'
 
+dungeoncrawler_content.definition_editor_gm_describe:
+  path: '/api/canonical-library/gm'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\EditorGmController::describe'
+    _surface: definition_editor
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'edit canonical dungeoncrawler definitions'
+
+dungeoncrawler_content.definition_editor_gm_execute:
+  path: '/api/canonical-library/gm'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\EditorGmController::execute'
+    _surface: definition_editor
+  methods: [POST]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'edit canonical dungeoncrawler definitions'
+
 dungeoncrawler_content.room_editor_draft_create:
   path: '/api/room-editor/drafts'
   defaults:

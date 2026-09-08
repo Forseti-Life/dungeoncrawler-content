@@ -75,10 +75,10 @@ class EditorGmHarnessService {
   /**
    * Returns the grounded context snapshot and tool manifest for one draft.
    */
-  public function describe(string $surface_id, ?string $draft_id, string $profile = 'editing'): array {
+  public function describe(string $surface_id, ?string $draft_id, string $profile = 'editing', array $scope = []): array {
     $surface = $this->surface($surface_id);
     $draft_id = $this->resolveDraftId($surface, $draft_id);
-    $context = $this->createContext($surface, $draft_id, $profile);
+    $context = $this->createContext($surface, $draft_id, $profile, $scope);
 
     return $this->envelope(
       $surface,
@@ -96,16 +96,16 @@ class EditorGmHarnessService {
    * agree with it so a client can never drive one surface's toolset through
    * another surface's endpoint.
    */
-  public function handle(string $surface_id, ?string $draft_id, array $request): array {
+  public function handle(string $surface_id, ?string $draft_id, array $request, array $route_scope = []): array {
     $surface = $this->surface($surface_id);
     $draft_id = $this->resolveDraftId($surface, $draft_id);
-    [$profile, $intent, $dry_run] = $this->parseRequest($surface, $draft_id, $request);
+    [$profile, $intent, $dry_run, $scope] = $this->parseRequest($surface, $draft_id, $request, $route_scope);
 
     if ($intent['type'] === 'natural_language') {
-      return $this->handleUtterance($surface, $draft_id, $profile, $intent['utterance']);
+      return $this->handleUtterance($surface, $draft_id, $profile, $intent['utterance'], $scope);
     }
 
-    return $this->executeTool($surface, $draft_id, $profile, $intent['tool_name'], $intent['arguments'], $dry_run);
+    return $this->executeTool($surface, $draft_id, $profile, $intent['tool_name'], $intent['arguments'], $dry_run, '', $scope);
   }
 
   /**
@@ -115,8 +115,8 @@ class EditorGmHarnessService {
    * Read-only tools run immediately; anything mutating is returned as a
    * proposal the author must approve with an explicit tool call.
    */
-  private function handleUtterance(EditorGmSurfaceInterface $surface, ?string $draft_id, string $profile, string $utterance): array {
-    $context = $this->createContext($surface, $draft_id, $profile);
+  private function handleUtterance(EditorGmSurfaceInterface $surface, ?string $draft_id, string $profile, string $utterance, array $scope): array {
+    $context = $this->createContext($surface, $draft_id, $profile, $scope);
     $snapshot = $surface->assembler()->assemble($context);
     $intent = $this->intentParser->parse($utterance, $snapshot, $surface->registry(), $surface->label());
 
@@ -133,7 +133,7 @@ class EditorGmHarnessService {
 
     $definition = $surface->registry()->get($intent['tool_name'])->definition();
     if (!$definition->mutating) {
-      return $this->executeTool($surface, $draft_id, $profile, $intent['tool_name'], $intent['arguments'], FALSE, $intent['reasoning']);
+      return $this->executeTool($surface, $draft_id, $profile, $intent['tool_name'], $intent['arguments'], FALSE, $intent['reasoning'], $scope);
     }
 
     return $this->envelope(
@@ -169,10 +169,11 @@ class EditorGmHarnessService {
     array $arguments,
     bool $dry_run,
     string $reasoning = '',
+    array $scope = [],
   ): array {
     $tool = $surface->registry()->get($tool_name);
     $definition = $tool->definition();
-    $context = $this->createContext($surface, $draft_id, $profile);
+    $context = $this->createContext($surface, $draft_id, $profile, $scope);
 
     if ($dry_run && $definition->mutating) {
       return $this->envelope(
@@ -249,7 +250,7 @@ class EditorGmHarnessService {
   /**
    * Validates and unpacks a request envelope.
    */
-  private function parseRequest(EditorGmSurfaceInterface $surface, ?string $draft_id, array $request): array {
+  private function parseRequest(EditorGmSurfaceInterface $surface, ?string $draft_id, array $request, array $route_scope = []): array {
     if (($request['schema_version'] ?? NULL) !== self::REQUEST_CONTRACT_VERSION) {
       throw new \InvalidArgumentException('editor_gm_request_schema_version_invalid');
     }
@@ -265,10 +266,21 @@ class EditorGmHarnessService {
     if ($tool_id !== $surface->id()) {
       throw new \InvalidArgumentException(sprintf('editor_gm_tool_id_surface_mismatch:%s', $tool_id));
     }
+    $scope = $route_scope;
     if ($surface->scope() === EditorGmSurfaceInterface::SCOPE_SUITE) {
       if (array_key_exists('draft_id', $tool_context)) {
         throw new \InvalidArgumentException(sprintf('editor_gm_draft_not_applicable:%s', $surface->id()));
       }
+    }
+    elseif ($surface->scope() === EditorGmSurfaceInterface::SCOPE_DEFINITION) {
+      if (array_key_exists('draft_id', $tool_context)) {
+        throw new \InvalidArgumentException(sprintf('editor_gm_draft_not_applicable:%s', $surface->id()));
+      }
+      $request_scope = $tool_context['scope'] ?? $route_scope;
+      if (!is_array($request_scope)) {
+        throw new \InvalidArgumentException('editor_gm_definition_scope_invalid:missing');
+      }
+      $scope = $request_scope;
     }
     elseif ((string) ($tool_context['draft_id'] ?? '') !== $draft_id) {
       throw new \InvalidArgumentException('editor_gm_draft_id_mismatch');
@@ -310,14 +322,14 @@ class EditorGmHarnessService {
       throw new \InvalidArgumentException('editor_gm_options_invalid');
     }
 
-    return [$profile, $parsed_intent, !empty($options['dry_run'])];
+    return [$profile, $parsed_intent, !empty($options['dry_run']), $scope];
   }
 
   /**
    * Binds the route's draft id to the surface's scope, or refuses.
    */
   private function resolveDraftId(EditorGmSurfaceInterface $surface, ?string $draft_id): ?string {
-    if ($surface->scope() === EditorGmSurfaceInterface::SCOPE_SUITE) {
+    if ($surface->scope() === EditorGmSurfaceInterface::SCOPE_SUITE || $surface->scope() === EditorGmSurfaceInterface::SCOPE_DEFINITION) {
       if ($draft_id !== NULL) {
         throw new \InvalidArgumentException(sprintf('editor_gm_draft_not_applicable:%s', $surface->id()));
       }
@@ -332,11 +344,11 @@ class EditorGmHarnessService {
   /**
    * Builds grounded tool context for one surface.
    */
-  private function createContext(EditorGmSurfaceInterface $surface, ?string $draft_id, string $profile): EditorGmToolContext {
+  private function createContext(EditorGmSurfaceInterface $surface, ?string $draft_id, string $profile, array $scope = []): EditorGmToolContext {
     if (!in_array($profile, $surface->validationProfiles(), TRUE)) {
       throw new \InvalidArgumentException('validation_profile_invalid');
     }
-    return $surface->createContext($draft_id, $profile);
+    return $surface->createContext($draft_id, $profile, $scope);
   }
 
   /**

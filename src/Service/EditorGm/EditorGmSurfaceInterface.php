@@ -22,6 +22,11 @@ interface EditorGmSurfaceInterface {
   public const SCOPE_SUITE = 'suite';
 
   /**
+   * The surface grounds on a canonical definition family plus optional id.
+   */
+  public const SCOPE_DEFINITION = 'definition';
+
+  /**
    * Whether requests to this surface carry a draft id (SCOPE_DRAFT) or must
    * not (SCOPE_SUITE). The harness hard-fails on either mismatch.
    */
@@ -64,6 +69,6 @@ interface EditorGmSurfaceInterface {
   /**
    * Grounds a tool context for one draft at one profile.
    */
-  public function createContext(?string $draft_id, string $profile): EditorGmToolContext;
+  public function createContext(?string $draft_id, string $profile, array $scope = []): EditorGmToolContext;
 
 }

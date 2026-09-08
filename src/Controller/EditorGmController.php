@@ -6,6 +6,7 @@ use Drupal\Core\Access\CsrfRequestHeaderAccessCheck;
 use Drupal\Core\Access\CsrfTokenGenerator;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\dungeoncrawler_content\Service\DungeonEditorFindingsInterface;
+use Drupal\dungeoncrawler_content\Service\Definition\DefinitionValidationException;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmHarnessService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -44,7 +45,7 @@ class EditorGmController extends ControllerBase {
   public function describe(string $_surface, Request $request, ?string $draft_id = NULL): JsonResponse {
     try {
       $profile = trim((string) $request->query->get('profile', 'editing')) ?: 'editing';
-      return new JsonResponse(['data' => $this->harness->describe($_surface, $draft_id, $profile)]);
+      return new JsonResponse(['data' => $this->harness->describe($_surface, $draft_id, $profile, $this->definitionScopeFromQuery($request))]);
     }
     catch (\Throwable $exception) {
       return $this->errorResponse($exception);
@@ -64,6 +65,21 @@ class EditorGmController extends ControllerBase {
     catch (\Throwable $exception) {
       return $this->errorResponse($exception);
     }
+  }
+
+
+  /**
+   * Extracts the definition-editor scope from GET query parameters.
+   */
+  private function definitionScopeFromQuery(Request $request): array {
+    $scope = [];
+    if ($request->query->has('family')) {
+      $scope['family'] = (string) $request->query->get('family');
+    }
+    if ($request->query->has('definition_id')) {
+      $scope['definition_id'] = (string) $request->query->get('definition_id');
+    }
+    return $scope;
   }
 
   /**
@@ -102,11 +118,13 @@ class EditorGmController extends ControllerBase {
   private function errorResponse(\Throwable $exception): JsonResponse {
     $code = $exception->getMessage() ?: 'editor_gm_error';
     $status = match (TRUE) {
+      $exception instanceof \InvalidArgumentException && $code === 'definition_exists' => 409,
       $exception instanceof \JsonException,
       $exception instanceof \InvalidArgumentException => 400,
       $exception instanceof \OutOfBoundsException => 404,
       $exception instanceof \UnexpectedValueException => 403,
-      in_array($code, ['revision_conflict', 'idempotency_conflict', 'base_version_conflict', 'connector_identity_conflict', 'publication_blocked_by_active_campaign'], TRUE) => 409,
+      in_array($code, ['revision_conflict', 'idempotency_conflict', 'base_version_conflict', 'connector_identity_conflict', 'publication_blocked_by_active_campaign', 'definition_version_conflict'], TRUE) => 409,
+      $exception instanceof DefinitionValidationException,
       $exception instanceof \DomainException => 422,
       default => 500,
     };
@@ -120,7 +138,12 @@ class EditorGmController extends ControllerBase {
       'code' => $code,
       'message' => str_replace('_', ' ', ucfirst($code)),
     ];
-    if ($exception instanceof DungeonEditorFindingsInterface) {
+    if ($exception instanceof DefinitionValidationException) {
+      $error['code'] = 'definition_validation_failed';
+      $error['message'] = 'Definition validation failed';
+      $error['findings'] = $exception->findings;
+    }
+    elseif ($exception instanceof DungeonEditorFindingsInterface) {
       $error['findings'] = $exception->getFindings();
     }
     return new JsonResponse(['error' => $error], $status);

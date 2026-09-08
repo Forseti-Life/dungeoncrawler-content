@@ -256,6 +256,19 @@ dungeon-editor:
     - core/drupalSettings
     - core/once
 
+definition-editor:
+  version: 20260908-slice-7b
+  js:
+    js/definition-editor.js: { attributes: { type: module } }
+  css:
+    theme:
+      css/room-editor.css: {}
+      css/definition-editor.css: {}
+  dependencies:
+    - core/drupal
+    - core/drupalSettings
+    - core/once
+
 credits:
   css:
     theme:

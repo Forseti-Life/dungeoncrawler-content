@@ -485,6 +485,12 @@ services:
       - '@dungeoncrawler_content.editor_gm_intent_parser'
       - '@uuid'
 
+  dungeoncrawler_content.editor_gm_surface.definition_editor:
+    class: Drupal\dungeoncrawler_content\Service\EditorGm\DefinitionEditorGmSurface
+    arguments:
+      - '@dungeoncrawler_content.canonical_definitions'
+      - '@dungeoncrawler_content.editor_gm_intent_parser'
+
   dungeoncrawler_content.editor_review_flags:
     class: Drupal\dungeoncrawler_content\Service\EditorSuite\EditorReviewFlagService
     arguments: ['@database']
@@ -512,6 +518,7 @@ services:
     arguments:
       - - '@dungeoncrawler_content.editor_gm_surface.room_editor'
         - '@dungeoncrawler_content.editor_gm_surface.dungeon_editor'
+        - '@dungeoncrawler_content.editor_gm_surface.definition_editor'
         - '@dungeoncrawler_content.editor_gm_surface.editor_suite'
       - '@dungeoncrawler_content.editor_gm_intent_parser'
 

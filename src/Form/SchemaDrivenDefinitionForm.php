@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Drupal\dungeoncrawler_content\Form;
 
 use Drupal\Core\Form\FormBase;
+use Drupal\Core\Access\CsrfRequestHeaderAccessCheck;
+use Drupal\Core\Access\CsrfTokenGenerator;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Url;
 use Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService;
@@ -38,12 +40,14 @@ final class SchemaDrivenDefinitionForm extends FormBase {
   public function __construct(
     private readonly CanonicalDefinitionService $definitions,
     private readonly DefinitionFormMapper $mapper,
+    private readonly CsrfTokenGenerator $csrfToken,
   ) {}
 
   public static function create(ContainerInterface $container): static {
     return new static(
       $container->get('dungeoncrawler_content.canonical_definitions'),
       $container->get('dungeoncrawler_content.definition_form_mapper'),
+      $container->get('csrf_token'),
     );
   }
 
@@ -81,6 +85,19 @@ final class SchemaDrivenDefinitionForm extends FormBase {
     $stored_findings = $form_state->get('stored_findings');
     $affected = $definition_id === NULL ? [] : $this->definitions->publishedRoomsReferencing($family, $definition_id);
     $current_version = $form_state->get('expected_version');
+
+    $scope = ['family' => $family];
+    if ($definition_id !== NULL) {
+      $scope['definition_id'] = $definition_id;
+    }
+    $form['#attached']['library'][] = 'dungeoncrawler_content/definition-editor';
+    $form['#attached']['drupalSettings']['dungeoncrawlerContent']['definitionEditor'] = [
+      'gmUrl' => Url::fromRoute('dungeoncrawler_content.definition_editor_gm_describe')->toString(),
+      'csrfToken' => $this->csrfToken->get(CsrfRequestHeaderAccessCheck::TOKEN_KEY),
+      'scope' => $scope,
+    ];
+    $form['#prefix'] = '<div class="room-editor definition-editor definition-editor__form-prefix" data-definition-editor><div class="definition-editor__body"><main class="definition-editor__content">';
+    $form['#suffix'] = '</main>' . $this->gmPanelMarkup() . '</div></div>';
 
     $form['#attributes']['class'][] = 'dc-definition-form';
     $form['meta'] = [
@@ -155,6 +172,45 @@ final class SchemaDrivenDefinitionForm extends FormBase {
     $this->attachRowButtonHandlers($form);
 
     return $form;
+  }
+
+  /**
+   * Shared GM panel structure consumed by DefinitionEditorShell.js.
+   */
+  private function gmPanelMarkup(): string {
+    return <<<'HTML'
+<aside class="room-editor__gm-panel definition-editor__gm-panel" data-definition-editor-gm-panel aria-label="GM assistant">
+  <header class="room-editor__gm-header">
+    <p class="room-editor__eyebrow">GM Assistant</p>
+    <span class="room-editor__gm-state" data-definition-editor-gm-state role="status" aria-live="polite">Idle</span>
+  </header>
+  <section class="room-editor__gm-disclosure-group" aria-label="Grounded definition context">
+    <button type="button" class="room-editor__gm-disclosure" data-definition-editor-action="gm-toggle-context" aria-expanded="false" aria-controls="definition-editor-gm-context-body">Grounded context</button>
+    <div id="definition-editor-gm-context-body" class="room-editor__gm-context-body" data-definition-editor-gm-context hidden></div>
+  </section>
+  <section class="room-editor__gm-disclosure-group" aria-label="Assistant toolset">
+    <button type="button" class="room-editor__gm-disclosure" data-definition-editor-action="gm-toggle-tools" aria-expanded="false" aria-controls="definition-editor-gm-tools-body">Toolset</button>
+    <div id="definition-editor-gm-tools-body" class="room-editor__gm-tools-body" data-definition-editor-gm-tools hidden></div>
+  </section>
+  <ol class="room-editor__gm-transcript" data-definition-editor-gm-transcript aria-label="Assistant transcript" aria-live="polite"></ol>
+  <div class="room-editor__gm-plan" data-definition-editor-gm-plan hidden>
+    <p class="room-editor__eyebrow">Proposed definition update</p>
+    <ol class="room-editor__gm-plan-list" data-definition-editor-gm-plan-list></ol>
+    <div class="room-editor__gm-plan-actions">
+      <button type="button" class="room-editor__button" data-definition-editor-action="gm-preview-definition">Preview</button>
+      <button type="button" class="room-editor__button room-editor__button--primary" data-definition-editor-action="gm-apply-definition">Apply</button>
+      <button type="button" class="room-editor__button" data-definition-editor-action="gm-discard-definition">Discard</button>
+    </div>
+  </div>
+  <div class="room-editor__gm-composer" data-definition-editor-gm-form>
+    <label class="visually-hidden" for="definition-editor-gm-input">Message the GM assistant</label>
+    <textarea id="definition-editor-gm-input" data-definition-editor-gm-input rows="3" placeholder="Ask the assistant, or run a tool: describe_definition_schema {}"></textarea>
+    <div class="room-editor__gm-composer-actions">
+      <button type="button" class="room-editor__button room-editor__button--primary" data-definition-editor-action="gm-send">Send</button>
+    </div>
+  </div>
+</aside>
+HTML;
   }
 
   /**

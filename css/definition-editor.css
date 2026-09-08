@@ -1,0 +1,32 @@
+.definition-editor__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
+  gap: 1rem;
+  align-items: start;
+}
+
+.definition-editor__content {
+  grid-column: 1;
+  min-width: 0;
+}
+
+.definition-editor__gm-panel {
+  grid-column: 2;
+  position: sticky;
+  top: 1rem;
+}
+
+.definition-editor__form-prefix .dc-definition-form {
+  margin: 0;
+}
+
+@media (max-width: 1100px) {
+  .definition-editor__body {
+    grid-template-columns: 1fr;
+  }
+
+  .definition-editor__gm-panel {
+    grid-column: 1;
+    position: static;
+  }
+}
