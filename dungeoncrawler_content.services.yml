@@ -495,11 +495,26 @@ services:
       - '@dungeoncrawler_content.canonical_definitions'
       - '@uuid'
 
+  dungeoncrawler_content.canonical_dungeon_layout_plan:
+    class: Drupal\dungeoncrawler_content\Service\Generation\CanonicalDungeonLayoutPlanService
+    arguments:
+      - '@dungeoncrawler_content.canonical_generation'
+
+  dungeoncrawler_content.runtime_canonical_dungeon:
+    class: Drupal\dungeoncrawler_content\Service\Generation\RuntimeCanonicalDungeonService
+    arguments:
+      - '@database'
+      - '@dungeoncrawler_content.dungeon_editor'
+      - '@dungeoncrawler_content.canonical_dungeon_layout_plan'
+      - '@dungeoncrawler_content.campaign_initialization'
+      - '@uuid'
+
   dungeoncrawler_content.editor_canonical_generation_plan:
     class: Drupal\dungeoncrawler_content\Service\EditorGm\EditorCanonicalGenerationPlanService
     arguments:
       - '@dungeoncrawler_content.canonical_generation'
       - '@dungeoncrawler_content.canonical_definitions'
+      - '@dungeoncrawler_content.canonical_dungeon_layout_plan'
 
   dungeoncrawler_content.editor_definition_generation:
     class: Drupal\dungeoncrawler_content\Service\EditorGm\EditorDefinitionGenerationService
@@ -1581,16 +1596,9 @@ services:
   dungeoncrawler_content.dungeon_generator:
     class: Drupal\dungeoncrawler_content\Service\DungeonGeneratorService
     arguments:
-      - '@database'
       - '@logger.factory'
-      - '@dungeoncrawler_content.schema_loader'
-      - '@dungeoncrawler_content.room_generator'
-      - '@dungeoncrawler_content.room_connection'
-      - '@dungeoncrawler_content.encounter_balancer'
-      - '@dungeoncrawler_content.number_generation'
-      - '@dungeoncrawler_content.dungeon_layout_profile_resolver'
-      - '@dungeoncrawler_content.dungeon_anchor_placement_planner'
-      - '@dungeoncrawler_content.dungeon_room_connection_planner'
+      - '@dungeoncrawler_content.runtime_canonical_dungeon'
+      - '@config.factory'
 
   dungeoncrawler_content.map_generator:
     class: Drupal\dungeoncrawler_content\Service\MapGeneratorService

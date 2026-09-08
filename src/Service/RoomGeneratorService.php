@@ -219,7 +219,7 @@ class RoomGeneratorService {
       '@level' => $context['level_id'],
     ]);
 
-    if ($this->canonicalRuntimeGenerationR4Enabled()) {
+    if ($this->canonicalRuntimeGenerationR5Enabled()) {
       return $this->generateRoomViaCanonicalRuntime($context);
     }
 
@@ -391,9 +391,9 @@ class RoomGeneratorService {
     return $this->runtimeCanonicalRoom->generateRoom($context);
   }
 
-  protected function canonicalRuntimeGenerationR4Enabled(): bool {
+  protected function canonicalRuntimeGenerationR5Enabled(): bool {
     return $this->configFactory
-      && $this->configFactory->get('dungeoncrawler_content.settings')->get('canonical_runtime_generation.r4') !== FALSE;
+      && $this->configFactory->get('dungeoncrawler_content.settings')->get('canonical_runtime_generation.r5') !== FALSE;
   }
 
   /**

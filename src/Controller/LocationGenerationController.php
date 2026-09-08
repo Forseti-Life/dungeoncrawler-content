@@ -4,11 +4,11 @@ namespace Drupal\dungeoncrawler_content\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Database\Connection;
-use Drupal\dungeoncrawler_content\Service\DungeonGeneratorService;
 use Drupal\dungeoncrawler_content\Service\H3ProjectionQueueService;
 use Drupal\dungeoncrawler_content\Service\MapGeneratorService;
 use Drupal\dungeoncrawler_content\Service\NarrationEngine;
 use Drupal\dungeoncrawler_content\Service\QuestGeneratorService;
+use Drupal\dungeoncrawler_content\Service\Generation\RuntimeCanonicalDungeonService;
 use Drupal\dungeoncrawler_content\Service\Generation\RuntimeCanonicalRoomService;
 use Drupal\dungeoncrawler_content\Service\Generation\RuntimeGenerationException;
 use Drupal\dungeoncrawler_content\Service\RoomStateService;
@@ -60,9 +60,9 @@ class LocationGenerationController extends ControllerBase {
   /**
    * Complete dungeon generator for remote-site branching.
    *
-   * @var \Drupal\dungeoncrawler_content\Service\DungeonGeneratorService
+   * @var \Drupal\dungeoncrawler_content\Service\Generation\RuntimeCanonicalDungeonService
    */
-  protected DungeonGeneratorService $dungeonGenerator;
+  protected RuntimeCanonicalDungeonService $dungeonGenerator;
   protected NarrationEngine $narrationEngine;
   protected StorylineQuestLifecycleService $storylineQuestLifecycleService;
   protected H3ProjectionQueueService $h3ProjectionQueue;
@@ -76,7 +76,7 @@ class LocationGenerationController extends ControllerBase {
     RuntimeCanonicalRoomService $room_generator,
     QuestGeneratorService $quest_generator,
     RoomStateService $room_state_service,
-    DungeonGeneratorService $dungeon_generator,
+    RuntimeCanonicalDungeonService $dungeon_generator,
     NarrationEngine $narration_engine,
     StorylineQuestLifecycleService $storyline_quest_lifecycle_service,
     H3ProjectionQueueService $h3_projection_queue
@@ -102,7 +102,7 @@ class LocationGenerationController extends ControllerBase {
       $container->get('dungeoncrawler_content.runtime_canonical_room'),
       $container->get('dungeoncrawler_content.quest_generator'),
       $container->get('dungeoncrawler_content.room_state_service'),
-      $container->get('dungeoncrawler_content.dungeon_generator'),
+      $container->get('dungeoncrawler_content.runtime_canonical_dungeon'),
       $container->get('dungeoncrawler_content.narration_engine'),
       $container->get('dungeoncrawler_content.storyline_quest_lifecycle'),
       $container->get('dungeoncrawler_content.h3_projection_queue')
@@ -850,8 +850,12 @@ class LocationGenerationController extends ControllerBase {
       'party_composition' => is_array($request_data['party_composition'] ?? NULL) ? $request_data['party_composition'] : [],
       'theme' => $theme,
       'depth_override' => 1,
-      'room_count_override' => 1,
+      'room_count_override' => max(3, (int) ($request_data['room_count'] ?? 3)),
       'landing_room_type' => 'entrance',
+      'prompt' => (string) ($request_data['prompt'] ?? sprintf('Generate a connected remote %s dungeon landing for %s.', $theme, $destination)),
+      'seed' => isset($request_data['seed']) && is_numeric($request_data['seed']) ? (int) $request_data['seed'] : NULL,
+      'canonical_generation_wait' => !empty($request_data['canonical_generation_wait']) || !empty($request_data['wait_for_generator']) || (($request_data['generation_mode'] ?? '') === 'llm'),
+      'requested_by_uid' => (int) $this->currentUser()->id(),
     ]);
 
     $landing_room = NULL;
@@ -882,7 +886,9 @@ class LocationGenerationController extends ControllerBase {
       'origin_room_id' => $origin_room_id,
       'room_id' => $landing_room_id,
       'room_name' => (string) ($landing_room['name'] ?? $landing_room_id),
-      'source' => 'dungeon_generator',
+      'source' => 'canonical_generation',
+      'source_dungeon_id' => (string) ($generated['source_dungeon_id'] ?? ''),
+      'source_version_id' => (string) ($generated['source_version_id'] ?? ''),
       'navigation' => [
         'target_room_id' => $landing_room_id,
         'destination' => $destination,

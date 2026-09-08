@@ -7,9 +7,9 @@ namespace Drupal\dungeoncrawler_content\Service\EditorGm;
 use Drupal\dungeoncrawler_content\Geometry\RoomPlacementTransformer;
 use Drupal\dungeoncrawler_content\Geometry\RoomPortEdgePolicy;
 use Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService;
-use Drupal\dungeoncrawler_content\Service\DungeonEditorService;
 use Drupal\dungeoncrawler_content\Service\Generation\CanonicalGenerationException;
 use Drupal\dungeoncrawler_content\Service\Generation\CanonicalGenerationService;
+use Drupal\dungeoncrawler_content\Service\Generation\CanonicalDungeonLayoutPlanService;
 use Drupal\dungeoncrawler_content\Service\Generation\GenerationVocabulary;
 
 /**
@@ -33,6 +33,7 @@ class EditorCanonicalGenerationPlanService {
   public function __construct(
     private readonly CanonicalGenerationService $generation,
     private readonly CanonicalDefinitionService $definitions,
+    private readonly CanonicalDungeonLayoutPlanService $dungeonLayoutPlan,
   ) {}
 
   /**
@@ -59,22 +60,12 @@ class EditorCanonicalGenerationPlanService {
    * Generates a non-mutating Dungeon Editor command plan.
    */
   public function generateDungeonLayout(array $arguments, DungeonEditorGmToolContext $context): array {
-    $input = $this->normalizeDungeonInput($arguments);
-    $draft = $context->draft();
-    $dungeon = $context->dungeon();
-    $library = $context->roomLibrary();
-    if ($library === []) {
-      throw $this->exception('generation_catalog_reference_unresolved', [$this->finding('generation_catalog_reference_unresolved', '/room_library', 'No published room versions are available for dungeon generation.')]);
-    }
-    $operation = 'editor_generation_dungeon_layout';
-
-    return $this->generation->completeJson('generate_dungeon_layout', $operation, $input['seed'], 3000,
-      function (array $prior_findings) use ($input, $draft, $dungeon, $library): string {
-        return $this->dungeonPrompt($input, $draft, $dungeon, $library, $prior_findings);
-      },
-      function (array $decoded, array $provenance) use ($context, $input, $library): array {
-        return $this->dungeonPlanFromDecoded($decoded, $provenance, $context, $input, $library);
-      }
+    return $this->dungeonLayoutPlan->generateDungeonLayoutPlan(
+      $arguments + ['operation' => 'editor_generation_dungeon_layout'],
+      $context->draft(),
+      $context->dungeon(),
+      $context->roomLibrary(),
+      fn(array $commands, string $profile): array => $context->dungeonEditor->simulateCommands($context->draftId, $commands, $profile)
     );
   }
 
@@ -112,18 +103,6 @@ class EditorCanonicalGenerationPlanService {
     ];
   }
 
-  private function normalizeDungeonInput(array $arguments): array {
-    return [
-      'prompt' => $this->boundedString($arguments, 'prompt', TRUE, 1, 2000),
-      'theme' => $this->boundedString($arguments, 'theme', FALSE, 0, 100),
-      'room_count' => $this->intRange($arguments, 'room_count', 3, self::DUNGEON_MAX_PLACEMENTS, 3),
-      'level' => $this->intRange($arguments, 'level', -1, 25, 1),
-      'link_kind' => $this->enum($arguments, 'link_kind', GenerationVocabulary::LINK_KINDS, 'door'),
-      'link_direction' => $this->enum($arguments, 'link_direction', GenerationVocabulary::LINK_DIRECTIONS, 'bidirectional'),
-      'default_state' => $this->enum($arguments, 'default_state', GenerationVocabulary::LINK_STATES, 'closed'),
-      'seed' => $this->seed($arguments),
-    ];
-  }
 
   private function seed(array $arguments): int {
     if (!array_key_exists('seed', $arguments) || $arguments['seed'] === NULL || $arguments['seed'] === '') {
@@ -231,46 +210,6 @@ class EditorCanonicalGenerationPlanService {
     ]);
   }
 
-  private function dungeonPrompt(array $input, array $draft, array $dungeon, array $library, array $prior_findings): string {
-    $eligible_library = array_values(array_filter($library, static fn(array $room): bool => ($room['entry_port_count'] ?? 0) > 0 && ($room['exit_port_count'] ?? 0) > 0));
-    $rooms = array_map(static fn(array $room): array => [
-      'room_id' => $room['room_id'],
-      'version_id' => $room['version_id'],
-      'version' => $room['version'],
-      'name' => $room['name'],
-      'room_type' => $room['room_type'],
-      'hex_count' => $room['hex_count'],
-      'entry_port_count' => $room['entry_port_count'],
-      'exit_port_count' => $room['exit_port_count'],
-      'ports' => array_slice((array) ($room['ports'] ?? []), 0, 8),
-    ], array_slice($eligible_library, 0, 20));
-    $allowed_room_ids = array_values(array_map(static fn(array $room): string => (string) $room['room_id'], $rooms));
-    $shape = [
-      'name' => 'string 1..200',
-      'description' => 'string <=8000',
-      'theme' => 'string <=100',
-      'rooms' => [['room_id' => 'published-room-id', 'role' => 'entrance|connector|goal']]
-    ];
-    return $this->promptText('dungeon_editor', $input, $draft, [
-      'current_dungeon' => [
-        'dungeon_id' => $dungeon['dungeon_id'] ?? '',
-        'name' => $dungeon['name'] ?? '',
-        'revision' => $draft['revision'] ?? 0,
-        'placement_count' => count((array) ($dungeon['room_placements'] ?? [])),
-      ],
-      'published_room_library' => $rooms,
-      'allowed_room_ids' => $allowed_room_ids,
-      'required_output_shape' => $shape,
-      'requirements' => [
-        'Return one JSON object only. No prose.',
-        'Return exactly ' . $input['room_count'] . ' room references and use only exact room_id values from allowed_room_ids.',
-        'Do not invent room_id values and do not use room names as room_id values.',
-        'Every listed room is a published version with both entry and exit ports; no other rooms are eligible.',
-        'Server will compute non-overlapping sealed placements using RoomPlacementTransformer.',
-      ],
-      'prior_findings' => $prior_findings,
-    ]);
-  }
 
   private function promptText(string $surface, array $input, array $draft, array $payload): string {
     $document = [
@@ -365,102 +304,6 @@ class EditorCanonicalGenerationPlanService {
     ];
   }
 
-  private function dungeonPlanFromDecoded(array $decoded, array $provenance, DungeonEditorGmToolContext $context, array $input, array $library): array {
-    $selected = $this->selectDungeonRooms($decoded, $library, $input);
-    if (count($selected) > self::DUNGEON_MAX_PLACEMENTS) {
-      throw $this->exception('generation_size_limit_exceeded', [$this->finding('generation_size_limit_exceeded', '/rooms', 'Generated dungeon exceeds placement cap.')]);
-    }
-
-    $steps = [];
-    $steps[] = $this->step(1, 'set_dungeon_metadata', [
-      'changes' => [
-        'name' => $this->requiredString($decoded, 'name', 1, 200),
-        'description' => $this->optionalString($decoded, 'description', 8000, 'Generated dungeon layout.'),
-        'theme' => $this->optionalString($decoded, 'theme', 100, $input['theme'] !== '' ? $input['theme'] : 'generated'),
-        'depth' => max(0, $input['level']),
-        'metadata' => ['generated_by' => $provenance],
-      ],
-    ], 'Record generated dungeon metadata and provenance.');
-
-    $placements = [];
-    $occupied = [];
-    $links = [];
-    foreach ($selected as $index => $room) {
-      $placement_id = $this->deterministicUuid($input['seed'], 'dungeon-placement', $index + 1);
-      if ($index === 0) {
-        $placement = [
-          'placement_id' => $placement_id,
-          'room_id' => $room['room_id'],
-          'version_id' => $room['version_id'],
-          'origin' => ['q' => 0, 'r' => 0],
-          'rotation_steps' => 0,
-          'label' => (string) ($room['role'] ?? $room['name']),
-          'is_level_entrance' => FALSE,
-          'tags' => [],
-        ];
-      }
-      else {
-        $anchor = $placements[$index - 1];
-        $anchor_room = $selected[$index - 1];
-        [$placement, $link] = $this->sealedPlacement($anchor, $anchor_room, $room, $occupied, $placement_id, $input, $index + 1);
-        $links[] = $link;
-      }
-      $placements[] = $placement;
-      foreach ((array) ($room['footprint'] ?? []) as $hex) {
-        $level = RoomPlacementTransformer::toLevel($hex, $placement);
-        $occupied[RoomPlacementTransformer::hexKey($level)][] = $placement_id;
-      }
-      $steps[] = $this->step(count($steps) + 1, 'place_room', [
-        'placement_id' => $placement['placement_id'],
-        'room_id' => $placement['room_id'],
-        'version_id' => $placement['version_id'],
-        'origin' => $placement['origin'],
-        'rotation_steps' => $placement['rotation_steps'],
-        'label' => $placement['label'],
-      ], sprintf('Place published room %s as %s.', $placement['room_id'], $placement['label']));
-      if ($index === 0) {
-        $steps[] = $this->step(count($steps) + 1, 'set_placement_metadata', [
-          'placement_id' => $placement_id,
-          'changes' => ['is_level_entrance' => TRUE],
-        ], 'Mark the first generated placement as the only level entrance.');
-      }
-    }
-    foreach ($links as $link) {
-      $steps[] = $this->step(count($steps) + 1, 'link_ports', $link, sprintf('Seal %s:%s to %s:%s.', $link['from']['placement_id'], $link['from']['port_id'], $link['to']['placement_id'], $link['to']['port_id']));
-    }
-
-    if (count($links) > self::DUNGEON_MAX_LINKS || count($steps) > self::DUNGEON_MAX_COMMANDS) {
-      throw $this->exception('generation_size_limit_exceeded', [$this->finding('generation_size_limit_exceeded', '/command_plan/steps', 'Generated dungeon plan exceeds command or link caps.')]);
-    }
-
-    $draft = $context->draft();
-    $simulation = $context->dungeonEditor->simulateCommands($context->draftId, $this->envelopesFromSteps($steps, (int) ($draft['revision'] ?? 0), $input['seed']), 'editing');
-    $this->assertDungeonSimulation($simulation);
-
-    return [
-      'schema_version' => self::GENERATION_PLAN_VERSION,
-      'generation_type' => 'dungeon_layout',
-      'seed' => $input['seed'],
-      'metadata' => ['generated_by' => $provenance],
-      'selected_rooms' => array_map(static fn(array $room): array => [
-        'room_id' => $room['room_id'],
-        'version_id' => $room['version_id'],
-        'version' => $room['version'],
-        'role' => $room['role'] ?? 'generated',
-      ], $selected),
-      'validation' => $simulation['validation'],
-      'command_plan' => [
-        'schema_version' => self::PLAN_VERSION,
-        'draft_id' => $context->draftId,
-        'base_revision' => (int) ($draft['revision'] ?? 0),
-        'steps' => $steps,
-      ],
-      'preview_summary' => [
-        'placement_count' => count((array) ($simulation['dungeon']['room_placements'] ?? [])),
-        'port_link_count' => count((array) ($simulation['dungeon']['port_links'] ?? [])),
-      ],
-    ];
-  }
 
   private function generatedHexes(array $decoded, int $min, int $max): array {
     if (!is_array($decoded['hexes'] ?? NULL) || !array_is_list($decoded['hexes'])) {
@@ -614,96 +457,8 @@ class EditorCanonicalGenerationPlanService {
     return $placements;
   }
 
-  private function selectDungeonRooms(array $decoded, array $library, array $input): array {
-    $by_id = [];
-    foreach ($library as $room) {
-      if (($room['entry_port_count'] ?? 0) > 0 && ($room['exit_port_count'] ?? 0) > 0) {
-        $by_id[$room['room_id']] = $room;
-      }
-    }
-    if ($by_id === []) {
-      throw $this->exception('generation_catalog_reference_unresolved', [$this->finding('generation_catalog_reference_unresolved', '/room_library', 'Published room library has no rooms with both entry and exit ports.')]);
-    }
-    $requested = is_array($decoded['rooms'] ?? NULL) && array_is_list($decoded['rooms']) ? $decoded['rooms'] : [];
-    if (count($requested) < $input['room_count']) {
-      throw $this->nonconforming([$this->finding('required_missing', '/rooms', sprintf('Generated dungeon must include at least %d room references.', $input['room_count']))]);
-    }
-    $selected = [];
-    foreach ($requested as $index => $spec) {
-      if (count($selected) >= $input['room_count']) {
-        break;
-      }
-      if (!is_array($spec) || !isset($spec['room_id'])) {
-        continue;
-      }
-      $room_id = (string) $spec['room_id'];
-      if (!isset($by_id[$room_id])) {
-        throw $this->nonconforming([$this->finding('generation_catalog_reference_unresolved', '/rooms/' . $index . '/room_id', sprintf('%s is not a published room with entry/exit ports.', $room_id))]);
-      }
-      $selected[] = $by_id[$room_id] + ['role' => (string) ($spec['role'] ?? 'generated')];
-    }
-    if (count($selected) < $input['room_count']) {
-      throw $this->nonconforming([$this->finding('required_missing', '/rooms', sprintf('Generated dungeon must include %d usable published room references.', $input['room_count']))]);
-    }
-    return $selected;
-  }
 
-  private function sealedPlacement(array $anchor, array $anchor_room, array $room, array $occupied, string $placement_id, array $input, int $ordinal): array {
-    $exits = array_values(array_filter((array) ($anchor_room['ports'] ?? []), static fn(array $p): bool => ($p['kind'] ?? '') === 'exit'));
-    $entries = array_values(array_filter((array) ($room['ports'] ?? []), static fn(array $p): bool => ($p['kind'] ?? '') === 'entry'));
-    if ($exits === [] || $entries === []) {
-      throw $this->exception('generation_catalog_reference_unresolved', [$this->finding('generation_catalog_reference_unresolved', '/selected_rooms/' . ($ordinal - 1), 'Selected rooms must expose entry and exit ports.')]);
-    }
-    usort($exits, fn(array $a, array $b): int => [$this->stableScore($input['seed'], $a['port_id']), $a['port_id']] <=> [$this->stableScore($input['seed'], $b['port_id']), $b['port_id']]);
-    usort($entries, fn(array $a, array $b): int => [$this->stableScore($input['seed'], $a['port_id']), $a['port_id']] <=> [$this->stableScore($input['seed'], $b['port_id']), $b['port_id']]);
 
-    foreach ($exits as $exit_port) {
-      $exit = RoomPlacementTransformer::toLevelPort(['q' => (int) $exit_port['q'], 'r' => (int) $exit_port['r']], (int) $exit_port['edge'], $anchor);
-      $target_hex = RoomPlacementTransformer::neighbor(['q' => $exit['q'], 'r' => $exit['r']], $exit['edge']);
-      $target_edge = RoomPlacementTransformer::opposite($exit['edge']);
-      foreach ($entries as $entry_port) {
-        for ($rotation = 0; $rotation < RoomPlacementTransformer::EDGE_COUNT; $rotation++) {
-          if (RoomPlacementTransformer::rotateEdge((int) $entry_port['edge'], $rotation) !== $target_edge) {
-            continue;
-          }
-          $rotated = RoomPlacementTransformer::rotate((int) $entry_port['q'], (int) $entry_port['r'], $rotation);
-          $placement = [
-            'placement_id' => $placement_id,
-            'room_id' => $room['room_id'],
-            'version_id' => $room['version_id'],
-            'origin' => ['q' => $target_hex['q'] - $rotated['q'], 'r' => $target_hex['r'] - $rotated['r']],
-            'rotation_steps' => $rotation,
-            'label' => (string) ($room['role'] ?? $room['name']),
-            'is_level_entrance' => FALSE,
-            'tags' => [],
-          ];
-          if ($this->placementFits($placement, $room, $occupied)) {
-            return [$placement, [
-              'from' => ['placement_id' => $anchor['placement_id'], 'port_id' => $exit_port['port_id']],
-              'to' => ['placement_id' => $placement_id, 'port_id' => $entry_port['port_id']],
-              'kind' => $input['link_kind'],
-              'direction' => $input['link_direction'],
-              'default_state' => $input['default_state'],
-            ]];
-          }
-        }
-      }
-    }
-    throw $this->nonconforming([$this->finding('no_sealed_placement', '/selected_rooms/' . ($ordinal - 1), 'No non-overlapping sealed placement was available for selected room.')]);
-  }
-
-  private function placementFits(array $placement, array $room, array $occupied): bool {
-    foreach ((array) ($room['footprint'] ?? []) as $hex) {
-      $level = RoomPlacementTransformer::toLevel($hex, $placement);
-      if (abs($level['q']) > DungeonEditorService::AXIAL_BOUND || abs($level['r']) > DungeonEditorService::AXIAL_BOUND) {
-        return FALSE;
-      }
-      if (isset($occupied[RoomPlacementTransformer::hexKey($level)])) {
-        return FALSE;
-      }
-    }
-    return TRUE;
-  }
 
   private function assertRoomSimulation(array $simulation): void {
     if (empty($simulation['applies_cleanly'])) {
@@ -715,14 +470,6 @@ class EditorCanonicalGenerationPlanService {
     }
   }
 
-  private function assertDungeonSimulation(array $simulation): void {
-    if (($simulation['rejected'] ?? NULL) !== NULL) {
-      throw $this->nonconforming((array) ($simulation['rejected']['findings'] ?? [$this->finding('command_rejected', '/command_plan/steps', (string) ($simulation['rejected']['code'] ?? 'Command rejected.'))]));
-    }
-    if (empty($simulation['validation']['is_valid'])) {
-      throw $this->nonconforming((array) ($simulation['validation']['findings'] ?? []));
-    }
-  }
 
   private function assertGeneratedRoomPortsFollowPolicy(array $room): void {
     foreach (['entry_ports', 'exit_ports'] as $bucket) {
@@ -763,27 +510,11 @@ class EditorCanonicalGenerationPlanService {
     return array_map(static fn(array $step): array => ['type' => $step['command_type'], 'payload' => $step['payload'], 'rationale' => $step['rationale']], $steps);
   }
 
-  private function envelopesFromSteps(array $steps, int $base_revision, int $seed): array {
-    $envelopes = [];
-    foreach ($steps as $index => $step) {
-      $envelopes[] = [
-        'command_id' => $this->deterministicUuid($seed, 'dungeon-command', $index + 1),
-        'expected_revision' => $base_revision + $index,
-        'type' => $step['command_type'],
-        'payload' => $step['payload'],
-        'issued_at' => gmdate(DATE_RFC3339),
-      ];
-    }
-    return $envelopes;
-  }
 
   private function step(int $step, string $type, array $payload, string $rationale): array {
     return ['step' => $step, 'command_type' => $type, 'payload' => $payload, 'rationale' => $rationale];
   }
 
-  private function stableScore(int $seed, string $value): string {
-    return hash('sha256', $seed . ':' . $value);
-  }
 
   private function deterministicUuid(int $seed, string $scope, int $index): string {
     $hex = substr(hash('sha256', $seed . ':' . $scope . ':' . $index), 0, 32);

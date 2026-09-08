@@ -320,11 +320,11 @@ class MapGeneratorService {
       ?? $dungeon_data['generation_rules']['party_level_target']
       ?? 1;
 
-    if (!$this->canonicalRuntimeGenerationR4Enabled()) {
+    if (!$this->canonicalRuntimeGenerationR5Enabled()) {
       throw new RuntimeGenerationException('runtime_generation_failed', [[
         'code' => 'runtime_generation_failed',
-        'pointer' => '/canonical_runtime_generation/r4',
-        'message' => 'R4 canonical navigation setting generation is disabled; no legacy fallback is available.',
+        'pointer' => '/canonical_runtime_generation/r5',
+        'message' => 'R5 canonical runtime generation is disabled; no legacy fallback is available.',
         'severity' => 'error',
       ]], 503);
     }
@@ -470,11 +470,11 @@ class MapGeneratorService {
     ];
   }
 
-  protected function canonicalRuntimeGenerationR4Enabled(): bool {
+  protected function canonicalRuntimeGenerationR5Enabled(): bool {
     if (!$this->configFactory) {
       return FALSE;
     }
-    return $this->configFactory->get('dungeoncrawler_content.settings')->get('canonical_runtime_generation.r4') !== FALSE;
+    return $this->configFactory->get('dungeoncrawler_content.settings')->get('canonical_runtime_generation.r5') !== FALSE;
   }
 
   protected function runtimeSelectionSeed(string $destination, int $party_level, array $context): int {

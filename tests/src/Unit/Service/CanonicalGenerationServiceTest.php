@@ -11,6 +11,7 @@ use Drupal\dungeoncrawler_content\Service\EditorGm\EditorCanonicalGenerationPlan
 use Drupal\dungeoncrawler_content\Service\EditorGm\DungeonEditorGmToolContext;
 use Drupal\dungeoncrawler_content\Service\Generation\CanonicalGenerationException;
 use Drupal\dungeoncrawler_content\Service\Generation\CanonicalGenerationService;
+use Drupal\dungeoncrawler_content\Service\Generation\CanonicalDungeonLayoutPlanService;
 use Drupal\dungeoncrawler_content\Service\EditorGm\RoomEditorGmToolContext;
 use Drupal\dungeoncrawler_content\Service\RoomEditorService;
 use PHPUnit\Framework\TestCase;
@@ -54,7 +55,7 @@ final class CanonicalGenerationServiceTest extends TestCase {
       $this->time(),
       $this->loggerFactory(),
     );
-    return new EditorCanonicalGenerationPlanService($core, $definitions);
+    return new EditorCanonicalGenerationPlanService($core, $definitions, new CanonicalDungeonLayoutPlanService($core));
   }
 
   private function ai(array $responses, array $resultOverrides = []): object {

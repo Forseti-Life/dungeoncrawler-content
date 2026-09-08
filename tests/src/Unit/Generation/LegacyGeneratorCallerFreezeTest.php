@@ -50,7 +50,6 @@ final class LegacyGeneratorCallerFreezeTest extends TestCase {
     'src/Commands/NpcSheetWorkerCommands.php',
     'src/Commands/StorylineExpansionWorkerCommands.php',
     'src/Controller/DungeonController.php',
-    'src/Controller/DungeonGeneratorController.php',
     'src/Controller/HexMapController.php',
     'src/Controller/LocationGenerationController.php',
     'src/Controller/QuestGeneratorController.php',
@@ -78,10 +77,8 @@ final class LegacyGeneratorCallerFreezeTest extends TestCase {
   private const ALLOWED_R4_MAP_FACADE_REFERENCE_FILES = [
     'dungeoncrawler_content.services.yml',
     'src/Commands/InitialGameContentCommands.php',
-    'src/Controller/DungeonGeneratorController.php',
     'src/Controller/LocationGenerationController.php',
     'src/Service/CampaignInitializationService.php',
-    'src/Service/DungeonGeneratorService.php',
     'src/Service/EncounterPhaseHandlerRouteExecutionSupportTrait.php',
     'src/Service/MapGeneratorService.php',
     'src/Service/NavigationRuntimeService.php',
@@ -111,7 +108,7 @@ final class LegacyGeneratorCallerFreezeTest extends TestCase {
     $expected = self::ALLOWED_LEGACY_REFERENCE_FILES;
     sort($expected);
 
-    $this->assertCount(28, $expected, 'R4 shrinks the legacy generator freeze allowlist after MapGeneratorService became a canonical runtime facade.');
+    $this->assertCount(27, $expected, 'R5 shrinks the legacy generator freeze allowlist after dungeon routes moved to RuntimeCanonicalDungeonService.');
     $this->assertSame($expected, $actual, 'New legacy generator callers/references are forbidden; migrate to CanonicalGenerationService instead.');
   }
 
@@ -131,7 +128,7 @@ final class LegacyGeneratorCallerFreezeTest extends TestCase {
     $expected = self::ALLOWED_R4_MAP_FACADE_REFERENCE_FILES;
     sort($expected);
 
-    $this->assertCount(13, $expected, 'R4 freezes the reconciled MapGeneratorService facade reference surface.');
+    $this->assertCount(11, $expected, 'R5 keeps the reconciled MapGeneratorService facade reference surface frozen after dungeon routes moved.');
     $this->assertSame($expected, $actual, 'MapGeneratorService is reconciled as a runtime facade; add no new direct references during reconciliation.');
   }
 

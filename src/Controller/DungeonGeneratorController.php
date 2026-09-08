@@ -3,8 +3,8 @@
 namespace Drupal\dungeoncrawler_content\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
-use Drupal\dungeoncrawler_content\Service\DungeonGeneratorService;
-use Drupal\dungeoncrawler_content\Service\MapGeneratorService;
+use Drupal\dungeoncrawler_content\Service\Generation\RuntimeCanonicalDungeonService;
+use Drupal\dungeoncrawler_content\Service\Generation\RuntimeGenerationException;
 use Drupal\dungeoncrawler_content\Service\NarrationEngine;
 use Drupal\dungeoncrawler_content\Service\SchemaLoader;
 use Symfony\Component\DependencyInjection\ContainerInterface;
@@ -23,9 +23,9 @@ class DungeonGeneratorController extends ControllerBase {
   /**
    * The dungeon generator service.
    *
-   * @var \Drupal\dungeoncrawler_content\Service\DungeonGeneratorService
+   * @var \Drupal\dungeoncrawler_content\Service\Generation\RuntimeCanonicalDungeonService
    */
-  protected DungeonGeneratorService $dungeonGenerator;
+  protected RuntimeCanonicalDungeonService $dungeonGenerator;
 
   /**
    * The schema loader service.
@@ -38,13 +38,13 @@ class DungeonGeneratorController extends ControllerBase {
   /**
    * Constructs a DungeonGeneratorController object.
    *
-   * @param \Drupal\dungeoncrawler_content\Service\DungeonGeneratorService $dungeon_generator
+   * @param \Drupal\dungeoncrawler_content\Service\Generation\RuntimeCanonicalDungeonService $dungeon_generator
    *   The dungeon generator service.
    * @param \Drupal\dungeoncrawler_content\Service\SchemaLoader $schema_loader
    *   The schema loader service.
    */
   public function __construct(
-    DungeonGeneratorService $dungeon_generator,
+    RuntimeCanonicalDungeonService $dungeon_generator,
     SchemaLoader $schema_loader,
     NarrationEngine $narration_engine
   ) {
@@ -58,7 +58,7 @@ class DungeonGeneratorController extends ControllerBase {
    */
   public static function create(ContainerInterface $container) {
     return new static(
-      $container->get('dungeoncrawler_content.dungeon_generator'),
+      $container->get('dungeoncrawler_content.runtime_canonical_dungeon'),
       $container->get('dungeoncrawler_content.schema_loader'),
       $container->get('dungeoncrawler_content.narration_engine')
     );
@@ -181,6 +181,12 @@ class DungeonGeneratorController extends ControllerBase {
       'theme' => $data['theme'] ?? NULL,
       'dungeon_type' => $data['dungeon_type'] ?? NULL,
       'layout_algorithm' => $data['layout_algorithm'] ?? NULL,
+      'room_count' => isset($data['room_count']) ? (int) $data['room_count'] : (int) ($data['room_count_override'] ?? 3),
+      'depth_override' => isset($data['depth_override']) ? (int) $data['depth_override'] : 1,
+      'prompt' => (string) ($data['prompt'] ?? $data['description'] ?? ''),
+      'seed' => isset($data['seed']) && is_numeric($data['seed']) ? (int) $data['seed'] : NULL,
+      'canonical_generation_wait' => !array_key_exists('canonical_generation_wait', $data) || !empty($data['canonical_generation_wait']) || !empty($data['wait_for_generator']) || (($data['generation_mode'] ?? '') === 'llm'),
+      'requested_by_uid' => (int) $this->currentUser()->id(),
     ];
 
     // 5. Generate the dungeon.
@@ -214,6 +220,9 @@ class DungeonGeneratorController extends ControllerBase {
         ['error' => $e->getMessage()],
         JsonResponse::HTTP_UNPROCESSABLE_ENTITY
       );
+    }
+    catch (RuntimeGenerationException $e) {
+      return $this->runtimeGenerationFailureResponse($e);
     }
     catch (\Exception $e) {
       return new JsonResponse(
@@ -445,9 +454,14 @@ class DungeonGeneratorController extends ControllerBase {
         'depth' => $new_depth,
         'level_id' => $new_depth,
         'dungeon_id' => $dungeon_id,
+        'room_count' => isset($data['room_count']) ? (int) $data['room_count'] : 3,
+        'prompt' => (string) ($data['prompt'] ?? sprintf('Generate level %d for this %s dungeon.', $new_depth, (string) ($row['theme'] ?? 'dungeon'))),
+        'seed' => isset($data['seed']) && is_numeric($data['seed']) ? (int) $data['seed'] : NULL,
+        'canonical_generation_wait' => !array_key_exists('canonical_generation_wait', $data) || !empty($data['canonical_generation_wait']) || !empty($data['wait_for_generator']) || (($data['generation_mode'] ?? '') === 'llm'),
+        'requested_by_uid' => (int) $this->currentUser()->id(),
       ];
 
-      $new_level = $this->dungeonGenerator->generateLevel($context);
+      $new_level = $this->dungeonGenerator->generateLevel($context, $dungeon_data);
 
       // Update dungeon_data with the new level.
       $levels[] = $new_level;
@@ -462,41 +476,10 @@ class DungeonGeneratorController extends ControllerBase {
         ->condition('dungeon_id', $dungeon_id)
         ->execute();
 
-      // Persist new level's rooms.
-      foreach (($new_level['rooms'] ?? []) as $room) {
-        $room_hexes = is_array($room['hexes'] ?? NULL) ? $room['hexes'] : [];
-        if ($room_hexes === []) {
-          throw new \RuntimeException(sprintf(
-            'Dungeon level persistence contract violation: generated room %s has no hexes.',
-            (string) ($room['room_id'] ?? 'unknown')
-          ));
-        }
-        $this->resolveMapGeneratorService()->persistCanonicalCampaignRoom(
-          $campaign_id,
-          (string) ($room['room_id'] ?? ''),
-          (string) ($room['name'] ?? 'Unknown Room'),
-          (string) ($room['description'] ?? ''),
-          [
-            'hexes' => $room_hexes,
-            'hex_manifest' => $room['hex_manifest'] ?? [],
-            'entry_points' => $room['entry_points'] ?? [],
-            'exit_points' => $room['exit_points'] ?? [],
-            'exits' => $room['exits'] ?? [],
-            'terrain' => $room['terrain'] ?? [],
-            'lighting' => $room['lighting'] ?? [],
-          ],
-          [
-            'creatures' => $room['creatures'] ?? [],
-            'items' => $room['items'] ?? [],
-            'traps' => $room['traps'] ?? [],
-            'hazards' => $room['hazards'] ?? [],
-          ],
-          is_array($room['environmental_effects'] ?? NULL) ? $room['environmental_effects'] : [],
-          (string) ($room['source_room_id'] ?? ($room['room_id'] ?? ''))
-        );
-      }
-
       return new JsonResponse($new_level, JsonResponse::HTTP_CREATED);
+    }
+    catch (RuntimeGenerationException $e) {
+      return $this->runtimeGenerationFailureResponse($e);
     }
     catch (\Exception $e) {
       return new JsonResponse(
@@ -506,17 +489,16 @@ class DungeonGeneratorController extends ControllerBase {
     }
   }
 
-  /**
-   * Resolve map generator service for centralized campaign room persistence.
-   */
-  protected function resolveMapGeneratorService(): MapGeneratorService {
-    if (\Drupal::hasService('dungeoncrawler_content.map_generator')) {
-      $candidate = \Drupal::service('dungeoncrawler_content.map_generator');
-      if ($candidate instanceof MapGeneratorService) {
-        return $candidate;
-      }
-    }
-    throw new \RuntimeException('Dungeon level persistence contract violation: MapGeneratorService is required.');
+  private function runtimeGenerationFailureResponse(RuntimeGenerationException $exception): JsonResponse {
+    return new JsonResponse([
+      'success' => FALSE,
+      'error' => 'runtime_generation_failed',
+      'receipt' => [
+        'code' => 'runtime_generation_failed',
+        'findings' => $exception->getFindings(),
+        'provider' => $exception->getPrevious()?->getMessage(),
+      ],
+    ], $exception->httpStatus());
   }
 
 }

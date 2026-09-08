@@ -129,7 +129,7 @@ final class RoomGeneratorCanonicalRuntimeShimTest extends UnitTestCase {
   private function configFactory(bool $enabled): ConfigFactoryInterface {
     $config = $this->createMock(Config::class);
     $config->method('get')
-      ->with('canonical_runtime_generation.r4')
+      ->with('canonical_runtime_generation.r5')
       ->willReturn($enabled);
     $factory = $this->createMock(ConfigFactoryInterface::class);
     $factory->method('get')

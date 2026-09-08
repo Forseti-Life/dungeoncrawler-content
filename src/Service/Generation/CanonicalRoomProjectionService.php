@@ -209,10 +209,11 @@ class CanonicalRoomProjectionService {
           $this->finding('campaign_source_room_version_not_found', '/room_versions_by_placement/' . $placement_id, 'Published room version was not resolved.'),
         ]);
       }
+      $source_room = $this->withAuthoritativeH3RoomHexes($source_room_id, $room_version['room']);
       $runtime = $this->buildRuntimeRoom([
         'room_id' => $source_room_id,
         'room_version_id' => (string) ($placement['version_id'] ?? ''),
-        'room_payload' => $room_version['room'],
+        'room_payload' => $source_room,
         'row' => $room_version['row'],
       ], [
         'runtime_room_id' => $placement_id,
@@ -223,8 +224,8 @@ class CanonicalRoomProjectionService {
       $runtime_room = $persisted['room'];
       $rooms[] = $runtime_room;
       $rooms_by_placement_id[$placement_id] = $runtime_room;
-      $sparse_h3_rooms[$placement_id] = $this->buildPublishedCampaignSparseH3Room($placement, $room_version['room']);
-      foreach ((array) ($room_version['room']['hexes'] ?? []) as $hex) {
+      $sparse_h3_rooms[$placement_id] = $this->buildPublishedCampaignSparseH3Room($placement, $source_room);
+      foreach ((array) ($source_room['hexes'] ?? []) as $hex) {
         if (!is_array($hex) || !is_int($hex['q'] ?? NULL) || !is_int($hex['r'] ?? NULL)) {
           throw new RuntimeGenerationException('campaign_source_room_instantiation_invalid', [
             $this->finding('campaign_source_room_instantiation_invalid', '/hexes', sprintf('placement_id=%s has a non-integer room hex.', $placement_id)),
@@ -345,6 +346,61 @@ class CanonicalRoomProjectionService {
           ->execute();
       }
     }
+  }
+
+  /**
+   * Add authoritative H3 indexes from the room-cell table to canonical hexes.
+   *
+   * R5 dungeon runtime projection uses published room versions as source
+   * content, but older canonical room payloads may not embed H3 columns. The
+   * room-cell table remains the authoritative H3 source for those versions.
+   *
+   * @return array<string,mixed>
+   */
+  private function withAuthoritativeH3RoomHexes(string $room_id, array $room): array {
+    $this->requireDatabase();
+    $room_id = trim($room_id);
+    if ($room_id === '') {
+      throw new RuntimeGenerationException('campaign_source_room_instantiation_invalid', [
+        $this->finding('campaign_source_room_instantiation_invalid', '/room_id', 'Source room id is required for H3 projection.'),
+      ]);
+    }
+    $hexes = is_array($room['hexes'] ?? NULL) ? $room['hexes'] : [];
+    if ($hexes === []) {
+      return $room;
+    }
+    $h3_by_coordinate = [];
+    $rows = $this->database->select('dungeoncrawler_content_h3_room_cells', 'c')
+      ->fields('c', ['source_q', 'source_r', 'h3_index', 'h3_resolution'])
+      ->condition('room_id', $room_id)
+      ->condition('cell_role', ['room_hex', 'exit_gateway'], 'IN')
+      ->orderBy('h3_resolution', 'DESC')
+      ->orderBy('id', 'ASC')
+      ->execute();
+    foreach ($rows as $row) {
+      $key = ((int) $row->source_q) . ':' . ((int) $row->source_r);
+      $h3_by_coordinate[$key] ??= strtolower(trim((string) $row->h3_index));
+    }
+    foreach ($hexes as $index => $hex) {
+      if (!is_array($hex) || !is_int($hex['q'] ?? NULL) || !is_int($hex['r'] ?? NULL)) {
+        throw new RuntimeGenerationException('campaign_source_room_instantiation_invalid', [
+          $this->finding('campaign_source_room_instantiation_invalid', '/hexes/' . $index, 'Published room hex has invalid q/r for H3 projection.'),
+        ]);
+      }
+      $current = strtolower(trim((string) ($hex['h3_index_res14'] ?? $hex['h3_index'] ?? '')));
+      if ($current === '') {
+        $current = $h3_by_coordinate[((int) $hex['q']) . ':' . ((int) $hex['r'])] ?? '';
+      }
+      if ($current === '') {
+        throw new RuntimeGenerationException('campaign_source_room_instantiation_invalid', [
+          $this->finding('campaign_source_room_instantiation_invalid', '/hexes/' . $index, sprintf('room_id=%s hex q=%d r=%d is missing authoritative h3_index_res14.', $room_id, (int) $hex['q'], (int) $hex['r'])),
+        ]);
+      }
+      $hexes[$index]['h3_index_res14'] = $current;
+      $hexes[$index]['h3_index'] = $current;
+    }
+    $room['hexes'] = $hexes;
+    return $room;
   }
 
   /**

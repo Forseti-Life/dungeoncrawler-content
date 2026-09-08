@@ -469,6 +469,67 @@ class CampaignInitializationService {
   }
 
   /**
+   * Instantiate a published canonical dungeon into an existing campaign.
+   *
+   * Runtime generation reconciliation uses this public D-2 path so generated
+   * dungeons are first published as canonical versions, then projected into
+   * campaign runtime tables without a separate runtime dungeon generator.
+   *
+   * @param array{kind:string,dungeon_id:string,version_id:string} $source
+   *   Published dungeon source selector.
+   * @param array<string,mixed> $options
+   *   Options: persist_dungeon (bool, default TRUE), persist_sparse_h3 (bool,
+   *   default TRUE).
+   *
+   * @return array<string,mixed>
+   *   Published source, runtime dungeon id, dungeon_data, rooms, connections.
+   */
+  public function instantiatePublishedDungeonIntoCampaign(
+    int $campaign_id,
+    array $source,
+    ?string $runtime_dungeon_id = NULL,
+    array $options = []
+  ): array {
+    if ($campaign_id <= 0) {
+      throw new \RuntimeException('campaign_source_invalid: campaign_id is required for published dungeon instantiation.');
+    }
+    $now = $this->time->getRequestTime();
+    $published = $this->resolvePublishedDungeonSource($source);
+    $runtime_dungeon_id = trim((string) ($runtime_dungeon_id ?? ''));
+    if ($runtime_dungeon_id === '') {
+      $runtime_dungeon_id = $this->uuid->generate();
+    }
+
+    $transaction = $this->database->startTransaction('published_dungeon_campaign_projection');
+    try {
+      $room_context = $this->canonicalRoomProjection()->instantiatePublishedDungeonCampaignRooms($campaign_id, $published, $now);
+      $connections = $this->seedPublishedDungeonCampaignConnectors($campaign_id, $runtime_dungeon_id, $published, $room_context);
+      $dungeon_data = $this->buildPublishedCampaignDungeonData($runtime_dungeon_id, $published, $room_context['rooms'], $connections, $now);
+
+      if (($options['persist_dungeon'] ?? TRUE) !== FALSE) {
+        $this->persistPublishedCampaignDungeon($campaign_id, $runtime_dungeon_id, $published, $dungeon_data, $now);
+      }
+      if (($options['persist_sparse_h3'] ?? TRUE) !== FALSE) {
+        $this->canonicalRoomProjection()->persistPublishedCampaignSparseH3Mappings($runtime_dungeon_id, $room_context['sparse_h3_rooms'], $now);
+      }
+    }
+    catch (\Throwable $e) {
+      $transaction->rollBack();
+      throw $e;
+    }
+
+    return [
+      'published' => $published,
+      'runtime_dungeon_id' => $runtime_dungeon_id,
+      'dungeon_data' => $dungeon_data,
+      'rooms' => $room_context['rooms'],
+      'rooms_by_placement_id' => $room_context['rooms_by_placement_id'],
+      'connections' => $connections,
+      'room_context' => $room_context,
+    ];
+  }
+
+  /**
    * Record a campaign initialization step claim as the single-flight authority.
    */
   private function claimInitializationStep(
@@ -825,11 +886,20 @@ class CampaignInitializationService {
   /**
    * Persist the campaign dungeon row for a published source.
    */
-  private function createPublishedCampaignDungeon(int $campaign_id, string $runtime_dungeon_id, array $published, array $rooms, array $connections, int $now): void {
+  private function createPublishedCampaignDungeon(int $campaign_id, string $runtime_dungeon_id, array $published, array $rooms, array $connections, int $now): array {
+    $dungeon_data = $this->buildPublishedCampaignDungeonData($runtime_dungeon_id, $published, $rooms, $connections, $now);
+    $this->persistPublishedCampaignDungeon($campaign_id, $runtime_dungeon_id, $published, $dungeon_data, $now);
+    return $dungeon_data;
+  }
+
+  /**
+   * Build the runtime dungeon_data payload for a published source.
+   */
+  private function buildPublishedCampaignDungeonData(string $runtime_dungeon_id, array $published, array $rooms, array $connections, int $now): array {
     $aggregate = $published['aggregate'];
     $entrance_room_id = (string) $published['entrance_placement']['placement_id'];
     $theme = $this->resolvePublishedDungeonTheme($aggregate);
-    $dungeon_data = [
+    return [
       'schema_version' => '1.0.0',
       'source_schema_version' => (string) ($aggregate['schema_version'] ?? ''),
       'dungeon_id' => $runtime_dungeon_id,
@@ -876,6 +946,14 @@ class CampaignInitializationService {
       'rooms' => $rooms,
       'connections' => $connections,
     ];
+  }
+
+  /**
+   * Persist the campaign dungeon row for a published source.
+   */
+  private function persistPublishedCampaignDungeon(int $campaign_id, string $runtime_dungeon_id, array $published, array $dungeon_data, int $now): void {
+    $aggregate = $published['aggregate'];
+    $theme = $this->resolvePublishedDungeonTheme($aggregate);
     $encoded = json_encode($dungeon_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     if (!is_string($encoded)) {
       throw new \RuntimeException(sprintf('campaign_source_room_instantiation_invalid: failed to encode campaign dungeon payload for %s.', $runtime_dungeon_id));
