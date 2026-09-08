@@ -142,14 +142,14 @@ dungeoncrawler_content.menu.explorer_hub_editor_suite:
   parent: dungeoncrawler_content.menu.storyline_explorer
   weight: 6
 
-dungeoncrawler_content.menu.explorer_hub_room_editor:
+dungeoncrawler_content.menu.explorer_hub_room_authoring:
   title: 'Room Editor'
   description: 'Edit canonical room layout, terrain, ports, and placed objects.'
   route_name: dungeoncrawler_content.room_editor
   parent: dungeoncrawler_content.menu.storyline_explorer
   weight: 7
 
-dungeoncrawler_content.menu.explorer_hub_dungeon_editor:
+dungeoncrawler_content.menu.explorer_hub_dungeon_authoring:
   title: 'Dungeon Editor'
   description: 'Edit canonical dungeon topology, room links, and navigation.'
   route_name: dungeoncrawler_content.dungeon_editor
@@ -169,8 +169,8 @@ dungeoncrawler_content.menu.explorer_hub_definition_actors:
   route_name: dungeoncrawler_content.definition_family
   route_parameters:
     family: actor
-  parent: dungeoncrawler_content.menu.explorer_hub_definition_index
-  weight: 1
+  parent: dungeoncrawler_content.menu.storyline_explorer
+  weight: 10
 
 dungeoncrawler_content.menu.explorer_hub_definition_creatures:
   title: 'Creature Definitions'
@@ -178,8 +178,8 @@ dungeoncrawler_content.menu.explorer_hub_definition_creatures:
   route_name: dungeoncrawler_content.definition_family
   route_parameters:
     family: creature
-  parent: dungeoncrawler_content.menu.explorer_hub_definition_index
-  weight: 2
+  parent: dungeoncrawler_content.menu.storyline_explorer
+  weight: 11
 
 dungeoncrawler_content.menu.explorer_hub_definition_items:
   title: 'Item Definitions'
@@ -187,8 +187,8 @@ dungeoncrawler_content.menu.explorer_hub_definition_items:
   route_name: dungeoncrawler_content.definition_family
   route_parameters:
     family: item
-  parent: dungeoncrawler_content.menu.explorer_hub_definition_index
-  weight: 3
+  parent: dungeoncrawler_content.menu.storyline_explorer
+  weight: 12
 
 dungeoncrawler_content.menu.explorer_hub_definition_obstacles:
   title: 'Obstacle Definitions'
@@ -196,8 +196,8 @@ dungeoncrawler_content.menu.explorer_hub_definition_obstacles:
   route_name: dungeoncrawler_content.definition_family
   route_parameters:
     family: obstacle
-  parent: dungeoncrawler_content.menu.explorer_hub_definition_index
-  weight: 4
+  parent: dungeoncrawler_content.menu.storyline_explorer
+  weight: 13
 
 dungeoncrawler_content.menu.explorer_hub_definition_traps:
   title: 'Trap Definitions'
@@ -205,8 +205,8 @@ dungeoncrawler_content.menu.explorer_hub_definition_traps:
   route_name: dungeoncrawler_content.definition_family
   route_parameters:
     family: trap
-  parent: dungeoncrawler_content.menu.explorer_hub_definition_index
-  weight: 5
+  parent: dungeoncrawler_content.menu.storyline_explorer
+  weight: 14
 
 dungeoncrawler_content.menu.explorer_hub_definition_hazards:
   title: 'Hazard Definitions'
@@ -214,8 +214,8 @@ dungeoncrawler_content.menu.explorer_hub_definition_hazards:
   route_name: dungeoncrawler_content.definition_family
   route_parameters:
     family: hazard
-  parent: dungeoncrawler_content.menu.explorer_hub_definition_index
-  weight: 6
+  parent: dungeoncrawler_content.menu.storyline_explorer
+  weight: 15
 
 dungeoncrawler_content.menu.character_setup:
   title: 'Character Setup'

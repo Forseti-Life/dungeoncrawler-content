@@ -151,8 +151,8 @@ class EditorSuiteContractTest extends TestCase {
     $this->assertSame([
       'dungeoncrawler_content.menu.editor_suite',
       'dungeoncrawler_content.menu.explorer_hub_editor_suite',
-      'dungeoncrawler_content.menu.explorer_hub_room_editor',
-      'dungeoncrawler_content.menu.explorer_hub_dungeon_editor',
+      'dungeoncrawler_content.menu.explorer_hub_room_authoring',
+      'dungeoncrawler_content.menu.explorer_hub_dungeon_authoring',
       'dungeoncrawler_content.menu.explorer_hub_definition_index',
       'dungeoncrawler_content.menu.explorer_hub_definition_actors',
       'dungeoncrawler_content.menu.explorer_hub_definition_creatures',
@@ -165,8 +165,8 @@ class EditorSuiteContractTest extends TestCase {
     $this->assertSame('system.admin_content', $to_editors['dungeoncrawler_content.menu.editor_suite']['parent']);
     $this->assertArrayNotHasKey('menu_name', $to_editors['dungeoncrawler_content.menu.editor_suite']);
     $this->assertSame('dungeoncrawler_content.menu.storyline_explorer', $to_editors['dungeoncrawler_content.menu.explorer_hub_editor_suite']['parent']);
-    $this->assertSame('dungeoncrawler_content.menu.storyline_explorer', $to_editors['dungeoncrawler_content.menu.explorer_hub_room_editor']['parent']);
-    $this->assertSame('dungeoncrawler_content.menu.storyline_explorer', $to_editors['dungeoncrawler_content.menu.explorer_hub_dungeon_editor']['parent']);
+    $this->assertSame('dungeoncrawler_content.menu.storyline_explorer', $to_editors['dungeoncrawler_content.menu.explorer_hub_room_authoring']['parent']);
+    $this->assertSame('dungeoncrawler_content.menu.storyline_explorer', $to_editors['dungeoncrawler_content.menu.explorer_hub_dungeon_authoring']['parent']);
     $this->assertSame('dungeoncrawler_content.menu.storyline_explorer', $to_editors['dungeoncrawler_content.menu.explorer_hub_definition_index']['parent']);
     foreach ([
       'dungeoncrawler_content.menu.explorer_hub_definition_actors' => 'actor',
@@ -176,7 +176,7 @@ class EditorSuiteContractTest extends TestCase {
       'dungeoncrawler_content.menu.explorer_hub_definition_traps' => 'trap',
       'dungeoncrawler_content.menu.explorer_hub_definition_hazards' => 'hazard',
     ] as $id => $family) {
-      $this->assertSame('dungeoncrawler_content.menu.explorer_hub_definition_index', $to_editors[$id]['parent']);
+      $this->assertSame('dungeoncrawler_content.menu.storyline_explorer', $to_editors[$id]['parent']);
       $this->assertSame(['family' => $family], $to_editors[$id]['route_parameters']);
     }
 
