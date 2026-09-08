@@ -4812,50 +4812,47 @@ function dungeoncrawler_content_update_10197() {
     ->condition('audit_hook', 'update_10197')
     ->execute();
 
-  $subjects = [];
-  $versions = $database->select('dungeoncrawler_content_room_versions', 'v')
-    ->fields('v', ['version_id', 'room_id', 'room_payload'])
+  $query = $database->select('dungeoncrawler_content_rooms', 'r');
+  $query->innerJoin('dungeoncrawler_content_room_versions', 'v', 'v.version_id = r.published_version_id');
+  $subjects = $query
+    ->fields('r', ['room_id'])
+    ->fields('v', ['version_id', 'room_payload'])
+    ->condition('r.publication_status', 'published')
+    ->isNotNull('r.published_version_id')
     ->execute();
-  foreach ($versions as $row) {
-    $subjects[] = ['type' => 'room_version', 'id' => (string) $row->version_id, 'room_id' => (string) $row->room_id, 'payload' => (string) $row->room_payload];
-  }
-  $drafts = $database->select('dungeoncrawler_content_room_editor_drafts', 'd')
-    ->fields('d', ['draft_id', 'room_id', 'room_payload'])
-    ->condition('status', 'active')
-    ->execute();
-  foreach ($drafts as $row) {
-    $subjects[] = ['type' => 'room_draft', 'id' => (string) $row->draft_id, 'room_id' => (string) $row->room_id, 'payload' => (string) $row->room_payload];
-  }
 
   $checked = 0;
   $flagged = 0;
   $rooms = [];
 
   foreach ($subjects as $subject) {
-    $room = json_decode($subject['payload'], TRUE);
+    $room_id = (string) $subject->room_id;
+    $version_id = (string) $subject->version_id;
+    $room = json_decode((string) $subject->room_payload, TRUE, 512, JSON_THROW_ON_ERROR);
     if (!is_array($room)) {
-      continue;
+      throw new \RuntimeException(sprintf('update_10197_room_payload_invalid:%s:%s', $room_id, $version_id));
     }
     $footprint = [];
-    foreach ((array) ($room['hexes'] ?? []) as $hex) {
-      if (isset($hex['q'], $hex['r'])) {
-        $footprint[(int) $hex['q'] . ',' . (int) $hex['r']] = TRUE;
+    foreach ((array) ($room['hexes'] ?? []) as $index => $hex) {
+      if (!is_array($hex) || !isset($hex['q'], $hex['r'])) {
+        throw new \RuntimeException(sprintf('update_10197_hex_invalid:%s:%s:%s', $room_id, $version_id, (string) $index));
       }
+      $footprint[(int) $hex['q'] . ',' . (int) $hex['r']] = TRUE;
     }
     if ($footprint === []) {
-      continue;
+      throw new \RuntimeException(sprintf('update_10197_empty_footprint:%s:%s', $room_id, $version_id));
     }
 
     foreach (['entry_ports', 'exit_ports'] as $collection) {
-      foreach ((array) ($room[$collection] ?? []) as $port) {
+      foreach ((array) ($room[$collection] ?? []) as $index => $port) {
         if (!isset($port['hex']['q'], $port['hex']['r'], $port['edge'], $port['port_id'])) {
-          continue;
+          throw new \RuntimeException(sprintf('update_10197_port_invalid:%s:%s:%s:%s', $room_id, $version_id, $collection, (string) $index));
         }
         $checked++;
         $hex = ['q' => (int) $port['hex']['q'], 'r' => (int) $port['hex']['r']];
         $edge = (int) $port['edge'];
         if ($edge < 0 || $edge > 5) {
-          continue;
+          throw new \RuntimeException(sprintf('update_10197_port_edge_invalid:%s:%s:%s:%s', $room_id, $version_id, $collection, (string) $port['port_id']));
         }
         $outside = \Drupal\dungeoncrawler_content\Geometry\RoomPlacementTransformer::neighbor($hex, $edge);
         $key = $outside['q'] . ',' . $outside['r'];
@@ -4864,18 +4861,18 @@ function dungeoncrawler_content_update_10197() {
         }
 
         $flagged++;
-        $rooms[$subject['room_id']] = TRUE;
+        $rooms[$room_id] = TRUE;
         $database->merge('dungeoncrawler_content_editor_review_flags')
           ->keys([
             'flag' => 'edge_review_required',
-            'subject_type' => $subject['type'],
-            'subject_id' => $subject['id'],
+            'subject_type' => 'room_version',
+            'subject_id' => $version_id,
             'detail_key' => $collection . ':' . (string) $port['port_id'],
           ])
           ->fields([
             'finding' => json_encode([
               'code' => 'port_edge_unverified',
-              'room_id' => $subject['room_id'],
+              'room_id' => $room_id,
               'port_id' => (string) $port['port_id'],
               'hex' => $hex,
               'edge' => $edge,
@@ -4894,7 +4891,7 @@ function dungeoncrawler_content_update_10197() {
     ['@checked' => $checked, '@flagged' => $flagged, '@rooms' => count($rooms)]
   );
 
-  return t('Port edge audit checked @checked ports and flagged @flagged across @rooms rooms. No value was rewritten.', [
+  return t('Port edge audit checked @checked current published ports and flagged @flagged across @rooms rooms. No value was rewritten.', [
     '@checked' => (string) $checked,
     '@flagged' => (string) $flagged,
     '@rooms' => (string) count($rooms),

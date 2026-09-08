@@ -2,6 +2,11 @@
 
 namespace Drupal\Tests\dungeoncrawler_content\Unit\Schema;
 
+use Drupal\Component\Uuid\UuidInterface;
+use Drupal\Core\Database\Connection;
+use Drupal\Core\Session\AccountProxyInterface;
+use Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService;
+use Drupal\dungeoncrawler_content\Service\RoomEditorService;
 use Drupal\Tests\UnitTestCase;
 use Symfony\Component\Yaml\Yaml;
 
@@ -348,6 +353,70 @@ class RoomEditorContractTest extends UnitTestCase {
   }
 
   /**
+   * Commands may repair legacy findings but may not introduce new ones.
+   */
+  public function testRoomEditorCommandContractAllowsOnlyPreExistingErrors(): void {
+    $service = $this->roomEditorService();
+    $assert_no_new_errors = new \ReflectionMethod(RoomEditorService::class, 'assertNoIntroducedValidationErrors');
+    $assert_no_new_errors->setAccessible(TRUE);
+
+    $legacy = $this->legacyRoomWithTwoBadPortEdges();
+    $this->assertSame(
+      ['port_edge_not_boundary', 'port_edge_not_boundary'],
+      array_column($service->validateAggregate($legacy)['errors'], 'code')
+    );
+
+    $one_fixed = $legacy;
+    $one_fixed['entry_ports'][0]['edge'] = 3;
+    $assert_no_new_errors->invoke($service, $legacy, $one_fixed);
+    $this->assertSame(['port_edge_not_boundary'], array_column($service->validateAggregate($one_fixed)['errors'], 'code'));
+
+    $both_fixed = $one_fixed;
+    $both_fixed['exit_ports'][0]['edge'] = 0;
+    $assert_no_new_errors->invoke($service, $one_fixed, $both_fixed);
+    $this->assertSame([], $service->validateAggregate($both_fixed)['errors']);
+
+    $introduced = $both_fixed;
+    $introduced['entry_ports'][0]['edge'] = 0;
+    $this->expectException(\DomainException::class);
+    $this->expectExceptionMessage('port_edge_not_boundary');
+    $assert_no_new_errors->invoke($service, $both_fixed, $introduced);
+  }
+
+  /**
+   * A repair is rejected when it adds a different validation error.
+   */
+  public function testRoomEditorCommandContractRejectsRepairThatBreaksAnotherField(): void {
+    $service = $this->roomEditorService();
+    $assert_no_new_errors = new \ReflectionMethod(RoomEditorService::class, 'assertNoIntroducedValidationErrors');
+    $assert_no_new_errors->setAccessible(TRUE);
+
+    $legacy = $this->legacyRoomWithTwoBadPortEdges();
+    $changed = $legacy;
+    $changed['entry_ports'][0]['edge'] = 3;
+    $changed['name'] = '';
+
+    $this->expectException(\DomainException::class);
+    $this->expectExceptionMessage('room_name_invalid');
+    $assert_no_new_errors->invoke($service, $legacy, $changed);
+  }
+
+  /**
+   * Simulation is pinned to the same introduced-error rule as applyCommand().
+   */
+  public function testRoomEditorSimulationUsesApplyCommandValidationContract(): void {
+    $service = (string) file_get_contents(dirname(__DIR__, 4) . '/src/Service/RoomEditorService.php');
+    $this->assertMatchesRegularExpression(
+      '/public function applyCommand\(.*?assertNoIntroducedValidationErrors/s',
+      $service
+    );
+    $this->assertMatchesRegularExpression(
+      '/public function simulateCommands\(.*?assertNoIntroducedValidationErrors/s',
+      $service
+    );
+  }
+
+  /**
    * Verifies fresh installs and update paths define all persistence.
    */
   public function testInstallDefinesRoomEditorPersistenceAndUpdates(): void {
@@ -363,6 +432,58 @@ class RoomEditorContractTest extends UnitTestCase {
     ] as $needle) {
       $this->assertStringContainsString($needle, $install);
     }
+  }
+
+  private function roomEditorService(): RoomEditorService {
+    return new RoomEditorService(
+      $this->createMock(Connection::class),
+      $this->createMock(AccountProxyInterface::class),
+      $this->createMock(UuidInterface::class),
+      $this->createMock(CanonicalDefinitionService::class),
+    );
+  }
+
+  private function legacyRoomWithTwoBadPortEdges(): array {
+    return [
+      'schema_version' => 'canonical-room-v1',
+      'room_id' => 'contract_room',
+      'name' => 'Contract Room',
+      'description' => 'A contract test room.',
+      'room_type' => 'chamber',
+      'size_category' => 'small',
+      'hexes' => [
+        ['q' => 0, 'r' => 0, 'terrain_type' => 'stone_floor', 'elevation_ft' => 0, 'lighting' => 'bright_light'],
+        ['q' => 1, 'r' => 0, 'terrain_type' => 'stone_floor', 'elevation_ft' => 0, 'lighting' => 'bright_light'],
+      ],
+      'terrain' => ['type' => 'stone_floor'],
+      'lighting' => ['level' => 'bright_light', 'light_sources' => []],
+      'entry_ports' => [[
+        'port_id' => 'entry-1',
+        'hex' => ['q' => 0, 'r' => 0],
+        'edge' => 0,
+        'label' => 'Entry',
+        'arrival_facing' => 0,
+        'is_default' => TRUE,
+        'tags' => [],
+      ]],
+      'exit_ports' => [[
+        'port_id' => 'exit-1',
+        'hex' => ['q' => 1, 'r' => 0],
+        'edge' => 3,
+        'label' => 'Exit',
+        'kind' => 'door',
+        'direction' => 'bidirectional',
+        'default_state' => 'open',
+        'destination_hint' => NULL,
+        'linked_placement_id' => NULL,
+        'requirements' => [],
+        'tags' => [],
+      ]],
+      'placements' => [],
+      'environmental_effects' => [],
+      'gameplay_defaults' => ['safe_for_rest' => FALSE, 'visibility' => 'visible'],
+      'metadata' => ['tags' => [], 'provenance' => ['source' => 'contract-test']],
+    ];
   }
 
 }

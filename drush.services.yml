@@ -89,3 +89,12 @@ services:
       - '@datetime.time'
     tags:
       - { name: drush.command }
+
+  dungeoncrawler_content.commands.room_port_edge_policy:
+    class: Drupal\dungeoncrawler_content\Commands\RoomPortEdgePolicyCommands
+    arguments:
+      - '@dungeoncrawler_content.room_editor'
+      - '@database'
+      - '@uuid'
+    tags:
+      - { name: drush.command }

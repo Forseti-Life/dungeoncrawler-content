@@ -222,10 +222,7 @@ class RoomEditorService {
 
       $before = json_decode($row['room_payload'], TRUE, 512, JSON_THROW_ON_ERROR);
       $after = $this->mutate($before, $type, $payload, $draft_id);
-      $findings = $this->validateAggregate($after);
-      if ($findings['errors']) {
-        throw new \DomainException($findings['errors'][0]['code']);
-      }
+      $this->assertNoIntroducedValidationErrors($before, $after);
       $encoded = $this->encodeRoom($after);
       $hash = hash('sha256', $encoded);
       $revision = ((int) $row['revision']) + 1;
@@ -489,6 +486,7 @@ class RoomEditorService {
         if ($index === NULL) {
           throw new \DomainException('hex_not_found');
         }
+        $room['hexes'][$index] = $this->mergeHexFixedData($room['hexes'][$index], $payload['hex']);
         if ($type === 'set_hex_terrain') {
           $room['hexes'][$index]['terrain_type'] = (string) ($payload['terrain_type'] ?? '');
         }
@@ -1001,7 +999,9 @@ class RoomEditorService {
         throw new \InvalidArgumentException(sprintf('command_step_payload_invalid:%d', $step));
       }
       try {
-        $room = $this->mutate($room, $type, $payload, $draft_id);
+        $candidate = $this->mutate($room, $type, $payload, $draft_id);
+        $this->assertNoIntroducedValidationErrors($room, $candidate);
+        $room = $candidate;
         $steps[] = ['step' => $step, 'command_type' => $type, 'applies' => TRUE, 'error' => NULL];
       }
       catch (\Throwable $exception) {
@@ -1032,6 +1032,42 @@ class RoomEditorService {
         'warnings' => $findings['warnings'],
       ],
     ];
+  }
+
+  /**
+   * Rejects a command only when its result introduces new validation errors.
+   */
+  private function assertNoIntroducedValidationErrors(array $before, array $after): void {
+    $introduced = $this->introducedValidationErrors($before, $after);
+    if ($introduced !== []) {
+      throw new \DomainException((string) $introduced[0]['code']);
+    }
+  }
+
+  /**
+   * Validation errors in $after not already present in $before.
+   *
+   * Error identity is the public editor contract tuple: code plus path. The
+   * complete validation result still reports every finding to readers; this
+   * method only controls whether one mutation is allowed to proceed.
+   */
+  private function introducedValidationErrors(array $before, array $after): array {
+    $existing = [];
+    foreach ($this->validateAggregate($before)['errors'] as $error) {
+      $existing[$this->validationErrorKey($error)] = TRUE;
+    }
+
+    $introduced = [];
+    foreach ($this->validateAggregate($after)['errors'] as $error) {
+      if (!isset($existing[$this->validationErrorKey($error)])) {
+        $introduced[] = $error;
+      }
+    }
+    return $introduced;
+  }
+
+  private function validationErrorKey(array $error): string {
+    return (string) ($error['code'] ?? '') . "\n" . (string) ($error['path'] ?? '');
   }
 
   /**
@@ -1116,6 +1152,30 @@ class RoomEditorService {
       }
     }
     return $normalized;
+  }
+
+  private function mergeHexFixedData(array $hex, mixed $source): array {
+    if (!is_array($source)) {
+      throw new \InvalidArgumentException('hex_invalid');
+    }
+    foreach ([
+      'h3_index_res14',
+      'h3_index',
+      'lat',
+      'lng',
+      'is_entry',
+      'is_discovered',
+      'is_visible',
+      'movement_cost',
+      'elevation',
+      'objects',
+      'metadata',
+    ] as $field) {
+      if (array_key_exists($field, $source)) {
+        $hex[$field] = $source[$field];
+      }
+    }
+    return $hex;
   }
 
   /**
