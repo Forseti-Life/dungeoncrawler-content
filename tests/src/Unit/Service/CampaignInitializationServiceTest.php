@@ -14,6 +14,7 @@ use Drupal\Core\Logger\LoggerChannelInterface;
 use Drupal\dungeoncrawler_content\Service\CampaignInitializationService;
 use Drupal\dungeoncrawler_content\Service\CampaignClockService;
 use Drupal\dungeoncrawler_content\Service\CampaignNameGeneratorService;
+use Drupal\dungeoncrawler_content\Service\Generation\CanonicalRoomProjectionService;
 use Drupal\dungeoncrawler_content\Service\NpcSheetGenerationService;
 use Drupal\dungeoncrawler_content\Service\QuestGeneratorService;
 use Drupal\dungeoncrawler_content\Service\RoomViewImageService;
@@ -207,32 +208,36 @@ class CampaignInitializationServiceTest extends UnitTestCase {
   }
 
   /**
-   * @covers ::buildPublishedCampaignRoomLayout
-   * @covers ::buildPublishedCampaignRoomContents
-   * @covers ::assertPublishedCampaignRoomPersistencePayload
+   * @covers \Drupal\dungeoncrawler_content\Service\Generation\CanonicalRoomProjectionService::buildRuntimeRoom
    */
   public function testPublishedDungeonRoomInstantiationPreservesMetadataInsideLayoutData(): void {
-    $service = (new \ReflectionClass(CampaignInitializationService::class))
-      ->newInstanceWithoutConstructor();
-    $layout_method = new \ReflectionMethod(CampaignInitializationService::class, 'buildPublishedCampaignRoomLayout');
-    $contents_method = new \ReflectionMethod(CampaignInitializationService::class, 'buildPublishedCampaignRoomContents');
-    $assert_method = new \ReflectionMethod(CampaignInitializationService::class, 'assertPublishedCampaignRoomPersistencePayload');
-    $layout_method->setAccessible(TRUE);
-    $contents_method->setAccessible(TRUE);
-    $assert_method->setAccessible(TRUE);
+    $service = new CanonicalRoomProjectionService();
     $room = $this->publishedRoomFixture();
     $placement = [
       'placement_id' => '22222222-2222-4222-8222-222222222222',
       'room_id' => 'd2_fixture_room_a',
       'version_id' => '11111111-1111-4111-8111-111111111111',
     ];
-    $version_row = ['version' => '1.0.0'];
+    $version_row = [
+      'room_id' => 'd2_fixture_room_a',
+      'version_id' => '11111111-1111-4111-8111-111111111111',
+      'version' => '1.0.0',
+    ];
 
-    $layout = $layout_method->invoke($service, $room, $placement, $version_row);
-    $contents = $contents_method->invoke($service, $room, $placement, $version_row);
+    $runtime = $service->buildRuntimeRoom([
+      'room_id' => 'd2_fixture_room_a',
+      'room_version_id' => '11111111-1111-4111-8111-111111111111',
+      'room_payload' => $room,
+      'row' => $version_row,
+    ], [
+      'runtime_room_id' => '22222222-2222-4222-8222-222222222222',
+      'placement' => $placement,
+      'source_kind' => 'published_dungeon',
+    ]);
+    $layout = $runtime['_layout_data'];
+    $contents = $runtime['_contents_data'];
     $decoded_layout = json_decode(json_encode($layout, JSON_THROW_ON_ERROR), TRUE, 512, JSON_THROW_ON_ERROR);
     $decoded_contents = json_decode(json_encode($contents, JSON_THROW_ON_ERROR), TRUE, 512, JSON_THROW_ON_ERROR);
-    $assert_method->invoke($service, $placement, $room, $decoded_layout, $decoded_contents);
 
     $this->assertSame('D-2 Room A', $decoded_layout['metadata']['module_source']['licence_notice']);
     $this->assertSame('d2_fixture_room_a', $decoded_layout['metadata']['campaign_source']['source_room_id']);
@@ -240,13 +245,10 @@ class CampaignInitializationServiceTest extends UnitTestCase {
   }
 
   /**
-   * @covers ::buildPublishedCampaignSparseH3Room
+   * @covers \Drupal\dungeoncrawler_content\Service\Generation\CanonicalRoomProjectionService::buildPublishedCampaignSparseH3Room
    */
   public function testPublishedDungeonSparseH3MappingsUseTransformedLevelSpace(): void {
-    $service = (new \ReflectionClass(CampaignInitializationService::class))
-      ->newInstanceWithoutConstructor();
-    $method = new \ReflectionMethod(CampaignInitializationService::class, 'buildPublishedCampaignSparseH3Room');
-    $method->setAccessible(TRUE);
+    $service = new CanonicalRoomProjectionService();
 
     $room = $this->publishedRoomFixture();
     $room['hexes'] = [
@@ -262,7 +264,7 @@ class CampaignInitializationServiceTest extends UnitTestCase {
       'rotation_steps' => 0,
     ];
 
-    $sparse_room = $method->invoke($service, $placement, $room);
+    $sparse_room = $service->buildPublishedCampaignSparseH3Room($placement, $room);
 
     $this->assertSame('22222222-2222-4222-8222-222222222222', $sparse_room['room_id']);
     $this->assertSame(['q' => 5, 'r' => -2, 'h3_index_res14' => '8f0000000000001', 'lat' => NULL, 'lng' => NULL], $sparse_room['anchor']);

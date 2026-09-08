@@ -3,8 +3,12 @@
 namespace Drupal\dungeoncrawler_content\Service;
 
 use Drupal\Core\Database\Connection;
+use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\dungeoncrawler_content\Support\H3SpatialHelper;
+use Drupal\dungeoncrawler_content\Service\Generation\CanonicalRoomProjectionService;
+use Drupal\dungeoncrawler_content\Service\Generation\RuntimeCanonicalContentResolver;
+use Drupal\dungeoncrawler_content\Service\Generation\RuntimeGenerationException;
 use Drupal\ai_conversation\Service\AIApiService;
 use Psr\Log\LoggerInterface;
 
@@ -40,6 +44,9 @@ class MapGeneratorService {
   protected NpcSheetGenerationService $npcSheetGenerationService;
   protected StateValidationService $stateValidationService;
   protected ?NavigationService $navigationService;
+  protected ?RuntimeCanonicalContentResolver $runtimeCanonicalContentResolver;
+  protected ?CanonicalRoomProjectionService $canonicalRoomProjection;
+  protected ?ConfigFactoryInterface $configFactory;
   protected const NAVIGATION_RECEIPT_SCHEMA_VERSION = 'navigation-receipt-v2';
   protected const MIN_ROOM_GAP_HEXES = 5;
   protected const H3_ACTIVE_RESOLUTION = 14;
@@ -111,7 +118,10 @@ class MapGeneratorService {
     RoomStateService $room_state_service,
     NpcSheetGenerationService $npc_sheet_generation_service,
     StateValidationService $state_validation_service,
-    ?NavigationService $navigation_service = NULL
+    ?NavigationService $navigation_service = NULL,
+    ?RuntimeCanonicalContentResolver $runtime_canonical_content_resolver = NULL,
+    ?CanonicalRoomProjectionService $canonical_room_projection = NULL,
+    ?ConfigFactoryInterface $config_factory = NULL
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler_map_gen');
@@ -121,6 +131,9 @@ class MapGeneratorService {
     $this->npcSheetGenerationService = $npc_sheet_generation_service;
     $this->stateValidationService = $state_validation_service;
     $this->navigationService = $navigation_service;
+    $this->runtimeCanonicalContentResolver = $runtime_canonical_content_resolver;
+    $this->canonicalRoomProjection = $canonical_room_projection;
+    $this->configFactory = $config_factory;
   }
 
   /**
@@ -313,6 +326,18 @@ class MapGeneratorService {
       ?? $dungeon_data['generation_rules']['party_level_target']
       ?? 1;
 
+    if ($this->canonicalRuntimeGenerationR2Enabled()) {
+      return $this->generateSettingFromCanonicalRoom(
+        $campaign_id,
+        (string) $dungeon_id,
+        $destination,
+        $origin_room_id,
+        $dungeon_data,
+        (int) $party_level,
+        $narrative_context
+      );
+    }
+
     // Step 1: Check the setting template library for an adequate match.
     $template_id = NULL;
     $source = 'ai_generated';
@@ -481,6 +506,145 @@ class MapGeneratorService {
       'source' => $source,
       'template_id' => $template_id,
     ];
+  }
+
+  /**
+   * Resolve navigation expansion through published canonical room projection.
+   *
+   * R2 default path: select deterministic canonical content or hard-fail with
+   * runtime_selection_failed. It never falls through to the legacy setting
+   * template or AI setting generator after a selection miss.
+   */
+  protected function generateSettingFromCanonicalRoom(
+    int $campaign_id,
+    string $dungeon_id,
+    string $destination,
+    string $origin_room_id,
+    array $dungeon_data,
+    int $party_level,
+    array $narrative_context
+  ): array {
+    if (!$this->runtimeCanonicalContentResolver || !$this->canonicalRoomProjection) {
+      throw new RuntimeGenerationException('runtime_selection_failed', [[
+        'code' => 'runtime_selection_failed',
+        'pointer' => '/services',
+        'message' => 'Runtime canonical resolver/projection services are required for R2.',
+        'severity' => 'error',
+      ]], 500);
+    }
+
+    $criteria = [
+      'tags' => array_values(array_unique(array_merge(
+        $this->extractSearchKeywords($destination),
+        $this->extractSearchKeywords((string) ($narrative_context['campaign_theme'] ?? '')),
+        [$this->inferSettingType($destination) ?: '']
+      ))),
+      'room_type' => $this->settingTypeToRoomType($this->inferSettingType($destination) ?: 'default'),
+      'terrain_type' => (string) ((self::TERRAIN_MAP[$this->inferSettingType($destination) ?: 'default'] ?? self::TERRAIN_MAP['default'])['type'] ?? ''),
+      'min_entry_ports' => 1,
+      'min_exit_ports' => 1,
+      'seed' => $this->runtimeSelectionSeed($destination, $party_level, $narrative_context),
+    ];
+    $resolved = $this->runtimeCanonicalContentResolver->selectPublishedRoom($criteria);
+    $runtime_room = $this->canonicalRoomProjection->buildRuntimeRoom($resolved, [
+      'source_kind' => !empty($resolved['room_payload']['metadata']['runtime_generated']) ? 'runtime_generated' : 'published_room',
+    ]);
+    $placement_result = $this->placeRoomWithMinimumGap(
+      $runtime_room,
+      is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : [],
+      self::MIN_ROOM_GAP_HEXES
+    );
+    $room = $this->ensureRoomHexH3Indexes($dungeon_id, $placement_result['room']);
+    $room['_layout_data'] = $this->buildCanonicalCampaignRoomLayoutPayload($room);
+    $room['_layout_data']['metadata'] = is_array($room['metadata'] ?? NULL) ? $room['metadata'] : [];
+    $room['_contents_data'] = is_array($runtime_room['_contents_data'] ?? NULL) ? $runtime_room['_contents_data'] : [];
+    $room['_environment_tags'] = is_array($runtime_room['_environment_tags'] ?? NULL) ? $runtime_room['_environment_tags'] : [];
+
+    $setting = [
+      'setting_type' => $this->inferSettingType($destination) ?: 'default',
+      'size' => (string) ($room['size_category'] ?? 'medium'),
+      'lighting' => is_string($room['lighting'] ?? NULL) ? $room['lighting'] : (string) ($room['lighting']['level'] ?? 'normal_light'),
+      'theme_tags' => $criteria['tags'],
+      'atmosphere' => '',
+      'npcs' => [],
+      'objects' => [],
+      'source_room_id' => (string) ($room['source_room_id'] ?? ''),
+      'source_room_version_id' => (string) ($room['source_room_version_id'] ?? ''),
+    ];
+
+    $entities = [];
+    $room_index = -1;
+    $this->executeNavigationPersistenceTransaction(function () use (
+      &$dungeon_data,
+      &$room_index,
+      $campaign_id,
+      $dungeon_id,
+      $origin_room_id,
+      $room,
+      $setting
+    ): void {
+      $dungeon_data['rooms'][] = $room;
+      $room_index = array_key_last($dungeon_data['rooms']);
+      $this->createRoomConnection($dungeon_data, $origin_room_id, (string) $room['room_id']);
+      $this->syncCampaignConnectionRows($campaign_id, $dungeon_id, $origin_room_id, (string) $room['room_id']);
+      $this->assertNavigationConnectionParity(
+        $campaign_id,
+        $dungeon_id,
+        $origin_room_id,
+        (string) $room['room_id'],
+        $dungeon_data
+      );
+      $this->addRegionToHexMap($dungeon_data, $room);
+      $this->database->update('dc_campaign_dungeons')
+        ->fields([
+          'dungeon_data' => json_encode($dungeon_data),
+          'updated' => time(),
+        ])
+        ->condition('dungeon_id', $dungeon_id)
+        ->condition('campaign_id', $campaign_id)
+        ->execute();
+      $this->recordCampaignSettingInstance(
+        $campaign_id,
+        (string) $room['room_id'],
+        NULL,
+        (string) ($room['name'] ?? $room['room_id']),
+        (string) $setting['setting_type'],
+        $room_index,
+        $setting
+      );
+      $this->canonicalRoomProjection->persistProjectedRoom($campaign_id, $room);
+      $this->roomStateService->setState($campaign_id, (string) $room['room_id'], $dungeon_id, [
+        'roomId' => (string) $room['room_id'],
+        'dungeonId' => $dungeon_id,
+        'explored' => TRUE,
+        'visibility' => 'visible',
+        'isCleared' => FALSE,
+      ], NULL);
+    });
+
+    return [
+      'room' => $dungeon_data['rooms'][$room_index] ?? $room,
+      'room_index' => $room_index,
+      'entities' => $entities,
+      'dungeon_data' => $dungeon_data,
+      'source' => 'canonical_room',
+      'template_id' => NULL,
+      'room_version_id' => $resolved['room_version_id'],
+    ];
+  }
+
+  protected function canonicalRuntimeGenerationR2Enabled(): bool {
+    if (!$this->configFactory) {
+      return FALSE;
+    }
+    return $this->configFactory->get('dungeoncrawler_content.settings')->get('canonical_runtime_generation.r2') !== FALSE;
+  }
+
+  protected function runtimeSelectionSeed(string $destination, int $party_level, array $context): int {
+    if (isset($context['seed']) && is_numeric($context['seed'])) {
+      return max(0, min(2147483647, (int) $context['seed']));
+    }
+    return (int) (sprintf('%u', crc32(strtolower($destination) . ':' . $party_level)) % 2147483647);
   }
 
   /**

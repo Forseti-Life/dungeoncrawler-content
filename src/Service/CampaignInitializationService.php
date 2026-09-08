@@ -11,12 +11,14 @@ use Drupal\Core\Extension\ModuleExtensionList;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\dungeoncrawler_content\Exception\QuestTemplateReferenceIntegrityException;
 use Drupal\dungeoncrawler_content\Geometry\RoomPlacementTransformer;
+use Drupal\dungeoncrawler_content\Service\Generation\CanonicalRoomProjectionService;
+use Drupal\dungeoncrawler_content\Service\Generation\RuntimeCanonicalContentResolver;
+use Drupal\dungeoncrawler_content\Support\H3SpatialHelper;
 use Psr\Log\LoggerInterface;
 use Drupal\dungeoncrawler_content\Service\QuestGeneratorService;
 use Drupal\dungeoncrawler_content\Service\ChatSessionManager;
 use Drupal\dungeoncrawler_content\Service\StorylineManagerService;
 use Drupal\dungeoncrawler_content\Service\RelationshipManagerService;
-use Drupal\dungeoncrawler_content\Support\H3SpatialHelper;
 
 /**
  * Orchestrates complete campaign initialization with default dungeon and rooms.
@@ -72,6 +74,8 @@ class CampaignInitializationService {
   protected CampaignClockService $campaignClockService;
   protected ConfigFactoryInterface $configFactory;
   protected ?DungeonEditorService $dungeonEditor;
+  protected ?RuntimeCanonicalContentResolver $runtimeCanonicalContentResolver;
+  protected ?CanonicalRoomProjectionService $canonicalRoomProjection;
 
   public function __construct(
     Connection $database,
@@ -93,7 +97,9 @@ class CampaignInitializationService {
     ?H3ProjectionQueueService $h3_projection_queue = NULL,
     ?StarterProjectionArtifactRegistryService $starter_projection_artifact_registry = NULL,
     ?ConfigFactoryInterface $config_factory = NULL,
-    ?DungeonEditorService $dungeon_editor = NULL
+    ?DungeonEditorService $dungeon_editor = NULL,
+    ?RuntimeCanonicalContentResolver $runtime_canonical_content_resolver = NULL,
+    ?CanonicalRoomProjectionService $canonical_room_projection = NULL
   ) {
     $this->database = $database;
     $this->uuid = $uuid;
@@ -115,6 +121,8 @@ class CampaignInitializationService {
     $this->starterProjectionArtifactRegistry = $starter_projection_artifact_registry;
     $this->storylineQuestLifecycleService = $storyline_quest_lifecycle_service;
     $this->dungeonEditor = $dungeon_editor;
+    $this->runtimeCanonicalContentResolver = $runtime_canonical_content_resolver;
+    $this->canonicalRoomProjection = $canonical_room_projection;
   }
 
   /**
@@ -381,7 +389,7 @@ class CampaignInitializationService {
       $this->claimInitializationStep($campaign_id, $operation_uuid, self::INIT_STEP_BOOTSTRAP, $now);
 
       $phase = 'instantiate_published_dungeon_rooms';
-      $room_context = $this->instantiatePublishedDungeonCampaignRooms($campaign_id, $published, $now);
+      $room_context = $this->canonicalRoomProjection()->instantiatePublishedDungeonCampaignRooms($campaign_id, $published, $now);
 
       $phase = 'seed_published_dungeon_connectors';
       $connections = $this->seedPublishedDungeonCampaignConnectors($campaign_id, $runtime_dungeon_id, $published, $room_context);
@@ -390,7 +398,7 @@ class CampaignInitializationService {
       $this->createPublishedCampaignDungeon($campaign_id, $runtime_dungeon_id, $published, $room_context['rooms'], $connections, $now);
 
       $phase = 'persist_published_sparse_h3_mappings';
-      $this->persistPublishedCampaignSparseH3Mappings($runtime_dungeon_id, $room_context['sparse_h3_rooms'], $now);
+      $this->canonicalRoomProjection()->persistPublishedCampaignSparseH3Mappings($runtime_dungeon_id, $room_context['sparse_h3_rooms'], $now);
 
       $entrance_room_id = (string) $entrance_placement['placement_id'];
       $entrance_room = $room_context['rooms_by_placement_id'][$entrance_room_id] ?? NULL;
@@ -602,136 +610,7 @@ class CampaignInitializationService {
    *   Resolved source context.
    */
   private function resolvePublishedDungeonSource(array $source): array {
-    if (!$this->dungeonEditor) {
-      throw new \RuntimeException('campaign_source_invalid: DungeonEditorService is required for published_dungeon source resolution.');
-    }
-
-    $dungeon_id = trim((string) $source['dungeon_id']);
-    $version_id = trim((string) $source['version_id']);
-    $version_row = $this->database->select('dungeoncrawler_content_dungeon_versions', 'v')
-      ->fields('v', ['version_id', 'dungeon_id', 'version', 'schema_version', 'dungeon_payload', 'payload_hash', 'catalog_version', 'publication_note', 'source', 'published_by', 'published_at'])
-      ->condition('dungeon_id', $dungeon_id)
-      ->condition('version_id', $version_id)
-      ->range(0, 1)
-      ->execute()
-      ->fetchAssoc();
-    if (!is_array($version_row)) {
-      throw new \RuntimeException(sprintf(
-        'campaign_source_dungeon_version_not_found: dungeon_id=%s version_id=%s.',
-        $dungeon_id,
-        $version_id
-      ));
-    }
-
-    $identity_row = $this->database->select('dungeoncrawler_content_dungeons', 'd')
-      ->fields('d', ['dungeon_id', 'name', 'description', 'theme', 'published_version_id', 'publication_status'])
-      ->condition('dungeon_id', $dungeon_id)
-      ->range(0, 1)
-      ->execute()
-      ->fetchAssoc();
-    if (!is_array($identity_row) || trim((string) ($identity_row['published_version_id'] ?? '')) !== $version_id) {
-      throw new \RuntimeException(sprintf(
-        'campaign_source_dungeon_version_not_published: dungeon_id=%s version_id=%s is not the current published identity.',
-        $dungeon_id,
-        $version_id
-      ));
-    }
-
-    try {
-      $aggregate = json_decode((string) $version_row['dungeon_payload'], TRUE, 512, JSON_THROW_ON_ERROR);
-    }
-    catch (\JsonException $e) {
-      throw new \RuntimeException(sprintf('dungeon_aggregate_invalid: dungeon_id=%s version_id=%s payload is invalid JSON.', $dungeon_id, $version_id), 0, $e);
-    }
-    if (!is_array($aggregate)) {
-      throw new \RuntimeException(sprintf('dungeon_aggregate_invalid: dungeon_id=%s version_id=%s payload is not an object.', $dungeon_id, $version_id));
-    }
-    try {
-      $this->dungeonEditor->assertAggregateConforms($aggregate, 'publication');
-    }
-    catch (DungeonAggregateException $e) {
-      throw new \RuntimeException(sprintf('dungeon_aggregate_invalid: dungeon_id=%s version_id=%s.', $dungeon_id, $version_id), 0, $e);
-    }
-
-    $entrances = array_values(array_filter(
-      (array) ($aggregate['room_placements'] ?? []),
-      static fn($placement): bool => is_array($placement) && !empty($placement['is_level_entrance'])
-    ));
-    if (count($entrances) !== 1) {
-      throw new \RuntimeException(sprintf(
-        'campaign_source_entrance_ambiguous: dungeon_id=%s version_id=%s entrance_count=%d.',
-        $dungeon_id,
-        $version_id,
-        count($entrances)
-      ));
-    }
-
-    $room_versions_by_placement = [];
-    $seen_placements = [];
-    foreach ((array) ($aggregate['room_placements'] ?? []) as $placement) {
-      if (!is_array($placement)) {
-        throw new \RuntimeException('campaign_source_room_instantiation_invalid: room placement payload must be an object.');
-      }
-      $placement_id = trim((string) ($placement['placement_id'] ?? ''));
-      if ($placement_id === '' || isset($seen_placements[$placement_id])) {
-        throw new \RuntimeException(sprintf('campaign_source_placement_id_conflict: duplicate or blank placement_id "%s".', $placement_id));
-      }
-      $seen_placements[$placement_id] = TRUE;
-      $room_versions_by_placement[$placement_id] = $this->loadPublishedRoomVersionForPlacement($placement);
-    }
-
-    return [
-      'source' => $source,
-      'identity_row' => $identity_row,
-      'version_row' => $version_row,
-      'aggregate' => $aggregate,
-      'entrance_placement' => $entrances[0],
-      'room_versions_by_placement' => $room_versions_by_placement,
-    ];
-  }
-
-  /**
-   * Load the pinned room version for one dungeon placement.
-   */
-  private function loadPublishedRoomVersionForPlacement(array $placement): array {
-    $placement_id = trim((string) ($placement['placement_id'] ?? ''));
-    $source_room_id = trim((string) ($placement['room_id'] ?? ''));
-    $version_id = trim((string) ($placement['version_id'] ?? ''));
-    if ($placement_id === '' || $source_room_id === '' || $version_id === '') {
-      throw new \RuntimeException(sprintf('campaign_source_room_version_not_found: placement %s is missing room_id or version_id.', $placement_id !== '' ? $placement_id : 'unknown'));
-    }
-    $row = $this->database->select('dungeoncrawler_content_room_versions', 'v')
-      ->fields('v', ['version_id', 'room_id', 'version', 'schema_version', 'room_payload', 'payload_hash', 'catalog_version', 'source', 'published_at'])
-      ->condition('version_id', $version_id)
-      ->condition('room_id', $source_room_id)
-      ->range(0, 1)
-      ->execute()
-      ->fetchAssoc();
-    if (!is_array($row)) {
-      throw new \RuntimeException(sprintf(
-        'campaign_source_room_version_not_found: placement_id=%s room_id=%s version_id=%s.',
-        $placement_id,
-        $source_room_id,
-        $version_id
-      ));
-    }
-    try {
-      $room = json_decode((string) $row['room_payload'], TRUE, 512, JSON_THROW_ON_ERROR);
-    }
-    catch (\JsonException $e) {
-      throw new \RuntimeException(sprintf(
-        'campaign_source_room_instantiation_invalid: placement_id=%s pinned room payload is invalid JSON.',
-        $placement_id
-      ), 0, $e);
-    }
-    if (!is_array($room) || trim((string) ($room['room_id'] ?? '')) !== $source_room_id) {
-      throw new \RuntimeException(sprintf(
-        'campaign_source_room_instantiation_invalid: placement_id=%s pinned room payload does not match source room_id=%s.',
-        $placement_id,
-        $source_room_id
-      ));
-    }
-    return ['row' => $row, 'room' => $room];
+    return $this->runtimeCanonicalContentResolver()->resolvePublishedDungeonSource($source);
   }
 
   /**
@@ -782,437 +661,18 @@ class CampaignInitializationService {
     return 'authored';
   }
 
-  /**
-   * Materialize every published room placement into campaign room authority.
-   *
-   * @return array{rooms:array<int,array<string,mixed>>,rooms_by_placement_id:array<string,array<string,mixed>>,footprints:array<string,array<string,array<int,string>>>,sparse_h3_rooms:array<string,array<string,mixed>>}
-   *   Runtime rooms and transformed footprint lookup.
-   */
-  private function instantiatePublishedDungeonCampaignRooms(int $campaign_id, array $published, int $now): array {
-    $rooms = [];
-    $rooms_by_placement_id = [];
-    $footprints = [];
-    $sparse_h3_rooms = [];
-    foreach ((array) ($published['aggregate']['room_placements'] ?? []) as $placement) {
-      $placement_id = trim((string) ($placement['placement_id'] ?? ''));
-      $source_room_id = trim((string) ($placement['room_id'] ?? ''));
-      if ($placement_id === '' || isset($rooms_by_placement_id[$placement_id])) {
-        throw new \RuntimeException(sprintf('campaign_source_placement_id_conflict: duplicate or blank runtime room id "%s".', $placement_id));
-      }
-      $existing = (int) $this->database->select('dc_campaign_rooms', 'r')
-        ->condition('campaign_id', $campaign_id)
-        ->condition('room_id', $placement_id)
-        ->countQuery()
-        ->execute()
-        ->fetchField();
-      if ($existing !== 0) {
-        throw new \RuntimeException(sprintf('campaign_source_placement_id_conflict: campaign %d room_id %s already exists.', $campaign_id, $placement_id));
-      }
-      $room_version = $published['room_versions_by_placement'][$placement_id] ?? NULL;
-      if (!is_array($room_version) || !is_array($room_version['room'] ?? NULL)) {
-        throw new \RuntimeException(sprintf('campaign_source_room_version_not_found: placement_id=%s.', $placement_id));
-      }
-      $room = $room_version['room'];
-      $layout = $this->buildPublishedCampaignRoomLayout($room, $placement, $room_version['row']);
-      $contents = $this->buildPublishedCampaignRoomContents($room, $placement, $room_version['row']);
-      $environment_tags = array_values(array_unique(array_filter(array_map(
-        'strval',
-        array_merge((array) ($room['metadata']['tags'] ?? []), (array) ($placement['tags'] ?? []))
-      ))));
-      $encoded_layout = json_encode($layout, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-      $encoded_contents = json_encode($contents, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-      $encoded_tags = json_encode($environment_tags, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-      if (!is_string($encoded_layout) || !is_string($encoded_contents) || !is_string($encoded_tags)) {
-        throw new \RuntimeException(sprintf('campaign_source_room_instantiation_invalid: failed to encode placement_id=%s.', $placement_id));
-      }
-      $decoded_layout = json_decode($encoded_layout, TRUE, 512, JSON_THROW_ON_ERROR);
-      $decoded_contents = json_decode($encoded_contents, TRUE, 512, JSON_THROW_ON_ERROR);
-      $this->assertPublishedCampaignRoomPersistencePayload($placement, $room, $decoded_layout, $decoded_contents);
-
-      $this->database->insert('dc_campaign_rooms')
-        ->fields([
-          'campaign_id' => $campaign_id,
-          'room_id' => $placement_id,
-          'name' => (string) ($room['name'] ?? $placement_id),
-          'description' => (string) ($room['description'] ?? ''),
-          'environment_tags' => $encoded_tags,
-          'layout_data' => $encoded_layout,
-          'contents_data' => $encoded_contents,
-          'source_room_id' => $source_room_id,
-          'created' => $now,
-          'updated' => $now,
-        ])
-        ->execute();
-      $this->database->insert('dc_campaign_room_states')
-        ->fields([
-          'campaign_id' => $campaign_id,
-          'room_id' => $placement_id,
-          'is_cleared' => 0,
-          'fog_state' => json_encode([
-            'visibility' => 'initial',
-            'discovered_hexes' => [],
-            'source_kind' => 'published_dungeon',
-          ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-          'last_visited' => $now,
-          'updated' => $now,
-        ])
-        ->execute();
-
-      $runtime_room = [
-        'room_id' => $placement_id,
-        'source_room_id' => $source_room_id,
-        'source_room_version_id' => (string) ($placement['version_id'] ?? ''),
-        'name' => (string) ($room['name'] ?? $placement_id),
-        'description' => (string) ($room['description'] ?? ''),
-        'hexes' => $layout['hexes'],
-        'entry_points' => $layout['entry_points'],
-        'exit_points' => $layout['exit_points'],
-        'exits' => $layout['exits'],
-        'terrain' => $layout['terrain'],
-        'lighting' => $layout['lighting'],
-        'metadata' => $layout['metadata'],
-      ];
-      $rooms[] = $runtime_room;
-      $rooms_by_placement_id[$placement_id] = $runtime_room;
-      $sparse_h3_rooms[$placement_id] = $this->buildPublishedCampaignSparseH3Room($placement, $room);
-      foreach ((array) ($room['hexes'] ?? []) as $hex) {
-        if (!is_array($hex) || !is_int($hex['q'] ?? NULL) || !is_int($hex['r'] ?? NULL)) {
-          throw new \RuntimeException(sprintf('campaign_source_room_instantiation_invalid: placement_id=%s has a non-integer room hex.', $placement_id));
-        }
-        $level_hex = RoomPlacementTransformer::toLevel(['q' => $hex['q'], 'r' => $hex['r']], $placement);
-        $key = RoomPlacementTransformer::hexKey($level_hex);
-        $footprints[$source_room_id][$key] ??= [];
-        $footprints[$source_room_id][$key][] = $placement_id;
-      }
+  private function runtimeCanonicalContentResolver(): RuntimeCanonicalContentResolver {
+    if (!$this->runtimeCanonicalContentResolver) {
+      throw new \RuntimeException('campaign_source_invalid: RuntimeCanonicalContentResolver is required for published canonical source resolution.');
     }
-
-    return [
-      'rooms' => $rooms,
-      'rooms_by_placement_id' => $rooms_by_placement_id,
-      'footprints' => $footprints,
-      'sparse_h3_rooms' => $sparse_h3_rooms,
-    ];
+    return $this->runtimeCanonicalContentResolver;
   }
 
-  /**
-   * Build transformed sparse H3 coverage for a runtime placement id.
-   */
-  private function buildPublishedCampaignSparseH3Room(array $placement, array $room): array {
-    $placement_id = trim((string) ($placement['placement_id'] ?? ''));
-    if ($placement_id === '') {
-      throw new \RuntimeException('campaign_source_room_instantiation_invalid: sparse H3 placement id is blank.');
+  private function canonicalRoomProjection(): CanonicalRoomProjectionService {
+    if (!$this->canonicalRoomProjection) {
+      throw new \RuntimeException('campaign_source_room_instantiation_invalid: CanonicalRoomProjectionService is required for published canonical projection.');
     }
-
-    $hexes = [];
-    $seen = [];
-    foreach ((array) ($room['hexes'] ?? []) as $index => $hex) {
-      if (!is_array($hex) || !is_int($hex['q'] ?? NULL) || !is_int($hex['r'] ?? NULL)) {
-        throw new \RuntimeException(sprintf('campaign_source_room_instantiation_invalid: placement_id=%s hex[%d] has a non-integer sparse H3 coordinate.', $placement_id, $index));
-      }
-      $h3 = strtolower(trim((string) ($hex['h3_index_res14'] ?? $hex['h3_index'] ?? '')));
-      if ($h3 === '') {
-        throw new \RuntimeException(sprintf('campaign_source_room_instantiation_invalid: placement_id=%s hex[%d] is missing h3_index_res14.', $placement_id, $index));
-      }
-      $level_hex = RoomPlacementTransformer::toLevel(['q' => (int) $hex['q'], 'r' => (int) $hex['r']], $placement);
-      $key = RoomPlacementTransformer::hexKey($level_hex);
-      if (isset($seen[$key])) {
-        throw new \RuntimeException(sprintf('campaign_source_room_instantiation_invalid: placement_id=%s transformed sparse H3 footprint repeats %s.', $placement_id, $key));
-      }
-      $seen[$key] = TRUE;
-      $hexes[] = [
-        'q' => (int) $level_hex['q'],
-        'r' => (int) $level_hex['r'],
-        'h3_index_res14' => $h3,
-        'h3_index' => $h3,
-        'lat' => isset($hex['lat']) && is_numeric($hex['lat']) ? (float) $hex['lat'] : NULL,
-        'lng' => isset($hex['lng']) && is_numeric($hex['lng']) ? (float) $hex['lng'] : NULL,
-      ];
-    }
-    if ($hexes === []) {
-      throw new \RuntimeException(sprintf('campaign_source_room_instantiation_invalid: placement_id=%s has no sparse H3 hexes.', $placement_id));
-    }
-
-    $anchor_coordinate = NULL;
-    foreach ((array) ($room['entry_ports'] ?? []) as $port) {
-      if (!is_array($port) || !is_array($port['hex'] ?? NULL)) {
-        continue;
-      }
-      if (!empty($port['is_default']) || $anchor_coordinate === NULL) {
-        $anchor_coordinate = RoomPlacementTransformer::toLevel([
-          'q' => (int) ($port['hex']['q'] ?? 0),
-          'r' => (int) ($port['hex']['r'] ?? 0),
-        ], $placement);
-      }
-      if (!empty($port['is_default'])) {
-        break;
-      }
-    }
-    if ($anchor_coordinate === NULL) {
-      $anchor_coordinate = ['q' => (int) $hexes[0]['q'], 'r' => (int) $hexes[0]['r']];
-    }
-
-    $anchor_key = RoomPlacementTransformer::hexKey($anchor_coordinate);
-    $anchor_hex = NULL;
-    foreach ($hexes as $hex) {
-      if (RoomPlacementTransformer::hexKey($hex) === $anchor_key) {
-        $anchor_hex = $hex;
-        break;
-      }
-    }
-    if ($anchor_hex === NULL) {
-      $anchor_hex = $hexes[0];
-      $anchor_coordinate = ['q' => (int) $anchor_hex['q'], 'r' => (int) $anchor_hex['r']];
-    }
-
-    return [
-      'room_id' => $placement_id,
-      'source_room_id' => (string) ($placement['room_id'] ?? ''),
-      'source_room_version_id' => (string) ($placement['version_id'] ?? ''),
-      'anchor' => [
-        'q' => (int) $anchor_coordinate['q'],
-        'r' => (int) $anchor_coordinate['r'],
-        'h3_index_res14' => (string) $anchor_hex['h3_index_res14'],
-        'lat' => $anchor_hex['lat'],
-        'lng' => $anchor_hex['lng'],
-      ],
-      'hexes' => $hexes,
-    ];
-  }
-
-  /**
-   * Persist transformed H3 sparse rows for published-dungeon runtime rooms.
-   *
-   * Runtime room ids are placement ids, so transition-time projection must be
-   * able to resolve sparse coverage by placement id in level-space coordinates.
-   */
-  private function persistPublishedCampaignSparseH3Mappings(string $runtime_dungeon_id, array $sparse_h3_rooms, int $timestamp): void {
-    $runtime_dungeon_id = trim($runtime_dungeon_id);
-    if ($runtime_dungeon_id === '') {
-      throw new \RuntimeException('campaign_source_room_instantiation_invalid: runtime dungeon id is required for sparse H3 mappings.');
-    }
-    if ($sparse_h3_rooms === []) {
-      throw new \RuntimeException('campaign_source_room_instantiation_invalid: published dungeon has no sparse H3 mappings.');
-    }
-
-    $schema = $this->database->schema();
-    foreach (['dungeoncrawler_content_h3_room_anchors', 'dungeoncrawler_content_h3_room_cells'] as $table) {
-      if (!$schema->tableExists($table)) {
-        throw new \RuntimeException(sprintf('campaign_source_room_instantiation_invalid: required H3 table %s is missing.', $table));
-      }
-    }
-
-    $this->database->delete('dungeoncrawler_content_h3_room_cells')
-      ->condition('dungeon_id', $runtime_dungeon_id)
-      ->execute();
-    $this->database->delete('dungeoncrawler_content_h3_room_anchors')
-      ->condition('dungeon_id', $runtime_dungeon_id)
-      ->execute();
-
-    foreach ($sparse_h3_rooms as $room) {
-      if (!is_array($room)) {
-        throw new \RuntimeException('campaign_source_room_instantiation_invalid: sparse H3 room payload must be an array.');
-      }
-      $room_id = trim((string) ($room['room_id'] ?? ''));
-      $anchor = is_array($room['anchor'] ?? NULL) ? $room['anchor'] : [];
-      $hexes = is_array($room['hexes'] ?? NULL) ? $room['hexes'] : [];
-      if ($room_id === '' || $anchor === [] || $hexes === []) {
-        throw new \RuntimeException(sprintf('campaign_source_room_instantiation_invalid: sparse H3 room %s is incomplete.', $room_id !== '' ? $room_id : 'unknown'));
-      }
-      $anchor_h3 = strtolower(trim((string) ($anchor['h3_index_res14'] ?? '')));
-      if ($anchor_h3 === '') {
-        throw new \RuntimeException(sprintf('campaign_source_room_instantiation_invalid: sparse H3 room %s anchor is missing h3_index_res14.', $room_id));
-      }
-
-      $anchor_metadata = [
-        'status' => 'h3_index_assigned',
-        'h3_index_source' => 'published_room_version',
-        'normalization' => 'published_dungeon_level_space',
-        'normalization_version' => 'published-dungeon-runtime-persist-v1',
-        'source' => 'campaign_initialization_published_dungeon',
-        'source_room_id' => (string) ($room['source_room_id'] ?? ''),
-        'source_room_version_id' => (string) ($room['source_room_version_id'] ?? ''),
-      ];
-      $this->database->insert('dungeoncrawler_content_h3_room_anchors')
-        ->fields([
-          'dungeon_id' => $runtime_dungeon_id,
-          'room_id' => $room_id,
-          'h3_resolution' => self::H3_ACTIVE_RESOLUTION,
-          'h3_index' => $anchor_h3,
-          'center_latitude' => isset($anchor['lat']) && is_numeric($anchor['lat']) ? (float) $anchor['lat'] : NULL,
-          'center_longitude' => isset($anchor['lng']) && is_numeric($anchor['lng']) ? (float) $anchor['lng'] : NULL,
-          'reference_q' => (int) ($anchor['q'] ?? 0),
-          'reference_r' => (int) ($anchor['r'] ?? 0),
-          'hex_size_meters' => H3SpatialHelper::H3_HEX_SIZE_METERS,
-          'metadata' => json_encode($anchor_metadata, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-          'created' => $timestamp,
-          'updated' => $timestamp,
-        ])
-        ->execute();
-
-      foreach ($hexes as $hex_index => $hex) {
-        if (!is_array($hex) || !is_int($hex['q'] ?? NULL) || !is_int($hex['r'] ?? NULL)) {
-          throw new \RuntimeException(sprintf('campaign_source_room_instantiation_invalid: sparse H3 room %s hex[%d] has invalid q/r.', $room_id, $hex_index));
-        }
-        $cell_h3 = strtolower(trim((string) ($hex['h3_index_res14'] ?? '')));
-        if ($cell_h3 === '') {
-          throw new \RuntimeException(sprintf('campaign_source_room_instantiation_invalid: sparse H3 room %s hex[%d] is missing h3_index_res14.', $room_id, $hex_index));
-        }
-        $cell_metadata = [
-          'status' => 'h3_index_assigned',
-          'h3_index_source' => 'published_room_version',
-          'normalization' => 'published_dungeon_level_space',
-          'normalization_version' => 'published-dungeon-runtime-persist-v1',
-          'source' => 'campaign_initialization_published_dungeon',
-          'source_room_id' => (string) ($room['source_room_id'] ?? ''),
-          'source_room_version_id' => (string) ($room['source_room_version_id'] ?? ''),
-        ];
-        $this->database->insert('dungeoncrawler_content_h3_room_cells')
-          ->fields([
-            'dungeon_id' => $runtime_dungeon_id,
-            'room_id' => $room_id,
-            'cell_role' => 'room_hex',
-            'h3_resolution' => self::H3_ACTIVE_RESOLUTION,
-            'h3_index' => $cell_h3,
-            'source_q' => (int) $hex['q'],
-            'source_r' => (int) $hex['r'],
-            'center_latitude' => isset($hex['lat']) && is_numeric($hex['lat']) ? (float) $hex['lat'] : NULL,
-            'center_longitude' => isset($hex['lng']) && is_numeric($hex['lng']) ? (float) $hex['lng'] : NULL,
-            'metadata' => json_encode($cell_metadata, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-            'created' => $timestamp,
-            'updated' => $timestamp,
-          ])
-          ->execute();
-      }
-    }
-  }
-
-  /**
-   * Build runtime layout_data from an untransformed canonical room version.
-   */
-  private function buildPublishedCampaignRoomLayout(array $room, array $placement, array $version_row): array {
-    $entry_points = array_map(static fn(array $port): array => [
-      'port_id' => (string) $port['port_id'],
-      'q' => (int) $port['hex']['q'],
-      'r' => (int) $port['hex']['r'],
-      'edge' => (int) $port['edge'],
-      'label' => (string) $port['label'],
-      'arrival_facing' => (int) $port['arrival_facing'],
-      'is_default' => (bool) $port['is_default'],
-      'tags' => array_values(array_map('strval', (array) ($port['tags'] ?? []))),
-    ], (array) ($room['entry_ports'] ?? []));
-    $exit_points = array_map(static fn(array $port): array => [
-      'port_id' => (string) $port['port_id'],
-      'q' => (int) $port['hex']['q'],
-      'r' => (int) $port['hex']['r'],
-      'edge' => (int) $port['edge'],
-      'label' => (string) $port['label'],
-      'kind' => (string) $port['kind'],
-      'direction' => (string) $port['direction'],
-      'default_state' => (string) $port['default_state'],
-      'target_room_id' => $port['destination_hint'] ?? NULL,
-      'requirements' => (array) ($port['requirements'] ?? []),
-      'tags' => array_values(array_map('strval', (array) ($port['tags'] ?? []))),
-    ], (array) ($room['exit_ports'] ?? []));
-
-    $metadata = is_array($room['layout_data']['metadata'] ?? NULL) ? $room['layout_data']['metadata'] : [];
-    $metadata = array_replace_recursive($metadata, is_array($room['metadata'] ?? NULL) ? $room['metadata'] : []);
-    $metadata['campaign_source'] = [
-      'kind' => 'published_dungeon',
-      'placement_id' => (string) $placement['placement_id'],
-      'source_room_id' => (string) $placement['room_id'],
-      'room_version_id' => (string) $placement['version_id'],
-      'room_version' => (string) ($version_row['version'] ?? ''),
-    ];
-
-    return [
-      'hexes' => (array) ($room['hexes'] ?? []),
-      'entry_points' => $entry_points,
-      'exit_points' => $exit_points,
-      'exits' => $exit_points,
-      'terrain' => is_array($room['terrain'] ?? NULL) ? $room['terrain'] : [],
-      'lighting' => is_array($room['lighting'] ?? NULL) ? $room['lighting'] : [],
-      'environmental_effects' => is_array($room['environmental_effects'] ?? NULL) ? $room['environmental_effects'] : [],
-      'gameplay_defaults' => is_array($room['gameplay_defaults'] ?? NULL) ? $room['gameplay_defaults'] : [],
-      'room_type' => (string) ($room['room_type'] ?? 'room'),
-      'size_category' => (string) ($room['size_category'] ?? 'medium'),
-      'metadata' => $metadata,
-      'source' => 'published_dungeon',
-    ];
-  }
-
-  /**
-   * Build runtime contents_data from canonical room placements.
-   */
-  private function buildPublishedCampaignRoomContents(array $room, array $placement, array $version_row): array {
-    $contents = [
-      'entities' => is_array($room['placements'] ?? NULL) ? $room['placements'] : [],
-      'npcs' => [],
-      'creatures' => [],
-      'items' => [],
-      'obstacles' => [],
-      'traps' => [],
-      'hazards' => [],
-      'interactables' => [],
-      '_source' => [
-        'kind' => 'published_dungeon',
-        'placement_id' => (string) $placement['placement_id'],
-        'source_room_id' => (string) $placement['room_id'],
-        'room_version_id' => (string) $placement['version_id'],
-        'room_version' => (string) ($version_row['version'] ?? ''),
-      ],
-    ];
-    foreach ((array) ($room['placements'] ?? []) as $entity) {
-      if (!is_array($entity) || !is_array($entity['definition_ref'] ?? NULL)) {
-        throw new \RuntimeException(sprintf('campaign_source_room_instantiation_invalid: placement_id=%s has malformed contents placement.', (string) $placement['placement_id']));
-      }
-      $family = (string) ($entity['definition_ref']['family'] ?? '');
-      $bucket = match ($family) {
-        'actor' => 'npcs',
-        'creature' => 'creatures',
-        'item' => 'items',
-        'obstacle' => 'obstacles',
-        'trap' => 'traps',
-        'hazard' => 'hazards',
-        default => throw new \RuntimeException(sprintf('campaign_source_room_instantiation_invalid: unsupported contents family "%s".', $family)),
-      };
-      $contents[$bucket][] = [
-        'instance_id' => (string) ($entity['instance_id'] ?? ''),
-        'content_id' => (string) ($entity['definition_ref']['definition_id'] ?? ''),
-        'version' => (string) ($entity['definition_ref']['version'] ?? ''),
-        'position' => is_array($entity['anchor_hex'] ?? NULL) ? $entity['anchor_hex'] : [],
-        'orientation' => (int) ($entity['facing'] ?? 0),
-        'elevation_ft' => (int) ($entity['elevation_ft'] ?? 0),
-        'state_defaults' => is_array($entity['state_defaults'] ?? NULL) ? $entity['state_defaults'] : [],
-        'overrides' => is_array($entity['overrides'] ?? NULL) ? $entity['overrides'] : [],
-      ];
-    }
-    return $contents;
-  }
-
-  /**
-   * Verify authored metadata survived campaign room JSON encoding.
-   */
-  private function assertPublishedCampaignRoomPersistencePayload(array $placement, array $room, array $layout, array $contents): void {
-    $placement_id = (string) ($placement['placement_id'] ?? '');
-    if (($layout['hexes'] ?? []) === []) {
-      throw new \RuntimeException(sprintf('campaign_source_room_instantiation_invalid: placement_id=%s has no layout_data.hexes.', $placement_id));
-    }
-    if (!is_array($layout['metadata'] ?? NULL) || !is_array($layout['metadata']['campaign_source'] ?? NULL)) {
-      throw new \RuntimeException(sprintf('campaign_source_room_instantiation_invalid: placement_id=%s layout metadata did not persist.', $placement_id));
-    }
-    foreach (['tags', 'provenance'] as $required_metadata_key) {
-      if (array_key_exists($required_metadata_key, (array) ($room['metadata'] ?? [])) && !array_key_exists($required_metadata_key, $layout['metadata'])) {
-        throw new \RuntimeException(sprintf('campaign_source_room_instantiation_invalid: placement_id=%s dropped metadata.%s.', $placement_id, $required_metadata_key));
-      }
-    }
-    foreach (['placement_id', 'source_room_id', 'room_version_id'] as $required_source_key) {
-      if (trim((string) ($layout['metadata']['campaign_source'][$required_source_key] ?? '')) === '') {
-        throw new \RuntimeException(sprintf('campaign_source_room_instantiation_invalid: placement_id=%s missing layout metadata campaign_source.%s.', $placement_id, $required_source_key));
-      }
-      if (trim((string) ($contents['_source'][$required_source_key] ?? '')) === '') {
-        throw new \RuntimeException(sprintf('campaign_source_room_instantiation_invalid: placement_id=%s missing contents source.%s.', $placement_id, $required_source_key));
-      }
-    }
+    return $this->canonicalRoomProjection;
   }
 
   /**

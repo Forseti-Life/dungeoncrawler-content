@@ -473,6 +473,18 @@ services:
       - '@datetime.time'
       - '@logger.factory'
 
+  dungeoncrawler_content.runtime_canonical_content_resolver:
+    class: Drupal\dungeoncrawler_content\Service\Generation\RuntimeCanonicalContentResolver
+    arguments:
+      - '@database'
+      - '@?dungeoncrawler_content.dungeon_editor'
+
+  dungeoncrawler_content.canonical_room_projection:
+    class: Drupal\dungeoncrawler_content\Service\Generation\CanonicalRoomProjectionService
+    arguments:
+      - '@database'
+      - '@datetime.time'
+
   dungeoncrawler_content.editor_canonical_generation_plan:
     class: Drupal\dungeoncrawler_content\Service\EditorGm\EditorCanonicalGenerationPlanService
     arguments:
@@ -1458,6 +1470,8 @@ services:
       - '@dungeoncrawler_content.starter_projection_artifact_registry'
       - '@config.factory'
       - '@?dungeoncrawler_content.dungeon_editor'
+      - '@dungeoncrawler_content.runtime_canonical_content_resolver'
+      - '@dungeoncrawler_content.canonical_room_projection'
 
   dungeoncrawler_content.room_state_service:
     class: Drupal\dungeoncrawler_content\Service\RoomStateService
@@ -1577,6 +1591,9 @@ services:
       - '@dungeoncrawler_content.npc_sheet_generation'
       - '@dungeoncrawler_content.state_validation_service'
       - '@?dungeoncrawler_content.navigation_service'
+      - '@dungeoncrawler_content.runtime_canonical_content_resolver'
+      - '@dungeoncrawler_content.canonical_room_projection'
+      - '@config.factory'
 
   dungeoncrawler_content.entity_placer:
     class: Drupal\dungeoncrawler_content\Service\EntityPlacerService

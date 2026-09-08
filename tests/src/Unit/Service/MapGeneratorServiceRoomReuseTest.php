@@ -26,7 +26,11 @@ class MapGeneratorServiceRoomReuseTest extends UnitTestCase {
       }
 
       public function callFindExistingCampaignRoomMatch(array $dungeon_data, string $destination, string $origin_room_id): ?array {
-        return $this->findExistingCampaignRoomMatch($dungeon_data, $destination, $origin_room_id);
+        return $this->findExistingCampaignRoomMatch(1, $dungeon_data, $destination, $origin_room_id);
+      }
+
+      protected function mergeCampaignRoomRowsIntoDungeonData(int $campaign_id, array &$dungeon_data): void {
+        $dungeon_data['rooms'] ??= [];
       }
     };
 

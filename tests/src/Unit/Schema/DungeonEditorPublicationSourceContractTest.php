@@ -137,6 +137,7 @@ class DungeonEditorPublicationSourceContractTest extends TestCase {
       'src/Service/GameEventLogger.php',
       'src/Service/RelationshipManagerService.php',
       'src/Service/CampaignInitializationService.php',
+      'src/Service/Generation/CanonicalRoomProjectionService.php',
       'src/Service/DungeonStateService.php',
       'src/Service/InstitutionReviewApplicationService.php',
       'src/Service/CharacterManager.php',
@@ -175,7 +176,9 @@ class DungeonEditorPublicationSourceContractTest extends TestCase {
   }
 
   public function testCampaignBootstrapFromPublishedDungeonPinsSourceContract(): void {
-    $source = (string) file_get_contents($this->root() . '/src/Service/CampaignInitializationService.php');
+    $source = (string) file_get_contents($this->root() . '/src/Service/CampaignInitializationService.php')
+      . "\n" . (string) file_get_contents($this->root() . '/src/Service/Generation/RuntimeCanonicalContentResolver.php')
+      . "\n" . (string) file_get_contents($this->root() . '/src/Service/Generation/CanonicalRoomProjectionService.php');
     foreach ([
       'campaign_source_invalid',
       'campaign_source_dungeon_version_not_found',
