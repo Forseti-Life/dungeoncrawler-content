@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.life/schemas/storyline_template.schema.json",
+  "title": "Canonical Storyline Template",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "template_id", "version", "name", "synopsis", "level_range", "source", "tags", "storyline_type", "metadata", "chapters", "linked_quests", "questline", "asset_references", "contacts"],
+  "properties": {
+    "schema_version": {"type": "string", "enum": ["storyline-template-v1"]},
+    "template_id": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z0-9][a-z0-9_-]{0,127}$"},
+    "version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$"},
+    "name": {"type": "string", "minLength": 1, "maxLength": 255},
+    "synopsis": {"type": "string", "minLength": 1, "maxLength": 4000},
+    "level_range": {"type": "string", "minLength": 1, "maxLength": 32},
+    "source": {"type": "string", "minLength": 1, "maxLength": 128},
+    "tags": {"type": "array", "uniqueItems": true, "maxItems": 50, "items": {"type": "string", "minLength": 1, "maxLength": 64}},
+    "storyline_type": {"type": "string", "enum": ["questline"]},
+    "metadata": {"type": "object", "additionalProperties": true, "required": ["runtime_generated", "generated_by", "goal", "generated_outline"], "properties": {"runtime_generated": {"type": "boolean", "const": true}, "generated_by": {"$ref": "#/definitions/generated_by"}, "goal": {"type": "string", "minLength": 1}, "generated_outline": {"type": "object", "additionalProperties": true, "required": ["generation_phase", "goal", "entry_point", "entry_dungeon", "bootstrap_handoff"], "properties": {"generation_phase": {"type": "string", "enum": ["bootstrap", "expanded"]}, "goal": {"type": "string"}, "entry_point": {"type": "object", "additionalProperties": true}, "entry_dungeon": {"type": "object", "additionalProperties": true}, "bootstrap_handoff": {"type": "object", "additionalProperties": true}}}}},
+    "chapters": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": true}},
+    "linked_quests": {"type": "object", "additionalProperties": {"type": "object", "additionalProperties": true}},
+    "questline": {"type": "object", "additionalProperties": true},
+    "asset_references": {"type": "array", "items": {"type": "object", "additionalProperties": true}},
+    "contacts": {"type": "array", "items": {"type": "object", "additionalProperties": true}}
+  },
+  "definitions": {"generated_by": {"type": "object", "additionalProperties": false, "required": ["source", "service", "tool", "model", "prompt_hash", "seed", "generated_at"], "properties": {"source": {"type": "string", "enum": ["runtime_generated"]}, "service": {"type": "string", "enum": ["canonical_generation"]}, "tool": {"type": "string"}, "model": {"type": "string", "minLength": 1, "maxLength": 200}, "provider": {"type": "string", "minLength": 1, "maxLength": 100}, "prompt_hash": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}, "seed": {"type": "integer", "minimum": 0, "maximum": 2147483647}, "generated_at": {"type": "string", "format": "date-time"}, "finish_reason": {"type": ["string", "null"]}, "reasoning_tokens": {"type": ["integer", "null"], "minimum": 0}}}}
+}

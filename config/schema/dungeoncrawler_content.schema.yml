@@ -132,9 +132,9 @@ dungeoncrawler_content.settings:
       type: mapping
       label: 'Canonical runtime generation reconciliation release flags'
       mapping:
-        r6:
+        r7:
           type: boolean
-          label: 'Enable R6 encounter/content generation through canonical runtime generation'
+          label: 'Enable R7 NPC/storyline/quest/faction generation through canonical runtime generation'
     latency_toggle_canary_campaign_ids:
       type: string
       label: 'Latency rollout canary campaign IDs'

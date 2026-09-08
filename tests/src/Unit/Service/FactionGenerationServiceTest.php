@@ -2,11 +2,16 @@
 
 namespace Drupal\Tests\dungeoncrawler_content\Unit\Service;
 
+use Drupal\Component\Datetime\TimeInterface;
 use Drupal\Core\Database\Connection;
+use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\dungeoncrawler_content\Service\CampaignSubjectRegistryService;
 use Drupal\dungeoncrawler_content\Service\FactionGenerationService;
+use Drupal\dungeoncrawler_content\Service\Generation\CanonicalGenerationService;
+use Drupal\dungeoncrawler_content\Service\Generation\RuntimeGenerationException;
 use Drupal\dungeoncrawler_content\Service\InstitutionNormalizationService;
 use Drupal\Tests\UnitTestCase;
+use Psr\Log\LoggerInterface;
 
 /**
  * Covers narrative-need-driven faction generation.
@@ -25,6 +30,7 @@ class FactionGenerationServiceTest extends UnitTestCase {
       $this->createMock(Connection::class),
       new InstitutionNormalizationService(),
       $this->createMock(CampaignSubjectRegistryService::class),
+      $this->canonicalGeneration(),
     );
 
     $this->expectException(\InvalidArgumentException::class);
@@ -42,6 +48,7 @@ class FactionGenerationServiceTest extends UnitTestCase {
       $this->createMock(Connection::class),
       new InstitutionNormalizationService(),
       $this->createMock(CampaignSubjectRegistryService::class),
+      $this->canonicalGeneration(),
     );
 
     $normalized = $service->normalizeNarrativeNeedRequest(42, [
@@ -73,7 +80,8 @@ class FactionGenerationServiceTest extends UnitTestCase {
     $service = new class(
       $this->createMock(Connection::class),
       new InstitutionNormalizationService(),
-      $this->createMock(CampaignSubjectRegistryService::class)
+      $this->createMock(CampaignSubjectRegistryService::class),
+      $this->canonicalGeneration()
     ) extends FactionGenerationService {
       public array $instantiatedDrafts = [];
 
@@ -118,7 +126,8 @@ class FactionGenerationServiceTest extends UnitTestCase {
     $service = new class(
       $this->createMock(Connection::class),
       new InstitutionNormalizationService(),
-      $this->createMock(CampaignSubjectRegistryService::class)
+      $this->createMock(CampaignSubjectRegistryService::class),
+      $this->canonicalGeneration()
     ) extends FactionGenerationService {
       public array $capturedDrafts = [];
 
@@ -166,7 +175,8 @@ class FactionGenerationServiceTest extends UnitTestCase {
     $service = new class(
       $this->createMock(Connection::class),
       new InstitutionNormalizationService(),
-      $this->createMock(CampaignSubjectRegistryService::class)
+      $this->createMock(CampaignSubjectRegistryService::class),
+      $this->canonicalGeneration()
     ) extends FactionGenerationService {
       public array $capturedDrafts = [];
       public array $reviewItems = [];
@@ -227,7 +237,8 @@ class FactionGenerationServiceTest extends UnitTestCase {
     $service = new class(
       $this->createMock(Connection::class),
       new InstitutionNormalizationService(),
-      $this->createMock(CampaignSubjectRegistryService::class)
+      $this->createMock(CampaignSubjectRegistryService::class),
+      $this->canonicalGeneration()
     ) extends FactionGenerationService {
       public array $capturedDrafts = [];
       public array $reviewItems = [];
@@ -271,6 +282,56 @@ class FactionGenerationServiceTest extends UnitTestCase {
     $this->assertCount(1, $service->capturedDrafts);
     $this->assertSame(FactionGenerationService::MANIFEST_STATUS, $service->capturedDrafts[0]['status']);
     $this->assertCount(0, $service->reviewItems);
+  }
+
+  public function testGenerateFactionDraftHardFailsWithoutCanonicalCore(): void {
+    $service = new FactionGenerationService(
+      $this->createMock(Connection::class),
+      new InstitutionNormalizationService(),
+      $this->createMock(CampaignSubjectRegistryService::class),
+    );
+
+    $this->expectException(RuntimeGenerationException::class);
+    $this->expectExceptionMessage('runtime_generation_failed');
+    $service->generateFactionDraft([
+      'canonical_slug' => 'missing-core',
+      'canonical_label' => 'Missing Core',
+      'library_subject_id' => 'institution_allegiance_missing-core',
+    ]);
+  }
+
+  private function canonicalGeneration(): CanonicalGenerationService {
+    return new CanonicalGenerationService(
+      new class {
+        public function invokeModelDirect(string $prompt, string $module, string $operation, array $metadata, array $options): array {
+          return [
+            'success' => TRUE,
+            'response' => json_encode([
+              'summary' => 'A project-authored faction generated through the canonical core.',
+              'proxyRoles' => ['representative'],
+            ], JSON_UNESCAPED_SLASHES),
+            'model_id' => 'fixture-model',
+            'provider' => 'fixture-provider',
+            'finish_reason' => 'stop',
+            'reasoning_tokens' => 0,
+          ];
+        }
+      },
+      $this->time(),
+      $this->loggerFactory()
+    );
+  }
+
+  private function loggerFactory(): LoggerChannelFactoryInterface {
+    $factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $factory->method('get')->willReturn($this->createMock(LoggerInterface::class));
+    return $factory;
+  }
+
+  private function time(): TimeInterface {
+    $time = $this->createMock(TimeInterface::class);
+    $time->method('getRequestTime')->willReturn(1788888888);
+    return $time;
   }
 
 }

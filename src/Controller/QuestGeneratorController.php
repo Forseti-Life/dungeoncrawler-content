@@ -5,6 +5,7 @@ namespace Drupal\dungeoncrawler_content\Controller;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
+use Drupal\dungeoncrawler_content\Service\Generation\RuntimeGenerationException;
 use Drupal\dungeoncrawler_content\Service\QuestGeneratorService;
 use Drupal\dungeoncrawler_content\Service\StorylineQuestLifecycleService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
@@ -167,6 +168,14 @@ class QuestGeneratorController extends ControllerBase {
       ]);
     }
     catch (\Exception $e) {
+      if ($e instanceof RuntimeGenerationException) {
+        return new JsonResponse([
+          'success' => FALSE,
+          'error' => $e->getMessage(),
+          'code' => $e->getMessage(),
+          'findings' => $e->getFindings(),
+        ], $e->httpStatus());
+      }
       $this->logger->error('Quest generation failed: @error', ['@error' => $e->getMessage()]);
       return new JsonResponse([
         'success' => FALSE,
@@ -254,6 +263,14 @@ class QuestGeneratorController extends ControllerBase {
       ]);
     }
     catch (\Exception $e) {
+      if ($e instanceof RuntimeGenerationException) {
+        return new JsonResponse([
+          'success' => FALSE,
+          'error' => $e->getMessage(),
+          'code' => $e->getMessage(),
+          'findings' => $e->getFindings(),
+        ], $e->httpStatus());
+      }
       $this->logger->error('Location quest generation failed: @error', ['@error' => $e->getMessage()]);
       return new JsonResponse([
         'success' => FALSE,

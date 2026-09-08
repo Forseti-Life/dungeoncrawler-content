@@ -1,0 +1,59 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.life/schemas/quest_template.schema.json",
+  "title": "Canonical Quest Template",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "template_id", "version", "name", "description", "quest_type", "level_min", "level_max", "tags", "objectives_schema", "rewards_schema", "metadata"],
+  "properties": {
+    "schema_version": {"type": "string", "enum": ["quest-template-v1"]},
+    "template_id": {"type": "string", "minLength": 1, "maxLength": 100, "pattern": "^[a-z0-9][a-z0-9_-]{0,99}$"},
+    "version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$"},
+    "name": {"type": "string", "minLength": 1, "maxLength": 255},
+    "description": {"type": "string", "minLength": 1, "maxLength": 4000},
+    "quest_type": {"type": "string", "minLength": 1, "maxLength": 50},
+    "level_min": {"type": "integer", "minimum": 1, "maximum": 30},
+    "level_max": {"type": "integer", "minimum": 1, "maximum": 30},
+    "tags": {"type": "array", "uniqueItems": true, "maxItems": 50, "items": {"type": "string", "minLength": 1, "maxLength": 64}},
+    "prerequisites": {"type": "object", "additionalProperties": true},
+    "estimated_duration_minutes": {"type": "integer", "minimum": 5, "maximum": 1440},
+    "storyline_template_id": {"type": ["string", "null"], "maxLength": 128},
+    "entry_point_actor_id": {"type": ["string", "null"], "maxLength": 191},
+    "entry_point_location_id": {"type": ["string", "null"], "maxLength": 191},
+    "objectives_schema": {"type": "array", "minItems": 1, "items": {"$ref": "#/definitions/quest_phase"}},
+    "rewards_schema": {"type": "object", "additionalProperties": true},
+    "story_impact": {"type": "object", "additionalProperties": true},
+    "metadata": {"$ref": "#/definitions/runtime_metadata"}
+  },
+  "definitions": {
+    "quest_phase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phase", "objectives"],
+      "properties": {
+        "phase": {"type": "integer", "minimum": 1, "maximum": 50},
+        "objectives": {"type": "array", "minItems": 1, "items": {"$ref": "#/definitions/quest_objective"}}
+      }
+    },
+    "quest_objective": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["objective_id", "type", "description", "completion_criteria", "next_step"],
+      "properties": {
+        "objective_id": {"type": "string", "minLength": 1, "maxLength": 160},
+        "type": {"type": "string", "minLength": 1, "maxLength": 64},
+        "description": {"type": "string", "minLength": 1, "maxLength": 1000},
+        "next_step": {"type": "string", "minLength": 1, "maxLength": 1000},
+        "target": {"type": ["string", "null"], "maxLength": 255},
+        "item": {"type": ["string", "null"], "maxLength": 255},
+        "location": {"type": ["string", "null"], "maxLength": 200},
+        "location_id": {"type": ["string", "null"], "maxLength": 200},
+        "wayfinding_hint": {"type": ["string", "null"], "maxLength": 1000},
+        "depends_on": {"type": "array", "maxItems": 50, "items": {"type": "string", "minLength": 1, "maxLength": 160}},
+        "completion_criteria": {"type": "object", "additionalProperties": false, "required": ["kind", "metric", "description"], "properties": {"kind": {"type": "string", "enum": ["count", "flag", "all_children"]}, "metric": {"type": "string", "minLength": 1, "maxLength": 64}, "description": {"type": "string", "minLength": 1, "maxLength": 1000}, "target_count": {"type": "integer", "minimum": 1, "maximum": 9999}, "required_value": {"type": "boolean"}}},
+        "children": {"type": "array", "items": {"$ref": "#/definitions/quest_objective"}}
+      }
+    },
+    "runtime_metadata": {"type": "object", "additionalProperties": false, "required": ["runtime_generated", "generated_by"], "properties": {"runtime_generated": {"type": "boolean", "const": true}, "generated_by": {"type": "object", "additionalProperties": false, "required": ["source", "service", "tool", "model", "prompt_hash", "seed", "generated_at"], "properties": {"source": {"type": "string", "enum": ["runtime_generated"]}, "service": {"type": "string", "enum": ["canonical_generation"]}, "tool": {"type": "string"}, "model": {"type": "string", "minLength": 1, "maxLength": 200}, "provider": {"type": "string", "minLength": 1, "maxLength": 100}, "prompt_hash": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}, "seed": {"type": "integer", "minimum": 0, "maximum": 2147483647}, "generated_at": {"type": "string", "format": "date-time"}, "finish_reason": {"type": ["string", "null"]}, "reasoning_tokens": {"type": ["integer", "null"], "minimum": 0}}}}}
+  }
+}

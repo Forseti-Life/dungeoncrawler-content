@@ -3,6 +3,9 @@
 namespace Drupal\dungeoncrawler_content\Service;
 
 use Drupal\Core\Database\Connection;
+use Drupal\dungeoncrawler_content\Service\Generation\CanonicalGenerationException;
+use Drupal\dungeoncrawler_content\Service\Generation\CanonicalGenerationService;
+use Drupal\dungeoncrawler_content\Service\Generation\RuntimeGenerationException;
 
 /**
  * Creates canonical library-backed factions from narrative-generation requests.
@@ -24,6 +27,7 @@ class FactionGenerationService {
     protected Connection $database,
     protected InstitutionNormalizationService $institutionNormalization,
     protected CampaignSubjectRegistryService $campaignSubjectRegistry,
+    protected ?CanonicalGenerationService $canonicalGeneration = NULL,
   ) {}
 
   /**
@@ -91,7 +95,7 @@ class FactionGenerationService {
   }
 
   /**
-   * Generates a deterministic canonical faction draft.
+   * Generates a canonical faction draft through the single generation core.
    *
    * @param array<string, mixed> $normalized_request
    *   Validated faction-generation request.
@@ -100,43 +104,90 @@ class FactionGenerationService {
    *   Canonical faction draft payload.
    */
   public function generateFactionDraft(array $normalized_request): array {
-    $slug = (string) ($normalized_request['canonical_slug'] ?? '');
-    $summary_parts = array_values(array_filter([
-      (string) ($normalized_request['role_in_story'] ?? ''),
-      (string) ($normalized_request['public_face'] ?? ''),
-      (string) ($normalized_request['hidden_face'] ?? ''),
-    ]));
-    $summary = implode(' | ', array_slice($summary_parts, 0, 3));
-    if ($summary === '') {
-      $summary = 'Narrative-generated faction draft.';
+    if ($this->canonicalGeneration === NULL) {
+      throw new RuntimeGenerationException('runtime_generation_failed', [[
+        'code' => 'runtime_generation_failed',
+        'pointer' => '/canonical_generation',
+        'message' => 'Canonical generation service is required for faction generation; no fallback is available.',
+        'severity' => 'error',
+      ]], 503);
     }
+    return $this->generateCanonicalFactionDraft($normalized_request);
+  }
 
-    $proxy_roles = array_values(array_unique(array_filter([
-      (string) ($normalized_request['role_in_story'] ?? ''),
-      (string) ($normalized_request['public_face'] ?? ''),
-      'representative',
-    ])));
+  /**
+   * Generate faction draft content through the canonical JSON generation core.
+   */
+  protected function generateCanonicalFactionDraft(array $normalized_request): array {
+    $seed = abs(crc32(json_encode($normalized_request, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?: 'faction')) % 2147483647;
+    try {
+      return $this->canonicalGeneration->completeJson(
+        'generate_faction_definition',
+        'runtime_faction_definition_generation',
+        $seed,
+        2500,
+        fn(array $prior_findings): string => json_encode([
+          'tool' => 'generate_faction_definition',
+          'originality_rule_ad_14' => $this->canonicalGeneration->originalityInstruction(),
+          'normalized_request' => $normalized_request,
+          'requirements' => [
+            'Return one JSON object only. No prose.',
+            'Create an original project-authored faction draft using the exact required keys.',
+            'Do not create campaign rows; the server handles review/publication and campaign instantiation.',
+          ],
+          'required_keys' => ['canonicalLabel', 'summary', 'proxyRoles', 'membershipModel', 'seedProfile', 'requestedCharacteristics'],
+          'prior_findings' => $prior_findings,
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
+        function (array $decoded, array $provenance) use ($normalized_request): array {
+          $summary = trim((string) ($decoded['summary'] ?? ''));
+          $proxy_roles = array_values(array_filter(array_map('strval', (array) ($decoded['proxyRoles'] ?? []))));
+          if ($summary === '' || $proxy_roles === []) {
+            throw new CanonicalGenerationException('generation_nonconforming', [[
+              'code' => 'generation_nonconforming',
+              'pointer' => $summary === '' ? '/summary' : '/proxyRoles',
+              'message' => 'Faction generation must return summary and at least one proxy role.',
+              'severity' => 'error',
+            ]]);
+          }
+          $draft = $this->normalizeCanonicalFactionDraft($decoded, $normalized_request, $provenance);
+          if (trim((string) ($draft['canonicalSlug'] ?? '')) === '') {
+            throw new CanonicalGenerationException('generation_nonconforming', [[
+              'code' => 'generation_nonconforming',
+              'pointer' => '/canonicalSlug',
+              'message' => 'Faction draft canonicalSlug is required.',
+              'severity' => 'error',
+            ]]);
+          }
+          return $draft;
+        }
+      );
+    }
+    catch (CanonicalGenerationException $e) {
+      throw new RuntimeGenerationException('runtime_generation_failed', $e->getFindings(), $e->httpStatus(), $e);
+    }
+  }
 
-    return [
-      'draftKey' => 'faction-draft-' . $slug,
-      'canonicalLabel' => (string) ($normalized_request['canonical_label'] ?? ''),
-      'canonicalSlug' => $slug,
+  protected function normalizeCanonicalFactionDraft(array $decoded, array $normalized_request, array $provenance): array {
+    $base = [
+      'draftKey' => 'faction-draft-' . (string) ($normalized_request['canonical_slug'] ?? ''),
+      'canonicalLabel' => (string) ($decoded['canonicalLabel'] ?? $normalized_request['canonical_label'] ?? ''),
+      'canonicalSlug' => (string) ($normalized_request['canonical_slug'] ?? ''),
       'domain' => (string) ($normalized_request['domain'] ?? 'allegiance'),
       'librarySubjectId' => (string) ($normalized_request['library_subject_id'] ?? ''),
       'parentSubjectId' => (string) ($normalized_request['parent_subject_id'] ?? ''),
-      'summary' => $summary,
-      'proxyRoles' => $proxy_roles,
-      'membershipModel' => [
+      'summary' => trim((string) ($decoded['summary'] ?? '')) ?: 'Runtime-generated faction draft.',
+      'proxyRoles' => array_values(array_filter(array_map('strval', (array) ($decoded['proxyRoles'] ?? ['representative'])))),
+      'membershipModel' => is_array($decoded['membershipModel'] ?? NULL) ? $decoded['membershipModel'] : [
         'membership_domain' => (string) ($normalized_request['domain'] ?? 'allegiance'),
         'default_mutability' => 'mutable',
         'membership_style' => (string) ($normalized_request['membership_style'] ?? 'invite_only'),
       ],
-      'seedProfile' => [
-        'profile_key' => 'generated-' . $slug . '-seed',
+      'seedProfile' => is_array($decoded['seedProfile'] ?? NULL) ? $decoded['seedProfile'] : [
+        'profile_key' => 'generated-' . (string) ($normalized_request['canonical_slug'] ?? 'faction') . '-seed',
         'initial_known_factions' => array_values($normalized_request['initial_known_factions'] ?? []),
         'initial_unknown_factions' => array_values($normalized_request['initial_unknown_factions'] ?? []),
       ],
-      'requestedCharacteristics' => [
+      'requestedCharacteristics' => is_array($decoded['requestedCharacteristics'] ?? NULL) ? $decoded['requestedCharacteristics'] : [
         'role_in_story' => (string) ($normalized_request['role_in_story'] ?? ''),
         'public_face' => (string) ($normalized_request['public_face'] ?? ''),
         'hidden_face' => (string) ($normalized_request['hidden_face'] ?? ''),
@@ -148,8 +199,20 @@ class FactionGenerationService {
         'request_source' => (string) ($normalized_request['request_source'] ?? 'narrative_need'),
         'provenance_note' => (string) ($normalized_request['provenance_note'] ?? ''),
         'why_existing_faction_is_insufficient' => (string) ($normalized_request['why_existing_faction_is_insufficient'] ?? ''),
+        'runtime_generated' => TRUE,
+        'generated_by' => [
+          'source' => 'runtime_generated',
+          'service' => 'canonical_generation',
+          'tool' => (string) ($provenance['tool'] ?? 'generate_faction_definition'),
+          'model' => (string) ($provenance['model'] ?? ''),
+          'provider' => (string) ($provenance['provider'] ?? ''),
+          'prompt_hash' => (string) ($provenance['prompt_hash'] ?? ''),
+          'seed' => (int) ($provenance['seed'] ?? 0),
+          'generated_at' => (string) ($provenance['generated_at'] ?? ''),
+        ],
       ],
     ];
+    return $base;
   }
 
   /**

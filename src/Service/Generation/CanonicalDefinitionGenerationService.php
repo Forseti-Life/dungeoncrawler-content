@@ -58,6 +58,7 @@ final class CanonicalDefinitionGenerationService {
       'level' => $this->intRange($arguments, 'level', -1, 30, 1),
       'role' => $this->boundedString($arguments, 'role', FALSE, 0, 100),
       'attitude' => $this->enum($arguments, 'attitude', GenerationVocabulary::NPC_ATTITUDES, 'indifferent'),
+      'definition_id' => $this->boundedString($arguments, 'definition_id', FALSE, 0, 100),
       'seed' => $this->seed($arguments),
     ];
 
@@ -82,9 +83,13 @@ final class CanonicalDefinitionGenerationService {
     $generated = match ($family) {
       'creature' => $this->generateCreatureDefinition($arguments, $scope),
       'item' => $this->generateItemDefinition($arguments, $scope),
-      default => throw $this->exception('generation_scope_invalid', [$this->finding('generation_scope_invalid', '/family', 'Runtime encounter definition generation supports creature and item only.')], 400),
+      'actor' => $this->generateNpcDefinition($arguments, $scope),
+      default => throw $this->exception('generation_scope_invalid', [$this->finding('generation_scope_invalid', '/family', 'Runtime definition generation supports creature, item, and actor only.')], 400),
     };
     $payload = $generated['payload'];
+    if ($family === 'actor') {
+      $payload['source_module'] = 'runtime_generated';
+    }
     $result = $this->definitions->saveDefinition($family, NULL, $payload, NULL);
     return $result + ['payload' => $payload];
   }
@@ -208,7 +213,7 @@ final class CanonicalDefinitionGenerationService {
     if (!is_array($payload) || array_is_list($payload)) {
       throw $this->nonconforming([$this->finding('generation_nonconforming', '/payload', 'Definition payload must be a JSON object.')]);
     }
-    $payload = $this->completeIdentity($family, $payload, $input['seed']);
+    $payload = $this->completeIdentity($family, $payload, $input);
     $payload['metadata'] = ['generated_by' => $this->schemaProvenance($provenance)];
     $findings = $this->definitions->validateDefinition($family, $payload);
     if ($findings !== []) {
@@ -238,9 +243,17 @@ final class CanonicalDefinitionGenerationService {
     ];
   }
 
-  private function completeIdentity(string $family, array $payload, int $seed): array {
+  private function completeIdentity(string $family, array $payload, array $input): array {
     $id_property = $this->definitions->idProperty($family);
     $name_property = $this->definitions->nameProperty($family);
+    $seed = (int) ($input['seed'] ?? 0);
+    $forced_id = trim((string) ($input['definition_id'] ?? ''));
+    if ($forced_id !== '') {
+      $forced_id = strtolower(trim(preg_replace('/[^a-z0-9_-]+/i', '-', $forced_id) ?? '', '-'));
+      if ($forced_id !== '') {
+        $payload[$id_property] = substr($forced_id, 0, 100);
+      }
+    }
     $name = trim((string) ($payload[$name_property] ?? $payload['name'] ?? $payload['display_name'] ?? 'generated-definition'));
     if (!isset($payload[$id_property]) || trim((string) $payload[$id_property]) === '') {
       $payload[$id_property] = $family === 'creature'

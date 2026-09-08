@@ -3,6 +3,7 @@
 namespace Drupal\dungeoncrawler_content\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
+use Drupal\dungeoncrawler_content\Service\Generation\RuntimeGenerationException;
 use Drupal\dungeoncrawler_content\Service\RelationshipManagerService;
 use Drupal\dungeoncrawler_content\Service\StorylineGenerationService;
 use Drupal\dungeoncrawler_content\Service\StorylineManagerService;
@@ -70,6 +71,9 @@ class StorylineController extends ControllerBase {
       return new JsonResponse(['success' => FALSE, 'error' => $e->getMessage()], $e->getCode() ?: 400);
     }
     catch (\Exception $e) {
+      if ($e instanceof RuntimeGenerationException) {
+        return $this->runtimeFailureResponse($e);
+      }
       return new JsonResponse(['success' => FALSE, 'error' => 'Internal server error'], 500);
     }
   }
@@ -97,6 +101,9 @@ class StorylineController extends ControllerBase {
       return new JsonResponse(['success' => FALSE, 'error' => $e->getMessage()], $e->getCode() ?: 400);
     }
     catch (\Exception $e) {
+      if ($e instanceof RuntimeGenerationException) {
+        return $this->runtimeFailureResponse($e);
+      }
       return new JsonResponse(['success' => FALSE, 'error' => 'Internal server error'], 500);
     }
   }
@@ -120,6 +127,9 @@ class StorylineController extends ControllerBase {
       return new JsonResponse(['success' => FALSE, 'error' => $e->getMessage()], $e->getCode() ?: 400);
     }
     catch (\Exception $e) {
+      if ($e instanceof RuntimeGenerationException) {
+        return $this->runtimeFailureResponse($e);
+      }
       return new JsonResponse(['success' => FALSE, 'error' => 'Internal server error'], 500);
     }
   }
@@ -163,6 +173,9 @@ class StorylineController extends ControllerBase {
       return new JsonResponse(['success' => FALSE, 'error' => $e->getMessage()], $e->getCode() ?: 400);
     }
     catch (\Exception $e) {
+      if ($e instanceof RuntimeGenerationException) {
+        return $this->runtimeFailureResponse($e);
+      }
       return new JsonResponse(['success' => FALSE, 'error' => 'Internal server error'], 500);
     }
   }
@@ -193,6 +206,9 @@ class StorylineController extends ControllerBase {
       return new JsonResponse(['success' => FALSE, 'error' => $e->getMessage()], $e->getCode() ?: 400);
     }
     catch (\Exception $e) {
+      if ($e instanceof RuntimeGenerationException) {
+        return $this->runtimeFailureResponse($e);
+      }
       return new JsonResponse(['success' => FALSE, 'error' => 'Internal server error'], 500);
     }
   }
@@ -231,6 +247,9 @@ class StorylineController extends ControllerBase {
       return new JsonResponse(['success' => FALSE, 'error' => $e->getMessage()], $e->getCode() ?: 400);
     }
     catch (\Exception $e) {
+      if ($e instanceof RuntimeGenerationException) {
+        return $this->runtimeFailureResponse($e);
+      }
       return new JsonResponse(['success' => FALSE, 'error' => 'Internal server error'], 500);
     }
   }
@@ -257,6 +276,9 @@ class StorylineController extends ControllerBase {
       return new JsonResponse(['success' => FALSE, 'error' => $e->getMessage()], $e->getCode() ?: 400);
     }
     catch (\Exception $e) {
+      if ($e instanceof RuntimeGenerationException) {
+        return $this->runtimeFailureResponse($e);
+      }
       return new JsonResponse(['success' => FALSE, 'error' => 'Internal server error'], 500);
     }
   }
@@ -285,6 +307,9 @@ class StorylineController extends ControllerBase {
       return new JsonResponse(['success' => FALSE, 'error' => $e->getMessage()], $e->getCode() ?: 400);
     }
     catch (\Exception $e) {
+      if ($e instanceof RuntimeGenerationException) {
+        return $this->runtimeFailureResponse($e);
+      }
       return new JsonResponse(['success' => FALSE, 'error' => 'Internal server error'], 500);
     }
   }
@@ -303,6 +328,9 @@ class StorylineController extends ControllerBase {
       return new JsonResponse(['success' => FALSE, 'error' => $e->getMessage()], $e->getCode() ?: 400);
     }
     catch (\Exception $e) {
+      if ($e instanceof RuntimeGenerationException) {
+        return $this->runtimeFailureResponse($e);
+      }
       return new JsonResponse(['success' => FALSE, 'error' => 'Internal server error'], 500);
     }
   }
@@ -330,8 +358,20 @@ class StorylineController extends ControllerBase {
       return new JsonResponse(['success' => FALSE, 'error' => $e->getMessage()], $e->getCode() ?: 400);
     }
     catch (\Exception $e) {
+      if ($e instanceof RuntimeGenerationException) {
+        return $this->runtimeFailureResponse($e);
+      }
       return new JsonResponse(['success' => FALSE, 'error' => 'Internal server error'], 500);
     }
+  }
+
+  protected function runtimeFailureResponse(RuntimeGenerationException $e): JsonResponse {
+    return new JsonResponse([
+      'success' => FALSE,
+      'error' => $e->getMessage(),
+      'code' => $e->getMessage(),
+      'findings' => $e->getFindings(),
+    ], $e->httpStatus());
   }
 
 }

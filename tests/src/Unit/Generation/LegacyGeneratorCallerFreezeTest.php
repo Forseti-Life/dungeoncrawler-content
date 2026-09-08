@@ -47,7 +47,6 @@ final class LegacyGeneratorCallerFreezeTest extends TestCase {
     'dungeoncrawler_content.services.yml',
     'src/Commands/NpcSheetWorkerCommands.php',
     'src/Commands/StorylineExpansionWorkerCommands.php',
-    'src/Controller/DungeonController.php',
     'src/Controller/HexMapController.php',
     'src/Controller/LocationGenerationController.php',
     'src/Controller/QuestGeneratorController.php',
@@ -56,7 +55,6 @@ final class LegacyGeneratorCallerFreezeTest extends TestCase {
     'src/Controller/StorylineExplorerPageController.php',
     'src/Service/CampaignCharacterRuntimeSyncService.php',
     'src/Service/CampaignInitializationService.php',
-    'src/Service/DungeonGenerationEngine.php',
     'src/Service/DungeonGeneratorService.php',
     'src/Service/EncounterGeneratorService.php',
     'src/Service/NpcService.php',
@@ -105,7 +103,7 @@ final class LegacyGeneratorCallerFreezeTest extends TestCase {
     $expected = self::ALLOWED_LEGACY_REFERENCE_FILES;
     sort($expected);
 
-    $this->assertCount(26, $expected, 'R6 shrinks the legacy generator freeze allowlist after ContentGenerator deletion and encounter route reconciliation.');
+    $this->assertCount(24, $expected, 'R7 shrinks the legacy generator freeze allowlist after deleting the unused DungeonGenerationEngine route surface.');
     $this->assertSame($expected, $actual, 'New legacy generator callers/references are forbidden; migrate to CanonicalGenerationService instead.');
   }
 
@@ -138,7 +136,6 @@ final class LegacyGeneratorCallerFreezeTest extends TestCase {
       'src/Service/StorylineGenerationService.php' => ['class StorylineGenerationService', 'public function generateStorylinePackage', 'public function generateStorylineBootstrapPackage', 'public function bootstrapCampaignStoryline', 'public function enqueueStorylineExpansion', 'public function processPendingExpansionJobs'],
       'src/Service/QuestGeneratorService.php' => ['class QuestGeneratorService', 'public function generateQuestFromTemplate', 'public function generateQuestsForLocation'],
       'src/Service/EncounterGeneratorService.php' => ['class EncounterGeneratorService', 'public function generateEncounter'],
-      'src/Service/DungeonGenerationEngine.php' => ['class DungeonGenerationEngine', 'public function generateDungeon', 'private function generateLevel'],
     ] as $relative => $markers) {
       $source = (string) file_get_contents($this->root() . '/' . $relative);
       foreach ($markers as $marker) {

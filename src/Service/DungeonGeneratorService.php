@@ -37,7 +37,7 @@ class DungeonGeneratorService {
    * pool, cached fallback, or legacy generator on failure.
    */
   public function generateDungeon(array $context): array {
-    $this->assertR5Enabled('/canonical_runtime_generation/r6');
+    $this->assertR5Enabled('/canonical_runtime_generation/r7');
     return $this->runtimeCanonicalDungeon->generateDungeon($context + [
       'canonical_generation_wait' => TRUE,
     ]);
@@ -50,18 +50,18 @@ class DungeonGeneratorService {
    * pool, cached fallback, or legacy generator on failure.
    */
   public function generateLevel(array $context): array {
-    $this->assertR5Enabled('/canonical_runtime_generation/r6');
+    $this->assertR5Enabled('/canonical_runtime_generation/r7');
     return $this->runtimeCanonicalDungeon->generateLevel($context + [
       'canonical_generation_wait' => TRUE,
     ]);
   }
 
   private function assertR5Enabled(string $pointer): void {
-    if (!$this->configFactory || $this->configFactory->get('dungeoncrawler_content.settings')->get('canonical_runtime_generation.r6') === FALSE) {
+    if (!$this->configFactory || $this->configFactory->get('dungeoncrawler_content.settings')->get('canonical_runtime_generation.r7') === FALSE) {
       throw new RuntimeGenerationException('runtime_generation_failed', [[
         'code' => 'runtime_generation_failed',
         'pointer' => $pointer,
-        'message' => 'R6 canonical dungeon generation is disabled; no legacy fallback is available.',
+        'message' => 'R7 canonical dungeon generation is disabled; no legacy fallback is available.',
         'severity' => 'error',
       ]], 503);
     }

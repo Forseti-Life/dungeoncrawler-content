@@ -125,6 +125,7 @@ services:
       - '@database'
       - '@dungeoncrawler_content.institution_normalization'
       - '@dungeoncrawler_content.campaign_subject_registry'
+      - '@?dungeoncrawler_content.canonical_generation'
 
   dungeoncrawler_content.library_institution_backfill:
     class: Drupal\dungeoncrawler_content\Service\LibraryInstitutionBackfillService
@@ -162,6 +163,7 @@ services:
       - '@?ai_conversation.ai_api_service'
       - '@?dungeoncrawler_content.npc_psychology_service'
       - '@dungeoncrawler_content.state_validation_service'
+      - '@dungeoncrawler_content.canonical_definition_generation'
 
   dungeoncrawler_content.character_leveling:
     class: Drupal\dungeoncrawler_content\Service\CharacterLevelingService
@@ -505,6 +507,13 @@ services:
     arguments:
       - '@dungeoncrawler_content.canonical_generation'
       - '@dungeoncrawler_content.canonical_definitions'
+
+  dungeoncrawler_content.canonical_template_generation:
+    class: Drupal\dungeoncrawler_content\Service\Generation\CanonicalTemplateGenerationService
+    arguments:
+      - '@database'
+      - '@dungeoncrawler_content.canonical_generation'
+      - '@dungeoncrawler_content.definition_schema_validator'
 
   dungeoncrawler_content.runtime_canonical_dungeon:
     class: Drupal\dungeoncrawler_content\Service\Generation\RuntimeCanonicalDungeonService
@@ -1140,6 +1149,7 @@ services:
       - '@?dungeoncrawler_content.npc_sheet_generation'
       - '@dungeoncrawler_content.storyline_realization_service'
       - '@dungeoncrawler_content.objective_type'
+      - '@dungeoncrawler_content.canonical_template_generation'
 
   dungeoncrawler_content.gameplay_action_processor:
     class: Drupal\dungeoncrawler_content\Service\GameplayActionProcessor

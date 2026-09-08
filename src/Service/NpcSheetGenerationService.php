@@ -5,7 +5,10 @@ namespace Drupal\dungeoncrawler_content\Service;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\ai_conversation\Service\AIApiService;
+use Drupal\dungeoncrawler_content\Service\Generation\CanonicalDefinitionGenerationService;
+use Drupal\dungeoncrawler_content\Service\Generation\CanonicalGenerationException;
 use Drupal\dungeoncrawler_content\Service\Generation\Pf2eGenerationRules;
+use Drupal\dungeoncrawler_content\Service\Generation\RuntimeGenerationException;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -29,6 +32,7 @@ class NpcSheetGenerationService {
     protected readonly ?AIApiService $aiApiService = NULL,
     protected readonly ?NpcPsychologyService $npcPsychologyService = NULL,
     protected readonly ?StateValidationService $stateValidationService = NULL,
+    protected readonly ?CanonicalDefinitionGenerationService $canonicalDefinitionGeneration = NULL,
   ) {
     $this->logger = $logger_factory->get('dungeoncrawler_npc_sheet_generation');
   }
@@ -77,6 +81,7 @@ class NpcSheetGenerationService {
         'status' => 'pending',
         'attempts' => 0,
         'payload_json' => json_encode([
+          'schema_version' => 'npc-sheet-canonical-r7',
           'campaign_id' => $campaign_id,
           'content_id' => $content_id,
           'seed_data' => $seed_data,
@@ -142,7 +147,9 @@ class NpcSheetGenerationService {
         $campaign_id = (int) ($payload['campaign_id'] ?? $job->campaign_id ?? 0);
         $content_id = (string) ($payload['content_id'] ?? $job->content_id ?? '');
         $seed_data = $payload['seed_data'] ?? [];
-        $sheet = $this->generateNpcSheet($campaign_id, $content_id, $seed_data);
+        $sheet = (string) ($payload['schema_version'] ?? '') === 'npc-sheet-canonical-r7'
+          ? $this->generateNpcSheet($campaign_id, $content_id, $seed_data)
+          : $this->generateLegacyNpcSheet($campaign_id, $content_id, $seed_data);
         $this->persistGeneratedSheet($campaign_id, $content_id, $sheet, $seed_data);
 
         $this->database->update('dc_npc_sheet_generation_jobs')
@@ -219,14 +226,17 @@ class NpcSheetGenerationService {
       return;
     }
 
+    $log_dir = $project_root . '/web/sites/default/files/private';
+    $worker_log = $log_dir . '/dungeoncrawler-npc-sheet-worker.log';
+    $launch_log = $log_dir . '/dungeoncrawler-npc-sheet-launch.log';
     $command = escapeshellarg($drush_binary)
       . ' dungeoncrawler_content:npc-sheet-worker --limit=' . max(1, $limit)
-      . ' >/tmp/dungeoncrawler-npc-sheet-worker.log 2>&1 &';
+      . ' >' . escapeshellarg($worker_log) . ' 2>&1 &';
 
     $descriptors = [
       0 => ['pipe', 'r'],
-      1 => ['file', '/tmp/dungeoncrawler-npc-sheet-launch.log', 'a'],
-      2 => ['file', '/tmp/dungeoncrawler-npc-sheet-launch.log', 'a'],
+      1 => ['file', $launch_log, 'a'],
+      2 => ['file', $launch_log, 'a'],
     ];
 
     $process = @proc_open($command, $descriptors, $pipes, $project_root);
@@ -241,7 +251,7 @@ class NpcSheetGenerationService {
   }
 
   /**
-   * Generate a richer NPC sheet, using AI when available.
+   * Generate a richer NPC sheet through the canonical actor definition path.
    *
    * Legacy generation entrypoint frozen by ADR-GEN-06: no new callers; use
    * CanonicalGenerationService.
@@ -249,6 +259,36 @@ class NpcSheetGenerationService {
    * pool, cached fallback, or legacy generator on failure.
    */
   protected function generateNpcSheet(int $campaign_id, string $content_id, array $seed_data): array {
+    if ($this->canonicalDefinitionGeneration === NULL) {
+      throw new RuntimeGenerationException('runtime_generation_failed', [[
+        'code' => 'runtime_generation_failed',
+        'pointer' => '/canonical_definition_generation',
+        'message' => 'Canonical definition generation service is required for new NPC sheet jobs.',
+        'severity' => 'error',
+      ]], 503);
+    }
+
+    try {
+      $result = $this->canonicalDefinitionGeneration->generateRuntimeDefinitionAndSave('actor', [
+        'prompt' => $this->npcDefinitionPrompt($campaign_id, $content_id, $seed_data),
+        'definition_id' => $content_id,
+        'level' => max(1, (int) ($seed_data['level'] ?? $seed_data['stats']['level'] ?? 1)),
+        'role' => (string) ($seed_data['role'] ?? $seed_data['class'] ?? 'npc'),
+        'attitude' => (string) ($seed_data['attitude'] ?? 'indifferent'),
+        'seed' => abs(crc32($campaign_id . '|' . $content_id . '|' . json_encode($seed_data))) % 2147483647,
+      ], (int) ($seed_data['requested_by_uid'] ?? 0));
+    }
+    catch (CanonicalGenerationException $e) {
+      throw new RuntimeGenerationException('runtime_generation_failed', $e->getFindings(), $e->httpStatus(), $e);
+    }
+
+    return $this->sheetFromCanonicalActor($content_id, $seed_data, $result);
+  }
+
+  /**
+   * Legacy processor retained only to drain jobs queued before R7.
+   */
+  protected function generateLegacyNpcSheet(int $campaign_id, string $content_id, array $seed_data): array {
     if ($this->aiApiService) {
       try {
         return $this->generateNpcSheetWithAi($campaign_id, $content_id, $seed_data);
@@ -262,6 +302,45 @@ class NpcSheetGenerationService {
     }
 
     return $this->generateFallbackNpcSheet($campaign_id, $content_id, $seed_data);
+  }
+
+  protected function npcDefinitionPrompt(int $campaign_id, string $content_id, array $seed_data): string {
+    return 'Create an original PF2e-compatible NPC actor definition for a campaign NPC sheet. '
+      . 'Campaign id: ' . $campaign_id . '. Content id: ' . $content_id . '. Seed data: '
+      . json_encode($seed_data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+  }
+
+  protected function sheetFromCanonicalActor(string $content_id, array $seed_data, array $result): array {
+    $payload = is_array($result['payload'] ?? NULL) ? $result['payload'] : [];
+    $state = is_array($payload['state_data'] ?? NULL) ? $payload['state_data'] : [];
+    $name = (string) ($payload['display_name'] ?? $state['name'] ?? $seed_data['name'] ?? $content_id);
+    $level = max(1, (int) ($state['level'] ?? $seed_data['level'] ?? 1));
+    $stats = Pf2eGenerationRules::normalizeNpcSheetStats([
+      'ac' => (int) ($state['ac'] ?? 10 + $level),
+      'perception' => 5 + $level,
+      'fortitude' => 4 + $level,
+      'reflex' => 4 + $level,
+      'will' => 4 + $level,
+      'currentHp' => (int) ($state['hp_current'] ?? $state['max_hp'] ?? (12 + ($level * 8))),
+      'maxHp' => (int) ($state['max_hp'] ?? $state['hp_current'] ?? (12 + ($level * 8))),
+    ], is_array($seed_data['stats'] ?? NULL) ? $seed_data['stats'] : []);
+    $sheet = $this->normalizeGeneratedSheet($content_id, $seed_data, [
+      'name' => $name,
+      'level' => $level,
+      'ancestry' => (string) ($state['species'] ?? $seed_data['ancestry'] ?? 'Humanoid'),
+      'class' => (string) ($state['class'] ?? $seed_data['class'] ?? 'Commoner'),
+      'occupation' => (string) ($seed_data['occupation'] ?? $state['class'] ?? 'npc'),
+      'role' => (string) ($seed_data['role'] ?? $state['class'] ?? 'neutral'),
+      'alignment' => (string) ($seed_data['alignment'] ?? 'N'),
+      'description' => (string) ($state['description'] ?? $seed_data['description'] ?? ''),
+      'stats' => $stats,
+      'psychology' => is_array($seed_data['psychology'] ?? NULL) ? $seed_data['psychology'] : [],
+    ]);
+    $sheet['source'] = 'runtime_generated_canonical_actor';
+    $sheet['canonical_actor_id'] = (string) ($result['definition_id'] ?? $payload['actor_id'] ?? '');
+    $sheet['canonical_actor_version'] = (string) ($result['version'] ?? $payload['version'] ?? '1.0.0');
+    $sheet['canonical_actor_payload'] = $payload;
+    return $sheet;
   }
 
   /**
@@ -542,6 +621,12 @@ class NpcSheetGenerationService {
 
     $character_payload = $this->buildCampaignCharacterPayload($sheet);
     $state_payload = $this->buildCampaignStatePayload($sheet);
+    if (!empty($sheet['canonical_actor_id'])) {
+      $character_payload['source_canonical_actor_id'] = (string) $sheet['canonical_actor_id'];
+      $character_payload['source_canonical_actor_version'] = (string) ($sheet['canonical_actor_version'] ?? '1.0.0');
+      $state_payload['source_canonical_actor_id'] = (string) $sheet['canonical_actor_id'];
+      $state_payload['source_canonical_actor_version'] = (string) ($sheet['canonical_actor_version'] ?? '1.0.0');
+    }
 
     $this->database->update('dc_campaign_characters')
       ->fields([

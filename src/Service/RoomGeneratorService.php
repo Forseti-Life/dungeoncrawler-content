@@ -393,7 +393,7 @@ class RoomGeneratorService {
 
   protected function canonicalRuntimeGenerationR6Enabled(): bool {
     return $this->configFactory
-      && $this->configFactory->get('dungeoncrawler_content.settings')->get('canonical_runtime_generation.r6') !== FALSE;
+      && $this->configFactory->get('dungeoncrawler_content.settings')->get('canonical_runtime_generation.r7') !== FALSE;
   }
 
   /**

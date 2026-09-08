@@ -7,6 +7,9 @@ use Drupal\Core\Database\Connection;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\dungeoncrawler_content\Service\RelationshipManagerService;
 use Drupal\ai_conversation\Service\AIApiService;
+use Drupal\dungeoncrawler_content\Service\Generation\CanonicalGenerationException;
+use Drupal\dungeoncrawler_content\Service\Generation\CanonicalTemplateGenerationService;
+use Drupal\dungeoncrawler_content\Service\Generation\RuntimeGenerationException;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -46,6 +49,7 @@ class StorylineGenerationService {
     protected readonly ?NpcSheetGenerationService $npcSheetGenerationService = NULL,
     protected readonly ?StorylineRealizationService $storylineRealizationService = NULL,
     ?ObjectiveTypeService $objective_type_service = NULL,
+    protected readonly ?CanonicalTemplateGenerationService $canonicalTemplateGeneration = NULL,
   ) {
     $this->logger = $logger_factory->get('dungeoncrawler_content');
     $this->objectiveTypeService = $objective_type_service;
@@ -61,20 +65,20 @@ class StorylineGenerationService {
    */
   public function generateStorylinePackage(int $campaign_id, array $request): array {
     $request = $this->normalizeRequest($request);
-    $context = $this->buildGenerationContext($campaign_id, $request);
-
-    if ($this->aiApiService) {
-      try {
-        $package = $this->generatePackageWithAi($campaign_id, $request, $context);
-        return $this->normalizeGeneratedPackage($campaign_id, $request, $context, $package, 'ai');
-      }
-      catch (\Throwable $e) {
-        $this->rethrowAiGenerationFailure('storyline generation', $campaign_id, $e);
-      }
+    if ($this->canonicalTemplateGeneration === NULL) {
+      throw new RuntimeGenerationException('runtime_generation_failed', [[
+        'code' => 'runtime_generation_failed',
+        'pointer' => '/canonical_template_generation',
+        'message' => 'Canonical template generation service is required for storyline generation.',
+        'severity' => 'error',
+      ]], 503);
     }
-
-    $package = $this->generateFallbackPackage($campaign_id, $request, $context);
-    return $this->normalizeGeneratedPackage($campaign_id, $request, $context, $package, 'fallback');
+    try {
+      return $this->canonicalTemplateGeneration->generateStorylineBundle($campaign_id, $request, FALSE);
+    }
+    catch (CanonicalGenerationException $e) {
+      throw new RuntimeGenerationException('runtime_generation_failed', $e->getFindings(), $e->httpStatus(), $e);
+    }
   }
 
   /**
@@ -88,20 +92,20 @@ class StorylineGenerationService {
   public function generateStorylineBootstrapPackage(int $campaign_id, array $request): array {
     $request = $this->normalizeBootstrapRequest($request);
     $this->assertValidBootstrapRequest($request);
-    $context = $this->buildGenerationContext($campaign_id, $request);
-
-    if ($this->aiApiService) {
-      try {
-        $package = $this->generateBootstrapPackageWithAi($campaign_id, $request, $context);
-        return $this->normalizeGeneratedBootstrapPackage($campaign_id, $request, $context, $package, 'ai');
-      }
-      catch (\Throwable $e) {
-        $this->rethrowAiGenerationFailure('storyline bootstrap generation', $campaign_id, $e);
-      }
+    if ($this->canonicalTemplateGeneration === NULL) {
+      throw new RuntimeGenerationException('runtime_generation_failed', [[
+        'code' => 'runtime_generation_failed',
+        'pointer' => '/canonical_template_generation',
+        'message' => 'Canonical template generation service is required for storyline bootstrap generation.',
+        'severity' => 'error',
+      ]], 503);
     }
-
-    $package = $this->generateFallbackBootstrapPackage($campaign_id, $request, $context);
-    return $this->normalizeGeneratedBootstrapPackage($campaign_id, $request, $context, $package, 'fallback');
+    try {
+      return $this->canonicalTemplateGeneration->generateStorylineBundle($campaign_id, $request, TRUE);
+    }
+    catch (CanonicalGenerationException $e) {
+      throw new RuntimeGenerationException('runtime_generation_failed', $e->getFindings(), $e->httpStatus(), $e);
+    }
   }
 
   /**
@@ -144,13 +148,14 @@ class StorylineGenerationService {
           'error' => $e->getMessage(),
         ]
       );
-      throw new \RuntimeException(
-        'Storyline bootstrap bundle persist failed for campaign ' . $campaign_id .
-        ' (storyline_template=' . $bundle_diagnostics['storyline_template_id'] .
-        ', quest_templates=' . $bundle_diagnostics['quest_template_ids'] . '): ' . $e->getMessage(),
-        0,
-        $e
-      );
+      throw new RuntimeGenerationException('runtime_generation_failed', [[
+        'code' => 'runtime_generation_failed',
+        'pointer' => '/storyline_bootstrap/persistence',
+        'message' => 'Storyline bootstrap bundle persist failed for campaign ' . $campaign_id .
+          ' (storyline_template=' . $bundle_diagnostics['storyline_template_id'] .
+          ', quest_templates=' . $bundle_diagnostics['quest_template_ids'] . '): ' . $e->getMessage(),
+        'severity' => 'error',
+      ]], 500, $e);
     }
     unset($txn);
     $initial_quest = $this->materializeBootstrapQuest($campaign_id, $storyline, $request);
@@ -191,7 +196,7 @@ class StorylineGenerationService {
       'storyline_definition' => $package['storyline_definition'] ?? [],
       'quest_templates' => $saved_templates,
       'initial_quest' => $initial_quest,
-      'generation_source' => $package['generation_source'] ?? 'fallback',
+      'generation_source' => $package['generation_source'] ?? 'canonical_generation',
       'campaign_outline' => $package['campaign_outline'] ?? [],
       'expansion_queued' => $queued,
     ];
@@ -432,14 +437,17 @@ class StorylineGenerationService {
       return;
     }
 
+    $log_dir = $project_root . '/web/sites/default/files/private';
+    $worker_log = $log_dir . '/dungeoncrawler-storyline-expansion-worker.log';
+    $launch_log = $log_dir . '/dungeoncrawler-storyline-expansion-launch.log';
     $command = escapeshellarg($drush_binary)
       . ' dungeoncrawler_content:storyline-expansion-worker --limit=' . max(1, $limit)
-      . ' >/tmp/dungeoncrawler-storyline-expansion-worker.log 2>&1 &';
+      . ' >' . escapeshellarg($worker_log) . ' 2>&1 &';
 
     $descriptors = [
       0 => ['pipe', 'r'],
-      1 => ['file', '/tmp/dungeoncrawler-storyline-expansion-launch.log', 'a'],
-      2 => ['file', '/tmp/dungeoncrawler-storyline-expansion-launch.log', 'a'],
+      1 => ['file', $launch_log, 'a'],
+      2 => ['file', $launch_log, 'a'],
     ];
 
     $process = @proc_open($command, $descriptors, $pipes, $project_root);
@@ -1266,152 +1274,6 @@ class StorylineGenerationService {
       }, $existing_storylines),
       'request' => $request,
     ];
-  }
-
-  /**
-   * Ask the AI provider for a structured storyline package.
-   */
-  protected function generatePackageWithAi(int $campaign_id, array $request, array $context): array {
-    $prompt = "Generate a campaign storyline package as strict JSON.\n";
-    $prompt .= "Prompt: {$request['prompt']}\n";
-    $prompt .= "Requested tone: {$request['tone']}\n";
-    $prompt .= "Requested level range: {$request['level_range']}\n";
-    $prompt .= "Campaign context:\n" . json_encode($context, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n\n";
-    $prompt .= "Return ONLY JSON with this shape:\n";
-    $prompt .= "{\n";
-    $prompt .= '  "storyline": {' . "\n";
-    $prompt .= '    "name": string,' . "\n";
-    $prompt .= '    "template_id": string,' . "\n";
-    $prompt .= '    "synopsis": string,' . "\n";
-    $prompt .= '    "level_range": string,' . "\n";
-    $prompt .= '    "source": string,' . "\n";
-    $prompt .= '    "tags": [string, ...],' . "\n";
-    $prompt .= '    "metadata": object,' . "\n";
-    $prompt .= '    "asset_references": [object, ...],' . "\n";
-    $prompt .= '    "contacts": [object, ...],' . "\n";
-    $prompt .= '    "chapters": [object, ...]' . "\n";
-    $prompt .= '  },' . "\n";
-    $prompt .= '  "quest_templates": [object, ...]' . "\n";
-    $prompt .= "}\n\n";
-    $prompt .= "Hard requirements:\n";
-    $prompt .= "- Exactly one campaign goal.\n";
-    $prompt .= "- Exactly one big boss.\n";
-    $prompt .= "- Exactly two sub-bosses aligned to the big boss.\n";
-    $prompt .= "- Exactly three dungeons total, one for each boss.\n";
-    $prompt .= "- Exactly five rooms per dungeon.\n";
-    $prompt .= "- One quest template per room, so fifteen quest templates total.\n";
-    $prompt .= "- Every quest id referenced by storyline chapters/scenes must exist in quest_templates[].template_id.\n";
-    $prompt .= "- Storyline metadata must include a generated campaign outline with generation_phase = expanded covering the goal, boss hierarchy, dungeon styles, room contents, encounter plans, treasure plans, and progression connectors.\n";
-    $prompt .= "- metadata.generated_outline must include an entry_point object with: primary_quest_giver_id, primary_quest_giver_name, primary_dungeon_id, primary_chapter_id, primary_scene_id, primary_location_id, introduction_path (direct or brokered), detail_summary.\n";
-    $prompt .= "- Keep all styles aligned: goal -> big boss -> sub-bosses -> dungeons -> rooms -> NPCs/items/encounters/treasure.\n";
-    $prompt .= "- The progression chain must be explicit: quest giver points to dungeon entrance 1, sub-boss 1 points to dungeon entrance 2, sub-boss 2 points to dungeon entrance 3, and the final boss anchors the goal.\n";
-    $prompt .= "- If template_id, entry_dungeon_id, entry_room_id, first_quest_id, or questgiver speaker fields are provided, reuse them exactly for the first handoff.\n";
-    $prompt .= "- Each quest template's objectives_schema must be an array of phase objects: [{\"phase\": 1, \"objectives\": [...]}].\n";
-    $prompt .= "- Each objective must have: objective_id (unique in quest), type (collect|kill|investigate|explore|escort|interact|composite), description, completion_criteria (kind, metric, description), and next_step for player-action types (kill/interact/investigate/explore/escort/collect).\n";
-    $prompt .= "- Boss and lieutenant objectives must use type=composite with a children array of two task objects: one investigate task (locate/engage) and one kill task (defeat).\n";
-    $prompt .= "- Each composite objective must have completion_criteria.kind=all_children.\n";
-    $prompt .= "- Each child task must have: objective_id (unique in quest), type, description, completion_criteria, and next_step.\n";
-    $prompt .= "- Every NPC target referenced in objective/task 'target' fields must be declared in storyline contacts[] or asset_references[{\"asset_type\":\"npc\"}].\n";
-    $prompt .= "- Every location/destination referenced in objective/task must be declared in asset_references[{\"asset_type\":\"room\"}] or asset_references[{\"asset_type\":\"location\"}].\n";
-    $prompt .= "- Every item referenced in objective/task 'item' fields must be declared in asset_references[{\"asset_type\":\"item\"}].\n";
-
-    $result = $this->aiApiService->invokeModelDirect(
-      $prompt,
-      'dungeoncrawler_content',
-      'storyline_generation',
-      ['campaign_id' => $campaign_id],
-      [
-        'system_prompt' => 'You generate strict JSON storyline packages for a PF2e dungeon crawler. Never wrap JSON in markdown fences. Prefer concrete, gameable room and quest details over vague prose.',
-        'max_tokens' => 2200,
-        'skip_cache' => TRUE,
-      ]
-    );
-
-    $response = trim((string) ($result['response'] ?? ''));
-    $response = preg_replace('/^```json\s*|\s*```$/', '', $response) ?? $response;
-    $parsed = json_decode($response, TRUE);
-    if (!is_array($parsed)) {
-      throw new \RuntimeException('AI did not return valid JSON for storyline generation.');
-    }
-
-    return $parsed;
-  }
-
-  /**
-   * Ask the AI provider for the minimal storyline bootstrap package.
-   */
-  protected function generateBootstrapPackageWithAi(int $campaign_id, array $request, array $context): array {
-    $prompt = "Generate a minimal campaign storyline bootstrap package as strict JSON.\n";
-    $prompt .= "Prompt: {$request['prompt']}\n";
-    $prompt .= "Requested tone: {$request['tone']}\n";
-    $prompt .= "Requested level range: {$request['level_range']}\n";
-    $prompt .= "Campaign context:\n" . json_encode($context, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n\n";
-    $prompt .= "Return ONLY JSON with this shape:\n";
-    $prompt .= "{\n";
-    $prompt .= '  "storyline": {' . "\n";
-    $prompt .= '    "name": string,' . "\n";
-    $prompt .= '    "template_id": string,' . "\n";
-    $prompt .= '    "synopsis": string,' . "\n";
-    $prompt .= '    "level_range": string,' . "\n";
-    $prompt .= '    "source": string,' . "\n";
-    $prompt .= '    "tags": [string, ...],' . "\n";
-    $prompt .= '    "metadata": {' . "\n";
-    $prompt .= '      "goal": string,' . "\n";
-    $prompt .= '      "generated_outline": {' . "\n";
-    $prompt .= '        "generation_phase": "bootstrap",' . "\n";
-    $prompt .= '        "goal": string,' . "\n";
-    $prompt .= '        "entry_dungeon": {' . "\n";
-    $prompt .= '          "dungeon_id": string,' . "\n";
-    $prompt .= '          "name": string,' . "\n";
-    $prompt .= '          "style": string,' . "\n";
-    $prompt .= '          "entrance_room_id": string,' . "\n";
-    $prompt .= '          "lead_location_id": string,' . "\n";
-    $prompt .= '          "lead_location_hint": string' . "\n";
-    $prompt .= '        },' . "\n";
-    $prompt .= '        "progression_connectors": [object, ...],' . "\n";
-    $prompt .= '        "bootstrap_handoff": {' . "\n";
-    $prompt .= '          "speaker_npc_id": string,' . "\n";
-    $prompt .= '          "speaker_name": string,' . "\n";
-    $prompt .= '          "lead_text": string' . "\n";
-    $prompt .= '        }' . "\n";
-    $prompt .= '      }' . "\n";
-    $prompt .= '    },' . "\n";
-    $prompt .= '    "asset_references": [object, ...],' . "\n";
-    $prompt .= '    "contacts": [object, ...],' . "\n";
-    $prompt .= '    "chapters": [object, ...]' . "\n";
-    $prompt .= '  },' . "\n";
-    $prompt .= '  "quest_templates": [object]' . "\n";
-    $prompt .= "}\n\n";
-    $prompt .= "Hard requirements:\n";
-    $prompt .= "- This is the synchronous bootstrap phase only.\n";
-    $prompt .= "- Generate exactly one goal, one entry dungeon stub, one entrance room, one first quest template, and one immediate questgiver handoff.\n";
-    $prompt .= "- Do not generate bosses, downstream dungeons, or a full room graph yet.\n";
-    $prompt .= "- metadata.generated_outline must include entry_point with: primary_quest_giver_id, primary_quest_giver_name, primary_dungeon_id, primary_chapter_id, primary_scene_id, primary_location_id, introduction_path (direct or brokered), detail_summary.\n";
-    $prompt .= "- The first quest template's objectives_schema must have phase objects: [{\"phase\": 1, \"objectives\": [...]}].\n";
-    $prompt .= "- Each objective must have: objective_id (unique in quest), type (explore|interact|composite), description, completion_criteria (kind, metric, description), and next_step for player-action types.\n";
-    $prompt .= "- Every NPC referenced in objective/task 'target' fields must be declared in storyline contacts[] or asset_references[{\"asset_type\":\"npc\"}].\n";
-    $prompt .= "- Every location referenced in objective/task must be declared in asset_references[{\"asset_type\":\"room\"}] or asset_references[{\"asset_type\":\"location\"}].\n";
-
-    $result = $this->aiApiService->invokeModelDirect(
-      $prompt,
-      'dungeoncrawler_content',
-      'storyline_bootstrap_generation',
-      ['campaign_id' => $campaign_id],
-      [
-        'system_prompt' => 'You generate strict JSON storyline bootstrap payloads for a PF2e dungeon crawler. Keep the output minimal, immediately playable, and never wrap JSON in markdown fences.',
-        'max_tokens' => 1200,
-        'skip_cache' => TRUE,
-      ]
-    );
-
-    $response = trim((string) ($result['response'] ?? ''));
-    $response = preg_replace('/^```json\s*|\s*```$/', '', $response) ?? $response;
-    $parsed = json_decode($response, TRUE);
-    if (!is_array($parsed)) {
-      throw new \RuntimeException('AI did not return valid JSON for storyline bootstrap generation.');
-    }
-
-    return $parsed;
   }
 
   /**

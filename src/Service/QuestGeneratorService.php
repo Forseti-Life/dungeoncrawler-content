@@ -4,6 +4,7 @@ namespace Drupal\dungeoncrawler_content\Service;
 
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
+use Drupal\dungeoncrawler_content\Service\Generation\RuntimeGenerationException;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -155,7 +156,10 @@ class QuestGeneratorService {
       $template = $this->loadTemplate($template_id);
       if (empty($template)) {
         $this->logger->error('Quest template not found: @template', ['@template' => $template_id]);
-        return [];
+        throw $this->selectionFailed('/template_id', 'Published canonical quest template was not found.', [
+          'template_id' => $template_id,
+          'campaign_id' => $campaign_id,
+        ]);
       }
 
       if (!$this->isQuestTemplateAllowedForGiver($campaign_id, $template_id, $context)) {
@@ -164,7 +168,11 @@ class QuestGeneratorService {
           '@giver' => (string) ($context['giver_npc_id'] ?? 'unknown'),
           '@campaign' => $campaign_id,
         ]);
-        return [];
+        throw $this->selectionFailed('/giver_npc_id', 'Published canonical quest template is not allowed for this quest giver.', [
+          'template_id' => $template_id,
+          'campaign_id' => $campaign_id,
+          'giver_npc_id' => (string) ($context['giver_npc_id'] ?? ''),
+        ]);
       }
 
       // Generate unique quest ID
@@ -457,6 +465,13 @@ class QuestGeneratorService {
       $template_id = trim((string) ($template['template_id'] ?? ''));
       return $template_id !== '' && $this->isQuestTemplateAllowedForGiver($campaign_id, $template_id, $context);
     }));
+    if ($templates === []) {
+      throw $this->selectionFailed('/quest_templates', 'No published canonical quest templates matched the location criteria.', [
+        'campaign_id' => $campaign_id,
+        'party_level' => (int) $party_level,
+        'tags_tried' => array_values(array_map('strval', $location_tags)),
+      ]);
+    }
     $generated = [];
 
     // Generate up to $count quests
@@ -468,7 +483,24 @@ class QuestGeneratorService {
       }
     }
 
+    if ($generated === []) {
+      throw $this->selectionFailed('/quest_templates', 'No allowed published canonical quest templates could be realized for this location.', [
+        'campaign_id' => $campaign_id,
+        'party_level' => (int) $party_level,
+        'tags_tried' => array_values(array_map('strval', $location_tags)),
+      ]);
+    }
+
     return $generated;
+  }
+
+  protected function selectionFailed(string $pointer, string $message, array $details = []): RuntimeGenerationException {
+    return new RuntimeGenerationException('runtime_selection_failed', [[
+      'code' => 'runtime_selection_failed',
+      'pointer' => $pointer,
+      'message' => $message,
+      'severity' => 'error',
+    ] + $details], 422);
   }
 
   /**
