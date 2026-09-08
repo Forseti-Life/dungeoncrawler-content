@@ -24,7 +24,6 @@ use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\ListCatalogDefinitionsTo
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\LoadCanonicalDefinitionTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\PlanCanonicalDefinitionPatchTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\UpdateCanonicalDefinitionTool;
-use Drupal\dungeoncrawler_content\Service\Generation\CanonicalGenerationService;
 
 /**
  * Dungeon Editor GM surface (20-gm-harness-extension.md §dungeon_editor).
@@ -57,7 +56,7 @@ final class DungeonEditorGmSurface implements EditorGmSurfaceInterface {
     private readonly CanonicalDefinitionService $definitions,
     EditorGmIntentParser $intentParser,
     UuidInterface $uuid,
-    ?CanonicalGenerationService $generation = NULL,
+    ?EditorCanonicalGenerationPlanService $generation = NULL,
   ) {
     $tools = [
       new LoadDungeonDraftTool(),

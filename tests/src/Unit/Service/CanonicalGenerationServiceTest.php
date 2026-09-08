@@ -7,6 +7,7 @@ use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\Core\Logger\LoggerChannelInterface;
 use Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService;
 use Drupal\dungeoncrawler_content\Service\DungeonEditorService;
+use Drupal\dungeoncrawler_content\Service\EditorGm\EditorCanonicalGenerationPlanService;
 use Drupal\dungeoncrawler_content\Service\EditorGm\DungeonEditorGmToolContext;
 use Drupal\dungeoncrawler_content\Service\Generation\CanonicalGenerationException;
 use Drupal\dungeoncrawler_content\Service\Generation\CanonicalGenerationService;
@@ -47,13 +48,13 @@ final class CanonicalGenerationServiceTest extends TestCase {
     return $definitions;
   }
 
-  private function service(?object $ai, CanonicalDefinitionService $definitions, ?RoomEditorService $roomEditor = NULL, ?DungeonEditorService $dungeonEditor = NULL): CanonicalGenerationService {
-    return new CanonicalGenerationService(
+  private function service(?object $ai, CanonicalDefinitionService $definitions, ?RoomEditorService $roomEditor = NULL, ?DungeonEditorService $dungeonEditor = NULL): EditorCanonicalGenerationPlanService {
+    $core = new CanonicalGenerationService(
       $ai,
-      $definitions,
       $this->time(),
       $this->loggerFactory(),
     );
+    return new EditorCanonicalGenerationPlanService($core, $definitions);
   }
 
   private function ai(array $responses): object {

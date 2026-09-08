@@ -11,7 +11,7 @@ use Drupal\dungeoncrawler_content\Service\EditorGm\DefinitionEditorGmSurface;
 use Drupal\dungeoncrawler_content\Service\EditorGm\DungeonEditorGmSurface;
 use Drupal\dungeoncrawler_content\Service\EditorGm\DungeonEditorGmToolContext;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmHarnessService;
-use Drupal\dungeoncrawler_content\Service\Generation\CanonicalGenerationService;
+use Drupal\dungeoncrawler_content\Service\EditorGm\EditorCanonicalGenerationPlanService;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorSuiteGmSurface;
 use Drupal\dungeoncrawler_content\Service\EditorSuite\EditorReviewFlagService;
 use Drupal\dungeoncrawler_content\Service\EditorSuite\EditorSuiteService;
@@ -73,7 +73,7 @@ class DungeonEditorGmContractTest extends TestCase {
   private function harness(): EditorGmHarnessService {
     $parser = $this->parser();
     $definitions = $this->createMock(CanonicalDefinitionService::class);
-    $generation = $this->createMock(CanonicalGenerationService::class);
+    $generation = $this->createMock(EditorCanonicalGenerationPlanService::class);
     return new EditorGmHarnessService([
       new RoomEditorGmSurface($this->createMock(RoomEditorService::class), $definitions, $parser, new Php(), $generation),
       new DungeonEditorGmSurface($this->createMock(DungeonEditorService::class), $definitions, $parser, new Php(), $generation),
