@@ -1,13 +1,13 @@
 <?php
 
-namespace Drupal\dungeoncrawler_content\Service\EditorGm;
+namespace Drupal\dungeoncrawler_content\Service\Generation;
 
 use Drupal\dungeoncrawler_content\Service\DungeonEditorFindingsInterface;
 
 /**
  * Hard generation failure with stable editor-generation error code/findings.
  */
-class EditorGenerationException extends \RuntimeException implements DungeonEditorFindingsInterface {
+class CanonicalGenerationException extends \RuntimeException implements DungeonEditorFindingsInterface {
 
   public function __construct(
     string $code,

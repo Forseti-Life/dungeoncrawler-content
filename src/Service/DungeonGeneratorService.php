@@ -4,6 +4,7 @@ namespace Drupal\dungeoncrawler_content\Service;
 
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
+use Drupal\dungeoncrawler_content\Service\Generation\GenerationVocabulary;
 use Drupal\dungeoncrawler_content\Support\H3SpatialHelper;
 use Psr\Log\LoggerInterface;
 
@@ -22,6 +23,8 @@ use Psr\Log\LoggerInterface;
  * Validation pair: internal context validation (including
  * DungeonLayoutProfileResolver::validateContext()) with downstream room/schema
  * validation delegated to RoomGeneratorService.
+ *
+ * Runtime generator scheduled for reconciliation into the canonical generation path (Board decision 2026-09-08, item 20260908-dc-editor-generation-tools). No new callers.
  *
  * @see /docs/dungeoncrawler/ROOM_DUNGEON_GENERATOR_ARCHITECTURE.md
  */
@@ -838,21 +841,7 @@ class DungeonGeneratorService {
    *   Terrain type (room.schema.json terrain.type enum)
    */
   protected function selectTerrainType(string $theme): string {
-    // Map themes to appropriate terrain types
-    $theme_terrains = [
-      'dungeon' => ['stone_floor', 'cobblestone', 'flagstone'],
-      'cave' => ['dirt', 'stone_rough', 'gravel'],
-      'crypt' => ['stone_floor', 'flagstone', 'marble'],
-      'ruins' => ['stone_rough', 'cobblestone', 'rubble', 'overgrown'],
-      'underground' => ['dirt', 'stone_rough', 'mud'],
-      'demonic' => ['obsidian', 'lava_rock', 'sulfur'],
-      'underdark' => ['stone_rough', 'crystal', 'fungal'],
-      'sewer' => ['mud', 'water_shallow', 'slime'],
-      'mine' => ['stone_rough', 'gravel', 'ore_deposits'],
-    ];
-
-    $options = $theme_terrains[$theme] ?? ['stone_floor'];
-    return $this->pick($options);
+    return $this->pick(GenerationVocabulary::runtimeTerrainOptionsForTheme($theme));
   }
 
   /**

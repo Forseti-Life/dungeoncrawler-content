@@ -19,6 +19,8 @@ use Psr\Log\LoggerInterface;
  *
  * Validation pair: SchemaLoader::validate('room', ...) room contract checks.
  *
+ * Runtime generator scheduled for reconciliation into the canonical generation path (Board decision 2026-09-08, item 20260908-dc-editor-generation-tools). No new callers.
+ *
  * @see /docs/dungeoncrawler/ROOM_DUNGEON_GENERATOR_ARCHITECTURE.md
  */
 class RoomGeneratorService {

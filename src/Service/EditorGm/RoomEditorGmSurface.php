@@ -23,6 +23,7 @@ use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\SummarizeDefinitionUsage
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\SummarizeRoomTopologyTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\UpdateCanonicalDefinitionTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\ValidateDraftTool;
+use Drupal\dungeoncrawler_content\Service\Generation\CanonicalGenerationService;
 use Drupal\dungeoncrawler_content\Service\RoomEditorService;
 
 /**
@@ -71,7 +72,7 @@ final class RoomEditorGmSurface implements EditorGmSurfaceInterface {
     private readonly CanonicalDefinitionService $definitions,
     EditorGmIntentParser $intentParser,
     UuidInterface $uuid,
-    ?EditorGenerationService $generation = NULL,
+    ?CanonicalGenerationService $generation = NULL,
   ) {
     $tools = [
       new LoadDraftSnapshotTool(),

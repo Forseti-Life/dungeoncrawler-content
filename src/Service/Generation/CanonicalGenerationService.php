@@ -2,22 +2,28 @@
 
 declare(strict_types=1);
 
-namespace Drupal\dungeoncrawler_content\Service\EditorGm;
+namespace Drupal\dungeoncrawler_content\Service\Generation;
 
-use Drupal\Component\Uuid\UuidInterface;
 use Drupal\Component\Datetime\TimeInterface;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\dungeoncrawler_content\Geometry\RoomPlacementTransformer;
 use Drupal\dungeoncrawler_content\Geometry\RoomPortEdgePolicy;
 use Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService;
-use Drupal\dungeoncrawler_content\Service\Definition\DefinitionSchemaValidator;
 use Drupal\dungeoncrawler_content\Service\DungeonEditorService;
-use Drupal\dungeoncrawler_content\Service\RoomEditorService;
+use Drupal\dungeoncrawler_content\Service\EditorGm\DungeonEditorGmToolContext;
+use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmHarnessService;
+use Drupal\dungeoncrawler_content\Service\EditorGm\RoomEditorGmToolContext;
 
 /**
- * Pure editor generation boundary for schema-conforming room/dungeon plans.
+ * Reconciled generation core for canonical Dungeoncrawler content.
+ *
+ * This is the single generation path going forward (Board decision
+ * 2026-09-08, item 20260908-dc-editor-generation-tools). Runtime legacy
+ * generators are scheduled to move onto this core; no new generation path may
+ * bypass its prompt assembly, provider call, JSON extraction, validation retry,
+ * or provenance stages.
  */
-class EditorGenerationService {
+class CanonicalGenerationService {
 
   private const PLAN_VERSION = EditorGmHarnessService::COMMAND_PLAN_CONTRACT_VERSION;
   private const GENERATION_PLAN_VERSION = 'editor-generation-plan-v1';
@@ -32,29 +38,9 @@ class EditorGenerationService {
 
   private const ORIGINALITY_INSTRUCTION = 'Create original project-authored Dungeoncrawler content only. Do not reproduce or closely imitate third-party settings, named characters, locations, adventure text, item names, monster names, lore, maps, or protected trade dress. Do not use Paizo/Golarion/Otari/Absalom/Foundry-community fixture content. If the user asks for a protected third-party work, produce a legally distinct alternative with original names and descriptions.';
 
-  private const ROOM_TYPES = [
-    'corridor', 'chamber', 'cavern', 'hall', 'shrine', 'vault', 'lair', 'nest',
-    'workshop', 'library', 'prison', 'throne_room', 'armory', 'pantry', 'garden',
-    'pool', 'mine', 'crypt', 'laboratory', 'barracks', 'marketplace', 'arena',
-    'boss_chamber', 'entrance', 'exit', 'stairwell', 'crossroads', 'dead_end',
-    'trap_room', 'puzzle_room', 'vault_room', 'safe_room',
-  ];
-
-  private const SIZE_CATEGORIES = ['tiny', 'small', 'medium', 'large', 'huge', 'gargantuan'];
-  private const TERRAIN_TYPES = ['stone_floor', 'rough_stone', 'smooth_stone', 'dirt', 'mud', 'sand', 'water_shallow', 'water_deep', 'ice', 'lava', 'fungal_growth', 'bone', 'crystal', 'metal_grate', 'wooden_floor', 'carpet', 'rubble', 'void'];
-  private const LIGHTING_LEVELS = ['bright_light', 'dim_light', 'darkness', 'magical_darkness'];
-  private const PLACEABLE_FAMILIES = ['creature', 'actor', 'item', 'obstacle', 'trap', 'hazard'];
-  private const LINK_KINDS = ['hallway', 'archway', 'door', 'hatch', 'portcullis', 'secret_door', 'magical_barrier', 'collapsed', 'bridge', 'one_way_drop'];
-  private const LINK_DIRECTIONS = ['bidirectional', 'one_way'];
-  private const LINK_STATES = ['open', 'closed', 'locked', 'barred', 'trapped', 'triggered', 'destroyed'];
-
   public function __construct(
     private readonly ?object $aiApiService,
-    private readonly DefinitionSchemaValidator $validator,
     private readonly CanonicalDefinitionService $definitions,
-    private readonly RoomEditorService $roomEditor,
-    private readonly DungeonEditorService $dungeonEditor,
-    private readonly UuidInterface $uuid,
     private readonly TimeInterface $time,
     LoggerChannelFactoryInterface $loggerFactory,
   ) {
@@ -145,7 +131,7 @@ class EditorGenerationService {
       try {
         return $converter($decoded, $provenance);
       }
-      catch (EditorGenerationException $exception) {
+      catch (CanonicalGenerationException $exception) {
         if ($exception->getMessage() !== 'generation_nonconforming') {
           throw $exception;
         }
@@ -180,8 +166,8 @@ class EditorGenerationService {
   private function normalizeRoomInput(array $arguments): array {
     $prompt = $this->boundedString($arguments, 'prompt', TRUE, 1, 2000);
     $theme = $this->boundedString($arguments, 'theme', FALSE, 0, 100);
-    $size = $this->enum($arguments, 'size_category', self::SIZE_CATEGORIES, 'medium');
-    $type = $this->enum($arguments, 'room_type', self::ROOM_TYPES, 'chamber');
+    $size = $this->enum($arguments, 'size_category', GenerationVocabulary::SIZE_CATEGORIES, 'medium');
+    $type = $this->enum($arguments, 'room_type', GenerationVocabulary::ROOM_TYPES, 'chamber');
     $level = $this->intRange($arguments, 'level', -1, 25, 1);
     $min_hexes = $this->intRange($arguments, 'min_hexes', 1, self::ROOM_MAX_HEXES, 16);
     $max_default = ['tiny' => 16, 'small' => 20, 'medium' => 32, 'large' => 48, 'huge' => 64, 'gargantuan' => 80][$size];
@@ -189,14 +175,14 @@ class EditorGenerationService {
     if ($max_hexes < $min_hexes) {
       throw $this->exception('generation_input_invalid', [$this->finding('generation_input_invalid', '/max_hexes', 'max_hexes must be greater than or equal to min_hexes.')], 400);
     }
-    $families = self::PLACEABLE_FAMILIES;
+    $families = GenerationVocabulary::PLACEABLE_FAMILIES;
     if (isset($arguments['placeable_families'])) {
       if (!is_array($arguments['placeable_families']) || array_is_list($arguments['placeable_families']) === FALSE) {
         throw $this->exception('generation_input_invalid', [$this->finding('generation_input_invalid', '/placeable_families', 'placeable_families must be a list.')], 400);
       }
       $families = [];
       foreach ($arguments['placeable_families'] as $index => $family) {
-        if (!is_string($family) || !in_array($family, self::PLACEABLE_FAMILIES, TRUE)) {
+        if (!is_string($family) || !in_array($family, GenerationVocabulary::PLACEABLE_FAMILIES, TRUE)) {
           throw $this->exception('generation_input_invalid', [$this->finding('generation_input_invalid', '/placeable_families/' . $index, 'Unknown placeable family.')], 400);
         }
         $families[] = $family;
@@ -217,9 +203,9 @@ class EditorGenerationService {
       'theme' => $this->boundedString($arguments, 'theme', FALSE, 0, 100),
       'room_count' => $this->intRange($arguments, 'room_count', 3, self::DUNGEON_MAX_PLACEMENTS, 3),
       'level' => $this->intRange($arguments, 'level', -1, 25, 1),
-      'link_kind' => $this->enum($arguments, 'link_kind', self::LINK_KINDS, 'door'),
-      'link_direction' => $this->enum($arguments, 'link_direction', self::LINK_DIRECTIONS, 'bidirectional'),
-      'default_state' => $this->enum($arguments, 'default_state', self::LINK_STATES, 'closed'),
+      'link_kind' => $this->enum($arguments, 'link_kind', GenerationVocabulary::LINK_KINDS, 'door'),
+      'link_direction' => $this->enum($arguments, 'link_direction', GenerationVocabulary::LINK_DIRECTIONS, 'bidirectional'),
+      'default_state' => $this->enum($arguments, 'default_state', GenerationVocabulary::LINK_STATES, 'closed'),
       'seed' => $this->seed($arguments),
     ];
   }
@@ -302,10 +288,10 @@ class EditorGenerationService {
     $shape = [
       'name' => 'string 1..200',
       'description' => 'string 1..2000',
-      'room_type' => implode('|', self::ROOM_TYPES),
-      'size_category' => implode('|', self::SIZE_CATEGORIES),
-      'terrain_type' => implode('|', self::TERRAIN_TYPES),
-      'lighting' => implode('|', self::LIGHTING_LEVELS),
+      'room_type' => implode('|', GenerationVocabulary::ROOM_TYPES),
+      'size_category' => implode('|', GenerationVocabulary::SIZE_CATEGORIES),
+      'terrain_type' => implode('|', GenerationVocabulary::CANONICAL_TERRAIN_TYPES),
+      'lighting' => implode('|', GenerationVocabulary::LIGHTING_LEVELS),
       'hexes' => [['q' => 0, 'r' => 0, 'terrain_type' => 'stone_floor', 'elevation_ft' => 0, 'lighting' => 'dim_light']],
       'entry_ports' => [['port_id' => 'entry-1', 'hex' => ['q' => -2, 'r' => 0], 'label' => 'Entry', 'arrival_facing' => 0, 'is_default' => TRUE, 'tags' => []]],
       'exit_ports' => [['port_id' => 'exit-1', 'hex' => ['q' => 2, 'r' => 0], 'label' => 'Exit', 'kind' => 'door', 'direction' => 'bidirectional', 'default_state' => 'closed', 'destination_hint' => NULL, 'requirements' => [], 'tags' => []]],
@@ -382,10 +368,10 @@ class EditorGenerationService {
 
   private function roomPlanFromDecoded(array $decoded, array $provenance, RoomEditorGmToolContext $context, array $input, array $catalog): array {
     $hexes = $this->generatedHexes($decoded, $input['min_hexes'], $input['max_hexes']);
-    $terrain = $this->valueIn($decoded['terrain_type'] ?? 'stone_floor', self::TERRAIN_TYPES, '/terrain_type');
-    $lighting = $this->valueIn($decoded['lighting'] ?? 'bright_light', self::LIGHTING_LEVELS, '/lighting');
-    $room_type = $this->valueIn($decoded['room_type'] ?? $input['room_type'], self::ROOM_TYPES, '/room_type');
-    $size = $this->valueIn($decoded['size_category'] ?? $input['size_category'], self::SIZE_CATEGORIES, '/size_category');
+    $terrain = $this->valueIn($decoded['terrain_type'] ?? 'stone_floor', GenerationVocabulary::CANONICAL_TERRAIN_TYPES, '/terrain_type');
+    $lighting = $this->valueIn($decoded['lighting'] ?? 'bright_light', GenerationVocabulary::LIGHTING_LEVELS, '/lighting');
+    $room_type = $this->valueIn($decoded['room_type'] ?? $input['room_type'], GenerationVocabulary::ROOM_TYPES, '/room_type');
+    $size = $this->valueIn($decoded['size_category'] ?? $input['size_category'], GenerationVocabulary::SIZE_CATEGORIES, '/size_category');
     $current = $context->room();
     $plan_room = $current;
     $plan_room['hexes'] = $this->mergeProjectedHexes((array) ($current['hexes'] ?? []), $hexes, $terrain, $lighting);
@@ -575,9 +561,9 @@ class EditorGenerationService {
       $record = [
         'q' => $hex['q'],
         'r' => $hex['r'],
-        'terrain_type' => $this->valueIn($hex['terrain_type'] ?? ($decoded['terrain_type'] ?? 'stone_floor'), self::TERRAIN_TYPES, '/hexes/' . $index . '/terrain_type'),
+        'terrain_type' => $this->valueIn($hex['terrain_type'] ?? ($decoded['terrain_type'] ?? 'stone_floor'), GenerationVocabulary::CANONICAL_TERRAIN_TYPES, '/hexes/' . $index . '/terrain_type'),
         'elevation_ft' => isset($hex['elevation_ft']) && is_int($hex['elevation_ft']) ? max(-50, min(200, $hex['elevation_ft'])) : 0,
-        'lighting' => $this->valueIn($hex['lighting'] ?? ($decoded['lighting'] ?? 'bright_light'), self::LIGHTING_LEVELS, '/hexes/' . $index . '/lighting'),
+        'lighting' => $this->valueIn($hex['lighting'] ?? ($decoded['lighting'] ?? 'bright_light'), GenerationVocabulary::LIGHTING_LEVELS, '/hexes/' . $index . '/lighting'),
       ];
       $key = RoomPortEdgePolicy::hexKey($record);
       if (isset($seen[$key])) {
@@ -630,9 +616,9 @@ class EditorGenerationService {
       }
       else {
         $base += [
-          'kind' => $this->valueIn($port['kind'] ?? 'door', self::LINK_KINDS, '/' . $key . '/' . $index . '/kind'),
-          'direction' => $this->valueIn($port['direction'] ?? 'bidirectional', self::LINK_DIRECTIONS, '/' . $key . '/' . $index . '/direction'),
-          'default_state' => $this->valueIn($port['default_state'] ?? 'closed', self::LINK_STATES, '/' . $key . '/' . $index . '/default_state'),
+          'kind' => $this->valueIn($port['kind'] ?? 'door', GenerationVocabulary::LINK_KINDS, '/' . $key . '/' . $index . '/kind'),
+          'direction' => $this->valueIn($port['direction'] ?? 'bidirectional', GenerationVocabulary::LINK_DIRECTIONS, '/' . $key . '/' . $index . '/direction'),
+          'default_state' => $this->valueIn($port['default_state'] ?? 'closed', GenerationVocabulary::LINK_STATES, '/' . $key . '/' . $index . '/default_state'),
           'destination_hint' => isset($port['destination_hint']) ? (string) $port['destination_hint'] : NULL,
           'linked_placement_id' => NULL,
           'requirements' => is_array($port['requirements'] ?? NULL) ? $port['requirements'] : [],
@@ -887,12 +873,12 @@ class EditorGenerationService {
     return substr($hex, 0, 8) . '-' . substr($hex, 8, 4) . '-' . substr($hex, 12, 4) . '-' . substr($hex, 16, 4) . '-' . substr($hex, 20, 12);
   }
 
-  private function nonconforming(array $findings): EditorGenerationException {
+  private function nonconforming(array $findings): CanonicalGenerationException {
     return $this->exception('generation_nonconforming', $findings);
   }
 
-  private function exception(string $code, array $findings, int $status = 422, ?\Throwable $previous = NULL): EditorGenerationException {
-    return new EditorGenerationException($code, $findings, $status, $previous);
+  private function exception(string $code, array $findings, int $status = 422, ?\Throwable $previous = NULL): CanonicalGenerationException {
+    return new CanonicalGenerationException($code, $findings, $status, $previous);
   }
 
   private function finding(string $code, string $pointer, string $message): array {

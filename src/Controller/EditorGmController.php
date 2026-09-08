@@ -7,8 +7,8 @@ use Drupal\Core\Access\CsrfTokenGenerator;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\dungeoncrawler_content\Service\DungeonEditorFindingsInterface;
 use Drupal\dungeoncrawler_content\Service\Definition\DefinitionValidationException;
-use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGenerationException;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmHarnessService;
+use Drupal\dungeoncrawler_content\Service\Generation\CanonicalGenerationException;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -119,7 +119,7 @@ class EditorGmController extends ControllerBase {
   private function errorResponse(\Throwable $exception): JsonResponse {
     $code = $exception->getMessage() ?: 'editor_gm_error';
     $status = match (TRUE) {
-      $exception instanceof EditorGenerationException => $exception->httpStatus(),
+      $exception instanceof CanonicalGenerationException => $exception->httpStatus(),
       $exception instanceof \InvalidArgumentException && $code === 'definition_exists' => 409,
       $exception instanceof \JsonException,
       $exception instanceof \InvalidArgumentException => 400,
@@ -130,7 +130,7 @@ class EditorGmController extends ControllerBase {
       $exception instanceof \DomainException => 422,
       default => 500,
     };
-    if ($status === 500 && !$exception instanceof EditorGenerationException) {
+    if ($status === 500 && !$exception instanceof CanonicalGenerationException) {
       $this->getLogger('dungeoncrawler_content')->error('Editor GM harness failure: @message', [
         '@message' => $exception->getMessage(),
       ]);

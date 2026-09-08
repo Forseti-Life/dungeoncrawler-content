@@ -15,6 +15,8 @@ namespace Drupal\dungeoncrawler_content\Service;
  *   generation paths.
  *   Validation pair: none (legacy/deprecated path).
  *
+ * Runtime generator scheduled for reconciliation into the canonical generation path (Board decision 2026-09-08, item 20260908-dc-editor-generation-tools). No new callers.
+ *
  * @see docs/dungeoncrawler/issues/issue-3-game-content-system-design.md
  *   Section: Service Layer Design > ContentGenerator Service
  */

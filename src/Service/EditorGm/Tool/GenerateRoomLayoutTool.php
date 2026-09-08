@@ -2,18 +2,18 @@
 
 namespace Drupal\dungeoncrawler_content\Service\EditorGm\Tool;
 
-use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGenerationService;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolContext;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolDefinition;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolInterface;
 use Drupal\dungeoncrawler_content\Service\EditorGm\RoomEditorGmToolContext;
+use Drupal\dungeoncrawler_content\Service\Generation\CanonicalGenerationService;
 
 /**
  * Generates a preview-only Room Editor command plan.
  */
 final class GenerateRoomLayoutTool implements EditorGmToolInterface {
 
-  public function __construct(private readonly EditorGenerationService $generation) {}
+  public function __construct(private readonly CanonicalGenerationService $generation) {}
 
   public function definition(): EditorGmToolDefinition {
     return new EditorGmToolDefinition(

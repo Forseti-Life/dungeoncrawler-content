@@ -11,6 +11,8 @@ use Psr\Log\LoggerInterface;
  * Queues and generates full NPC character sheets in the background.
  *
  * Validation pair: StateValidationService::validateNpcSheet() contract checks.
+ *
+ * Runtime generator scheduled for reconciliation into the canonical generation path (Board decision 2026-09-08, item 20260908-dc-editor-generation-tools). No new callers.
  */
 class NpcSheetGenerationService {
 

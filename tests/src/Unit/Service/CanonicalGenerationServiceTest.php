@@ -2,16 +2,14 @@
 
 namespace Drupal\Tests\dungeoncrawler_content\Unit\Service;
 
-use Drupal\Component\Uuid\Php;
 use Drupal\Component\Datetime\TimeInterface;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\Core\Logger\LoggerChannelInterface;
 use Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService;
-use Drupal\dungeoncrawler_content\Service\Definition\DefinitionSchemaValidator;
 use Drupal\dungeoncrawler_content\Service\DungeonEditorService;
 use Drupal\dungeoncrawler_content\Service\EditorGm\DungeonEditorGmToolContext;
-use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGenerationException;
-use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGenerationService;
+use Drupal\dungeoncrawler_content\Service\Generation\CanonicalGenerationException;
+use Drupal\dungeoncrawler_content\Service\Generation\CanonicalGenerationService;
 use Drupal\dungeoncrawler_content\Service\EditorGm\RoomEditorGmToolContext;
 use Drupal\dungeoncrawler_content\Service\RoomEditorService;
 use PHPUnit\Framework\TestCase;
@@ -21,7 +19,7 @@ use PHPUnit\Framework\TestCase;
  *
  * @group dungeoncrawler_content
  */
-final class EditorGenerationServiceTest extends TestCase {
+final class CanonicalGenerationServiceTest extends TestCase {
 
   private function loggerFactory(): LoggerChannelFactoryInterface {
     $factory = $this->createMock(LoggerChannelFactoryInterface::class);
@@ -49,14 +47,10 @@ final class EditorGenerationServiceTest extends TestCase {
     return $definitions;
   }
 
-  private function service(?object $ai, CanonicalDefinitionService $definitions, ?RoomEditorService $roomEditor = NULL, ?DungeonEditorService $dungeonEditor = NULL): EditorGenerationService {
-    return new EditorGenerationService(
+  private function service(?object $ai, CanonicalDefinitionService $definitions, ?RoomEditorService $roomEditor = NULL, ?DungeonEditorService $dungeonEditor = NULL): CanonicalGenerationService {
+    return new CanonicalGenerationService(
       $ai,
-      new DefinitionSchemaValidator(),
       $definitions,
-      $roomEditor ?? $this->createMock(RoomEditorService::class),
-      $dungeonEditor ?? $this->createMock(DungeonEditorService::class),
-      new Php(),
       $this->time(),
       $this->loggerFactory(),
     );
@@ -184,7 +178,7 @@ final class EditorGenerationServiceTest extends TestCase {
     $bad = $this->conformingRoom();
     $bad['hexes'] = array_slice($bad['hexes'], 0, 3);
 
-    $this->expectException(EditorGenerationException::class);
+    $this->expectException(CanonicalGenerationException::class);
     $this->expectExceptionMessage('generation_nonconforming');
     try {
       $this->service($this->ai([$bad, $bad]), $definitions, $roomEditor)->generateRoomLayout([
@@ -192,7 +186,7 @@ final class EditorGenerationServiceTest extends TestCase {
         'seed' => 42,
       ], $this->roomContext($roomEditor, $definitions));
     }
-    catch (EditorGenerationException $exception) {
+    catch (CanonicalGenerationException $exception) {
       $this->assertSame('room_hex_count_below_min', $exception->getFindings()[0]['code']);
       throw $exception;
     }
@@ -202,7 +196,7 @@ final class EditorGenerationServiceTest extends TestCase {
     $definitions = $this->definitions([]);
     $roomEditor = $this->roomEditorExpectingSimulation();
 
-    $this->expectException(EditorGenerationException::class);
+    $this->expectException(CanonicalGenerationException::class);
     $this->expectExceptionMessage('generation_provider_unavailable');
     $this->service(NULL, $definitions, $roomEditor)->generateRoomLayout([
       'prompt' => 'a flooded cellar',
@@ -214,7 +208,7 @@ final class EditorGenerationServiceTest extends TestCase {
     $definitions = $this->definitions([]);
     $roomEditor = $this->roomEditorExpectingSimulation();
 
-    $this->expectException(EditorGenerationException::class);
+    $this->expectException(CanonicalGenerationException::class);
     $this->expectExceptionMessage('generation_size_limit_exceeded');
     $this->service($this->ai([$this->conformingRoom()]), $definitions, $roomEditor)->generateRoomLayout([
       'prompt' => 'too large',
