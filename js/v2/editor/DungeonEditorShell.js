@@ -161,7 +161,7 @@ export class DungeonEditorShell {
 
   async loadDungeon(dungeonId) {
     const selected = this._dungeonOption(dungeonId);
-    if (selected && !selected.published_version_id) {
+    if (selected && !selected.published_version_id && !selected.has_active_draft) {
       this._setStatus(`${selected.name} is not published in the Dungeon Editor yet. Start New Dungeon, or publish it before loading it as an editor draft.`, 'warning');
       this._syncDungeonLoadState();
       return null;
@@ -926,15 +926,17 @@ export class DungeonEditorShell {
   _syncDungeonLoadState() {
     const id = this._dom.dungeonSelect?.value || '';
     const selected = this._dungeonOption(id);
-    const disabled = !!(selected && !selected.published_version_id);
+    const disabled = !!(selected && !selected.published_version_id && !selected.has_active_draft);
     if (this._dom.loadBtn) {
       this._dom.loadBtn.disabled = disabled;
       this._dom.loadBtn.title = disabled
-        ? 'This dungeon has no published editor version yet. Use New Dungeon or publish it before loading.'
+        ? 'This dungeon has no published editor version or active editor draft yet. Use New Dungeon or convert it before loading.'
         : '';
     }
-    if (selected && !selected.published_version_id) {
+    if (selected && !selected.published_version_id && !selected.has_active_draft) {
       this._setStatus(`${selected.name} is listed from legacy dungeon data but has no published editor version yet.`, 'warning');
+    } else if (selected && selected.has_active_draft && !selected.published_version_id) {
+      this._setStatus(`${selected.name} has an active converted editor draft and can be loaded.`, 'info');
     }
   }
 

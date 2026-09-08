@@ -242,7 +242,7 @@ editor-suite:
     - core/once
 
 dungeon-editor:
-  version: 20260908-unpublished-dungeon-guard
+  version: 20260908-absalom-converted-draft
   js:
     https://cdn.jsdelivr.net/npm/pixi.js@7.3.2/dist/pixi.min.js: { type: external, minified: true }
     js/dungeon-editor.js: { attributes: { type: module } }

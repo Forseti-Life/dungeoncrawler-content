@@ -14,7 +14,7 @@
  * capability the server does not yet have.
  *
  * Available variables:
- * - dungeons: List of { dungeon_id, name, publication_status, published_version_id }.
+ * - dungeons: List of { dungeon_id, name, publication_status, published_version_id, has_active_draft }.
  * - selected_dungeon_id: Optional dungeon_id to auto-load.
  * Full editor state is attached via
  * drupalSettings.dungeoncrawlerContent.dungeonEditor for
@@ -40,8 +40,9 @@
             {% for dungeon in dungeons %}
               <option value="{{ dungeon.dungeon_id }}"
                       data-published-version-id="{{ dungeon.published_version_id }}"
+                      data-has-active-draft="{{ dungeon.has_active_draft ? '1' : '0' }}"
                       {% if dungeon.dungeon_id == selected_dungeon_id %} selected{% endif %}>
-                {{ dungeon.name }} ({% if dungeon.published_version_id %}{{ dungeon.publication_status }}{% else %}{{ 'legacy/unpublished - not loadable'|t }}{% endif %})
+                {{ dungeon.name }} ({% if dungeon.published_version_id %}{{ dungeon.publication_status }}{% elseif dungeon.has_active_draft %}{{ 'converted draft'|t }}{% else %}{{ 'legacy/unpublished - not loadable'|t }}{% endif %})
               </option>
             {% endfor %}
           </select>
