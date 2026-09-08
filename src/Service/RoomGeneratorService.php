@@ -2,8 +2,11 @@
 
 namespace Drupal\dungeoncrawler_content\Service;
 
+use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
+use Drupal\dungeoncrawler_content\Service\Generation\RuntimeCanonicalRoomService;
+use Drupal\dungeoncrawler_content\Service\Generation\RuntimeGenerationException;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -96,6 +99,8 @@ class RoomGeneratorService {
    * @var \Drupal\dungeoncrawler_content\Service\RoomViewImageService
    */
   protected RoomViewImageService $roomViewImageService;
+  protected ?ConfigFactoryInterface $configFactory;
+  protected ?RuntimeCanonicalRoomService $runtimeCanonicalRoom;
 
   /**
    * Optional AI API service for narrative generation.
@@ -132,7 +137,9 @@ class RoomGeneratorService {
     TerrainGeneratorService $terrain_generator,
     NumberGenerationService $number_generation,
     RoomLibraryService $room_library,
-    RoomViewImageService $room_view_image_service
+    RoomViewImageService $room_view_image_service,
+    ?ConfigFactoryInterface $config_factory = NULL,
+    ?RuntimeCanonicalRoomService $runtime_canonical_room = NULL
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler');
@@ -144,6 +151,8 @@ class RoomGeneratorService {
     $this->numberGeneration = $number_generation;
     $this->roomLibrary = $room_library;
     $this->roomViewImageService = $room_view_image_service;
+    $this->configFactory = $config_factory;
+    $this->runtimeCanonicalRoom = $runtime_canonical_room;
 
     // Try to inject AI service if available
     try {
@@ -209,6 +218,10 @@ class RoomGeneratorService {
       '@campaign' => $context['campaign_id'],
       '@level' => $context['level_id'],
     ]);
+
+    if ($this->canonicalRuntimeGenerationR3Enabled()) {
+      return $this->generateRoomViaCanonicalRuntime($context);
+    }
 
     // Ensure seed is set for reproducible generation
     if (!isset($context['seed'])) {
@@ -364,6 +377,23 @@ class RoomGeneratorService {
     $this->prefetchRoomViewImage($room_data, $context);
 
     return $room_data;
+  }
+
+  protected function generateRoomViaCanonicalRuntime(array $context): array {
+    if (!$this->runtimeCanonicalRoom) {
+      throw new RuntimeGenerationException('runtime_selection_failed', [[
+        'code' => 'runtime_selection_failed',
+        'pointer' => '/services',
+        'message' => 'Runtime canonical room service is required for R3.',
+        'severity' => 'error',
+      ]], 500);
+    }
+    return $this->runtimeCanonicalRoom->generateRoom($context);
+  }
+
+  protected function canonicalRuntimeGenerationR3Enabled(): bool {
+    return $this->configFactory
+      && $this->configFactory->get('dungeoncrawler_content.settings')->get('canonical_runtime_generation.r3') !== FALSE;
   }
 
   /**

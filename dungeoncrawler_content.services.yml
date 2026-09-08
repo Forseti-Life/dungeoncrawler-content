@@ -485,6 +485,16 @@ services:
       - '@database'
       - '@datetime.time'
 
+  dungeoncrawler_content.runtime_canonical_room:
+    class: Drupal\dungeoncrawler_content\Service\Generation\RuntimeCanonicalRoomService
+    arguments:
+      - '@dungeoncrawler_content.runtime_canonical_content_resolver'
+      - '@dungeoncrawler_content.canonical_room_projection'
+      - '@dungeoncrawler_content.editor_canonical_generation_plan'
+      - '@dungeoncrawler_content.room_editor'
+      - '@dungeoncrawler_content.canonical_definitions'
+      - '@uuid'
+
   dungeoncrawler_content.editor_canonical_generation_plan:
     class: Drupal\dungeoncrawler_content\Service\EditorGm\EditorCanonicalGenerationPlanService
     arguments:
@@ -1544,6 +1554,8 @@ services:
       - '@dungeoncrawler_content.number_generation'
       - '@dungeoncrawler_content.room_library'
       - '@dungeoncrawler_content.room_view_image'
+      - '@config.factory'
+      - '@dungeoncrawler_content.runtime_canonical_room'
 
   dungeoncrawler_content.room_connection:
     class: Drupal\dungeoncrawler_content\Service\RoomConnectionAlgorithm

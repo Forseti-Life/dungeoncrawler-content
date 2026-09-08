@@ -9,7 +9,8 @@ use Drupal\dungeoncrawler_content\Service\H3ProjectionQueueService;
 use Drupal\dungeoncrawler_content\Service\MapGeneratorService;
 use Drupal\dungeoncrawler_content\Service\NarrationEngine;
 use Drupal\dungeoncrawler_content\Service\QuestGeneratorService;
-use Drupal\dungeoncrawler_content\Service\RoomGeneratorService;
+use Drupal\dungeoncrawler_content\Service\Generation\RuntimeCanonicalRoomService;
+use Drupal\dungeoncrawler_content\Service\Generation\RuntimeGenerationException;
 use Drupal\dungeoncrawler_content\Service\RoomStateService;
 use Drupal\dungeoncrawler_content\Service\StorylineQuestLifecycleService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
@@ -36,11 +37,11 @@ class LocationGenerationController extends ControllerBase {
   protected MapGeneratorService $mapGenerator;
 
   /**
-   * Procedural room generator.
+   * Canonical runtime room generator.
    *
-   * @var \Drupal\dungeoncrawler_content\Service\RoomGeneratorService
+   * @var \Drupal\dungeoncrawler_content\Service\Generation\RuntimeCanonicalRoomService
    */
-  protected RoomGeneratorService $roomGenerator;
+  protected RuntimeCanonicalRoomService $roomGenerator;
 
   /**
    * Location quest generator.
@@ -72,7 +73,7 @@ class LocationGenerationController extends ControllerBase {
   public function __construct(
     Connection $database,
     MapGeneratorService $map_generator,
-    RoomGeneratorService $room_generator,
+    RuntimeCanonicalRoomService $room_generator,
     QuestGeneratorService $quest_generator,
     RoomStateService $room_state_service,
     DungeonGeneratorService $dungeon_generator,
@@ -98,7 +99,7 @@ class LocationGenerationController extends ControllerBase {
     return new static(
       $container->get('database'),
       $container->get('dungeoncrawler_content.map_generator'),
-      $container->get('dungeoncrawler_content.room_generator'),
+      $container->get('dungeoncrawler_content.runtime_canonical_room'),
       $container->get('dungeoncrawler_content.quest_generator'),
       $container->get('dungeoncrawler_content.room_state_service'),
       $container->get('dungeoncrawler_content.dungeon_generator'),
@@ -322,6 +323,11 @@ class LocationGenerationController extends ControllerBase {
       'terrain_type' => (string) ($data['terrain_type'] ?? 'stone_floor'),
       'theme' => (string) ($data['theme'] ?? $dungeon_data['theme'] ?? 'dungeon'),
       'party_size' => max(1, (int) ($data['party_size'] ?? 4)),
+      'prompt' => (string) ($data['prompt'] ?? $data['description'] ?? ''),
+      'seed' => isset($data['seed']) && is_numeric($data['seed']) ? (int) $data['seed'] : NULL,
+      'canonical_generation_wait' => !empty($data['canonical_generation_wait']) || !empty($data['wait_for_generator']) || (($data['generation_mode'] ?? '') === 'llm'),
+      'requested_by_uid' => (int) $this->currentUser()->id(),
+      'origin_room_id' => $origin_room_id,
     ];
 
     try {
@@ -369,12 +375,26 @@ class LocationGenerationController extends ControllerBase {
         ],
       ], JsonResponse::HTTP_CREATED);
     }
+    catch (RuntimeGenerationException $e) {
+      return $this->runtimeGenerationFailureResponse($e);
+    }
     catch (\Throwable $e) {
       return new JsonResponse([
         'success' => FALSE,
         'error' => 'Room generation failed: ' . $e->getMessage(),
       ], JsonResponse::HTTP_INTERNAL_SERVER_ERROR);
     }
+  }
+
+  private function runtimeGenerationFailureResponse(RuntimeGenerationException $exception): JsonResponse {
+    return new JsonResponse([
+      'success' => FALSE,
+      'error' => 'runtime_generation_failed',
+      'receipt' => [
+        'code' => $exception->getMessage(),
+        'findings' => $exception->getFindings(),
+      ],
+    ], $exception->httpStatus());
   }
 
   /**

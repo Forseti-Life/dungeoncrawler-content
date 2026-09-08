@@ -637,7 +637,7 @@ class MapGeneratorService {
     if (!$this->configFactory) {
       return FALSE;
     }
-    return $this->configFactory->get('dungeoncrawler_content.settings')->get('canonical_runtime_generation.r2') !== FALSE;
+    return $this->configFactory->get('dungeoncrawler_content.settings')->get('canonical_runtime_generation.r3') !== FALSE;
   }
 
   protected function runtimeSelectionSeed(string $destination, int $party_level, array $context): int {

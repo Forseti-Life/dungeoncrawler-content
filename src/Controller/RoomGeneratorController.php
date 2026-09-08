@@ -3,7 +3,8 @@
 namespace Drupal\dungeoncrawler_content\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
-use Drupal\dungeoncrawler_content\Service\RoomGeneratorService;
+use Drupal\dungeoncrawler_content\Service\Generation\RuntimeCanonicalRoomService;
+use Drupal\dungeoncrawler_content\Service\Generation\RuntimeGenerationException;
 use Drupal\dungeoncrawler_content\Service\SchemaLoader;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -19,11 +20,11 @@ use Symfony\Component\HttpFoundation\Request;
 class RoomGeneratorController extends ControllerBase {
 
   /**
-   * The room generator service.
+   * The canonical runtime room service.
    *
-   * @var \Drupal\dungeoncrawler_content\Service\RoomGeneratorService
+   * @var \Drupal\dungeoncrawler_content\Service\Generation\RuntimeCanonicalRoomService
    */
-  protected RoomGeneratorService $roomGenerator;
+  protected RuntimeCanonicalRoomService $roomGenerator;
 
   /**
    * The schema loader service.
@@ -35,13 +36,13 @@ class RoomGeneratorController extends ControllerBase {
   /**
    * Constructs a RoomGeneratorController object.
    *
-   * @param \Drupal\dungeoncrawler_content\Service\RoomGeneratorService $room_generator
-   *   The room generator service.
+   * @param \Drupal\dungeoncrawler_content\Service\Generation\RuntimeCanonicalRoomService $room_generator
+   *   The canonical runtime room service.
    * @param \Drupal\dungeoncrawler_content\Service\SchemaLoader $schema_loader
    *   The schema loader service.
    */
   public function __construct(
-    RoomGeneratorService $room_generator,
+    RuntimeCanonicalRoomService $room_generator,
     SchemaLoader $schema_loader
   ) {
     $this->roomGenerator = $room_generator;
@@ -53,7 +54,7 @@ class RoomGeneratorController extends ControllerBase {
    */
   public static function create(ContainerInterface $container) {
     return new static(
-      $container->get('dungeoncrawler_content.room_generator'),
+      $container->get('dungeoncrawler_content.runtime_canonical_room'),
       $container->get('dungeoncrawler_content.schema_loader')
     );
   }
@@ -137,6 +138,10 @@ class RoomGeneratorController extends ControllerBase {
       'terrain_type' => $data['terrain_type'] ?? 'stone_floor',
       'theme' => $data['theme'] ?? 'dungeon',
       'party_size' => (int) ($data['party_size'] ?? 4),
+      'prompt' => (string) ($data['prompt'] ?? $data['description'] ?? ''),
+      'seed' => isset($data['seed']) && is_numeric($data['seed']) ? (int) $data['seed'] : NULL,
+      'canonical_generation_wait' => !empty($data['canonical_generation_wait']) || !empty($data['wait_for_generator']) || (($data['generation_mode'] ?? '') === 'llm'),
+      'requested_by_uid' => (int) $this->currentUser()->id(),
     ];
 
     // 5. Generate the room.
@@ -149,6 +154,9 @@ class RoomGeneratorController extends ControllerBase {
         ['error' => $e->getMessage()],
         JsonResponse::HTTP_UNPROCESSABLE_ENTITY
       );
+    }
+    catch (RuntimeGenerationException $e) {
+      return $this->runtimeGenerationFailureResponse($e);
     }
     catch (\Exception $e) {
       return new JsonResponse(
@@ -325,6 +333,10 @@ class RoomGeneratorController extends ControllerBase {
         'terrain_type' => $layout['terrain']['type'] ?? 'stone_floor',
         'theme' => 'dungeon',
         'party_size' => 4,
+        'prompt' => (string) ($data['prompt'] ?? 'Regenerate this room through the canonical room generator.'),
+        'seed' => isset($data['seed']) && is_numeric($data['seed']) ? (int) $data['seed'] : NULL,
+        'canonical_generation_wait' => !empty($data['canonical_generation_wait']) || !empty($data['wait_for_generator']) || (($data['generation_mode'] ?? '') === 'llm'),
+        'requested_by_uid' => (int) $this->currentUser()->id(),
       ];
 
       // 4. Delete old room data.
@@ -346,12 +358,26 @@ class RoomGeneratorController extends ControllerBase {
         JsonResponse::HTTP_OK
       );
     }
+    catch (RuntimeGenerationException $e) {
+      return $this->runtimeGenerationFailureResponse($e);
+    }
     catch (\Exception $e) {
       return new JsonResponse(
         ['error' => 'Regeneration failed: ' . $e->getMessage()],
         JsonResponse::HTTP_INTERNAL_SERVER_ERROR
       );
     }
+  }
+
+  private function runtimeGenerationFailureResponse(RuntimeGenerationException $exception): JsonResponse {
+    return new JsonResponse([
+      'success' => FALSE,
+      'error' => 'runtime_generation_failed',
+      'receipt' => [
+        'code' => $exception->getMessage(),
+        'findings' => $exception->getFindings(),
+      ],
+    ], $exception->httpStatus());
   }
 
 }

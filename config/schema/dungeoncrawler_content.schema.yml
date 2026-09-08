@@ -132,9 +132,6 @@ dungeoncrawler_content.settings:
       type: mapping
       label: 'Canonical runtime generation reconciliation release flags'
       mapping:
-        r2:
-          type: boolean
-          label: 'Enable R2 runtime canonical resolver/projection facade'
         r3:
           type: boolean
           label: 'Enable R3 room routes through canonical runtime generation'

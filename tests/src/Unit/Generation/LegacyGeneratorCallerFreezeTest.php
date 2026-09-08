@@ -53,7 +53,6 @@ final class LegacyGeneratorCallerFreezeTest extends TestCase {
     'src/Controller/LocationGenerationController.php',
     'src/Controller/QuestGeneratorController.php',
     'src/Controller/QuestTrackerController.php',
-    'src/Controller/RoomGeneratorController.php',
     'src/Controller/StorylineController.php',
     'src/Controller/StorylineExplorerPageController.php',
     'src/Service/CampaignCharacterRuntimeSyncService.php',
@@ -97,7 +96,7 @@ final class LegacyGeneratorCallerFreezeTest extends TestCase {
     $expected = self::ALLOWED_REFERENCE_FILES;
     sort($expected);
 
-    $this->assertCount(33, $expected, 'R1 freezes 33 current source/service files containing the 36-row §3/§4 legacy generator inventory.');
+    $this->assertCount(32, $expected, 'R3 shrinks the R1 freeze allowlist after RoomGeneratorController moved to RuntimeCanonicalRoomService.');
     $this->assertSame($expected, $actual, 'New legacy generator callers/references are forbidden; migrate to CanonicalGenerationService instead.');
   }
 
