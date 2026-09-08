@@ -28,9 +28,9 @@
  * Publication is available only through the server readiness and publish routes.
  */
 
-import { GameEventBus } from '../GameEventBus.js';
-import { HexCanvas } from '../canvas/HexCanvas.js';
-import './placementTransform.js';
+import { GameEventBus } from '../GameEventBus.js?v=20260908b';
+import { HexCanvas } from '../canvas/HexCanvas.js?v=20260908b';
+import './placementTransform.js?v=20260908b';
 
 const transform = globalThis.DungeonCrawlerPlacementTransform;
 if (!transform) {

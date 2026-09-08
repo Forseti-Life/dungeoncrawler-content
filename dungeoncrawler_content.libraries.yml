@@ -215,7 +215,7 @@ hexmap-v2:
     - core/once
 
 room-editor:
-  version: 20260902-v9-canonical-artwork
+  version: 20260908-import-cache-bust
   js:
     https://cdn.jsdelivr.net/npm/pixi.js@7.3.2/dist/pixi.min.js: { type: external, minified: true }
     js/room-editor.js: { attributes: { type: module } }
@@ -242,7 +242,7 @@ editor-suite:
     - core/once
 
 dungeon-editor:
-  version: 20260908-dungeon-recenter-button
+  version: 20260908-import-cache-bust
   js:
     https://cdn.jsdelivr.net/npm/pixi.js@7.3.2/dist/pixi.min.js: { type: external, minified: true }
     js/dungeon-editor.js: { attributes: { type: module } }

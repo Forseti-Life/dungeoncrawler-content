@@ -32,9 +32,9 @@
 
 /* global PIXI */
 
-import { GameEventBus } from '../GameEventBus.js';
-import { HexCanvas } from '../canvas/HexCanvas.js';
-import { SpriteService } from '../../SpriteService.js';
+import { GameEventBus } from '../GameEventBus.js?v=20260908b';
+import { HexCanvas } from '../canvas/HexCanvas.js?v=20260908b';
+import { SpriteService } from '../../SpriteService.js?v=20260908b';
 
 const FAMILIES = ['creature', 'actor', 'item', 'obstacle', 'trap', 'hazard'];
 const SOLID_FAMILIES = ['actor', 'creature', 'obstacle'];

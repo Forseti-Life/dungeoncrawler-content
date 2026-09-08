@@ -2,6 +2,8 @@
  * @file room-editor.js
  *
  * Drupal behavior entry point for the canonical Room Editor.
+ * Cache rule: changing any module in this chain requires bumping the ?v= stamp
+ * at every import site; the library version alone does not bust transitive modules.
  *
  * This file is the sole JS asset declared in the `room-editor` Drupal
  * library. It reads drupalSettings.dungeoncrawlerContent.roomEditor and
@@ -13,7 +15,7 @@
  *   detach  — call shell.destroy() to unsubscribe listeners and destroy PIXI
  */
 
-import { RoomEditorShell } from './v2/editor/RoomEditorShell.js';
+import { RoomEditorShell } from './v2/editor/RoomEditorShell.js?v=20260908b';
 
 (function (Drupal, drupalSettings, once) {
   'use strict';
