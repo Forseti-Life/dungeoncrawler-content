@@ -232,6 +232,7 @@ class EditorCanonicalGenerationPlanService {
   }
 
   private function dungeonPrompt(array $input, array $draft, array $dungeon, array $library, array $prior_findings): string {
+    $eligible_library = array_values(array_filter($library, static fn(array $room): bool => ($room['entry_port_count'] ?? 0) > 0 && ($room['exit_port_count'] ?? 0) > 0));
     $rooms = array_map(static fn(array $room): array => [
       'room_id' => $room['room_id'],
       'version_id' => $room['version_id'],
@@ -242,7 +243,8 @@ class EditorCanonicalGenerationPlanService {
       'entry_port_count' => $room['entry_port_count'],
       'exit_port_count' => $room['exit_port_count'],
       'ports' => array_slice((array) ($room['ports'] ?? []), 0, 8),
-    ], array_slice($library, 0, 20));
+    ], array_slice($eligible_library, 0, 20));
+    $allowed_room_ids = array_values(array_map(static fn(array $room): string => (string) $room['room_id'], $rooms));
     $shape = [
       'name' => 'string 1..200',
       'description' => 'string <=8000',
@@ -257,10 +259,13 @@ class EditorCanonicalGenerationPlanService {
         'placement_count' => count((array) ($dungeon['room_placements'] ?? [])),
       ],
       'published_room_library' => $rooms,
+      'allowed_room_ids' => $allowed_room_ids,
       'required_output_shape' => $shape,
       'requirements' => [
         'Return one JSON object only. No prose.',
-        'Return exactly ' . $input['room_count'] . ' room references and use only room_id values from published_room_library.',
+        'Return exactly ' . $input['room_count'] . ' room references and use only exact room_id values from allowed_room_ids.',
+        'Do not invent room_id values and do not use room names as room_id values.',
+        'Every listed room is a published version with both entry and exit ports; no other rooms are eligible.',
         'Server will compute non-overlapping sealed placements using RoomPlacementTransformer.',
       ],
       'prior_findings' => $prior_findings,
@@ -591,7 +596,7 @@ class EditorCanonicalGenerationPlanService {
       $version = (string) ($placement['version'] ?? '1.0.0');
       $key = $family . ':' . $definition_id . ':' . $version;
       if (!isset($catalog_set[$key]) || !$this->definitions->definitionExists($family, $definition_id, $version)) {
-        throw $this->exception('generation_catalog_reference_unresolved', [$this->finding('generation_catalog_reference_unresolved', '/placements/' . $index . '/definition_id', sprintf('%s is not a canonical catalog reference.', $key))]);
+        throw $this->nonconforming([$this->finding('generation_catalog_reference_unresolved', '/placements/' . $index . '/definition_id', sprintf('%s is not a canonical catalog reference.', $key))]);
       }
       $anchor = ['q' => $placement['anchor_hex']['q'], 'r' => $placement['anchor_hex']['r']];
       if (!isset($footprint[RoomPortEdgePolicy::hexKey($anchor)])) {
@@ -633,7 +638,7 @@ class EditorCanonicalGenerationPlanService {
       }
       $room_id = (string) $spec['room_id'];
       if (!isset($by_id[$room_id])) {
-        throw $this->exception('generation_catalog_reference_unresolved', [$this->finding('generation_catalog_reference_unresolved', '/rooms/' . $index . '/room_id', sprintf('%s is not a published room with entry/exit ports.', $room_id))]);
+        throw $this->nonconforming([$this->finding('generation_catalog_reference_unresolved', '/rooms/' . $index . '/room_id', sprintf('%s is not a published room with entry/exit ports.', $room_id))]);
       }
       $selected[] = $by_id[$room_id] + ['role' => (string) ($spec['role'] ?? 'generated')];
     }

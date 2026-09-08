@@ -73,7 +73,7 @@ class CanonicalGenerationService {
       ], [
         'skip_cache' => TRUE,
         'max_tokens' => $max_tokens,
-        'timeout_sec' => 30,
+        'thinking' => 'disabled',
       ]);
       if (!is_array($result) || empty($result['success'])) {
         $message = is_array($result) ? (string) ($result['error'] ?? 'Provider returned an unsuccessful completion.') : 'Provider returned a non-object result.';
@@ -89,6 +89,18 @@ class CanonicalGenerationService {
         'seed' => $seed,
         'generated_at' => gmdate(DATE_RFC3339, $this->time->getRequestTime()),
       ];
+      if (array_key_exists('finish_reason', $result)) {
+        $provenance['finish_reason'] = is_scalar($result['finish_reason']) ? (string) $result['finish_reason'] : NULL;
+      }
+      if (array_key_exists('reasoning_tokens', $result)) {
+        $provenance['reasoning_tokens'] = $result['reasoning_tokens'] === NULL ? NULL : (int) $result['reasoning_tokens'];
+      }
+      $this->logger->info('Canonical generation provider response for @tool/@operation had finish_reason=@finish_reason reasoning_tokens=@reasoning_tokens.', [
+        '@tool' => $tool,
+        '@operation' => $operation,
+        '@finish_reason' => (string) ($provenance['finish_reason'] ?? 'unknown'),
+        '@reasoning_tokens' => array_key_exists('reasoning_tokens', $provenance) && $provenance['reasoning_tokens'] !== NULL ? (string) $provenance['reasoning_tokens'] : 'null',
+      ]);
 
       try {
         return $validator($decoded, $provenance);

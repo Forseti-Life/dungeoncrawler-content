@@ -61,17 +61,21 @@ final class CanonicalGenerationServiceTest extends TestCase {
     return new class($responses) {
       public int $calls = 0;
       public array $prompts = [];
+      public array $options = [];
 
       public function __construct(private array $responses) {}
 
       public function invokeModelDirect(string $prompt, string $module, string $operation, array $metadata, array $options): array {
         $this->prompts[] = $prompt;
+        $this->options[] = $options;
         $response = $this->responses[min($this->calls, count($this->responses) - 1)];
         $this->calls++;
         return [
           'success' => TRUE,
           'response' => is_string($response) ? $response : json_encode($response, JSON_UNESCAPED_SLASHES),
           'model_id' => 'fixture-model',
+          'finish_reason' => 'stop',
+          'reasoning_tokens' => 0,
         ];
       }
     };
@@ -149,6 +153,10 @@ final class CanonicalGenerationServiceTest extends TestCase {
     $this->assertSame('room_layout', $result['generation_type']);
     $this->assertSame(42, $result['seed']);
     $this->assertSame('fixture-model', $result['metadata']['generated_by']['model']);
+    $this->assertSame('stop', $result['metadata']['generated_by']['finish_reason']);
+    $this->assertSame(0, $result['metadata']['generated_by']['reasoning_tokens']);
+    $this->assertSame('disabled', $ai->options[0]['thinking']);
+    $this->assertArrayNotHasKey('timeout_sec', $ai->options[0]);
     $this->assertSame('set_room_metadata', $result['command_plan']['steps'][0]['command_type']);
     $this->assertSame('fixture-model', $result['command_plan']['steps'][0]['payload']['changes']['metadata']['generated_by']['model']);
     $this->assertContains('place_object', array_column($result['command_plan']['steps'], 'command_type'));
@@ -171,6 +179,24 @@ final class CanonicalGenerationServiceTest extends TestCase {
     $this->assertSame('room_layout', $result['generation_type']);
     $this->assertSame(2, $ai->calls);
     $this->assertStringContainsString('room_hex_count_below_min', $ai->prompts[1]);
+  }
+
+  public function testGeneratedCatalogReferenceFailuresRetryWithFindings(): void {
+    $catalog = [['family' => 'item', 'definition_id' => 'broken-altar', 'version' => '1.0.0']];
+    $definitions = $this->definitions($catalog);
+    $roomEditor = $this->roomEditorExpectingSimulation();
+    $bad = $this->conformingRoom();
+    $bad['placements'][0]['definition_id'] = 'invented-altar';
+    $ai = $this->ai([$bad, $this->conformingRoom()]);
+
+    $result = $this->service($ai, $definitions, $roomEditor)->generateRoomLayout([
+      'prompt' => 'a flooded cellar with a broken altar, ~20 hexes',
+      'seed' => 42,
+    ], $this->roomContext($roomEditor, $definitions));
+
+    $this->assertSame('room_layout', $result['generation_type']);
+    $this->assertSame(2, $ai->calls);
+    $this->assertStringContainsString('generation_catalog_reference_unresolved', $ai->prompts[1]);
   }
 
   public function testNonconformingTwiceHardFailsWithFindings(): void {
