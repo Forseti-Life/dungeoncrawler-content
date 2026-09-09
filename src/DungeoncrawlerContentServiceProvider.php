@@ -30,6 +30,15 @@ use Symfony\Component\DependencyInjection\Reference;
  *   ItemInstanceStore. Any new service definition that injects the store
  *   outside the allowlist hard-fails the container build, preventing new direct
  *   public read consumers of the raw item-instance persistence lane.
+ *
+ * Phase 4 additionally freezes the quest current-state authority:
+ * - the single quest object-state provider must be
+ *   {@see \Drupal\dungeoncrawler_content\Service\QuestStateService}, and
+ * - only an explicit frozen allowlist may inject the low-level QuestStateStore.
+ *   Any new service definition that injects the store outside the allowlist
+ *   hard-fails the container build, preventing new direct public read consumers
+ *   of the raw quest persistence lane or single-quest inference from tracker
+ *   list APIs.
  */
 class DungeoncrawlerContentServiceProvider extends ServiceProviderBase {
 
@@ -52,6 +61,35 @@ class DungeoncrawlerContentServiceProvider extends ServiceProviderBase {
    * The single canonical item current-state provider service id (Phase 3).
    */
   private const ITEM_PROVIDER_ID = 'dungeoncrawler_content.item_state';
+
+  /**
+   * Low-level quest-state persistence lane service id (Phase 4).
+   */
+  private const QUEST_STATE_STORE_ID = 'dungeoncrawler_content.quest_state_store';
+
+  /**
+   * The single canonical quest current-state provider service id (Phase 4).
+   */
+  private const QUEST_PROVIDER_ID = 'dungeoncrawler_content.quest_state';
+
+  /**
+   * Frozen allowlist of services permitted to inject QuestStateStore (Phase 4).
+   *
+   * The raw single-quest persistence lane is consumed for current-state reads
+   * by exactly one service: the canonical owner QuestStateService. This list is
+   * expected to SHRINK over time, never grow. Adding an entry requires an
+   * explicit rationale here; presentation/read consumers must instead route
+   * single-quest current-state reads through the canonical owner and must never
+   * infer a single quest from QuestTrackerService list APIs.
+   *
+   * @var array<string,string>
+   *   Map of service id => rationale.
+   */
+  private const QUEST_STATE_STORE_ALLOWLIST = [
+    // The canonical quest current-state owner (Phase 4). Persistence stays in
+    // the store; this owner is the only public current-state authority.
+    self::QUEST_PROVIDER_ID => 'canonical quest current-state owner',
+  ];
 
   /**
    * Frozen allowlist of services permitted to inject ItemInstanceStore.
@@ -139,6 +177,7 @@ class DungeoncrawlerContentServiceProvider extends ServiceProviderBase {
 
     $this->assertEncounterAuthority($container, $seen);
     $this->assertItemAuthority($container, $seen);
+    $this->assertQuestAuthority($container, $seen);
   }
 
   /**
@@ -226,6 +265,42 @@ class DungeoncrawlerContentServiceProvider extends ServiceProviderBase {
           $id,
           self::ITEM_INSTANCE_STORE_ID,
           self::ITEM_PROVIDER_ID
+        ));
+      }
+    }
+  }
+
+  /**
+   * Enforce the frozen quest current-state authority (Phase 4).
+   *
+   * @param array<string,string> $providers_by_type
+   *   Map of object_type => provider service id discovered above.
+   */
+  private function assertQuestAuthority(ContainerBuilder $container, array $providers_by_type): void {
+    // 1) The single quest provider must be the promoted owner.
+    $quest_provider = $providers_by_type['quest'] ?? NULL;
+    if ($quest_provider !== NULL && $quest_provider !== self::QUEST_PROVIDER_ID) {
+      throw new \RuntimeException(sprintf(
+        'The single quest object-state provider must be "%s", got "%s". Quest current-state has exactly one canonical owner.',
+        self::QUEST_PROVIDER_ID,
+        $quest_provider
+      ));
+    }
+
+    // 2) Only allowlisted internals may inject the low-level QuestStateStore.
+    // Everything else must route single-quest current-state reads through the
+    // owner and must never infer a single quest from tracker list APIs.
+    foreach ($container->getDefinitions() as $id => $definition) {
+      if (!$this->definitionReferencesService($definition->getArguments(), self::QUEST_STATE_STORE_ID)) {
+        continue;
+      }
+      if (!array_key_exists($id, self::QUEST_STATE_STORE_ALLOWLIST)) {
+        throw new \RuntimeException(sprintf(
+          'Service "%s" injects the low-level %s but is not in the frozen quest persistence allowlist. '
+          . 'Presentation/read consumers must route quest current-state reads through the canonical owner "%s".',
+          $id,
+          self::QUEST_STATE_STORE_ID,
+          self::QUEST_PROVIDER_ID
         ));
       }
     }

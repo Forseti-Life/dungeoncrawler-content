@@ -1618,34 +1618,15 @@ class QuestTrackerService {
     return $this->loadCharacterQuestRows($campaign_id, $character_id);
   }
 
-  /**
-   * Get one canonical quest state row with best progress overlay.
-   *
-   * @throws \InvalidArgumentException
-   *   When the quest cannot be found for the requested scope.
-   */
-  public function getQuestState(int $campaign_id, string $quest_id, ?int $character_id = NULL): array {
-    $quest_id = trim($quest_id);
-    if ($campaign_id <= 0 || $quest_id === '') {
-      throw new \InvalidArgumentException('Quest state requires campaign_id and quest_id.');
-    }
-
-    $rows = $character_id !== NULL && $character_id > 0
-      ? $this->loadCharacterQuestRows($campaign_id, $character_id)
-      : $this->loadCampaignQuestRows($campaign_id);
-
-    foreach ($rows as $row) {
-      if (trim((string) ($row['quest_id'] ?? '')) === $quest_id) {
-        return $row;
-      }
-    }
-
-    throw new \InvalidArgumentException(sprintf(
-      'Quest not found for campaign %d: %s',
-      $campaign_id,
-      $quest_id
-    ));
-  }
+  // Phase 4 (object-state authority): the legacy public single-quest read
+  // getQuestState() is REMOVED. It inferred one quest's current state by
+  // loading the character/campaign quest *list* and filtering it, which is the
+  // exact list-inference anti-pattern the reconciliation eliminates. The single
+  // canonical quest current-state authority is now QuestStateService, which
+  // performs direct single-quest retrieval by canonical identity and binds the
+  // canonical quest template. QuestTrackerService remains collection/progress
+  // write orchestration only; if it ever needs a single-quest read it must
+  // delegate to that owner. There is no compatibility adapter or fallback.
 
   /**
    * Load quest rows visible to a character, overlaying the best progress scope.

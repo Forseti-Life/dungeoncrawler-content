@@ -1013,15 +1013,42 @@ services:
   dungeoncrawler_content.inventory_state_service:
     alias: dungeoncrawler_content.inventory_state
 
+  # Canonical single-quest current-state owner (Phase 4). Sole public authority
+  # answering "what is this quest's current state?". Performs direct single-quest
+  # retrieval by canonical identity (never list inference), binds the canonical
+  # non-quarantined quest template, merges the best applicable progress scope by
+  # explicit precedence, and guards the owning campaign.
   dungeoncrawler_content.quest_state:
     class: Drupal\dungeoncrawler_content\Service\QuestStateService
     arguments:
-      - '@dungeoncrawler_content.quest_tracker'
+      - '@dungeoncrawler_content.quest_state_store'
+      - '@dungeoncrawler_content.canonical_quest_template'
+      - '@dungeoncrawler_content.campaign_lifecycle'
     tags:
       - { name: dungeoncrawler_content.object_state_provider, object_type: quest }
 
   dungeoncrawler_content.quest_state_service:
     alias: dungeoncrawler_content.quest_state
+
+  # Pure persistence/query lane for single-quest current-state reads (Phase 4).
+  # Extracted only to break the DI cycle so exactly one current-state authority
+  # remains. Only the canonical owner QuestStateService may inject it (frozen
+  # container allowlist in DungeoncrawlerContentServiceProvider).
+  dungeoncrawler_content.quest_state_store:
+    class: Drupal\dungeoncrawler_content\Service\QuestStateStore
+    arguments:
+      - '@database'
+
+  # Definition authority for canonical quest templates (Phase 4). Owns the
+  # dc_canonical_quests system of record and the quest quarantine holding set;
+  # binds a runtime instance to its immutable canonical template or hard-fails.
+  dungeoncrawler_content.canonical_quest_template:
+    class: Drupal\dungeoncrawler_content\Service\CanonicalQuestTemplateService
+    arguments:
+      - '@database'
+
+  dungeoncrawler_content.canonical_quest_template_service:
+    alias: dungeoncrawler_content.canonical_quest_template
 
   dungeoncrawler_content.effect_state:
     class: Drupal\dungeoncrawler_content\Service\EffectStateService
