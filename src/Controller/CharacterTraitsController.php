@@ -6,7 +6,7 @@ use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Database\Connection;
 use Drupal\dungeoncrawler_content\Service\CharacterRulesCatalog;
 use Drupal\dungeoncrawler_content\Service\CharacterRulesUtility;
-use Drupal\dungeoncrawler_content\Service\CharacterStateService;
+use Drupal\dungeoncrawler_content\Service\ActorStateService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -23,17 +23,17 @@ use Symfony\Component\HttpFoundation\Request;
  */
 class CharacterTraitsController extends ControllerBase {
 
-  protected CharacterStateService $characterStateService;
+  protected ActorStateService $actorStateService;
   protected Connection $database;
 
-  public function __construct(CharacterStateService $character_state_service, Connection $database) {
-    $this->characterStateService = $character_state_service;
+  public function __construct(ActorStateService $actor_state_service, Connection $database) {
+    $this->actorStateService = $actor_state_service;
     $this->database = $database;
   }
 
   public static function create(ContainerInterface $container): static {
     return new static(
-      $container->get('dungeoncrawler_content.character_state_service'),
+      $container->get('dungeoncrawler_content.actor_state_service'),
       $container->get('database'),
     );
   }
@@ -67,7 +67,7 @@ class CharacterTraitsController extends ControllerBase {
     }
 
     try {
-      $state = $this->characterStateService->getState($character_id);
+      $state = $this->actorStateService->getState($character_id);
     }
     catch (\InvalidArgumentException $e) {
       return new JsonResponse(['success' => FALSE, 'error' => "Character not found: {$character_id}"], 404);
@@ -126,7 +126,7 @@ class CharacterTraitsController extends ControllerBase {
     }
 
     try {
-      $state = $this->characterStateService->getState($character_id);
+      $state = $this->actorStateService->getState($character_id);
     }
     catch (\InvalidArgumentException $e) {
       return new JsonResponse(['success' => FALSE, 'error' => "Character not found: {$character_id}"], 404);

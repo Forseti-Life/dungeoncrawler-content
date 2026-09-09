@@ -26,6 +26,7 @@ class ObjectStateService {
   public const TYPE_INVENTORY = 'inventory';
   public const TYPE_QUEST = 'quest';
   public const TYPE_EFFECTS = 'effects';
+  public const TYPE_SOCIAL = 'social';
 
   public function __construct(
     protected ObjectStateProviderRegistry $providerRegistry,
@@ -82,6 +83,7 @@ class ObjectStateService {
       'inventory' => self::TYPE_INVENTORY,
       'quest' => self::TYPE_QUEST,
       'effects', 'active_effects' => self::TYPE_EFFECTS,
+      'social', 'social_runtime' => self::TYPE_SOCIAL,
       default => $normalized,
     };
   }

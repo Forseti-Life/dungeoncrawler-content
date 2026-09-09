@@ -40,21 +40,19 @@ assert(
 );
 
 assert(
-  source.includes('protected ?DispositionStateStoreService $dispositionStateStoreService;')
-    && source.includes("$this->dispositionStateStoreService = $disposition_state_store_service")
-    && source.includes('$stored = $this->dispositionStateStoreService->loadLatestState($campaign_id, $primary_entity_ref);')
+  source.includes('protected ?SocialStateService $socialStateService;')
+    && source.includes("$this->socialStateService = $social_state_service")
+    && source.includes('$stored = $this->socialStateService->readActorDisposition($campaign_id, $candidate);')
     && servicesSource.includes('dungeoncrawler_content.runtime_state_read_model_assembler:')
-    && servicesSource.includes("- '@dungeoncrawler_content.disposition_state_store_service'"),
-  'RuntimeStateReadModelAssembler uses canonical disposition state-store service authority for actor disposition reads'
+    && servicesSource.includes("- '@dungeoncrawler_content.social_state'"),
+  'RuntimeStateReadModelAssembler routes actor disposition reads through the canonical SocialStateService authority'
 );
 
 assert(
-  source.includes("$registry = is_array($state['disposition_state'] ?? NULL) ? $state['disposition_state'] : [];")
-    && source.includes("tableExists('dc_disposition_state')")
-    && source.includes("select('dc_disposition_state', 's')")
-    && source.includes('protected function buildDispositionEntityRefCandidates(?array $actor_entity, string $actor_id): array')
-    && source.includes("'entity_ref' => (string) ($entry['entity_ref'] ?? $candidate),"),
-  'RuntimeStateReadModelAssembler resolves actor disposition state from canonical table with registry fallback using entity-ref candidates'
+  !source.includes("select('dc_disposition_state', 's')")
+    && !source.includes('$this->dispositionStateStoreService')
+    && source.includes('protected function buildDispositionEntityRefCandidates(?array $actor_entity, string $actor_id): array'),
+  'RuntimeStateReadModelAssembler no longer reads the raw disposition store/table directly; it delegates by entity-ref candidates to the social owner'
 );
 
 console.log(`\nPassed: ${passed}`);

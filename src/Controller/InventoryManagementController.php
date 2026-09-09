@@ -6,7 +6,7 @@ use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\dungeoncrawler_content\Service\InventoryManagementService;
-use Drupal\dungeoncrawler_content\Service\CharacterStateService;
+use Drupal\dungeoncrawler_content\Service\ActorStateService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -19,7 +19,7 @@ use Symfony\Component\HttpFoundation\Request;
 class InventoryManagementController extends ControllerBase {
 
   protected InventoryManagementService $inventoryService;
-  protected CharacterStateService $characterStateService;
+  protected ActorStateService $actorStateService;
   protected Connection $database;
 
   /**
@@ -27,11 +27,11 @@ class InventoryManagementController extends ControllerBase {
    */
   public function __construct(
     InventoryManagementService $inventory_service,
-    CharacterStateService $character_state_service,
+    ActorStateService $actor_state_service,
     Connection $database
   ) {
     $this->inventoryService = $inventory_service;
-    $this->characterStateService = $character_state_service;
+    $this->actorStateService = $actor_state_service;
     $this->database = $database;
   }
 
@@ -41,7 +41,7 @@ class InventoryManagementController extends ControllerBase {
   public static function create(ContainerInterface $container): static {
     return new static(
       $container->get('dungeoncrawler_content.inventory_management'),
-      $container->get('dungeoncrawler_content.character_state'),
+      $container->get('dungeoncrawler_content.actor_state_service'),
       $container->get('database')
     );
   }
@@ -76,7 +76,7 @@ class InventoryManagementController extends ControllerBase {
       $capacity = $this->inventoryService->getInventoryCapacity($owner_id, $owner_type);
       $str_score = 10.0;
       if ($owner_type === 'character') {
-        $char_state = $this->characterStateService->getState($owner_id);
+        $char_state = $this->actorStateService->getState($owner_id);
         $str_score = (float) ($char_state['abilities']['strength'] ?? 10);
       }
       $encumbrance = $this->inventoryService->getEncumbranceStatus($current_bulk, $str_score);
@@ -410,7 +410,7 @@ class InventoryManagementController extends ControllerBase {
       $capacity = $this->inventoryService->getInventoryCapacity($owner_id, $owner_type);
       $str_score = 10.0;
       if ($owner_type === 'character') {
-        $char_state = $this->characterStateService->getState($owner_id);
+        $char_state = $this->actorStateService->getState($owner_id);
         $str_score = (float) ($char_state['abilities']['strength'] ?? 10);
       }
       $encumbrance = $this->inventoryService->getEncumbranceStatus($current_bulk, $str_score);

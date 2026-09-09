@@ -10,7 +10,7 @@ use Drupal\dungeoncrawler_content\Form\CharacterPortraitRegenerateForm;
 use Drupal\dungeoncrawler_content\Form\CharacterPortraitUploadForm;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
 use Drupal\dungeoncrawler_content\Service\CharacterRulesUtility;
-use Drupal\dungeoncrawler_content\Service\CharacterStateService;
+use Drupal\dungeoncrawler_content\Service\ActorStateService;
 use Drupal\dungeoncrawler_content\Service\FeatLibraryService;
 use Drupal\dungeoncrawler_content\Service\FeatEffectManager;
 use Drupal\dungeoncrawler_content\Service\FollowerSubsystemService;
@@ -29,7 +29,7 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 class CharacterViewController extends ControllerBase {
 
   protected CharacterManager $characterManager;
-  protected CharacterStateService $characterStateService;
+  protected ActorStateService $actorStateService;
   protected FeatEffectManager $featEffectManager;
   protected FeatLibraryService $featLibrary;
   protected RelationshipManagerService $relationshipManager;
@@ -39,9 +39,9 @@ class CharacterViewController extends ControllerBase {
   protected Connection $database;
   protected TimeInterface $time;
 
-  public function __construct(CharacterManager $character_manager, CharacterStateService $character_state_service, FeatEffectManager $feat_effect_manager, FeatLibraryService $feat_library, RelationshipManagerService $relationship_manager, ?NpcPsychologyService $npc_psychology_service, GeneratedImageRepository $image_repository, FollowerSubsystemService $follower_subsystem, Connection $database, TimeInterface $time) {
+  public function __construct(CharacterManager $character_manager, ActorStateService $actor_state_service, FeatEffectManager $feat_effect_manager, FeatLibraryService $feat_library, RelationshipManagerService $relationship_manager, ?NpcPsychologyService $npc_psychology_service, GeneratedImageRepository $image_repository, FollowerSubsystemService $follower_subsystem, Connection $database, TimeInterface $time) {
     $this->characterManager = $character_manager;
-    $this->characterStateService = $character_state_service;
+    $this->actorStateService = $actor_state_service;
     $this->featEffectManager = $feat_effect_manager;
     $this->featLibrary = $feat_library;
     $this->relationshipManager = $relationship_manager;
@@ -55,7 +55,7 @@ class CharacterViewController extends ControllerBase {
   public static function create(ContainerInterface $container) {
     return new static(
       $container->get('dungeoncrawler_content.character_manager'),
-      $container->get('dungeoncrawler_content.character_state_service'),
+      $container->get('dungeoncrawler_content.actor_state_service'),
       $container->get('dungeoncrawler_content.feat_effect_manager'),
       $container->get('dungeoncrawler_content.feat_library'),
       $container->get('dungeoncrawler_content.relationship_manager'),
@@ -92,7 +92,7 @@ class CharacterViewController extends ControllerBase {
     $char_data = $this->characterManager->canonicalizeCharacterData($decoded);
     $hot = $this->characterManager->resolveHotColumnsForRecord($record, $char_data);
 
-    $state = $this->characterStateService->getState(
+    $state = $this->actorStateService->getState(
       (string) $record->id,
       $campaign_id > 0 ? $campaign_id : NULL,
       !empty($record->instance_id) ? (string) $record->instance_id : NULL

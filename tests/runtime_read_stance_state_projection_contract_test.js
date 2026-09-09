@@ -40,20 +40,19 @@ assert(
 );
 
 assert(
-  source.includes('protected ?StanceStateStoreService $stanceStateStoreService;')
-    && source.includes("$this->stanceStateStoreService = $stance_state_store_service")
-    && source.includes('$stored = $this->stanceStateStoreService->loadLatestState($campaign_id, $primary_entity_ref);')
+  source.includes('protected ?SocialStateService $socialStateService;')
+    && source.includes("$this->socialStateService = $social_state_service")
+    && source.includes('$stored = $this->socialStateService->readActorStance($campaign_id, $candidate);')
     && servicesSource.includes('dungeoncrawler_content.runtime_state_read_model_assembler:')
-    && servicesSource.includes("- '@dungeoncrawler_content.stance_state_store_service'"),
-  'RuntimeStateReadModelAssembler uses canonical stance state-store service authority for actor stance reads'
+    && servicesSource.includes("- '@dungeoncrawler_content.social_state'"),
+  'RuntimeStateReadModelAssembler routes actor stance reads through the canonical SocialStateService authority'
 );
 
 assert(
-  source.includes("$registry = is_array($state['stance_state'] ?? NULL) ? $state['stance_state'] : [];")
-    && source.includes("tableExists('dc_stance_state')")
-    && source.includes("select('dc_stance_state', 's')")
-    && source.includes("'summary' => is_array($entry['summary'] ?? NULL) ? $entry['summary'] : [],"),
-  'RuntimeStateReadModelAssembler resolves actor stance state from canonical table with registry fallback'
+  !source.includes("select('dc_stance_state', 's')")
+    && !source.includes('$this->stanceStateStoreService')
+    && source.includes("'summary' => is_array($stored['summary'] ?? NULL) ? $stored['summary'] : [],"),
+  'RuntimeStateReadModelAssembler no longer reads the raw stance store/table directly; the social owner is the single authority'
 );
 
 console.log(`\nPassed: ${passed}`);

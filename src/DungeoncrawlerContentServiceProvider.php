@@ -73,6 +73,88 @@ class DungeoncrawlerContentServiceProvider extends ServiceProviderBase {
   private const QUEST_PROVIDER_ID = 'dungeoncrawler_content.quest_state';
 
   /**
+   * The single canonical social current-state provider service id (Phase 5).
+   */
+  private const SOCIAL_PROVIDER_ID = 'dungeoncrawler_content.social_state';
+
+  /**
+   * The single canonical effects current-state provider service id (Phase 5).
+   */
+  private const EFFECT_PROVIDER_ID = 'dungeoncrawler_content.effect_state';
+
+  /**
+   * Low-level active-effect persistence store service id (Phase 5).
+   */
+  private const ACTIVE_EFFECT_STORE_ID = 'dungeoncrawler_content.active_effect_store';
+
+  /**
+   * Frozen allowlist of services permitted to inject ActiveEffectStore.
+   *
+   * Active effects are folded into canonical actor state by the actor owner
+   * (CharacterStateService, wrapped by ActorStateService) and exposed as the
+   * effects object type by EffectStateService. The raw store is persistence/
+   * write internal: only these two owners may inject it. Any presentation/read
+   * consumer that independently fetched effects to compose actor truth is a
+   * bypass and must read effects under canonical actor state instead.
+   *
+   * @var array<string,string>
+   */
+  private const ACTIVE_EFFECT_STORE_ALLOWLIST = [
+    'dungeoncrawler_content.character_state' => 'canonical actor owner folds active effects into actor state',
+    self::EFFECT_PROVIDER_ID => 'canonical effects current-state provider',
+  ];
+
+  /**
+   * Low-level social state store service ids kept internal (Phase 5).
+   *
+   * These raw per-domain social state stores are persistence/write internals.
+   * They are consumed only by their single-domain owners/write lanes and by the
+   * canonical combined-read owner SocialStateService. No presentation/controller
+   * or cross-domain read model may inject them: the one combined social
+   * current-state read is SocialStateService.
+   *
+   * @var array<int,string>
+   */
+  private const SOCIAL_STATE_STORE_IDS = [
+    'dungeoncrawler_content.aggression_state_store_service',
+    'dungeoncrawler_content.disposition_state_store_service',
+    'dungeoncrawler_content.relationship_attitude_state_store_service',
+    'dungeoncrawler_content.stance_state_store_service',
+  ];
+
+  /**
+   * Frozen allowlist of services permitted to inject a raw social state store.
+   *
+   * Map of store id => { consumer id => rationale }. This list is expected to
+   * SHRINK, never grow. Adding a consumer requires an explicit rationale here;
+   * presentation/read consumers and any cross-domain combiner must instead route
+   * social current-state reads through the canonical owner SocialStateService.
+   *
+   * @var array<string,array<string,string>>
+   */
+  private const SOCIAL_STATE_STORE_ALLOWLIST = [
+    'dungeoncrawler_content.aggression_state_store_service' => [
+      self::SOCIAL_PROVIDER_ID => 'canonical combined social current-state owner',
+      'dungeoncrawler_content.combat_entry_service' => 'aggression-state write lane',
+      'dungeoncrawler_content.encounter_ai_integration' => 'encounter-AI internal single-domain aggression read',
+    ],
+    'dungeoncrawler_content.disposition_state_store_service' => [
+      self::SOCIAL_PROVIDER_ID => 'canonical combined social current-state owner',
+      'dungeoncrawler_content.actor_disposition_service' => 'disposition domain owner (read/write)',
+    ],
+    'dungeoncrawler_content.relationship_attitude_state_store_service' => [
+      self::SOCIAL_PROVIDER_ID => 'canonical combined social current-state owner',
+      'dungeoncrawler_content.relationship_attitude_service' => 'relationship-attitude domain owner (read/write)',
+    ],
+    'dungeoncrawler_content.stance_state_store_service' => [
+      self::SOCIAL_PROVIDER_ID => 'canonical combined social current-state owner',
+      'dungeoncrawler_content.actor_stance_resolver_service' => 'stance resolver write lane',
+      'dungeoncrawler_content.stance_runtime_service' => 'stance runtime write lane',
+      'dungeoncrawler_content.actor_context_projection_service' => 'stance projection internal single-domain read',
+    ],
+  ];
+
+  /**
    * Frozen allowlist of services permitted to inject QuestStateStore (Phase 4).
    *
    * The raw single-quest persistence lane is consumed for current-state reads
@@ -178,6 +260,8 @@ class DungeoncrawlerContentServiceProvider extends ServiceProviderBase {
     $this->assertEncounterAuthority($container, $seen);
     $this->assertItemAuthority($container, $seen);
     $this->assertQuestAuthority($container, $seen);
+    $this->assertSocialAuthority($container, $seen);
+    $this->assertEffectAuthority($container, $seen);
   }
 
   /**
@@ -301,6 +385,82 @@ class DungeoncrawlerContentServiceProvider extends ServiceProviderBase {
           $id,
           self::QUEST_STATE_STORE_ID,
           self::QUEST_PROVIDER_ID
+        ));
+      }
+    }
+  }
+
+  /**
+   * Enforce the frozen social current-state authority (Phase 5).
+   *
+   * @param array<string,string> $providers_by_type
+   *   Map of object_type => provider service id discovered above.
+   */
+  private function assertSocialAuthority(ContainerBuilder $container, array $providers_by_type): void {
+    // 1) The single social provider must be the canonical combined-read owner.
+    $social_provider = $providers_by_type['social'] ?? NULL;
+    if ($social_provider !== NULL && $social_provider !== self::SOCIAL_PROVIDER_ID) {
+      throw new \RuntimeException(sprintf(
+        'The single social object-state provider must be "%s", got "%s". Social current-state has exactly one canonical owner.',
+        self::SOCIAL_PROVIDER_ID,
+        $social_provider
+      ));
+    }
+
+    // 2) Only allowlisted domain owners/write lanes and the canonical social
+    // owner may inject a raw social state store. Everything else (and any
+    // cross-domain combiner or presentation/read consumer) must route social
+    // current-state reads through the canonical owner.
+    foreach (self::SOCIAL_STATE_STORE_IDS as $store_id) {
+      $allowed = self::SOCIAL_STATE_STORE_ALLOWLIST[$store_id] ?? [];
+      foreach ($container->getDefinitions() as $id => $definition) {
+        if (!$this->definitionReferencesService($definition->getArguments(), $store_id)) {
+          continue;
+        }
+        if (!array_key_exists($id, $allowed)) {
+          throw new \RuntimeException(sprintf(
+            'Service "%s" injects the low-level %s but is not in the frozen social persistence allowlist. '
+            . 'Presentation/read consumers and cross-domain combiners must route social current-state reads through the canonical owner "%s".',
+            $id,
+            $store_id,
+            self::SOCIAL_PROVIDER_ID
+          ));
+        }
+      }
+    }
+  }
+
+  /**
+   * Enforce the frozen effects current-state authority (Phase 5).
+   *
+   * @param array<string,string> $providers_by_type
+   *   Map of object_type => provider service id discovered above.
+   */
+  private function assertEffectAuthority(ContainerBuilder $container, array $providers_by_type): void {
+    // 1) The single effects provider must be the canonical owner.
+    $effect_provider = $providers_by_type['effects'] ?? NULL;
+    if ($effect_provider !== NULL && $effect_provider !== self::EFFECT_PROVIDER_ID) {
+      throw new \RuntimeException(sprintf(
+        'The single effects object-state provider must be "%s", got "%s". Effects current-state has exactly one canonical owner.',
+        self::EFFECT_PROVIDER_ID,
+        $effect_provider
+      ));
+    }
+
+    // 2) Only the actor owner and the effects provider may inject the raw
+    // active-effect store. Everything else must read effects under canonical
+    // actor state; no read consumer composes actor effect truth independently.
+    foreach ($container->getDefinitions() as $id => $definition) {
+      if (!$this->definitionReferencesService($definition->getArguments(), self::ACTIVE_EFFECT_STORE_ID)) {
+        continue;
+      }
+      if (!array_key_exists($id, self::ACTIVE_EFFECT_STORE_ALLOWLIST)) {
+        throw new \RuntimeException(sprintf(
+          'Service "%s" injects the low-level %s but is not in the frozen active-effect persistence allowlist. '
+          . 'Read consumers must read effects under canonical actor state via the actor owner "%s".',
+          $id,
+          self::ACTIVE_EFFECT_STORE_ID,
+          'dungeoncrawler_content.actor_state'
         ));
       }
     }

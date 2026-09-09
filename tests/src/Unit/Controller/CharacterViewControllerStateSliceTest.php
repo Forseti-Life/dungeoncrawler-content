@@ -6,7 +6,7 @@ use Drupal\Component\Datetime\TimeInterface;
 use Drupal\Core\Database\Connection;
 use Drupal\dungeoncrawler_content\Controller\CharacterViewController;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
-use Drupal\dungeoncrawler_content\Service\CharacterStateService;
+use Drupal\dungeoncrawler_content\Service\ActorStateService;
 use Drupal\dungeoncrawler_content\Service\FeatEffectManager;
 use Drupal\dungeoncrawler_content\Service\FeatLibraryService;
 use Drupal\dungeoncrawler_content\Service\FollowerSubsystemService;
@@ -27,7 +27,7 @@ class CharacterViewControllerStateSliceTest extends UnitTestCase {
   protected function buildController(): CharacterViewController {
     return new CharacterViewController(
       $this->createMock(CharacterManager::class),
-      $this->createMock(CharacterStateService::class),
+      $this->createMock(ActorStateService::class),
       $this->createMock(FeatEffectManager::class),
       $this->createMock(FeatLibraryService::class),
       $this->createMock(RelationshipManagerService::class),

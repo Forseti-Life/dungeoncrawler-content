@@ -35,28 +35,27 @@ console.log('\n=== Runtime read aggression-state projection contract ===');
 
 assert(
   serviceSource.includes('protected CampaignStateService $campaignStateService;')
-    && serviceSource.includes('protected ?AggressionStateStoreService $aggressionStateStoreService;')
+    && serviceSource.includes('protected ?SocialStateService $socialStateService;')
     && serviceSource.includes('protected ?Connection $database;')
-    && serviceSource.includes('$this->aggressionStateStoreService = $aggression_state_store_service')
-    && serviceSource.includes('$stored = $this->aggressionStateStoreService->loadLatestState($campaign_id, $active_room_id);')
+    && serviceSource.includes('$this->socialStateService = $social_state_service')
+    && serviceSource.includes('$stored = $this->socialStateService->readRoomAggression($campaign_id, $active_room_id);')
     && serviceSource.includes("'aggression_state' => $aggression_state,"),
-  'RuntimeStateReadModelAssembler injects canonical aggression-state authority and projects aggression_state'
+  'RuntimeStateReadModelAssembler routes aggression reads through the canonical SocialStateService and projects aggression_state'
 );
 
 assert(
   serviceSource.includes('protected function loadActiveRoomAggressionState(int $campaign_id, string $active_room_id): ?array')
-    && serviceSource.includes("tableExists('dc_aggression_state')")
-    && serviceSource.includes("select('dc_aggression_state', 's')")
-    && serviceSource.includes("$registry = is_array($state['aggression_state'] ?? NULL) ? $state['aggression_state'] : [];"),
-  'RuntimeStateReadModelAssembler resolves active-room aggression state from canonical table with campaign-state fallback'
+    && !serviceSource.includes("select('dc_aggression_state', 's')")
+    && !serviceSource.includes('$this->aggressionStateStoreService'),
+  'RuntimeStateReadModelAssembler no longer reads the raw aggression store/table directly; the social owner is the single authority'
 );
 
 assert(
   servicesYml.includes('dungeoncrawler_content.runtime_state_read_model_assembler:')
     && servicesYml.includes("- '@dungeoncrawler_content.campaign_state_service'")
     && servicesYml.includes("- '@database'")
-    && servicesYml.includes("- '@dungeoncrawler_content.aggression_state_store_service'"),
-  'Service wiring provides campaign_state/database and aggression state-store service to runtime read-model assembler'
+    && servicesYml.includes("- '@dungeoncrawler_content.social_state'"),
+  'Service wiring provides campaign_state/database and the canonical social_state owner to runtime read-model assembler'
 );
 
 console.log(`\nPassed: ${passed}`);

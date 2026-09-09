@@ -1060,6 +1060,26 @@ services:
   dungeoncrawler_content.effect_state_service:
     alias: dungeoncrawler_content.effect_state
 
+  # Canonical single social current-state owner (Phase 5). Sole public authority
+  # answering "what is this actor's current social state?". Merges the four
+  # explicitly named components (aggression/disposition/relationship/stance) from
+  # their persistence stores with no default owner and no fallback synthesis, and
+  # guards the owning campaign. The raw social state stores stay internal; no
+  # presentation/read consumer combines them ad hoc.
+  dungeoncrawler_content.social_state:
+    class: Drupal\dungeoncrawler_content\Service\SocialStateService
+    arguments:
+      - '@dungeoncrawler_content.aggression_state_store_service'
+      - '@dungeoncrawler_content.disposition_state_store_service'
+      - '@dungeoncrawler_content.relationship_attitude_state_store_service'
+      - '@dungeoncrawler_content.stance_state_store_service'
+      - '@dungeoncrawler_content.campaign_lifecycle'
+    tags:
+      - { name: dungeoncrawler_content.object_state_provider, object_type: social }
+
+  dungeoncrawler_content.social_state_service:
+    alias: dungeoncrawler_content.social_state
+
   dungeoncrawler_content.object_state_provider_registry:
     class: Drupal\dungeoncrawler_content\Service\ObjectState\ObjectStateProviderRegistry
     # Argument 0 is populated by DungeoncrawlerContentServiceProvider from
@@ -1957,9 +1977,7 @@ services:
       - '@dungeoncrawler_content.campaign_state_service'
       - '@database'
       - '@dungeoncrawler_content.relationship_attitude_service'
-      - '@dungeoncrawler_content.aggression_state_store_service'
-      - '@dungeoncrawler_content.disposition_state_store_service'
-      - '@dungeoncrawler_content.stance_state_store_service'
+      - '@dungeoncrawler_content.social_state'
       - '@dungeoncrawler_content.disposition_resolver_service'
 
   dungeoncrawler_content.runtime_bootstrap:

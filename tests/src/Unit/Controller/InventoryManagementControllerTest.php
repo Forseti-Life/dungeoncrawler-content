@@ -4,7 +4,7 @@ namespace Drupal\Tests\dungeoncrawler_content\Unit\Controller;
 
 use Drupal\Core\Database\Connection;
 use Drupal\dungeoncrawler_content\Controller\InventoryManagementController;
-use Drupal\dungeoncrawler_content\Service\CharacterStateService;
+use Drupal\dungeoncrawler_content\Service\ActorStateService;
 use Drupal\dungeoncrawler_content\Service\InventoryManagementService;
 use Drupal\Tests\UnitTestCase;
 use Symfony\Component\HttpFoundation\Request;
@@ -44,7 +44,7 @@ class InventoryManagementControllerTest extends UnitTestCase {
       ->with(6.0, 14.0)
       ->willReturn('unencumbered');
 
-    $character_state = $this->createMock(CharacterStateService::class);
+    $character_state = $this->createMock(ActorStateService::class);
     $character_state->expects($this->once())
       ->method('getState')
       ->with('char-1')

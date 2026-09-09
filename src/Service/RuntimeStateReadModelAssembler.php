@@ -12,21 +12,17 @@ class RuntimeStateReadModelAssembler {
 
   protected const DEFAULT_ACTIVE_PHASE = 'encounter';
   protected CampaignStateService $campaignStateService;
-  protected ?AggressionStateStoreService $aggressionStateStoreService;
-  protected ?DispositionStateStoreService $dispositionStateStoreService;
+  protected ?SocialStateService $socialStateService;
   protected ?DispositionResolverService $dispositionResolverService;
   protected ?InstitutionDispositionScoreAssemblerService $institutionDispositionScoreAssemblerService;
   protected ?RelationshipAttitudeService $relationshipAttitudeService;
-  protected ?StanceStateStoreService $stanceStateStoreService;
   protected ?Connection $database;
 
   public function __construct(
     ?CampaignStateService $campaign_state_service = NULL,
     ?Connection $database = NULL,
     ?RelationshipAttitudeService $relationship_attitude_service = NULL,
-    ?AggressionStateStoreService $aggression_state_store_service = NULL,
-    ?DispositionStateStoreService $disposition_state_store_service = NULL,
-    ?StanceStateStoreService $stance_state_store_service = NULL,
+    ?SocialStateService $social_state_service = NULL,
     ?DispositionResolverService $disposition_resolver_service = NULL,
     ?InstitutionDispositionScoreAssemblerService $institution_disposition_score_assembler_service = NULL
   ) {
@@ -41,12 +37,16 @@ class RuntimeStateReadModelAssembler {
     }
     $this->campaignStateService = $campaign_state_service;
     $this->database = $database ?? (\Drupal::hasService('database') ? \Drupal::database() : NULL);
-    $this->aggressionStateStoreService = $aggression_state_store_service
-      ?? (\Drupal::hasService('dungeoncrawler_content.aggression_state_store_service')
-        ? \Drupal::service('dungeoncrawler_content.aggression_state_store_service')
+    // Single social current-state owner (Phase 5). The runtime read model no
+    // longer injects the raw aggression/disposition/stance stores directly; it
+    // delegates its base social reads to this owner, which merges the named
+    // components with no fallback synthesis.
+    $this->socialStateService = $social_state_service
+      ?? (\Drupal::hasService('dungeoncrawler_content.social_state')
+        ? \Drupal::service('dungeoncrawler_content.social_state')
         : NULL);
-    if (!$this->aggressionStateStoreService instanceof AggressionStateStoreService) {
-      $this->aggressionStateStoreService = NULL;
+    if (!$this->socialStateService instanceof SocialStateService) {
+      $this->socialStateService = NULL;
     }
     $this->relationshipAttitudeService = $relationship_attitude_service
       ?? (\Drupal::hasService('dungeoncrawler_content.relationship_attitude_service')
@@ -54,13 +54,6 @@ class RuntimeStateReadModelAssembler {
         : NULL);
     if (!$this->relationshipAttitudeService instanceof RelationshipAttitudeService) {
       $this->relationshipAttitudeService = NULL;
-    }
-    $this->dispositionStateStoreService = $disposition_state_store_service
-      ?? (\Drupal::hasService('dungeoncrawler_content.disposition_state_store_service')
-        ? \Drupal::service('dungeoncrawler_content.disposition_state_store_service')
-        : NULL);
-    if (!$this->dispositionStateStoreService instanceof DispositionStateStoreService) {
-      $this->dispositionStateStoreService = NULL;
     }
     $this->dispositionResolverService = $disposition_resolver_service
       ?? (\Drupal::hasService('dungeoncrawler_content.disposition_resolver_service')
@@ -75,13 +68,6 @@ class RuntimeStateReadModelAssembler {
         : NULL);
     if (!$this->institutionDispositionScoreAssemblerService instanceof InstitutionDispositionScoreAssemblerService) {
       $this->institutionDispositionScoreAssemblerService = NULL;
-    }
-    $this->stanceStateStoreService = $stance_state_store_service
-      ?? (\Drupal::hasService('dungeoncrawler_content.stance_state_store_service')
-        ? \Drupal::service('dungeoncrawler_content.stance_state_store_service')
-        : NULL);
-    if (!$this->stanceStateStoreService instanceof StanceStateStoreService) {
-      $this->stanceStateStoreService = NULL;
     }
   }
 
@@ -269,53 +255,21 @@ class RuntimeStateReadModelAssembler {
     if ($campaign_id <= 0 || $active_room_id === '') {
       return NULL;
     }
-
-    if ($this->aggressionStateStoreService instanceof AggressionStateStoreService) {
-      $stored = $this->aggressionStateStoreService->loadLatestState($campaign_id, $active_room_id);
-      if (is_array($stored)) {
-        return [
-          'status' => (string) ($stored['status'] ?? ''),
-          'room_id' => (string) ($stored['room_id'] ?? $active_room_id),
-          'updated_at' => (int) ($stored['updated_at'] ?? 0),
-          'aggression_summary' => is_array($stored['aggression_summary'] ?? NULL) ? $stored['aggression_summary'] : [],
-          'combat_entry_summary' => is_array($stored['combat_entry_summary'] ?? NULL) ? $stored['combat_entry_summary'] : [],
-        ];
-      }
+    if (!$this->socialStateService instanceof SocialStateService) {
+      return NULL;
     }
 
-    if ($this->database && $this->database->schema()->tableExists('dc_aggression_state')) {
-      $row = $this->database->select('dc_aggression_state', 's')
-        ->fields('s', ['status', 'room_id', 'updated', 'aggression_summary_json', 'combat_entry_summary_json'])
-        ->condition('campaign_id', $campaign_id)
-        ->condition('room_id', $active_room_id)
-        ->range(0, 1)
-        ->execute()
-        ->fetchAssoc();
-      if (is_array($row)) {
-        return [
-          'status' => (string) ($row['status'] ?? ''),
-          'room_id' => (string) ($row['room_id'] ?? $active_room_id),
-          'updated_at' => (int) ($row['updated'] ?? 0),
-          'aggression_summary' => $this->decodeJsonObject($row['aggression_summary_json'] ?? '', []),
-          'combat_entry_summary' => $this->decodeJsonObject($row['combat_entry_summary_json'] ?? '', []),
-        ];
-      }
-    }
-
-    $state_row = $this->campaignStateService->getState($campaign_id);
-    $state = is_array($state_row['state'] ?? NULL) ? $state_row['state'] : [];
-    $registry = is_array($state['aggression_state'] ?? NULL) ? $state['aggression_state'] : [];
-    $room_state = $registry[$active_room_id] ?? NULL;
-    if (!is_array($room_state)) {
+    $stored = $this->socialStateService->readRoomAggression($campaign_id, $active_room_id);
+    if (!is_array($stored)) {
       return NULL;
     }
 
     return [
-      'status' => (string) ($room_state['status'] ?? ''),
-      'room_id' => (string) ($room_state['room_id'] ?? $active_room_id),
-      'updated_at' => (int) ($room_state['updated_at'] ?? 0),
-      'aggression_summary' => is_array($room_state['aggression_summary'] ?? NULL) ? $room_state['aggression_summary'] : [],
-      'combat_entry_summary' => is_array($room_state['combat_entry_summary'] ?? NULL) ? $room_state['combat_entry_summary'] : [],
+      'status' => (string) ($stored['status'] ?? ''),
+      'room_id' => (string) ($stored['room_id'] ?? $active_room_id),
+      'updated_at' => (int) ($stored['updated_at'] ?? 0),
+      'aggression_summary' => is_array($stored['aggression_summary'] ?? NULL) ? $stored['aggression_summary'] : [],
+      'combat_entry_summary' => is_array($stored['combat_entry_summary'] ?? NULL) ? $stored['combat_entry_summary'] : [],
     ];
   }
 
@@ -326,70 +280,25 @@ class RuntimeStateReadModelAssembler {
     if ($campaign_id <= 0) {
       return NULL;
     }
+    if (!$this->socialStateService instanceof SocialStateService) {
+      return NULL;
+    }
 
     $entity_ref_candidates = $this->buildDispositionEntityRefCandidates($actor_entity, $actor_id);
     if ($entity_ref_candidates === []) {
       return NULL;
     }
-    $primary_entity_ref = $entity_ref_candidates[0] ?? '';
-    if ($this->dispositionStateStoreService instanceof DispositionStateStoreService && $primary_entity_ref !== '') {
-      $stored = $this->dispositionStateStoreService->loadLatestState($campaign_id, $primary_entity_ref);
+
+    foreach ($entity_ref_candidates as $candidate) {
+      $stored = $this->socialStateService->readActorDisposition($campaign_id, $candidate);
       if (is_array($stored)) {
         return [
-          'entity_ref' => (string) ($stored['entity_ref'] ?? $primary_entity_ref),
+          'entity_ref' => (string) ($stored['entity_ref'] ?? $candidate),
           'updated_at' => (int) ($stored['updated_at'] ?? 0),
           'summary' => is_array($stored['summary'] ?? NULL) ? $stored['summary'] : [],
           'meta' => is_array($stored['meta'] ?? NULL) ? $stored['meta'] : [],
         ];
       }
-    }
-
-    if ($this->database && $this->database->schema()->tableExists('dc_disposition_state')) {
-      $rows = $this->database->select('dc_disposition_state', 's')
-        ->fields('s', ['entity_ref', 'summary_json', 'meta_json', 'updated'])
-        ->condition('campaign_id', $campaign_id)
-        ->condition('entity_ref', $entity_ref_candidates, 'IN')
-        ->execute()
-        ->fetchAll(\PDO::FETCH_ASSOC);
-      $by_entity_ref = [];
-      foreach ($rows as $row) {
-        if (!is_array($row)) {
-          continue;
-        }
-        $by_entity_ref[trim((string) ($row['entity_ref'] ?? ''))] = $row;
-      }
-      foreach ($entity_ref_candidates as $candidate) {
-        $row = $by_entity_ref[$candidate] ?? NULL;
-        if (!is_array($row)) {
-          continue;
-        }
-        return [
-          'entity_ref' => (string) ($row['entity_ref'] ?? $candidate),
-          'updated_at' => (int) ($row['updated'] ?? 0),
-          'summary' => $this->decodeJsonObject($row['summary_json'] ?? '', []),
-          'meta' => $this->decodeJsonObject($row['meta_json'] ?? '', []),
-        ];
-      }
-    }
-
-    $state_row = $this->campaignStateService->getState($campaign_id);
-    $state = is_array($state_row['state'] ?? NULL) ? $state_row['state'] : [];
-    $registry = is_array($state['disposition_state'] ?? NULL) ? $state['disposition_state'] : [];
-    if ($registry === []) {
-      return NULL;
-    }
-
-    foreach ($entity_ref_candidates as $candidate) {
-      $entry = $registry[$candidate] ?? NULL;
-      if (!is_array($entry)) {
-        continue;
-      }
-      return [
-        'entity_ref' => (string) ($entry['entity_ref'] ?? $candidate),
-        'updated_at' => (int) ($entry['updated_at'] ?? 0),
-        'summary' => is_array($entry['summary'] ?? NULL) ? $entry['summary'] : [],
-        'meta' => is_array($entry['meta'] ?? NULL) ? $entry['meta'] : [],
-      ];
     }
 
     return NULL;
@@ -674,70 +583,25 @@ class RuntimeStateReadModelAssembler {
     if ($campaign_id <= 0) {
       return NULL;
     }
+    if (!$this->socialStateService instanceof SocialStateService) {
+      return NULL;
+    }
 
     $entity_ref_candidates = $this->buildDispositionEntityRefCandidates($actor_entity, $actor_id);
     if ($entity_ref_candidates === []) {
       return NULL;
     }
-    $primary_entity_ref = $entity_ref_candidates[0] ?? '';
-    if ($this->stanceStateStoreService instanceof StanceStateStoreService && $primary_entity_ref !== '') {
-      $stored = $this->stanceStateStoreService->loadLatestState($campaign_id, $primary_entity_ref);
+
+    foreach ($entity_ref_candidates as $candidate) {
+      $stored = $this->socialStateService->readActorStance($campaign_id, $candidate);
       if (is_array($stored)) {
         return [
-          'entity_ref' => (string) ($stored['entity_ref'] ?? $primary_entity_ref),
+          'entity_ref' => (string) ($stored['entity_ref'] ?? $candidate),
           'updated_at' => (int) ($stored['updated_at'] ?? 0),
           'summary' => is_array($stored['summary'] ?? NULL) ? $stored['summary'] : [],
           'meta' => is_array($stored['meta'] ?? NULL) ? $stored['meta'] : [],
         ];
       }
-    }
-
-    if ($this->database && $this->database->schema()->tableExists('dc_stance_state')) {
-      $rows = $this->database->select('dc_stance_state', 's')
-        ->fields('s', ['entity_ref', 'summary_json', 'meta_json', 'updated'])
-        ->condition('campaign_id', $campaign_id)
-        ->condition('entity_ref', $entity_ref_candidates, 'IN')
-        ->execute()
-        ->fetchAll(\PDO::FETCH_ASSOC);
-      $by_entity_ref = [];
-      foreach ($rows as $row) {
-        if (!is_array($row)) {
-          continue;
-        }
-        $by_entity_ref[trim((string) ($row['entity_ref'] ?? ''))] = $row;
-      }
-      foreach ($entity_ref_candidates as $candidate) {
-        $row = $by_entity_ref[$candidate] ?? NULL;
-        if (!is_array($row)) {
-          continue;
-        }
-        return [
-          'entity_ref' => (string) ($row['entity_ref'] ?? $candidate),
-          'updated_at' => (int) ($row['updated'] ?? 0),
-          'summary' => $this->decodeJsonObject($row['summary_json'] ?? '', []),
-          'meta' => $this->decodeJsonObject($row['meta_json'] ?? '', []),
-        ];
-      }
-    }
-
-    $state_row = $this->campaignStateService->getState($campaign_id);
-    $state = is_array($state_row['state'] ?? NULL) ? $state_row['state'] : [];
-    $registry = is_array($state['stance_state'] ?? NULL) ? $state['stance_state'] : [];
-    if ($registry === []) {
-      return NULL;
-    }
-
-    foreach ($entity_ref_candidates as $candidate) {
-      $entry = $registry[$candidate] ?? NULL;
-      if (!is_array($entry)) {
-        continue;
-      }
-      return [
-        'entity_ref' => (string) ($entry['entity_ref'] ?? $candidate),
-        'updated_at' => (int) ($entry['updated_at'] ?? 0),
-        'summary' => is_array($entry['summary'] ?? NULL) ? $entry['summary'] : [],
-        'meta' => is_array($entry['meta'] ?? NULL) ? $entry['meta'] : [],
-      ];
     }
 
     return NULL;
