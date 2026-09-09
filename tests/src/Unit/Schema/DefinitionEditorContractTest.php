@@ -232,7 +232,6 @@ class DefinitionEditorContractTest extends TestCase {
       ],
       'lifecycle' => ['spawn_type' => 'permanent', 'is_alive' => TRUE],
       'description' => 'A crawling mass of pallid leeches bred in cistern sludge.',
-      'source' => 'gen-evidence',
       'metadata' => ['generated_by' => $this->generatedBy('generate_creature_definition')],
     ];
   }

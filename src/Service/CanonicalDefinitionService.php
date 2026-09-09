@@ -64,7 +64,7 @@ class CanonicalDefinitionService {
     'creature' => 'creature_id',
     'actor' => 'actor_id',
     'item' => 'item_id',
-    'obstacle' => 'obstacle_id',
+    'obstacle' => 'object_id',
     'trap' => 'trap_id',
     'hazard' => 'hazard_id',
   ];
@@ -76,7 +76,7 @@ class CanonicalDefinitionService {
     'creature' => 'name',
     'actor' => 'display_name',
     'item' => 'name',
-    'obstacle' => 'name',
+    'obstacle' => 'label',
     'trap' => 'name',
     'hazard' => 'name',
   ];

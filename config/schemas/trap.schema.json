@@ -33,8 +33,10 @@
     },
     "trap_id": {
       "type": "string",
-      "format": "uuid",
-      "description": "Unique identifier for this trap."
+      "minLength": 1,
+      "maxLength": 100,
+      "pattern": "^[a-z0-9]+(?:[_-][a-z0-9]+)*$",
+      "description": "Unique canonical trap identifier slug."
     },
     "name": {
       "type": "string",

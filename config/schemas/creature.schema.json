@@ -22,8 +22,10 @@
     },
     "creature_id": {
       "type": "string",
-      "format": "uuid",
-      "description": "Unique identifier for this creature."
+      "minLength": 1,
+      "maxLength": 100,
+      "pattern": "^[a-z0-9]+(?:[_-][a-z0-9]+)*$",
+      "description": "Unique canonical creature identifier slug used by the canonical creature library."
     },
     "name": {
       "type": "string",
@@ -953,11 +955,6 @@
       "minLength": 1,
       "maxLength": 5000,
       "description": "Optional flavor text describing the creature."
-    },
-    "source": {
-      "type": "string",
-      "minLength": 1,
-      "description": "Source book or origin (e.g., 'Pathfinder Bestiary 1', 'AI-generated')."
     }
   },
   "additionalProperties": false,
