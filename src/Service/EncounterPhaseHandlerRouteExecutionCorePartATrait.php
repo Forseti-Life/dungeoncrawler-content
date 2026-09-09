@@ -233,8 +233,29 @@ trait EncounterPhaseHandlerRouteExecutionCorePartATrait {
     array &$dungeon_data,
     int $campaign_id
   ): array {
+    $resolved_actor_id = trim((string) $actor_id);
+    if ($resolved_actor_id === '') {
+      throw new \InvalidArgumentException('party_recovery requires actor_id.');
+    }
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'party_recovery',
+      $resolved_actor_id,
+      NULL,
+      [
+        'encounter_id' => $encounter_id,
+        'campaign_id' => $campaign_id,
+      ]
+    );
     $turn_ctx = $this->captureEncounterTurnContext($game_state, $dungeon_data, $actor_id);
     $recovery_events = $this->restorePlayerPartyToFullHealth($encounter_id, $game_state, $dungeon_data, $campaign_id);
+    $healed_names = $recovery_events !== [] ? ($recovery_events[0]['data']['healed'] ?? []) : [];
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      [
+        'healed' => $healed_names,
+      ]
+    );
 
     $actor_name = (string) ($turn_ctx['actor_name'] ?? ($actor_id ? $this->resolveEntityName($actor_id, $game_state, $dungeon_data) : 'Narrator'));
     $resolved_narration = $recovery_events !== []
@@ -244,9 +265,11 @@ trait EncounterPhaseHandlerRouteExecutionCorePartATrait {
 
     $events = [
       GameEventLogger::buildEvent('party_recovery_action', 'encounter', $actor_id, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
         'round' => $turn_ctx['round'] ?? ($game_state['round'] ?? NULL),
         'actor_name' => $actor_name,
-        'healed' => $recovery_events !== [] ? ($recovery_events[0]['data']['healed'] ?? []) : [],
+        'healed' => $healed_names,
       ], $resolved_narration),
     ];
     if ($recovery_events !== []) {
@@ -255,8 +278,10 @@ trait EncounterPhaseHandlerRouteExecutionCorePartATrait {
 
     return [
       'result' => [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
         'action' => 'party_recovery',
-        'healed' => $recovery_events !== [] ? ($recovery_events[0]['data']['healed'] ?? []) : [],
+        'healed' => $healed_names,
       ],
       'mutations' => [],
       'events' => $events,

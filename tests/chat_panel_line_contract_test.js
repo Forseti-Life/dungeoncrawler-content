@@ -279,6 +279,8 @@ console.log('\n=== ChatPanel canonical line contract ===');
       action_cost: 1,
       actions_remaining: 2,
       resolution_envelope: {
+        contract_version: 'combat.resolution_envelope.v1',
+        kind: 'combat_resolution_envelope',
         packets: [{
           kind: 'state_effect_change',
           effect_name: 'frightened',
@@ -321,6 +323,8 @@ console.log('\n=== ChatPanel canonical line contract ===');
       action_cost: 1,
       actions_remaining: 1,
       resolution_envelope: {
+        contract_version: 'combat.resolution_envelope.v1',
+        kind: 'combat_resolution_envelope',
         packets: [{
           kind: 'state_effect_change',
           effect_name: 'off_guard',

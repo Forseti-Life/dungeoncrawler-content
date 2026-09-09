@@ -1198,7 +1198,7 @@ export class EncounterSystem {
       this._buildSpellCastSummary(
         context.actorLabel,
         spellName,
-        this._resolveActionDamageFromResult(data),
+        null,
         spellTargetRef,
         '',
       ),
@@ -1765,39 +1765,23 @@ export class EncounterSystem {
       return null;
     }
 
-    const packets = [];
-    const envelopeEffects = Array.isArray(payload?.result?.resolution_envelope?.effects)
-      ? payload.result.resolution_envelope.effects
-      : [];
-    packets.push(...envelopeEffects);
-    if (payload?.result?.damage_packet && typeof payload.result.damage_packet === 'object') {
-      packets.push(payload.result.damage_packet);
-    }
-    if (payload?.damage_packet && typeof payload.damage_packet === 'object') {
-      packets.push(payload.damage_packet);
+    const envelope = payload?.result?.resolution_envelope || payload?.resolution_envelope || null;
+    if (
+      !envelope
+      || envelope.contract_version !== 'combat.resolution_envelope.v1'
+      || envelope.kind !== 'combat_resolution_envelope'
+      || !Array.isArray(envelope.packets)
+    ) {
+      throw new Error('combat_action_result_contract_violation:resolution_envelope');
     }
 
-    const candidates = [
-      payload?.result?.damage,
-      payload?.damage,
-      ...packets.map((packet) => packet?.amount),
-    ];
-
-    const events = Array.isArray(payload?.events) ? payload.events : [];
-    for (const event of events) {
-      const data = (event && typeof event === 'object') ? (event.data || event.payload || {}) : {};
-      candidates.push(data?.damage);
-      candidates.push(data?.damage_packet?.amount);
-    }
-
-    for (const value of candidates) {
-      const numeric = Number(value);
-      if (Number.isFinite(numeric) && numeric > 0) {
-        return Math.floor(numeric);
-      }
-    }
-
-    return null;
+    const damagePacket = envelope.packets.find(
+      (packet) => packet
+        && typeof packet === 'object'
+        && String(packet.kind || '').trim().toLowerCase() === 'damage_application'
+    ) || null;
+    const damage = Number(damagePacket?.amount);
+    return Number.isFinite(damage) && damage > 0 ? Math.floor(damage) : null;
   }
 
   _buildSpellCastSummary(actorLabel, spellName, damage = null, targetRef = '', preferredSummary = '') {

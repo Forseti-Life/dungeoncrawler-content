@@ -29,14 +29,14 @@ import { HexCanvas } from './canvas/HexCanvas.js';
 import { HexTokenRenderer } from './canvas/HexTokenRenderer.js';
 import { HexFogOfWar } from './canvas/HexFogOfWar.js';
 import { HexInputHandler } from './canvas/HexInputHandler.js';
-import { EncounterSystem } from './systems/EncounterSystem.js?v=20260828-v4-combat-drag-routing-1';
+import { EncounterSystem } from './systems/EncounterSystem.js?v=20260909-unified-combat-projection-1';
 import { NavigationSystem } from './systems/NavigationSystem.js?v=20260728-v2-nav-transition-receipt-4';
 import { PlayerAutomation } from './systems/PlayerAutomation.js?v=20260608-v2-chat-persistence-dev-1';
 import { QuestSystem } from './systems/QuestSystem.js?v=20260608-v2-quest-summary-merge-2';
 import { MerchantPanel } from './panels/MerchantPanel.js';
 import { CombatPanel } from './panels/CombatPanel.js?v=20260827-v2-bootstrap-status-12';
 import { ActionRailPanel } from './panels/ActionRailPanel.js?v=20260828-v3-suggest-next-move-1';
-import { ChatPanel } from './panels/ChatPanel.js?v=20260901-v1-action-log-origin-dedupe-1';
+import { ChatPanel } from './panels/ChatPanel.js?v=20260909-unified-combat-projection-1';
 import { QuestPanel } from './panels/QuestPanel.js?v=20260723-v2-quest-storyline-grouping-2';
 import { InventoryPanel } from './panels/InventoryPanel.js';
 import { CharacterPanel } from './panels/CharacterPanel.js?v=20260828-v4-combat-drag-routing-1';
@@ -3295,17 +3295,26 @@ export class GameShell {
       const resolutionEnvelope = data?.resolution_envelope && typeof data.resolution_envelope === 'object'
         ? data.resolution_envelope
         : null;
-      const resolutionPackets = Array.isArray(resolutionEnvelope?.packets)
-        ? resolutionEnvelope.packets.filter((packet) => packet && typeof packet === 'object')
-        : [];
-      const movementPacket = resolutionPackets.find((packet) => String(packet?.kind || '').trim().toLowerCase() === 'movement_resolution')
-        || (data?.movement_packet && typeof data.movement_packet === 'object' ? data.movement_packet : null);
+      if (
+        !resolutionEnvelope
+        || resolutionEnvelope.contract_version !== 'combat.resolution_envelope.v1'
+        || resolutionEnvelope.kind !== 'combat_resolution_envelope'
+        || !Array.isArray(resolutionEnvelope.packets)
+      ) {
+        throw new Error(`combat_movement_projection_contract_violation:${normalizedType}:resolution_envelope`);
+      }
+      const movementPacket = resolutionEnvelope.packets.find(
+        (packet) => packet
+          && typeof packet === 'object'
+          && String(packet.kind || '').trim().toLowerCase() === 'movement_resolution'
+      ) || null;
+      if (!movementPacket) {
+        throw new Error(`combat_movement_projection_contract_violation:${normalizedType}:movement_packet`);
+      }
       const actorRef = String(movementPacket?.actor_entity_ref || event.actor || '').trim();
       const toHex = movementPacket?.to_hex && typeof movementPacket.to_hex === 'object'
         ? movementPacket.to_hex
-        : (data?.to_hex && typeof data.to_hex === 'object'
-          ? data.to_hex
-          : (data?.to && typeof data.to === 'object' ? data.to : null));
+        : null;
       const roomId = String(
         data?.room_id
         || movementPacket?.metadata?.room_id

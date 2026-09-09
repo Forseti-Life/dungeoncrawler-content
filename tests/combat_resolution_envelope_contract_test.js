@@ -69,8 +69,12 @@ assert(
     && chatPanelSource.includes("const stateEffectPacket = findResolutionPacket('state_effect_change')")
     && chatPanelSource.includes("const reactionPacket = findResolutionPacket('reaction_resolution')")
     && chatPanelSource.includes("case 'grapple':")
-    && chatPanelSource.includes("case 'trip':"),
-  'ChatPanel consumes resolution-envelope packet metadata first, with fallback packet fields for compatibility'
+    && chatPanelSource.includes("case 'trip':")
+    && !chatPanelSource.includes('data?.damage_packet')
+    && !chatPanelSource.includes('data?.movement_packet')
+    && !chatPanelSource.includes('data?.state_effect_packet')
+    && !chatPanelSource.includes('data?.reaction_packet'),
+  'ChatPanel consumes only canonical resolution-envelope packet metadata'
 );
 
 if (failed > 0) {

@@ -50,10 +50,12 @@ assert(
 );
 
 assert(
-  gameShellSource.includes("const movementPacket = resolutionPackets.find((packet) => String(packet?.kind || '').trim().toLowerCase() === 'movement_resolution')")
+  gameShellSource.includes('combat_movement_projection_contract_violation:${normalizedType}:resolution_envelope')
+    && gameShellSource.includes('combat_movement_projection_contract_violation:${normalizedType}:movement_packet')
     && gameShellSource.includes('const actorRef = String(movementPacket?.actor_entity_ref || event.actor || \'\').trim();')
-    && gameShellSource.includes('const toHex = movementPacket?.to_hex && typeof movementPacket.to_hex === \'object\''),
-  'GameShell resolves movement actor and destination hex from canonical movement packets'
+    && gameShellSource.includes('const toHex = movementPacket?.to_hex && typeof movementPacket.to_hex === \'object\'')
+    && !gameShellSource.includes('(data?.movement_packet && typeof data.movement_packet === \'object\''),
+  'GameShell requires canonical movement packets and has no top-level movement fallback'
 );
 
 assert(

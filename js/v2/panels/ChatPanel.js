@@ -3197,44 +3197,37 @@ export class ChatPanel {
     const normalizedType = String(type || '').trim().toLowerCase();
     const targetId = String(event?.target || data?.target || '').trim();
     const targetName = targetId ? this.resolveEncounterActorName(targetId) : '';
-    const collectResolutionPackets = (envelope) => (
-      Array.isArray(envelope?.packets)
-        ? envelope.packets.filter((packet) => packet && typeof packet === 'object')
-        : []
-    );
     const resolutionEnvelope = (data?.resolution_envelope && typeof data.resolution_envelope === 'object') ? data.resolution_envelope : null;
-    const strikeResolutionEnvelope = (data?.strike_resolution_envelope && typeof data.strike_resolution_envelope === 'object') ? data.strike_resolution_envelope : null;
-    const spellResolutionEnvelope = (data?.spell_resolution_envelope && typeof data.spell_resolution_envelope === 'object') ? data.spell_resolution_envelope : null;
-    const resolutionPackets = [
-      ...collectResolutionPackets(resolutionEnvelope),
-      ...collectResolutionPackets(strikeResolutionEnvelope),
-      ...collectResolutionPackets(spellResolutionEnvelope),
-    ];
-    const hazardResolutionEnvelope = (data?.hazard_resolution_envelope && typeof data.hazard_resolution_envelope === 'object')
-      ? data.hazard_resolution_envelope
-      : null;
-    const hazardResolutionPackets = Array.isArray(hazardResolutionEnvelope?.packets)
-      ? hazardResolutionEnvelope.packets.filter((packet) => packet && typeof packet === 'object')
+    const canonicalActionTypes = new Set([
+      'end_turn', 'auto_end_turn', 'choose_not_to_act', 'npc_choose_not_to_act',
+      'stride', 'step', 'crawl', 'climb', 'swim', 'fly', 'leap', 'sneak',
+      'burrow', 'strike', 'skill', 'feat', 'interact', 'talk', 'cast_spell',
+      'grapple', 'trip', 'shove', 'hazard_triggered', 'party_recovery_action',
+    ]);
+    if (canonicalActionTypes.has(normalizedType) || data?.execution_request !== undefined) {
+      if (
+        !resolutionEnvelope
+        || resolutionEnvelope.contract_version !== 'combat.resolution_envelope.v1'
+        || resolutionEnvelope.kind !== 'combat_resolution_envelope'
+        || !Array.isArray(resolutionEnvelope.packets)
+      ) {
+        throw new Error(`combat_projection_contract_violation:${normalizedType}:resolution_envelope`);
+      }
+    }
+    const resolutionPackets = Array.isArray(resolutionEnvelope?.packets)
+      ? resolutionEnvelope.packets.filter((packet) => packet && typeof packet === 'object')
       : [];
     const findResolutionPacket = (kind) => resolutionPackets.find((packet) => String(packet?.kind || '').trim().toLowerCase() === kind) || null;
-    const findHazardResolutionPacket = (kind) => hazardResolutionPackets.find((packet) => String(packet?.kind || '').trim().toLowerCase() === kind) || null;
-    const damagePacket = findResolutionPacket('damage_application')
-      || ((data?.damage_packet && typeof data.damage_packet === 'object') ? data.damage_packet : null);
-    const hazardDamagePacket = findHazardResolutionPacket('damage_application')
-      || ((data?.damage_packet && typeof data.damage_packet === 'object') ? data.damage_packet : null);
-    const movementPacket = findResolutionPacket('movement_resolution')
-      || ((data?.movement_packet && typeof data.movement_packet === 'object') ? data.movement_packet : null);
-    const stateEffectPacket = findResolutionPacket('state_effect_change')
-      || ((data?.state_effect_packet && typeof data.state_effect_packet === 'object') ? data.state_effect_packet : null);
-    const stateEffectPackets = (resolutionPackets.length > 0
-      ? resolutionPackets.filter((packet) => String(packet?.kind || '').trim().toLowerCase() === 'state_effect_change')
-      : (Array.isArray(data?.state_effect_packets) ? data.state_effect_packets : []))
+    const damagePacket = findResolutionPacket('damage_application');
+    const movementPacket = findResolutionPacket('movement_resolution');
+    const stateEffectPacket = findResolutionPacket('state_effect_change');
+    const stateEffectPackets = resolutionPackets
+      .filter((packet) => String(packet?.kind || '').trim().toLowerCase() === 'state_effect_change')
       .filter((packet) => packet && typeof packet === 'object');
     if (stateEffectPacket && !stateEffectPackets.includes(stateEffectPacket)) {
       stateEffectPackets.push(stateEffectPacket);
     }
-    const reactionPacket = findResolutionPacket('reaction_resolution')
-      || ((data?.reaction_packet && typeof data.reaction_packet === 'object') ? data.reaction_packet : null);
+    const reactionPacket = findResolutionPacket('reaction_resolution');
     const actionCost = Number(data?.action_cost);
     const actionsRemaining = Number(data?.actions_remaining);
     const costSuffix = Number.isFinite(actionCost) && actionCost > 0 ? ` (AP -${actionCost})` : '';
@@ -3259,13 +3252,6 @@ export class ChatPanel {
       conditionApplications.push({
         condition: conditionName.replace(/_/g, ' '),
         target: conditionTargetName,
-      });
-    }
-    const fallbackConditionName = String(data?.condition_applied || '').trim().toLowerCase();
-    if (fallbackConditionName) {
-      conditionApplications.push({
-        condition: fallbackConditionName.replace(/_/g, ' '),
-        target: targetName || '',
       });
     }
     const uniqueConditionApplications = [];
@@ -3313,7 +3299,7 @@ export class ChatPanel {
       : '';
     const behaviorSuffix = `${conditionSuffix}${dispositionSuffix}${stanceSuffix}`;
 
-    const movementToHex = movementPacket?.to_hex || data?.to;
+    const movementToHex = movementPacket?.to_hex;
     const toHex = movementToHex && typeof movementToHex === 'object'
       ? [movementToHex.q, movementToHex.r].every((value) => Number.isFinite(Number(value)))
         ? ` to (${Number(movementToHex.q)}, ${Number(movementToHex.r)})`
@@ -3347,7 +3333,7 @@ export class ChatPanel {
       case 'interact':
       case 'talk': {
         const targetSuffix = targetName ? ` on ${targetName}` : '';
-        const damage = Number(data?.damage ?? damagePacket?.amount);
+        const damage = Number(damagePacket?.amount);
         const damageTarget = String(damagePacket?.target_entity_ref || targetName || '').trim();
         const damageSuffix = Number.isFinite(damage) && damage > 0
           ? ` ${Math.floor(damage)} damage applied${damageTarget ? ` to ${damageTarget}` : ''}.`
@@ -3364,7 +3350,7 @@ export class ChatPanel {
         const spellLabel = spellName !== '' ? spellName : 'a spell';
         const targetLabel = targetName || String(data?.target_name || '').trim();
         const targetSuffix = targetLabel ? ` on ${targetLabel}` : '';
-        const damage = Number(data?.damage ?? damagePacket?.amount);
+        const damage = Number(damagePacket?.amount);
         const damageSuffix = Number.isFinite(damage) && damage > 0
           ? ` ${Math.floor(damage)} damage applied to ${targetLabel || damagePacket?.target_entity_ref || 'target'}.`
           : '';
@@ -3377,10 +3363,10 @@ export class ChatPanel {
         return `${actorName} uses trip${targetName ? ` on ${targetName}` : ''}.${costSuffix}${remainingSuffix}${behaviorSuffix}`;
       }
       case 'shove': {
-        const pushedFeet = Number(data?.push_ft);
+        const pushedFeet = Number(movementPacket?.distance_ft);
         const forcedToHex = movementPacket?.to_hex && typeof movementPacket.to_hex === 'object'
           ? movementPacket.to_hex
-          : (data?.forced_to && typeof data.forced_to === 'object' ? data.forced_to : null);
+          : null;
         const movedTo = forcedToHex && [forcedToHex.q, forcedToHex.r].every((value) => Number.isFinite(Number(value)))
           ? ` to (${Number(forcedToHex.q)}, ${Number(forcedToHex.r)})`
           : '';
@@ -3398,11 +3384,11 @@ export class ChatPanel {
         const hazardName = String(hazard?.name || data?.name || 'Hazard').trim() || 'Hazard';
         const effect = hazard?.effect && typeof hazard.effect === 'object' ? hazard.effect : {};
         const effectDescription = String(effect?.description || '').trim();
-        const resolvedDamage = Number(effect?.damage_applied ?? effect?.resolved_damage ?? hazardDamagePacket?.amount);
+        const resolvedDamage = Number(damagePacket?.amount);
         const damageText = Number.isFinite(resolvedDamage) && resolvedDamage > 0
           ? String(Math.floor(resolvedDamage))
-          : String(effect?.damage || hazardDamagePacket?.amount || '').trim();
-        const damageType = String(effect?.damage_type || hazardDamagePacket?.damage_type || '').trim();
+          : '';
+        const damageType = String(damagePacket?.damage_type || '').trim();
         const suffixParts = [];
         if (effectDescription) {
           suffixParts.push(effectDescription);
@@ -3412,6 +3398,14 @@ export class ChatPanel {
         }
         const suffix = suffixParts.length > 0 ? ` ${suffixParts.join(' ')}` : '';
         return `${hazardName} triggers on ${actorName}.${suffix}`;
+      }
+      case 'party_recovery_action': {
+        const healed = Array.isArray(resolutionEnvelope?.result?.healed)
+          ? resolutionEnvelope.result.healed.map((name) => String(name || '').trim()).filter(Boolean)
+          : [];
+        return healed.length > 0
+          ? `${healed.join(' and ')} recover to full health.`
+          : `${actorName} calls for the party to recover, but nobody needs healing.`;
       }
       default:
         break;

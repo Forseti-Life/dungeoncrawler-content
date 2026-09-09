@@ -32,9 +32,11 @@ const chatPanelSource = read('../js/v2/panels/ChatPanel.js');
 assert(
   chatPanelSource.includes("case 'shove':")
     && chatPanelSource.includes('const forcedToHex = movementPacket?.to_hex')
+    && chatPanelSource.includes('const pushedFeet = Number(movementPacket?.distance_ft);')
     && chatPanelSource.includes('const hazardDamage = Number(damagePacket?.amount);')
-    && chatPanelSource.includes('damagePacket?.damage_type'),
-  'Shove fallback projection consumes envelope-derived movement/damage packets before legacy shove-only fields'
+    && chatPanelSource.includes('damagePacket?.damage_type')
+    && !chatPanelSource.includes('data?.forced_to'),
+  'Shove projection consumes only canonical envelope movement/damage packets'
 );
 
 if (failed > 0) {

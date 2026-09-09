@@ -419,40 +419,22 @@ class GameEventLogger {
    */
   protected function extractStateEffectPackets(array $event_data): array {
     $packets = [];
-    $envelope_keys = [
-      'resolution_envelope',
-      'strike_resolution_envelope',
-      'spell_resolution_envelope',
-      'hazard_resolution_envelope',
-    ];
-    foreach ($envelope_keys as $envelope_key) {
-      $envelope = is_array($event_data[$envelope_key] ?? NULL) ? $event_data[$envelope_key] : NULL;
-      if (!is_array($envelope)) {
-        continue;
-      }
-      foreach ((array) ($envelope['packets'] ?? []) as $packet) {
-        if (!is_array($packet)) {
-          continue;
-        }
-        if (strtolower(trim((string) ($packet['kind'] ?? ''))) !== 'state_effect_change') {
-          continue;
-        }
-        $packets[] = $packet;
-      }
+    $envelope = $event_data['resolution_envelope'] ?? NULL;
+    if ($envelope === NULL) {
+      return [];
     }
-
-    foreach ((array) ($event_data['state_effect_packets'] ?? []) as $packet) {
+    if (
+      !is_array($envelope)
+      || ($envelope['contract_version'] ?? NULL) !== CombatResolutionContractService::RESOLUTION_ENVELOPE_CONTRACT_VERSION
+      || ($envelope['kind'] ?? NULL) !== 'combat_resolution_envelope'
+      || !is_array($envelope['packets'] ?? NULL)
+    ) {
+      throw new \UnexpectedValueException('combat_event_telemetry_contract_violation:resolution_envelope');
+    }
+    foreach ($envelope['packets'] as $packet) {
       if (!is_array($packet)) {
-        continue;
+        throw new \UnexpectedValueException('combat_event_telemetry_contract_violation:packet');
       }
-      if (strtolower(trim((string) ($packet['kind'] ?? ''))) !== 'state_effect_change') {
-        continue;
-      }
-      $packets[] = $packet;
-    }
-
-    if (is_array($event_data['state_effect_packet'] ?? NULL)) {
-      $packet = $event_data['state_effect_packet'];
       if (strtolower(trim((string) ($packet['kind'] ?? ''))) === 'state_effect_change') {
         $packets[] = $packet;
       }
