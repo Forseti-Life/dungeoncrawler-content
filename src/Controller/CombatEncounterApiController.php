@@ -3,8 +3,8 @@
 namespace Drupal\dungeoncrawler_content\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
-use Drupal\Core\Database\Connection;
-use Drupal\dungeoncrawler_content\Service\CombatEncounterStore;
+use Drupal\dungeoncrawler_content\Exception\LegacyCampaignArchivedException;
+use Drupal\dungeoncrawler_content\Service\EncounterStateService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -12,9 +12,13 @@ use Symfony\Component\HttpFoundation\Request;
 /**
  * Lightweight combat encounter API for hexmap integration.
  *
- * Provides stubbed turn lifecycle endpoints while the full combat engine
- * services are being implemented. State is stored in a key/value store so the
- * frontend can rely on stable encounter IDs across requests.
+ * Phase 2 (object-state authority): this controller is a presentation/read
+ * consumer. It no longer injects CombatEncounterStore or assembles encounter
+ * projections itself. Every current-state read is delegated to the single
+ * canonical owner, EncounterStateService, which owns the raw persistence read,
+ * the encounter-map-v1 projection, and the CampaignLifecycleService guard.
+ * Mutation endpoints remain disabled in favor of the canonical
+ * /api/game/{campaign_id}/action turn/round authority.
  */
 class CombatEncounterApiController extends ControllerBase {
 
@@ -24,25 +28,17 @@ class CombatEncounterApiController extends ControllerBase {
   protected const LEGACY_MUTATION_DISABLED_CODE = 'legacy_combat_mutation_disabled';
 
   /**
-   * Encounter storage service.
+   * Canonical encounter current-state owner.
    *
-   * @var \Drupal\dungeoncrawler_content\Service\CombatEncounterStore
+   * @var \Drupal\dungeoncrawler_content\Service\EncounterStateService
    */
-  protected $encounterStore;
-
-  /**
-   * Database connection.
-   *
-   * @var \Drupal\Core\Database\Connection
-   */
-  protected $database;
+  protected EncounterStateService $encounterState;
 
   /**
    * Constructor.
    */
-  public function __construct(CombatEncounterStore $encounter_store, Connection $database) {
-    $this->encounterStore = $encounter_store;
-    $this->database = $database;
+  public function __construct(EncounterStateService $encounter_state) {
+    $this->encounterState = $encounter_state;
   }
 
   /**
@@ -50,67 +46,31 @@ class CombatEncounterApiController extends ControllerBase {
    */
   public static function create(ContainerInterface $container) {
     return new static(
-      $container->get('dungeoncrawler_content.combat_encounter_store'),
-      $container->get('database')
+      $container->get('dungeoncrawler_content.encounter_state')
     );
   }
 
   /**
    * Return the current combat/encounter state for a campaign + room.
    *
-   * Called periodically by the JS client for server-state sync.
-   * Returns the latest active encounter if one exists, otherwise a
-   * minimal "no active encounter" payload so the client can proceed.
+   * Called periodically by the JS client for server-state sync. Delegates to
+   * the canonical owner, which returns either the active-encounter payload or a
+   * normalized idle presentation. Archived/legacy campaigns hard-fail.
    */
   public function currentState(Request $request): JsonResponse {
     $campaign_id = (int) $request->query->get('campaignId', 0);
     $room_id = (string) $request->query->get('roomId', '');
 
-    if ($campaign_id <= 0) {
-      $idle_presentation = $this->buildIdleEncounterPresentation($campaign_id, $room_id);
-      return new JsonResponse([
-        'success' => TRUE,
-        'data' => [
-          'encounter_id' => NULL,
-          'status' => 'idle',
-          'encounter_presentation' => $idle_presentation,
-        ],
-      ]);
+    try {
+      $data = $this->encounterState->getActiveEncounterStateForContext($campaign_id, $room_id);
     }
-
-    $active_encounter_ids = $this->loadActiveEncounterIdsForContext($campaign_id, $room_id);
-    if ($active_encounter_ids === []) {
-      $idle_presentation = $this->buildIdleEncounterPresentation($campaign_id, $room_id);
-      return new JsonResponse([
-        'success' => TRUE,
-        'data' => [
-          'encounter_id' => NULL,
-          'status' => 'idle',
-          'campaign_id' => $campaign_id,
-          'room_id' => $room_id,
-          'encounter_presentation' => $idle_presentation,
-        ],
-      ]);
-    }
-
-    $encounter_id = (int) $active_encounter_ids[0];
-
-    $encounter = $this->normalizeEncounterForResponse($this->loadEncounter((int) $encounter_id));
-    if (!$encounter) {
-      $idle_presentation = $this->buildIdleEncounterPresentation($campaign_id, $room_id);
-      return new JsonResponse([
-        'success' => TRUE,
-        'data' => [
-          'encounter_id' => NULL,
-          'status' => 'idle',
-          'encounter_presentation' => $idle_presentation,
-        ],
-      ]);
+    catch (LegacyCampaignArchivedException $e) {
+      return $this->legacyCampaignArchivedResponse($e);
     }
 
     return new JsonResponse([
       'success' => TRUE,
-      'data' => $this->buildEncounterResponse($encounter),
+      'data' => $data,
     ]);
   }
 
@@ -146,12 +106,18 @@ class CombatEncounterApiController extends ControllerBase {
       return new JsonResponse(['error' => 'encounterId is required'], 400);
     }
 
-    $encounter = $this->normalizeEncounterForResponse($this->loadEncounter((int) $encounter_id));
-    if (!$encounter) {
+    try {
+      $state = $this->encounterState->tryGetState((int) $encounter_id);
+    }
+    catch (LegacyCampaignArchivedException $e) {
+      return $this->legacyCampaignArchivedResponse($e);
+    }
+
+    if ($state === NULL) {
       return new JsonResponse(['error' => 'Encounter not found'], 404);
     }
 
-    return new JsonResponse($this->buildEncounterResponse($encounter));
+    return new JsonResponse($state);
   }
 
   /**
@@ -188,272 +154,14 @@ class CombatEncounterApiController extends ControllerBase {
   }
 
   /**
-   * Build response DTO for frontend consumption.
+   * Standardized rejection for archived/legacy campaign reads.
    */
-  protected function buildEncounterResponse(array $encounter): array {
-    $participants = $encounter['participants'] ?? [];
-    $turn_index = (int) ($encounter['turn_index'] ?? 0);
-    $encounter_id = (int) ($encounter['id'] ?? $encounter['encounter_id'] ?? 0);
-
-    $normalized_participants = [];
-    $initiative_order = [];
-    foreach ($participants as $idx => $participant) {
-      $entity_id = $participant['entity_ref'] ?? ($participant['entity_id'] ?? $participant['id']);
-      $is_defeated = (bool) ($participant['is_defeated'] ?? FALSE);
-      $participant_id = (int) ($participant['id'] ?? 0);
-      $conditions = $participant_id > 0 && $encounter_id > 0
-        ? $this->loadParticipantConditions($participant_id, $encounter_id)
-        : [];
-
-      $normalized = $participant;
-      $normalized['entity_id'] = $entity_id;
-      $normalized['is_defeated'] = $is_defeated;
-      $normalized['conditions'] = $conditions;
-      $normalized_participants[] = $normalized;
-
-      $initiative_order[] = [
-        'entity_id' => $entity_id,
-        'name' => $participant['name'],
-        'initiative' => $participant['initiative'],
-        'is_current' => $idx === $turn_index,
-        'is_defeated' => $is_defeated,
-      ];
-    }
-
-    $current_participant = $normalized_participants[$turn_index] ?? NULL;
-    $latest_ai_turn_plan = $encounter_id > 0 ? $this->loadLatestAiTurnPlan($encounter_id) : NULL;
-    $encounter_presentation = $this->buildEncounterPresentation(
-      $encounter,
-      $initiative_order,
-      $normalized_participants,
-      $turn_index
-    );
-
-    return [
-      'encounter_id' => $encounter_id,
-      'campaign_id' => $encounter['campaign_id'],
-      'room_id' => $encounter['room_id'],
-      'map_id' => $encounter['map_id'] ?? NULL,
-      'status' => $encounter['status'],
-      'current_round' => (int) ($encounter['current_round'] ?? 0),
-      'turn_index' => $turn_index,
-      'version' => (int) ($encounter['updated'] ?? 0),
-      'initiative_order' => $initiative_order,
-      'participants' => $normalized_participants,
-      'current_participant' => $current_participant,
-      'latest_ai_turn_plan' => $latest_ai_turn_plan,
-      'encounter_presentation' => $encounter_presentation,
-    ];
-  }
-
-  /**
-   * Build a compact map-tab encounter presentation payload.
-   */
-  protected function buildEncounterPresentation(
-    array $encounter,
-    array $initiative_order,
-    array $participants,
-    int $turn_index
-  ): array {
-    $initiative_cards = [];
-    $participant_by_entity_id = [];
-    foreach ($participants as $participant) {
-      $entity_id = trim((string) ($participant['entity_id'] ?? ''));
-      if ($entity_id !== '') {
-        $participant_by_entity_id[$entity_id] = $participant;
-      }
-
-    }
-
-    foreach ($initiative_order as $index => $entry) {
-      $entity_id = trim((string) ($entry['entity_id'] ?? ''));
-      $participant = $entity_id !== '' ? ($participant_by_entity_id[$entity_id] ?? NULL) : NULL;
-      $team = strtolower(trim((string) ($participant['team'] ?? 'neutral')));
-      if (!in_array($team, ['player', 'enemy', 'ally', 'neutral'], TRUE)) {
-        $team = 'neutral';
-      }
-
-      $current_hp = is_numeric($participant['hp'] ?? NULL) ? (int) $participant['hp'] : NULL;
-      $max_hp = is_numeric($participant['max_hp'] ?? NULL) ? (int) $participant['max_hp'] : NULL;
-      $initiative_cards[] = [
-        'entity_id' => $entity_id,
-        'name' => (string) ($entry['name'] ?? $participant['name'] ?? $entity_id),
-        'team' => $team,
-        'initiative' => is_numeric($entry['initiative'] ?? NULL) ? (int) $entry['initiative'] : NULL,
-        'is_current' => $index === $turn_index,
-        'is_defeated' => (bool) ($entry['is_defeated'] ?? ($participant['is_defeated'] ?? FALSE)),
-        'hp' => [
-          'current' => $current_hp,
-          'max' => $max_hp,
-          'visibility' => $team === 'player' ? 'full' : 'status_only',
-        ],
-        'actions_remaining' => is_numeric($participant['actions_remaining'] ?? NULL) ? (int) $participant['actions_remaining'] : NULL,
-        'reaction_available' => array_key_exists('reaction_available', $participant)
-          ? (bool) $participant['reaction_available']
-          : NULL,
-        'conditions' => [],
-      ];
-    }
-
-    $status = trim((string) ($encounter['status'] ?? 'idle'));
-    if ($status === '') {
-      $status = 'idle';
-    }
-    $current_entity_id = isset($initiative_cards[$turn_index]['entity_id'])
-      ? (string) $initiative_cards[$turn_index]['entity_id']
-      : '';
-
-    return [
-      'schema_version' => 'encounter-map-v1',
-      'encounter_id' => (int) ($encounter['id'] ?? $encounter['encounter_id'] ?? 0),
-      'status' => $status,
-      'mode' => 'combat',
-      'title' => (string) ($encounter['title'] ?? 'Combat Encounter'),
-      'room_id' => (string) ($encounter['room_id'] ?? ''),
-      'current_round' => (int) ($encounter['current_round'] ?? 0),
-      'turn_index' => $turn_index,
-      'current_entity_id' => $current_entity_id,
-      'initiative_order' => $initiative_cards,
-    ];
-  }
-
-  /**
-   * Build a normalized idle encounter presentation payload.
-   */
-  protected function buildIdleEncounterPresentation(int $campaign_id, string $room_id): array {
-    return [
-      'schema_version' => 'encounter-map-v1',
-      'encounter_id' => NULL,
-      'status' => 'idle',
-      'mode' => 'combat',
-      'title' => 'No active combat',
-      'room_id' => $room_id,
-      'current_round' => 0,
-      'turn_index' => 0,
-      'current_entity_id' => '',
-      'initiative_order' => [],
-      'campaign_id' => $campaign_id > 0 ? $campaign_id : NULL,
-    ];
-  }
-
-  /**
-   * Load most recent ai_turn_plan timeline event for an encounter.
-   */
-  protected function loadLatestAiTurnPlan(int $encounter_id): ?array {
-    $row = $this->database->select('combat_actions', 'a')
-      ->fields('a', ['id', 'participant_id', 'payload', 'result', 'created'])
-      ->condition('encounter_id', $encounter_id)
-      ->condition('action_type', 'ai_turn_plan')
-      ->orderBy('created', 'DESC')
-      ->orderBy('id', 'DESC')
-      ->range(0, 1)
-      ->execute()
-      ->fetchAssoc();
-
-    if (!$row) {
-      return NULL;
-    }
-
-    $payload = json_decode((string) ($row['payload'] ?? ''), TRUE);
-    $result = json_decode((string) ($row['result'] ?? ''), TRUE);
-
-    return [
-      'action_id' => (int) $row['id'],
-      'participant_id' => (int) ($row['participant_id'] ?? 0),
-      'created' => (int) ($row['created'] ?? 0),
-      'payload' => is_array($payload) ? $payload : [],
-      'result' => is_array($result) ? $result : [],
-    ];
-  }
-
-  /**
-   * Load active condition rows for a participant in one encounter.
-   *
-   * @return array<int,array<string,mixed>>
-   */
-  protected function loadParticipantConditions(int $participant_id, int $encounter_id): array {
-    $rows = $this->database->select('combat_conditions', 'cc')
-      ->fields('cc', ['id', 'condition_type', 'value', 'duration', 'source'])
-      ->condition('participant_id', $participant_id)
-      ->condition('encounter_id', $encounter_id)
-      ->condition('removed', 0)
-      ->orderBy('id', 'ASC')
-      ->execute()
-      ->fetchAllAssoc('id');
-
-    if (empty($rows)) {
-      return [];
-    }
-
-    $conditions = [];
-    foreach ($rows as $row) {
-      $duration = is_string($row->duration ?? NULL)
-        ? json_decode((string) $row->duration, TRUE)
-        : (is_array($row->duration ?? NULL) ? $row->duration : NULL);
-      $conditions[] = [
-        'id' => (int) ($row->id ?? 0),
-        'condition_type' => (string) ($row->condition_type ?? ''),
-        'value' => is_numeric($row->value ?? NULL) ? (int) $row->value : NULL,
-        'duration' => is_array($duration) ? $duration : NULL,
-        'source' => (string) ($row->source ?? ''),
-      ];
-    }
-
-    return $conditions;
-  }
-
-  /**
-   * Load encounter state.
-   */
-  protected function loadEncounter(int $encounter_id): ?array {
-    return $this->encounterStore->loadEncounter($encounter_id);
-  }
-
-  /**
-   * Load active encounter ids for one campaign/room context, newest first.
-   *
-   * @return array<int>
-   *   Encounter ids.
-   */
-  protected function loadActiveEncounterIdsForContext(int $campaign_id, string $room_id = ''): array {
-    if ($campaign_id <= 0) {
-      return [];
-    }
-
-    try {
-      $query = $this->database->select('combat_encounters', 'e')
-        ->fields('e', ['id'])
-        ->condition('campaign_id', $campaign_id)
-        ->condition('status', 'active');
-      if ($room_id !== '') {
-        $query->condition('room_id', $room_id);
-      }
-
-      $ids = $query
-        ->orderBy('updated', 'DESC')
-        ->orderBy('id', 'DESC')
-        ->execute()
-        ->fetchCol();
-    }
-    catch (\Exception $e) {
-      return [];
-    }
-
-    return array_values(array_map('intval', is_array($ids) ? $ids : []));
-  }
-
-  /**
-   * Normalize encounter payloads for read responses without mutating turn state.
-   *
-   * Round/turn progression is authoritative in the coordinator->encounter-handler
-   * action chain. Read endpoints must remain side-effect free.
-   */
-  protected function normalizeEncounterForResponse(?array $encounter): ?array {
-    if (!$encounter) {
-      return NULL;
-    }
-
-    return $encounter;
+  protected function legacyCampaignArchivedResponse(LegacyCampaignArchivedException $e): JsonResponse {
+    return new JsonResponse([
+      'success' => FALSE,
+      'error_code' => LegacyCampaignArchivedException::CODE,
+      'error' => $e->getMessage(),
+    ], 409);
   }
 
 }

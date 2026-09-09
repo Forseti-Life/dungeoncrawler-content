@@ -974,6 +974,8 @@ services:
     class: Drupal\dungeoncrawler_content\Service\EncounterStateService
     arguments:
       - '@dungeoncrawler_content.combat_encounter_store'
+      - '@database'
+      - '@dungeoncrawler_content.campaign_lifecycle'
     tags:
       - { name: dungeoncrawler_content.object_state_provider, object_type: encounter }
 
@@ -1909,6 +1911,7 @@ services:
       - '@dungeoncrawler_content.narration_engine'
       - '@dungeoncrawler_content.text_to_speech_integration'
       - '@file_url_generator'
+      - '@dungeoncrawler_content.encounter_state'
 
   dungeoncrawler_content.runtime_state_read_model_assembler:
     class: Drupal\dungeoncrawler_content\Service\RuntimeStateReadModelAssembler

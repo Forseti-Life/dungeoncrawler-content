@@ -177,6 +177,17 @@ class GameCoordinatorService {
    * File URL generator for narrator audio playback URLs.
    */
   protected ?FileUrlGeneratorInterface $fileUrlGenerator;
+
+  /**
+   * Canonical encounter current-state owner (Phase 2).
+   *
+   * When present, the client encounter projection is delegated to this single
+   * owner so the delivery snapshot never diverges into a parallel encounter
+   * projection. Optional for backward-compatible construction only.
+   *
+   * @var \Drupal\dungeoncrawler_content\Service\EncounterStateService|null
+   */
+  protected ?EncounterStateService $encounterState = NULL;
   protected array $actionAvailabilityTurnCache = [];
 
   /**
@@ -205,7 +216,8 @@ class GameCoordinatorService {
     ConnectionRuntimeMutationService $connection_runtime_mutation_service,
     ?NarrationEngine $narration_engine = NULL,
     ?TextToSpeechIntegrationService $text_to_speech_integration = NULL,
-    ?FileUrlGeneratorInterface $file_url_generator = NULL
+    ?FileUrlGeneratorInterface $file_url_generator = NULL,
+    ?EncounterStateService $encounter_state = NULL
   ) {
     $this->database = $database;
     $this->campaignCharacterRuntimeSync = $campaign_character_runtime_sync;
@@ -229,6 +241,7 @@ class GameCoordinatorService {
     $this->narrationEngine = $narration_engine;
     $this->textToSpeechIntegration = $text_to_speech_integration;
     $this->fileUrlGenerator = $file_url_generator;
+    $this->encounterState = $encounter_state;
 
     $this->phaseHandlers['encounter'] = $encounter_handler;
   }
@@ -3161,8 +3174,28 @@ class GameCoordinatorService {
 
   /**
    * Build compact encounter presentation from runtime game_state.
+   *
+   * Phase 2: the encounter-map-v1 projection is owned by EncounterStateService.
+   * The coordinator delegates to that single owner so the delivery snapshot and
+   * the canonical encounter owner never diverge. The inline fallback below is
+   * retained only for backward-compatible construction where the owner was not
+   * injected; production wiring always injects the owner.
    */
   protected function buildEncounterPresentationFromGameState(array $game_state): array {
+    if ($this->encounterState !== NULL) {
+      return $this->encounterState->buildPresentationFromRuntimeGameState($game_state);
+    }
+
+    return $this->buildEncounterPresentationFromGameStateInline($game_state);
+  }
+
+  /**
+   * Inline backward-compatible encounter-map-v1 projection.
+   *
+   * @deprecated Retained only for construction paths without the canonical
+   *   EncounterStateService owner. Do not add new callers.
+   */
+  protected function buildEncounterPresentationFromGameStateInline(array $game_state): array {
     $status = trim((string) ($game_state['encounter_status'] ?? ''));
     if ($status === '') {
       $status = !empty($game_state['encounter_id']) ? 'active' : 'idle';

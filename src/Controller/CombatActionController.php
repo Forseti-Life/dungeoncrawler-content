@@ -6,7 +6,8 @@ use Drupal\Core\Controller\ControllerBase;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
-use Drupal\dungeoncrawler_content\Service\CombatEncounterStore;
+use Drupal\dungeoncrawler_content\Exception\LegacyCampaignArchivedException;
+use Drupal\dungeoncrawler_content\Service\EncounterStateService;
 
 /**
  * Combat action and turn management controller.
@@ -15,6 +16,10 @@ use Drupal\dungeoncrawler_content\Service\CombatEncounterStore;
  * /docs/dungeoncrawler/issues/combat-state-machine.md (Turn States)
  * /docs/dungeoncrawler/issues/combat-action-validation.md
  * /docs/dungeoncrawler/issues/combat-engine-service.md (ActionProcessor)
+ *
+ * Phase 2 (object-state authority): the current-turn read is a presentation
+ * read and routes through the canonical owner EncounterStateService instead of
+ * injecting CombatEncounterStore directly. Mutation endpoints remain disabled.
  *
  * @see /docs/dungeoncrawler/issues/issue-4-combat-encounter-system-design.md
  */
@@ -26,17 +31,17 @@ class CombatActionController extends ControllerBase {
   protected const LEGACY_MUTATION_DISABLED_CODE = 'legacy_combat_mutation_disabled';
 
   /**
-   * Combat encounter store.
+   * Canonical encounter current-state owner.
    *
-   * @var \Drupal\dungeoncrawler_content\Service\CombatEncounterStore
+   * @var \Drupal\dungeoncrawler_content\Service\EncounterStateService
    */
-  protected $store;
+  protected EncounterStateService $encounterState;
 
   /**
    * Constructor.
    */
-  public function __construct(CombatEncounterStore $store) {
-    $this->store = $store;
+  public function __construct(EncounterStateService $encounter_state) {
+    $this->encounterState = $encounter_state;
   }
 
   /**
@@ -44,7 +49,7 @@ class CombatActionController extends ControllerBase {
    */
   public static function create(ContainerInterface $container) {
     return new static(
-      $container->get('dungeoncrawler_content.combat_encounter_store')
+      $container->get('dungeoncrawler_content.encounter_state')
     );
   }
 
@@ -62,27 +67,21 @@ class CombatActionController extends ControllerBase {
    * @see /docs/dungeoncrawler/issues/combat-api-endpoints.md#get-current-turn
    */
   public function getCurrentTurn($encounter_id) {
-    $encounter = $this->store->loadEncounter((int) $encounter_id);
-    if (!$encounter) {
-      return new JsonResponse(['error' => 'Encounter not found'], 404);
+    try {
+      $current = $this->encounterState->getCurrentTurn((int) $encounter_id);
+    }
+    catch (LegacyCampaignArchivedException $e) {
+      return new JsonResponse([
+        'error' => $e->getMessage(),
+        'error_code' => LegacyCampaignArchivedException::CODE,
+      ], 409);
     }
 
-    $turn_index = (int) ($encounter['turn_index'] ?? 0);
-    $participants = $encounter['participants'] ?? [];
-    $current = $participants[$turn_index] ?? NULL;
-
-    if (!$current) {
-      return new JsonResponse(['error' => 'No participants'], 400);
+    if ($current === NULL) {
+      return new JsonResponse(['error' => 'Encounter not found or no current participant'], 404);
     }
 
-    return new JsonResponse([
-      'participant_id' => (int) $current['id'],
-      'name' => $current['name'] ?? '',
-      'actions_remaining' => (int) ($current['actions_remaining'] ?? 0),
-      'attacks_this_turn' => (int) ($current['attacks_this_turn'] ?? 0),
-      'turn_index' => $turn_index,
-      'current_round' => (int) ($encounter['current_round'] ?? 1),
-    ]);
+    return new JsonResponse($current);
   }
 
   /**
