@@ -89,48 +89,13 @@ class InventoryManagementService {
     return $this->getContainerInventory($owner_id, $campaign_id, $owner_type);
   }
 
-  /**
-   * Get canonical item-instance state.
-   *
-   * @throws \InvalidArgumentException
-   *   When the item instance cannot be found.
-   */
-  public function getItemState(string $item_instance_id, ?int $campaign_id = NULL): array {
-    $item_instance_id = trim($item_instance_id);
-    if ($item_instance_id === '') {
-      throw new \InvalidArgumentException('Item instance id is required.');
-    }
-
-    $query = $this->database->select('dc_campaign_item_instances', 'i')
-      ->fields('i')
-      ->condition('item_instance_id', $item_instance_id)
-      ->range(0, 1);
-    if ($campaign_id !== NULL) {
-      $query->condition('campaign_id', $campaign_id);
-    }
-
-    $row = $query->execute()->fetchAssoc();
-    if (!$row) {
-      throw new \InvalidArgumentException(sprintf('Item instance not found: %s', $item_instance_id));
-    }
-
-    $state = json_decode((string) ($row['state_data'] ?? '{}'), TRUE);
-    if (!is_array($state)) {
-      $state = [];
-    }
-
-    return [
-      'item_instance_id' => (string) ($row['item_instance_id'] ?? $item_instance_id),
-      'item_id' => (string) ($row['item_id'] ?? ''),
-      'campaign_id' => isset($row['campaign_id']) ? (int) $row['campaign_id'] : NULL,
-      'location_ref' => (string) ($row['location_ref'] ?? ''),
-      'location_type' => (string) ($row['location_type'] ?? ''),
-      'quantity' => (int) ($row['quantity'] ?? 0),
-      'state' => $state,
-      'updated' => isset($row['updated']) ? (int) $row['updated'] : 0,
-      'created' => isset($row['created']) ? (int) $row['created'] : 0,
-    ];
-  }
+  // Phase 3 (Object-State Authority): the single-item current-state read that
+  // previously lived here as getItemState() has been MOVED (not copied) to the
+  // canonical owner ItemStateService
+  // (dungeoncrawler_content.item_state). InventoryManagementService is now
+  // inventory collection/write orchestration only and exposes no competing
+  // single-item current-state shape. Any single-item current-state read must go
+  // through the canonical owner; there is no compatibility passthrough here.
 
   /**
    * Get character inventory from item instances table.

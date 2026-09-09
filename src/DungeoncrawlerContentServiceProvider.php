@@ -22,6 +22,14 @@ use Symfony\Component\DependencyInjection\Reference;
  *   that injects the store outside the allowlist hard-fails the container
  *   build, preventing new direct public read consumers of the raw encounter
  *   store or a competing coordinator encounter assembly.
+ *
+ * Phase 3 additionally freezes the item current-state authority:
+ * - the single item object-state provider must be
+ *   {@see \Drupal\dungeoncrawler_content\Service\ItemStateService}, and
+ * - only an explicit frozen allowlist may inject the low-level
+ *   ItemInstanceStore. Any new service definition that injects the store
+ *   outside the allowlist hard-fails the container build, preventing new direct
+ *   public read consumers of the raw item-instance persistence lane.
  */
 class DungeoncrawlerContentServiceProvider extends ServiceProviderBase {
 
@@ -34,6 +42,34 @@ class DungeoncrawlerContentServiceProvider extends ServiceProviderBase {
    * The single canonical encounter current-state provider service id.
    */
   private const ENCOUNTER_PROVIDER_ID = 'dungeoncrawler_content.encounter_state';
+
+  /**
+   * Low-level item-instance persistence store service id (Phase 3).
+   */
+  private const ITEM_INSTANCE_STORE_ID = 'dungeoncrawler_content.item_instance_store';
+
+  /**
+   * The single canonical item current-state provider service id (Phase 3).
+   */
+  private const ITEM_PROVIDER_ID = 'dungeoncrawler_content.item_state';
+
+  /**
+   * Frozen allowlist of services permitted to inject ItemInstanceStore.
+   *
+   * The raw item-instance persistence lane is consumed for current-state reads
+   * by exactly one service: the canonical owner ItemStateService. This list is
+   * expected to SHRINK over time, never grow. Adding an entry requires an
+   * explicit rationale here; presentation/read consumers must instead route
+   * item current-state reads through the canonical owner ItemStateService.
+   *
+   * @var array<string,string>
+   *   Map of service id => rationale.
+   */
+  private const ITEM_INSTANCE_STORE_ALLOWLIST = [
+    // The canonical item current-state owner (Phase 3). Persistence stays in the
+    // store; this owner is the only public current-state authority for items.
+    self::ITEM_PROVIDER_ID => 'canonical item current-state owner',
+  ];
 
   /**
    * Frozen allowlist of services permitted to inject CombatEncounterStore.
@@ -102,6 +138,7 @@ class DungeoncrawlerContentServiceProvider extends ServiceProviderBase {
     $registry->setArgument(0, array_values($references));
 
     $this->assertEncounterAuthority($container, $seen);
+    $this->assertItemAuthority($container, $seen);
   }
 
   /**
@@ -157,6 +194,41 @@ class DungeoncrawlerContentServiceProvider extends ServiceProviderBase {
       }
     }
     return FALSE;
+  }
+
+  /**
+   * Enforce the frozen item current-state authority (Phase 3).
+   *
+   * @param array<string,string> $providers_by_type
+   *   Map of object_type => provider service id discovered above.
+   */
+  private function assertItemAuthority(ContainerBuilder $container, array $providers_by_type): void {
+    // 1) The single item provider must be the promoted owner.
+    $item_provider = $providers_by_type['item'] ?? NULL;
+    if ($item_provider !== NULL && $item_provider !== self::ITEM_PROVIDER_ID) {
+      throw new \RuntimeException(sprintf(
+        'The single item object-state provider must be "%s", got "%s". Item current-state has exactly one canonical owner.',
+        self::ITEM_PROVIDER_ID,
+        $item_provider
+      ));
+    }
+
+    // 2) Only allowlisted internals may inject the low-level ItemInstanceStore.
+    // Everything else must route item current-state reads through the owner.
+    foreach ($container->getDefinitions() as $id => $definition) {
+      if (!$this->definitionReferencesService($definition->getArguments(), self::ITEM_INSTANCE_STORE_ID)) {
+        continue;
+      }
+      if (!array_key_exists($id, self::ITEM_INSTANCE_STORE_ALLOWLIST)) {
+        throw new \RuntimeException(sprintf(
+          'Service "%s" injects the low-level %s but is not in the frozen item persistence allowlist. '
+          . 'Presentation/read consumers must route item current-state reads through the canonical owner "%s".',
+          $id,
+          self::ITEM_INSTANCE_STORE_ID,
+          self::ITEM_PROVIDER_ID
+        ));
+      }
+    }
   }
 
 }

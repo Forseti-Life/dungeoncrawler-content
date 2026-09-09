@@ -985,9 +985,20 @@ services:
   dungeoncrawler_content.item_state:
     class: Drupal\dungeoncrawler_content\Service\ItemStateService
     arguments:
-      - '@dungeoncrawler_content.inventory_management'
+      - '@dungeoncrawler_content.item_instance_store'
+      - '@dungeoncrawler_content.canonical_definitions'
+      - '@dungeoncrawler_content.campaign_lifecycle'
     tags:
       - { name: dungeoncrawler_content.object_state_provider, object_type: item }
+
+  # Pure persistence/query lane for item-instance rows (Phase 3). Extracted only
+  # to break the DI cycle so exactly one current-state authority remains. Only
+  # the canonical owner ItemStateService may inject it (frozen container
+  # allowlist in DungeoncrawlerContentServiceProvider).
+  dungeoncrawler_content.item_instance_store:
+    class: Drupal\dungeoncrawler_content\Service\ItemInstanceStore
+    arguments:
+      - '@database'
 
   dungeoncrawler_content.item_state_service:
     alias: dungeoncrawler_content.item_state

@@ -117,6 +117,76 @@ class CanonicalDefinitionService {
   }
 
   /**
+   * Whether a definition is quarantined (excluded from canonical selection).
+   *
+   * The quarantine holding set records definitions that cannot be losslessly
+   * canonicalized. A quarantined definition is not part of the canonical
+   * library and must never back a runtime instance. This service is the single
+   * authority that knows the quarantine table exists.
+   */
+  public function isQuarantined(string $family, string $definition_id): bool {
+    $this->assertFamily($family);
+    $definition_id = trim($definition_id);
+    if ($definition_id === '') {
+      return FALSE;
+    }
+    if (!$this->database->schema()->tableExists('dungeoncrawler_content_definition_quarantine')) {
+      return FALSE;
+    }
+
+    return (bool) $this->database->select('dungeoncrawler_content_definition_quarantine', 'q')
+      ->fields('q', ['id'])
+      ->condition('family', $family)
+      ->condition('definition_id', $definition_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+  }
+
+  /**
+   * Resolve the canonical, non-quarantined definition reference or hard-fail.
+   *
+   * This is the definition authority's answer to "what immutable canonical
+   * definition does this identity point at?". It hard-fails when the identity
+   * is missing from the canonical library or is quarantined; it never
+   * substitutes a definition by slug/name. Callers that own mutable runtime
+   * instances (e.g. ItemStateService) use this to bind an instance to its
+   * canonical definition ref/version explicitly.
+   *
+   * @return array{definition_id:string,version:string,family:string,label:string,category:string,source_table:string,source_hash:string}
+   *
+   * @throws \OutOfBoundsException
+   *   `definition_missing:<family>:<id>` or `definition_quarantined:<family>:<id>`.
+   */
+  public function requireCanonicalDefinitionRef(string $family, string $definition_id): array {
+    $this->assertFamily($family);
+    $definition_id = trim($definition_id);
+    if ($definition_id === '') {
+      throw new \OutOfBoundsException('definition_missing:' . $family . ':');
+    }
+
+    $entry = $this->catalogEntry($family, $definition_id);
+    if ($entry === NULL) {
+      throw new \OutOfBoundsException('definition_missing:' . $family . ':' . $definition_id);
+    }
+    if ($this->isQuarantined($family, $definition_id)) {
+      throw new \OutOfBoundsException('definition_quarantined:' . $family . ':' . $definition_id);
+    }
+
+    $source_authority = is_array($entry['source_authority'] ?? NULL) ? $entry['source_authority'] : [];
+
+    return [
+      'definition_id' => (string) ($entry['definition_id'] ?? $definition_id),
+      'version' => (string) ($entry['definition_version'] ?? ''),
+      'family' => (string) ($entry['family'] ?? $family),
+      'label' => (string) ($entry['label'] ?? ''),
+      'category' => (string) ($entry['category'] ?? ''),
+      'source_table' => (string) ($source_authority['source_table'] ?? ''),
+      'source_hash' => (string) ($source_authority['source_hash'] ?? ''),
+    ];
+  }
+
+  /**
    * Payload property holding the identity for a family.
    */
   public function idProperty(string $family): string {
