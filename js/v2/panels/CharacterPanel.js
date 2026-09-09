@@ -3409,8 +3409,16 @@ export class CharacterPanel {
       return null;
     }
 
-    const encounterState = this.stateManager?.hexmap?.getEncounterServerState?.() || null;
-    const participants = Array.isArray(encounterState?.participants) ? encounterState.participants : [];
+    // Participants are read from the single authoritative coordinator snapshot
+    // (RuntimeStateStore → phase manager), never from a panel-local or shell
+    // encounter-state cache.
+    const coordinator = this.stateManager?.hexmap?.gameCoordinator || null;
+    const runtimeSnapshot = coordinator?.runtimeStateStore?.getSnapshot?.()
+      || coordinator?.phaseManager?.getSnapshot?.()
+      || null;
+    const participants = Array.isArray(runtimeSnapshot?.initiativeOrder)
+      ? runtimeSnapshot.initiativeOrder
+      : (Array.isArray(runtimeSnapshot?.initiative_order) ? runtimeSnapshot.initiative_order : []);
     if (participants.length === 0) {
       return null;
     }

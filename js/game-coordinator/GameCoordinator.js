@@ -23,7 +23,7 @@ import { PhaseManager } from './PhaseManager.js';
 import { NarrationOverlay } from './NarrationOverlay.js';
 import { ExplorationPhaseHandler } from './phases/ExplorationPhaseHandler.js';
 import { EncounterPhaseHandler } from './phases/EncounterPhaseHandler.js';
-import { RuntimeStateStore } from './RuntimeStateStore.js';
+import { RuntimeStateStore } from './RuntimeStateStore.js?v=20260909-tab-runtime-consistency-1';
 
 export class GameCoordinator {
   /**
@@ -58,6 +58,12 @@ export class GameCoordinator {
     /** @type {Array} */
     this.eventLog = [];
 
+    // Idempotent ingestion guard: canonical events are deduplicated by event id
+    // so overlapping action-response + poll delivery never double-appends,
+    // double-emits, or double-plays narration audio for the same event.
+    /** @type {Set<number>} */
+    this._ingestedEventIds = new Set();
+
     /** @type {number|null} */
     this._eventPollInterval = null;
 
@@ -84,6 +90,107 @@ export class GameCoordinator {
     // State subscriptions for cleanup.
     /** @type {Function[]} */
     this._unsubscribers = [];
+
+    // Runtime drift/observability counters. These are real, coordinator-owned
+    // counters (no fake dashboards) surfaced via the existing event bus as
+    // `runtime:telemetry` events and readable through getRuntimeTelemetry().
+    /** @type {{[key:string]: number}} */
+    this._telemetry = {
+      snapshot_commit: 0,
+      snapshot_render_mismatch: 0,
+      room_chat_vs_system_log_cursor_gap: 0,
+      action_contract_age_ms_max: 0,
+      desynced_mode_entry: 0,
+      authoritative_read_failure: 0,
+      event_stream_read_failure: 0,
+      duplicate_event_suppressed: 0,
+    };
+    /** @type {string} */
+    this._lastSyncHealthForTelemetry = 'healthy';
+  }
+
+  /**
+   * Emit one structured runtime telemetry event and update its counter.
+   *
+   * @param {string} metric
+   * @param {object} [detail]
+   * @private
+   */
+  _emitRuntimeTelemetry(metric, detail = {}) {
+    if (!metric) {
+      return;
+    }
+    const snapshot = this.runtimeStateStore.getSnapshot();
+    if (typeof this._telemetry[metric] === 'number') {
+      const numericValue = Number(detail?.value);
+      if (metric.endsWith('_max') && Number.isFinite(numericValue)) {
+        this._telemetry[metric] = Math.max(this._telemetry[metric], numericValue);
+      } else {
+        this._telemetry[metric] += Number.isFinite(numericValue) ? numericValue : 1;
+      }
+    }
+    const payload = {
+      metric,
+      value: this._telemetry[metric] ?? null,
+      campaign_id: this.campaignId,
+      snapshot_id: snapshot?.snapshotId || null,
+      state_version: snapshot?.stateVersion ?? null,
+      event_cursor: snapshot?.eventCursor ?? null,
+      encounter_id: snapshot?.encounterId ?? null,
+      sync_health: this.runtimeStateStore.getSyncHealth(),
+      ...detail,
+    };
+    this.hexmap?.bus?.emit?.('runtime:telemetry', payload);
+    console.info('[GameCoordinator] runtime:telemetry', payload);
+  }
+
+  /**
+   * Read the current runtime drift counters.
+   * @returns {{[key:string]: number}}
+   */
+  getRuntimeTelemetry() {
+    return { ...this._telemetry };
+  }
+
+  /**
+   * Record that a panel rendered a committed snapshot id. Emits a
+   * `snapshot_render_mismatch` telemetry event when the panel rendered a
+   * snapshot other than the latest committed one.
+   *
+   * @param {string} panelName
+   * @param {string} renderedSnapshotId
+   */
+  notePanelRender(panelName, renderedSnapshotId) {
+    const committed = this.runtimeStateStore.getSnapshot()?.snapshotId || null;
+    const rendered = String(renderedSnapshotId || '').trim() || null;
+    if (committed && rendered && committed !== rendered) {
+      this._emitRuntimeTelemetry('snapshot_render_mismatch', {
+        panel_name: String(panelName || 'unknown'),
+        rendered_snapshot_id: rendered,
+        committed_snapshot_id: committed,
+      });
+    }
+  }
+
+  /**
+   * Assert room chat and system log project the one canonical event cursor.
+   * Emits `room_chat_vs_system_log_cursor_gap` with the observed gap (which is
+   * zero when convergence holds).
+   *
+   * @param {number} roomChatCursor
+   * @param {number} systemLogCursor
+   * @returns {number} the observed gap
+   */
+  assertUnifiedEventCursor(roomChatCursor, systemLogCursor) {
+    const gap = Math.abs(Number(roomChatCursor || 0) - Number(systemLogCursor || 0));
+    if (gap !== 0) {
+      this._emitRuntimeTelemetry('room_chat_vs_system_log_cursor_gap', {
+        value: gap,
+        room_chat_cursor: Number(roomChatCursor || 0),
+        system_log_cursor: Number(systemLogCursor || 0),
+      });
+    }
+    return gap;
   }
 
   // =========================================================================
@@ -191,10 +298,18 @@ export class GameCoordinator {
             code: 'initial_state_failed',
             error: state?.error || 'unknown',
           });
+          this._emitRuntimeTelemetry('authoritative_read_failure', {
+            code: 'initial_state_failed',
+            error: state?.error || 'unknown',
+          });
           console.warn('[GameCoordinator] Failed to load initial state:', state?.error);
         }
       } catch (err) {
         this.runtimeStateStore.noteSyncFailure({
+          code: 'initial_state_fetch_error',
+          error: err?.message || String(err || ''),
+        });
+        this._emitRuntimeTelemetry('authoritative_read_failure', {
           code: 'initial_state_fetch_error',
           error: err?.message || String(err || ''),
         });
@@ -209,10 +324,69 @@ export class GameCoordinator {
     const indicator = document.getElementById('game-phase-indicator');
     if (indicator) indicator.style.display = '';
 
+    // Ensure a bounded authoritative event history is hydrated before the
+    // initial cursor drives ongoing polling. Without this, a page reload whose
+    // bootstrap cursor is already advanced would leave the coordinator event
+    // buffer empty and the existing encounter transcript would never render.
+    await this._hydrateInitialEventHistory();
+
     // Start event polling.
     this._startEventPolling();
 
     console.log('[GameCoordinator] Ready. Phase:', this.phaseManager.currentPhase);
+  }
+
+  /**
+   * Coordinator-owned bounded initial history read.
+   *
+   * When the initial cursor is already advanced (e.g. resuming an in-progress
+   * encounter after reload) but the coordinator event buffer is empty, fetch a
+   * bounded window of authoritative history so the room-chat / system-log
+   * projections can hydrate the existing transcript. This is the single owner
+   * of initial history — ChatPanel never fetches events or owns a cursor.
+   *
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _hydrateInitialEventHistory() {
+    const bootstrapCursor = Number(this.eventCursor || 0);
+    if (!Number.isFinite(bootstrapCursor) || bootstrapCursor <= 0) {
+      return;
+    }
+    if (this.eventLog.length > 0) {
+      return;
+    }
+    const historyWindow = 200;
+    const since = Math.max(0, bootstrapCursor - historyWindow);
+    try {
+      const result = await this.api.getEventsSince(since);
+      const events = Array.isArray(result?.events) ? result.events : [];
+      if (events.length > 0) {
+        // Silent hydration: populate the buffer + dedupe set and keep the
+        // cursor consistent without replaying narration/audio for history.
+        const ordered = [...events].sort((a, b) => Number(a?.id || 0) - Number(b?.id || 0));
+        this._processNewEvents(ordered, { silent: true });
+        // Emit one canonical batch so ChatPanel hydrates the room-chat and
+        // system-log projections from the same accepted cursor.
+        this.hexmap?.bus?.emit?.('runtime:events-batch', {
+          events: this.getRecentEvents(historyWindow),
+          cursor: this.eventCursor,
+          total: this.eventLog.length,
+          hydration: true,
+        });
+      }
+      this.runtimeStateStore.noteEventStreamSuccess({ code: 'initial_history_ok' });
+    } catch (err) {
+      this.runtimeStateStore.noteEventStreamFailure({
+        code: 'initial_history_failed',
+        error: err?.message || String(err || ''),
+      });
+      this._emitRuntimeTelemetry('event_stream_read_failure', {
+        code: 'initial_history_failed',
+        error: err?.message || String(err || ''),
+      });
+      console.warn('[GameCoordinator] initial history hydration failed', err);
+    }
   }
 
   _getBootstrapState() {
@@ -423,6 +597,11 @@ export class GameCoordinator {
     return {
       ...response,
       game_state: projected.game_state,
+      snapshot_id: response.snapshot_id
+        ?? runtimeSnapshot?.snapshot_id
+        ?? projected?.snapshot_id
+        ?? projected?.game_state?.snapshot_id
+        ?? null,
       available_actions: response.available_actions ?? runtimeSnapshot?.available_actions ?? null,
       action_contract: response.action_contract ?? runtimeSnapshot?.action_contract ?? null,
       active_room_id: response.active_room_id
@@ -444,6 +623,11 @@ export class GameCoordinator {
         ?? null,
       legal_intents: response.legal_intents
         ?? runtimeSnapshot?.legal_intents
+        ?? null,
+      event_cursor: response.event_cursor
+        ?? runtimeSnapshot?.event_cursor
+        ?? response.event_log_cursor
+        ?? projected?.game_state?.event_log_cursor
         ?? null,
       event_log_cursor: response.event_log_cursor
         ?? projected?.game_state?.event_log_cursor
@@ -489,6 +673,18 @@ export class GameCoordinator {
         integrityIssues,
         syncHealth: this.runtimeStateStore.getSyncHealth(),
       });
+      const contractAgeMs = snapshot?.actionContract && snapshot?.committedAt
+        ? Math.max(0, Date.now() - Number(snapshot.committedAt))
+        : 0;
+      this._emitRuntimeTelemetry('snapshot_commit', {
+        source,
+        panel_name: 'coordinator',
+        render_source: 'runtime_state_store',
+        action_contract_age_ms: contractAgeMs,
+      });
+      if (contractAgeMs > 0) {
+        this._emitRuntimeTelemetry('action_contract_age_ms_max', { value: contractAgeMs, source });
+      }
     } catch (error) {
       this.runtimeStateStore.noteSyncFailure({
         code: 'runtime_snapshot_commit_failed',
@@ -498,6 +694,11 @@ export class GameCoordinator {
       this.hexmap?.stateManager?.set?.('runtimeSyncHealth', this.runtimeStateStore.getSyncHealth());
       this.hexmap?.bus?.emit?.('runtime:sync-health-changed', {
         syncHealth: this.runtimeStateStore.getSyncHealth(),
+        source,
+        error: error?.message || String(error || ''),
+      });
+      this._emitRuntimeTelemetry('authoritative_read_failure', {
+        code: 'runtime_snapshot_commit_failed',
         source,
         error: error?.message || String(error || ''),
       });
@@ -707,15 +908,30 @@ export class GameCoordinator {
     this._eventPollInterval = setInterval(async () => {
       try {
         const result = await this.api.getEventsSince(this.eventCursor);
-        this.runtimeStateStore.noteSyncSuccess({
+        // A successful event poll only recovers the (separate) event-stream
+        // health signal. It must NOT reset the authoritative snapshot failure
+        // count or recover authoritative sync health — only a valid canonical
+        // snapshot commit may do that.
+        this.runtimeStateStore.noteEventStreamSuccess({
           code: 'event_poll_ok',
         });
         if (result?.events?.length > 0) {
           this._processNewEvents(result.events);
-          this.eventCursor = result.latest_cursor || result.cursor || this.eventCursor;
         }
       } catch (err) {
-        this.runtimeStateStore.noteSyncFailure({
+        // Event-stream failures stay observable via the dedicated event-stream
+        // health signal + telemetry, but do not drive the authoritative
+        // snapshot desync gate.
+        this.runtimeStateStore.noteEventStreamFailure({
+          code: 'event_poll_failed',
+          error: err?.message || String(err || ''),
+        });
+        this._emitRuntimeTelemetry('event_stream_read_failure', {
+          code: 'event_poll_failed',
+          error: err?.message || String(err || ''),
+        });
+        this.hexmap?.bus?.emit?.('runtime:event-stream-health', {
+          eventStreamHealth: this.runtimeStateStore.getEventStreamHealth(),
           code: 'event_poll_failed',
           error: err?.message || String(err || ''),
         });
@@ -740,36 +956,88 @@ export class GameCoordinator {
   }
 
   /**
-   * Process newly received events.
+   * Process newly received canonical events.
+   *
+   * Ingestion is idempotent: events are deduplicated by canonical event id so
+   * an action-response and an overlapping poll cannot double-append to the
+   * event log, double-emit UI batches, or double-play narration audio. Only
+   * newly accepted events advance the cursor and drive side effects.
+   *
    * @param {Array} events
+   * @param {object} [options]
+   * @param {boolean} [options.silent] When true, hydrate the buffer/cursor
+   *   without side effects (narration/audio/window/batch emission). Used for
+   *   bounded initial history hydration.
+   * @returns {Array} the newly accepted (deduplicated) events
    * @private
    */
-  _processNewEvents(events) {
-    if (!events?.length) return;
+  _processNewEvents(events, options = {}) {
+    if (!events?.length) return [];
+
+    const silent = Boolean(options.silent);
+    const accepted = [];
 
     for (const event of events) {
+      const eventId = Number(event?.id);
+      const hasCanonicalId = Number.isFinite(eventId) && eventId > 0;
+
+      // Idempotency: skip events already ingested by id. Events without a
+      // canonical id (e.g. locally-synthesized batches) cannot be deduplicated
+      // and are passed through.
+      if (hasCanonicalId && this._ingestedEventIds.has(eventId)) {
+        this._telemetry.duplicate_event_suppressed += 1;
+        continue;
+      }
+
+      if (hasCanonicalId) {
+        this._ingestedEventIds.add(eventId);
+      }
+      accepted.push(event);
       this.eventLog.push(event);
 
-      // Update cursor.
-      if (event.id > this.eventCursor) {
-        this.eventCursor = event.id;
+      // Cursor advances only from accepted events.
+      if (hasCanonicalId && eventId > this.eventCursor) {
+        this.eventCursor = eventId;
       }
     }
 
-    // Cap local event log at 200.
+    // Cap local event log at 200 and keep the dedupe set bounded to match.
     if (this.eventLog.length > 200) {
       this.eventLog = this.eventLog.slice(-200);
+      this._ingestedEventIds = new Set(
+        this.eventLog
+          .map((event) => Number(event?.id))
+          .filter((id) => Number.isFinite(id) && id > 0),
+      );
     }
 
-    this._logEncounterConsoleEvents(events);
+    if (accepted.length === 0 || silent) {
+      return accepted;
+    }
 
-    // Show narration overlay for GM narration events.
-    this._showNarrations(events);
+    this._logEncounterConsoleEvents(accepted);
 
-    // Emit custom event for UI listeners.
+    // Show narration overlay for GM narration events (accepted only).
+    this._showNarrations(accepted);
+
+    // One canonical coordinator event-batch signal. ChatPanel consumes this to
+    // render the room-chat projection AND to invalidate/refresh the system-log
+    // projection from the same accepted cursor, so the two sibling projections
+    // can never describe different world moments.
+    this.hexmap?.bus?.emit?.('runtime:events-batch', {
+      events: accepted,
+      cursor: this.eventCursor,
+      total: this.eventLog.length,
+    });
+
+    // Retain the window CustomEvent for non-ChatPanel consumers (CombatPanel,
+    // shell placement projections). ChatPanel ignores id-bearing canonical
+    // events on this channel and instead consumes the batch signal above.
     window.dispatchEvent(new CustomEvent('dungeoncrawler:game-events', {
-      detail: { events, total: this.eventLog.length },
+      detail: { events: accepted, total: this.eventLog.length },
     }));
+
+    return accepted;
   }
 
   /**
@@ -941,6 +1209,10 @@ export class GameCoordinator {
           syncHealth,
           reason: reason || null,
         });
+        if (syncHealth === 'read_only_desynced' && this._lastSyncHealthForTelemetry !== 'read_only_desynced') {
+          this._emitRuntimeTelemetry('desynced_mode_entry', { reason: reason || null });
+        }
+        this._lastSyncHealthForTelemetry = syncHealth;
       })
     );
 

@@ -866,6 +866,79 @@
   white-space: nowrap;
 }
 
+/*
+ * Runtime tab-consistency: single shell-level sync-health gate.
+ * The banner + panel gating below are the one shared mechanism runtime panels
+ * rely on; individual panels do not implement their own blocking overlays.
+ */
+.game-shell__sync-banner {
+  order: -1;
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-2xl);
+  border: 1px solid var(--panel-border);
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.35;
+  background: color-mix(in srgb, #b45309 24%, var(--panel));
+  color: #7c2d12;
+}
+
+.game-shell__sync-banner[data-runtime-sync-health="read_only_desynced"] {
+  background: color-mix(in srgb, #b91c1c 26%, var(--panel));
+  color: #7f1d1d;
+  border-color: color-mix(in srgb, #b91c1c 55%, var(--panel-border));
+}
+
+.game-shell__sync-banner[hidden] {
+  display: none;
+}
+
+/* Degraded is visibly degraded but not blocked. */
+.game-shell--degraded .game-shell__action-rail {
+  outline: 2px solid color-mix(in srgb, #b45309 55%, transparent);
+  outline-offset: -2px;
+}
+
+/*
+ * read_only_desynced blocks authoritative gameplay controls across runtime
+ * panels through this single shared rule (action rail + gameplay panels),
+ * while leaving the banner and read-only content visible/explained.
+ */
+.game-shell--read-only-desynced .game-shell__action-rail .action-rail__categories,
+.game-shell--read-only-desynced .game-shell__action-rail .action-rail__panel-body,
+.game-shell--read-only-desynced .game-shell__panel [data-gameplay-control],
+.game-shell--read-only-desynced .game-shell__panel [data-merchant-action],
+.game-shell--read-only-desynced .game-shell__panel [data-inventory-action],
+.game-shell--read-only-desynced .game-shell__panel [data-navigate],
+.game-shell--read-only-desynced .game-shell__panel [data-action-key],
+.game-shell--read-only-desynced .game-shell__panel .action-rail__categories {
+  pointer-events: none;
+  opacity: 0.55;
+  filter: grayscale(0.35);
+}
+
+.game-shell--read-only-desynced .game-shell__panel {
+  position: relative;
+}
+
+.game-shell--read-only-desynced .game-shell__panel::after {
+  content: "Runtime desynced — resync required before gameplay actions.";
+  position: absolute;
+  inset-inline: 0;
+  inset-block-start: 0;
+  z-index: 5;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-align: center;
+  color: #7f1d1d;
+  background: color-mix(in srgb, #b91c1c 22%, var(--panel));
+  pointer-events: none;
+}
+
+
 .game-shell__tab {
   display: inline-flex;
   align-items: center;

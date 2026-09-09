@@ -180,6 +180,12 @@ export class NavigationSystem {
         return;
       }
 
+      // Shared shell-level desync gate: block authoritative navigation
+      // transitions (an active V2 gameplay mutation) when read-only desynced.
+      if (this.shell?.guardGameplayMutation?.('room navigation')) {
+        return;
+      }
+
       const authoritativeState = await this._getAuthoritativeCoordinatorState(coordinator, hexmap);
       const currentRoomId = String(
         authoritativeState?.activeRoomId

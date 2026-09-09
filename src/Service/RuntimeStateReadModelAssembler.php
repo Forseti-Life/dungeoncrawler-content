@@ -90,10 +90,16 @@ class RuntimeStateReadModelAssembler {
     array $game_state,
     array $dungeon_data,
     array $client_game_state,
-    ?string $actor_id = NULL
+    ?string $actor_id = NULL,
+    ?int $campaign_id = NULL
   ): array {
     $active_room_id = trim((string) ($dungeon_data['active_room_id'] ?? ''));
-    $campaign_id = (int) ($game_state['campaign_id'] ?? 0);
+    // Campaign identity for a nested runtime_snapshot must resolve identically
+    // to the top-level snapshot. When game_state omits campaign_id (nested
+    // projection), derive it from the dungeon context (or an explicit argument)
+    // so the nested and top-level snapshot ids match AND social state is loaded
+    // for the correct campaign rather than campaign 0.
+    $campaign_id = self::resolveSnapshotCampaignId($game_state, $dungeon_data, $campaign_id);
     $aggression_state = $this->loadActiveRoomAggressionState($campaign_id, $active_room_id);
     $visible_entities = [];
     foreach ($dungeon_data['entities'] ?? [] as $entity) {
@@ -138,8 +144,21 @@ class RuntimeStateReadModelAssembler {
       $process_flow_state = $this->loadActorProcessFlowState($campaign_id, $actor_entity, $actor_id);
     }
 
+    $event_cursor = (int) ($game_state['event_log_cursor'] ?? 0);
+    $snapshot_id = self::computeSnapshotId(
+      $campaign_id,
+      (int) ($game_state['state_version'] ?? 1),
+      $event_cursor,
+      (string) ($game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE),
+      is_numeric($game_state['encounter_id'] ?? NULL) ? (int) $game_state['encounter_id'] : NULL,
+      $active_room_id
+    );
+
     return [
       'success' => TRUE,
+      'snapshot_id' => $snapshot_id,
+      'event_cursor' => $event_cursor,
+      'event_log_cursor' => $event_cursor,
       'game_state' => $client_game_state,
       'phase' => $game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE,
       'state_version' => $game_state['state_version'] ?? 1,
@@ -168,6 +187,87 @@ class RuntimeStateReadModelAssembler {
       'process_flow_state' => $process_flow_state,
     ];
   }
+
+  /**
+   * Resolve the canonical campaign id for a runtime snapshot.
+   *
+   * The single authority for snapshot campaign identity. An explicit argument
+   * wins; otherwise game_state is preferred, falling back to the dungeon
+   * projection so a nested runtime_snapshot (whose game_state may omit
+   * campaign_id) resolves to the same campaign as the top-level snapshot.
+   */
+  public static function resolveSnapshotCampaignId(
+    array $game_state,
+    array $dungeon_data,
+    ?int $explicit_campaign_id = NULL
+  ): int {
+    if ($explicit_campaign_id !== NULL && $explicit_campaign_id > 0) {
+      return $explicit_campaign_id;
+    }
+    return (int) (
+      $game_state['campaign_id']
+      ?? $dungeon_data['campaign_id']
+      ?? 0
+    );
+  }
+
+  /**
+   * Compute the canonical, opaque, deterministic runtime snapshot id.
+   *
+   * This is the single authority for snapshot identity across the server. The
+   * id is derived only from committed runtime identity/version/cursor so that
+   * the same committed state always yields the same opaque id and the client
+   * never has to synthesize one. Two distinct committed states cannot share an
+   * id because gameplay mutations advance state_version/event_cursor
+   * monotonically.
+   *
+   * @return string
+   *   Opaque snapshot id (never empty).
+   */
+  public static function computeSnapshotId(
+    int $campaign_id,
+    int $state_version,
+    int $event_cursor,
+    string $phase,
+    ?int $encounter_id,
+    string $active_room_id
+  ): string {
+    $identity = implode('|', [
+      'rt-snapshot-v1',
+      $campaign_id,
+      $state_version,
+      $event_cursor,
+      trim($phase) !== '' ? trim($phase) : self::DEFAULT_ACTIVE_PHASE,
+      (int) ($encounter_id ?? 0),
+      trim($active_room_id),
+    ]);
+
+    return 'rtsnap_' . substr(hash('sha256', $identity), 0, 32);
+  }
+
+  /**
+   * Build the canonical snapshot id from a runtime game_state/dungeon context.
+   *
+   * @return string
+   *   Opaque snapshot id.
+   */
+  public function buildRuntimeSnapshotId(array $game_state, array $dungeon_data): string {
+    $active_room_id = trim((string) (
+      $dungeon_data['active_room_id']
+      ?? $game_state['active_room_id']
+      ?? ($game_state['encounter_context']['room_id'] ?? '')
+    ));
+
+    return self::computeSnapshotId(
+      self::resolveSnapshotCampaignId($game_state, $dungeon_data),
+      (int) ($game_state['state_version'] ?? 1),
+      (int) ($game_state['event_log_cursor'] ?? 0),
+      (string) ($game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE),
+      is_numeric($game_state['encounter_id'] ?? NULL) ? (int) $game_state['encounter_id'] : NULL,
+      $active_room_id
+    );
+  }
+
 
   /**
    * Load canonical resolved disposition map for active actor and visible targets.

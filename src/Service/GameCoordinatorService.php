@@ -562,6 +562,9 @@ class GameCoordinatorService {
 
     return [
       'success' => $success,
+      'snapshot_id' => $this->buildRuntimeSnapshotId($game_state, $dungeon_data),
+      'event_cursor' => (int) ($game_state['event_log_cursor'] ?? 0),
+      'event_log_cursor' => (int) ($game_state['event_log_cursor'] ?? 0),
       'game_state' => $this->buildClientGameState($game_state),
       'active_room_id' => $game_state['active_room_id'] ?? NULL,
       'result' => $result_payload,
@@ -1494,6 +1497,9 @@ class GameCoordinatorService {
 
     return [
       'success' => TRUE,
+      'snapshot_id' => $this->buildRuntimeSnapshotId($game_state, $dungeon_data),
+      'event_cursor' => (int) ($game_state['event_log_cursor'] ?? 0),
+      'event_log_cursor' => (int) ($game_state['event_log_cursor'] ?? 0),
       'game_state' => $this->buildClientGameState($game_state),
       'phase' => $target_phase,
       'events' => $result['events'] ?? [],
@@ -1631,6 +1637,9 @@ class GameCoordinatorService {
 
     return [
       'success' => TRUE,
+      'snapshot_id' => $this->buildRuntimeSnapshotId($game_state, $dungeon_data),
+      'event_cursor' => (int) ($game_state['event_log_cursor'] ?? 0),
+      'event_log_cursor' => (int) ($game_state['event_log_cursor'] ?? 0),
       'game_state' => $this->buildClientGameState($game_state),
       'phase' => self::DEFAULT_ACTIVE_PHASE,
       'events' => $logged_events,
@@ -3189,9 +3198,22 @@ class GameCoordinatorService {
    * Builds a standardized error response.
    */
   protected function errorResponse(string $message, ?array $game_state = NULL): array {
+    // When an authoritative game_state is available (e.g. a version-mismatch
+    // resync payload), include the canonical snapshot identity so the client
+    // RuntimeStateStore can commit the resync cleanly under the strict contract
+    // instead of hard-failing on a missing snapshot_id.
+    $snapshot_id = NULL;
+    $event_cursor = NULL;
+    if ($game_state) {
+      $snapshot_id = $this->buildRuntimeSnapshotId($game_state, []);
+      $event_cursor = (int) ($game_state['event_log_cursor'] ?? 0);
+    }
     return [
       'success' => FALSE,
       'error' => $message,
+      'snapshot_id' => $snapshot_id,
+      'event_cursor' => $event_cursor,
+      'event_log_cursor' => $event_cursor,
       'game_state' => $game_state ? $this->buildClientGameState($game_state) : NULL,
       'active_room_id' => $game_state['active_room_id'] ?? NULL,
       'result' => [],
@@ -3262,9 +3284,13 @@ class GameCoordinatorService {
     $phase = $game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE;
     $handler = $this->getPhaseHandler($phase);
     $action_contract = $this->buildActionContract($handler, $game_state, $dungeon_data, $actor_id);
+    $event_cursor = (int) ($game_state['event_log_cursor'] ?? 0);
 
     return [
       'success' => TRUE,
+      'snapshot_id' => $this->buildRuntimeSnapshotId($game_state, $dungeon_data),
+      'event_cursor' => $event_cursor,
+      'event_log_cursor' => $event_cursor,
       'game_state' => $this->buildClientGameState($game_state),
       'phase' => $phase,
       'available_actions' => $handler
@@ -3666,6 +3692,16 @@ class GameCoordinatorService {
       $this->buildClientGameState($game_state),
       $actor_id
     );
+  }
+
+  /**
+   * Build the canonical, opaque runtime snapshot id for a committed state.
+   *
+   * Delegates to the single snapshot-identity authority so every authoritative
+   * response and the page bootstrap agree on snapshot identity.
+   */
+  protected function buildRuntimeSnapshotId(array $game_state, array $dungeon_data): string {
+    return $this->runtimeStateReadModelAssembler->buildRuntimeSnapshotId($game_state, $dungeon_data);
   }
 
   /**

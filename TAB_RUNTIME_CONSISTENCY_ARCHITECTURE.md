@@ -267,7 +267,93 @@ Every authoritative runtime payload must include:
 - `event_cursor` is monotonic for chat/system-log event order
 - `runtime_views` are projections of the same committed snapshot, not independent fetch products
 
-## 5. Projection model
+### Implemented contract (as shipped)
+
+The tab-runtime-consistency cutover implements the contract above with these
+exact details:
+
+- **`snapshot_id` is server-authoritative and opaque.** It is produced by the
+  single authority `RuntimeStateReadModelAssembler::computeSnapshotId()` as
+  `rtsnap_` + a truncated SHA-256 of the committed runtime identity
+  (`campaign_id | state_version | event_cursor | phase | encounter_id |
+  active_room_id`). The client never derives one. Every authoritative response
+  (`/action`, `/state`, transitions) and the page bootstrap stamp it.
+- **Cursor naming.** `event_cursor` is the canonical field; `event_log_cursor`
+  is retained only as an external-contract projection and is emitted alongside
+  `event_cursor` in the same responses. The client `RuntimeStateStore` prefers
+  `event_cursor`, then falls back to `event_log_cursor`.
+- **Strict application.** `RuntimeStateStore.commitFromResponse()` hard-fails
+  (throws, with producer/consumer `source` context) on a missing `game_state`,
+  `state_version`, `event_cursor`, or `snapshot_id`. It never synthesizes a
+  derived id and never degrades-and-continues on a missing id. A commit failure
+  routes through `noteSyncFailure()` so it is visible in sync health.
+- **Canonical wrapper preference.** When a response wraps a `runtime_snapshot`
+  and has no top-level `game_state`, the store commits the wrapped canonical
+  snapshot.
+- **Sync-health state machine.** `healthy → degraded → read_only_desynced`;
+  three consecutive authoritative read/commit failures escalate to
+  `read_only_desynced`. A single shell-level gate
+  (`GameShell._applyRuntimeSyncHealth` / `isGameplayMutationBlockedBySync` /
+  `guardGameplayMutation`) owns the banner/overlay and blocks authoritative
+  gameplay mutation; runtime panels consume the one `shell:sync-health`
+  projection rather than each re-deriving blocking logic. The shared
+  `guardGameplayMutation()` guard is invoked immediately before **every** active
+  V2 authoritative mutation request — combat actions
+  (`GameShell.performCombatAction`), every coordinator-driven encounter action
+  (`EncounterSystem._sendCoordinatorActionWithResync`) plus the character
+  skill/feat/spell endpoints, navigation transitions
+  (`NavigationSystem.executeDirectNavigate`), merchant trades
+  (`MerchantPanel.dispatchMerchantAction`) and inventory equip/unequip
+  (`InventoryPanel.handleInventoryAction`). Shell CSS gates the matching
+  mutation controls (`[data-merchant-action]`, `[data-inventory-action]`,
+  `[data-navigate]`, `[data-action-key]`) under
+  `.game-shell--read-only-desynced`.
+- **Event-stream health is separate from authoritative snapshot health.** A
+  successful `/events` poll only recovers a dedicated event-stream signal
+  (`RuntimeStateStore.noteEventStreamSuccess`); it never resets the
+  authoritative failure count or recovers `syncHealth`. Only a valid canonical
+  snapshot commit recovers authoritative sync health. Event-stream failures stay
+  observable via `noteEventStreamFailure` / the `event_stream_read_failure`
+  counter / a `runtime:event-stream-health` bus event, but they do not drive the
+  gameplay-mutation gate.
+- **Idempotent ingestion.** `GameCoordinator._processNewEvents` deduplicates
+  canonical events by event id (`_ingestedEventIds`), so overlapping
+  action-response and poll delivery never double-appends, double-emits, or
+  double-plays narration audio. The cursor advances only from newly accepted
+  events; duplicates increment `duplicate_event_suppressed`.
+- **One canonical event-batch signal.** Accepted events are published once as
+  `runtime:events-batch` (accepted events + accepted cursor). `ChatPanel`
+  renders the room-chat projection AND invalidates/refreshes the system-log
+  projection from that same accepted cursor, recording the two projected cursors
+  independently (`_roomProjectedEventCursor`, `_systemLogProjectedEventCursor`)
+  so the zero-gap convergence assertion is meaningful rather than tautological.
+  The window `dungeoncrawler:game-events` channel is retained only for
+  non-ChatPanel consumers and for id-less shell-synthesized events.
+- **Bounded bootstrap history hydration.** When the initial cursor is already
+  advanced but the event buffer is empty (reload mid-encounter),
+  `GameCoordinator._hydrateInitialEventHistory` performs one coordinator-owned
+  bounded history read before polling begins, so the existing encounter
+  transcript renders after reload. ChatPanel never fetches events or owns a
+  cursor.
+- **Nested snapshot campaign identity.**
+  `RuntimeStateReadModelAssembler::resolveSnapshotCampaignId()` derives the
+  campaign id from `dungeon_data` (or an explicit argument) when `game_state`
+  omits it, so a nested `runtime_snapshot` and the top-level snapshot resolve to
+  the same opaque id and social state loads for the correct campaign.
+- **One event cursor space.** `ChatPanel` no longer owns a private cursor or
+  fetches `/api/game/{id}/events` directly; room chat and system log both
+  project the coordinator's single committed cursor/event buffer, ordered by
+  canonical event id.
+- **Observability.** `GameCoordinator` emits `runtime:telemetry` counters for
+  `snapshot_commit`, `snapshot_render_mismatch`,
+  `room_chat_vs_system_log_cursor_gap`, `action_contract_age_ms_max`,
+  `desynced_mode_entry`, `authoritative_read_failure`,
+  `event_stream_read_failure`, and `duplicate_event_suppressed`. On every
+  committed snapshot the shell reports each mounted in-scope runtime panel
+  (Combat, Character, Quest, RoomView, Chat, ActionRail) through the shared
+  `reportRenderedSnapshot` owner via
+  `GameShell._reportPanelRendersForCommittedSnapshot`.
+
 
 The shell should render one authoritative store into many projections:
 

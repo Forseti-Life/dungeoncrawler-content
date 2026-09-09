@@ -382,6 +382,12 @@ export class InventoryPanel {
       throw new Error('No character is selected.');
     }
 
+    // Shared shell-level desync gate: block authoritative inventory
+    // equip/unequip/assign mutations when the runtime is read-only desynced.
+    if (this.stateManager?.guardGameplayMutation?.('inventory changes')) {
+      return;
+    }
+
     const actionContext = this.resolveInventoryActionContext(button);
     const {
       row,

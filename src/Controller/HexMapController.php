@@ -20,6 +20,7 @@ use Drupal\dungeoncrawler_content\Service\RelationshipManagerService;
 use Drupal\dungeoncrawler_content\Service\DungeonSnapshotRefresherService;
 use Drupal\dungeoncrawler_content\Service\GraphVersionService;
 use Drupal\dungeoncrawler_content\Service\RuntimeGraphAssemblerService;
+use Drupal\dungeoncrawler_content\Service\RuntimeStateReadModelAssembler;
 use Drupal\dungeoncrawler_content\Service\StateValidationService;
 use Drupal\dungeoncrawler_content\Service\StorylineManagerService;
 use Drupal\Component\Utility\Html;
@@ -379,6 +380,21 @@ class HexMapController extends ControllerBase {
       if (!isset($bootstrap_payload['game_state']['encounter_presentation']) || !is_array($bootstrap_payload['game_state']['encounter_presentation'])) {
         $bootstrap_payload['game_state']['encounter_presentation'] = $this->buildEncounterPresentationFromGameState($bootstrap_payload['game_state']);
       }
+      // Stamp the canonical, opaque snapshot identity onto the bootstrap game
+      // state so the client RuntimeStateStore can commit the first snapshot
+      // under the strict contract without synthesizing an id. Uses the single
+      // server-side snapshot-identity authority.
+      $bootstrap_game_state = $bootstrap_payload['game_state'];
+      $bootstrap_event_cursor = (int) ($bootstrap_game_state['event_log_cursor'] ?? 0);
+      $bootstrap_payload['game_state']['event_cursor'] = $bootstrap_event_cursor;
+      $bootstrap_payload['game_state']['snapshot_id'] = RuntimeStateReadModelAssembler::computeSnapshotId(
+        (int) ($dungeon_payload['campaign_id'] ?? $bootstrap_game_state['campaign_id'] ?? 0),
+        (int) ($bootstrap_game_state['state_version'] ?? 1),
+        $bootstrap_event_cursor,
+        (string) ($bootstrap_game_state['phase'] ?? 'encounter'),
+        is_numeric($bootstrap_game_state['encounter_id'] ?? NULL) ? (int) $bootstrap_game_state['encounter_id'] : NULL,
+        $active_room_id
+      );
     }
     if (is_array($dungeon_payload['quests'] ?? NULL)) {
       $bootstrap_payload['quests'] = array_values($dungeon_payload['quests']);

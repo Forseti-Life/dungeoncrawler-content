@@ -1017,6 +1017,13 @@ export class MerchantPanel {
       return;
     }
 
+    // Shared shell-level desync gate: block authoritative merchant trades (an
+    // active V2 gameplay mutation) when the runtime is read-only desynced.
+    if (this.stateManager?.guardGameplayMutation?.('merchant trades')) {
+      this.setMerchantStatus('Runtime is desynced (read-only). Resync required before trading.', 'error');
+      return;
+    }
+
     const action = button.dataset.merchantAction || '';
     const payload = {
       action,

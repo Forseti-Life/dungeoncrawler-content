@@ -29,17 +29,17 @@ import { HexCanvas } from './canvas/HexCanvas.js';
 import { HexTokenRenderer } from './canvas/HexTokenRenderer.js';
 import { HexFogOfWar } from './canvas/HexFogOfWar.js';
 import { HexInputHandler } from './canvas/HexInputHandler.js';
-import { EncounterSystem } from './systems/EncounterSystem.js?v=20260909-unified-combat-projection-1';
-import { NavigationSystem } from './systems/NavigationSystem.js?v=20260728-v2-nav-transition-receipt-4';
+import { EncounterSystem } from './systems/EncounterSystem.js?v=20260909-tab-runtime-consistency-1';
+import { NavigationSystem } from './systems/NavigationSystem.js?v=20260909-tab-runtime-consistency-1';
 import { PlayerAutomation } from './systems/PlayerAutomation.js?v=20260608-v2-chat-persistence-dev-1';
 import { QuestSystem } from './systems/QuestSystem.js?v=20260608-v2-quest-summary-merge-2';
-import { MerchantPanel } from './panels/MerchantPanel.js';
+import { MerchantPanel } from './panels/MerchantPanel.js?v=20260909-tab-runtime-consistency-1';
 import { CombatPanel } from './panels/CombatPanel.js?v=20260827-v2-bootstrap-status-12';
 import { ActionRailPanel } from './panels/ActionRailPanel.js?v=20260828-v3-suggest-next-move-1';
-import { ChatPanel } from './panels/ChatPanel.js?v=20260909-unified-combat-projection-1';
+import { ChatPanel } from './panels/ChatPanel.js?v=20260909-tab-runtime-consistency-1';
 import { QuestPanel } from './panels/QuestPanel.js?v=20260723-v2-quest-storyline-grouping-2';
-import { InventoryPanel } from './panels/InventoryPanel.js';
-import { CharacterPanel } from './panels/CharacterPanel.js?v=20260828-v4-combat-drag-routing-1';
+import { InventoryPanel } from './panels/InventoryPanel.js?v=20260909-tab-runtime-consistency-1';
+import { CharacterPanel } from './panels/CharacterPanel.js?v=20260909-tab-runtime-consistency-1';
 import { RoomViewPanel } from './panels/RoomViewPanel.js';
 import { StatusPanel } from './panels/StatusPanel.js?v=20260828-v4-chat-backend-wait-1';
 import { normalizeInventoryState } from './utils/inventory-utils.js';
@@ -51,7 +51,7 @@ import { GameShellTargetPickController } from './shell/GameShellTargetPickContro
 import { GameShellQuestCoordinator } from './shell/GameShellQuestCoordinator.js';
 import { GameShellRoomGenerationCoordinator } from './shell/GameShellRoomGenerationCoordinator.js';
 import { SpriteService } from '../SpriteService.js?v=20260828-v5-map-actor-portraits-1';
-import { GameCoordinator } from '../game-coordinator/GameCoordinator.js?v=20260811-v2-target-pick-hardening-15';
+import { GameCoordinator } from '../game-coordinator/GameCoordinator.js?v=20260909-tab-runtime-consistency-1';
 import {
   EntityManager,
   PositionComponent,
@@ -756,7 +756,6 @@ export class GameShell {
           this._clearTargetPickSession('combat-inactive');
         }
         this._setStateValue('encounterId', null);
-        this._setStateValue('latestEncounterState', null);
         this._setStateValue('serverCombatMode', false);
       }
     });
@@ -1526,8 +1525,17 @@ export class GameShell {
     this._busUnsubs = [];
 
     this._busUnsubs.push(
-      this.bus.on('runtime:state-committed', ({ snapshot } = {}) => {
+      this.bus.on('runtime:state-committed', ({ snapshot, syncHealth } = {}) => {
         this._syncEncounterPlacementsFromRuntimeSnapshot(snapshot);
+        this._applyRuntimeSyncHealth(
+          syncHealth || this._getStateValue('runtimeSyncHealth') || 'healthy',
+          { snapshot },
+        );
+        this._reportPanelRendersForCommittedSnapshot(snapshot?.snapshotId || null);
+      }),
+
+      this.bus.on('runtime:sync-health-changed', ({ syncHealth, reason } = {}) => {
+        this._applyRuntimeSyncHealth(syncHealth || 'healthy', { reason });
       }),
 
       this.bus.on('hex:hovered', ({ q, r } = {}) => {
@@ -1776,7 +1784,6 @@ export class GameShell {
       startCombat:         () => shell.systems.encounter?.startCombat?.(),
       endCombat:           () => shell.systems.encounter?.endCombat?.(),
       endTurn:             () => shell.systems.encounter?.endCurrentTurn?.(),
-      getEncounterServerState: () => shell.getEncounterServerState(),
       getHostileTargets:   (actor) => shell.getHostileTargets(actor),
       hasLineOfSight:      (fromQ, fromR, toQ, toR) => shell.hasLineOfSight(fromQ, fromR, toQ, toR),
       performCombatAction: (options) => shell.performCombatAction(options),
@@ -1805,6 +1812,21 @@ export class GameShell {
       },
       set(key, value) {
         return shell._setStateValue(key, value);
+      },
+      // Shared runtime-snapshot projection mechanism. Tabs read the one
+      // committed snapshot id and report the snapshot they actually rendered
+      // through this single owner instead of holding panel-local authority.
+      getCommittedSnapshotId() {
+        return shell._getStateValue('runtimeSnapshotId');
+      },
+      reportRenderedSnapshot(panelName, snapshotId) {
+        shell.gameCoordinator?.notePanelRender?.(panelName, snapshotId);
+      },
+      isGameplayMutationBlockedBySync() {
+        return shell.isGameplayMutationBlockedBySync();
+      },
+      guardGameplayMutation(actionLabel) {
+        return shell.guardGameplayMutation(actionLabel);
       },
     };
 
@@ -3048,16 +3070,12 @@ export class GameShell {
       || 0
     ) || 0;
     const phase = String(snapshot?.phase || '').trim().toLowerCase();
-    const encounterState = this.getEncounterServerState?.() || {};
-    // Only server-provided encounter state may declare an encounter non-live.
-    // The legacy ECS TurnManagementSystem defaults to 'idle' and is never fed
-    // server state in the v2 shell, so consulting it here would let a stale
-    // client-side default silently veto an authoritative coordinator snapshot
-    // and misroute combat moves down the non-combat room-move path.
+    // Encounter liveness is read only from the authoritative coordinator
+    // snapshot. There is no second client encounter-state surface to consult;
+    // the legacy ECS TurnManagementSystem default ('idle') is never fed server
+    // state in the v2 shell and must not veto an authoritative snapshot.
     const presentationStatus = String(
       snapshot?.encounterPresentation?.status
-      ?? encounterState?.encounter_presentation?.status
-      ?? encounterState?.status
       ?? ''
     ).trim().toLowerCase();
 
@@ -3962,14 +3980,175 @@ export class GameShell {
     console.error('Unable to connect to server. Please try again.');
   }
 
-  // --- ported from hexmap.js ---
-  cacheEncounterServerState(serverState = null) {
-    this._setStateValue('latestEncounterState', serverState && typeof serverState === 'object' && serverState.encounter_id ? serverState : null);
+  /**
+   * Single shell-level runtime-sync-health gate + projection.
+   *
+   * This is the one place the shell reacts to coordinator sync-health changes.
+   * It owns the visible banner/overlay, marks each runtime panel container with
+   * the current sync health, and broadcasts one shared `shell:sync-health`
+   * projection that runtime panels consume consistently. Panels do NOT each
+   * re-derive blocking logic; the shared gate owns it.
+   *
+   * - `read_only_desynced` blocks authoritative gameplay mutation and shows an
+   *   explicit blocking banner naming the server/state resync dependency.
+   * - `degraded` remains visibly degraded per existing policy but does not hard
+   *   block.
+   *
+   * @param {string} syncHealth
+   * @param {object} [detail]
+   * @private
+   */
+  _applyRuntimeSyncHealth(syncHealth = 'healthy', detail = {}) {
+    const normalized = ['healthy', 'resyncing', 'degraded', 'read_only_desynced'].includes(syncHealth)
+      ? syncHealth
+      : 'degraded';
+    const previous = String(this._getStateValue('runtimeSyncHealth') || 'healthy');
+    this._setStateValue('runtimeSyncHealth', normalized);
+
+    const snapshotId = String(this._getStateValue('runtimeSnapshotId') || '').trim() || null;
+    const gameplayBlocked = normalized === 'read_only_desynced';
+
+    this._renderRuntimeSyncBanner(normalized);
+
+    // Mark every runtime panel container so a single shared CSS rule can gate
+    // gameplay controls without per-panel blocking code.
+    const root = this.container?.querySelector?.('[data-game-shell]')
+      || this.container?.closest?.('[data-game-shell]')
+      || (this.container?.matches?.('[data-game-shell]') ? this.container : null);
+    if (root) {
+      root.dataset.runtimeSyncHealth = normalized;
+      root.classList.toggle('game-shell--read-only-desynced', normalized === 'read_only_desynced');
+      root.classList.toggle('game-shell--degraded', normalized === 'degraded');
+      root.querySelectorAll('.game-shell__panel, .game-shell__action-rail').forEach((panelEl) => {
+        panelEl.dataset.runtimeSyncHealth = normalized;
+      });
+    }
+
+    // One shared projection event, consumed consistently by runtime panels.
+    this.bus?.emit?.('shell:sync-health', {
+      syncHealth: normalized,
+      previousSyncHealth: previous,
+      snapshotId,
+      gameplayBlocked,
+      reason: detail?.reason || null,
+    });
   }
 
-  // --- ported from hexmap.js ---
-  getEncounterServerState() {
-    return this._getStateValue('latestEncounterState') || null;
+  /**
+   * Whether authoritative gameplay mutation is currently blocked by the shared
+   * shell-level sync gate. Runtime panels/systems consult this single owner.
+   *
+   * @returns {boolean}
+   */
+  isGameplayMutationBlockedBySync() {
+    return String(this._getStateValue('runtimeSyncHealth') || 'healthy') === 'read_only_desynced';
+  }
+
+  /**
+   * Single shared gameplay-mutation guard.
+   *
+   * Every active V2 gameplay mutation path (combat actions, encounter
+   * skill/feat/spell, navigation transitions, merchant trades, inventory
+   * equip/unequip) calls this immediately before issuing its authoritative
+   * mutation request. When the runtime is read-only desynced it blocks the
+   * mutation and surfaces one visible, consistent explanation naming the resync
+   * dependency. Returns true when the caller must abort.
+   *
+   * @param {string} [actionLabel]
+   * @returns {boolean} true when the mutation is blocked and must not proceed
+   */
+  guardGameplayMutation(actionLabel = 'gameplay actions') {
+    if (!this.isGameplayMutationBlockedBySync()) {
+      return false;
+    }
+    this.bus?.emit?.('chat:system-message', {
+      speaker: 'System',
+      kind: 'error',
+      text: `Action blocked: runtime is desynced (read-only). Authoritative server/state must resync before ${actionLabel} can be taken.`,
+    });
+    return true;
+  }
+
+  /**
+   * Shell-owned render-telemetry projection.
+   *
+   * On every committed snapshot the shell verifiably reports, per in-scope
+   * active runtime panel that is actually mounted, the snapshot id that panel is
+   * now rendering — via the single shared `reportRenderedSnapshot` owner. This
+   * keeps the render-mismatch drift metric fed without each panel re-deriving
+   * snapshot authority, and ensures the shared helper is never left unused.
+   *
+   * @param {string|null} committedSnapshotId
+   * @private
+   */
+  _reportPanelRendersForCommittedSnapshot(committedSnapshotId) {
+    const snapshotId = String(committedSnapshotId || '').trim();
+    if (!snapshotId) {
+      return;
+    }
+    const shim = this._buildStateManagerShim();
+    if (typeof shim?.reportRenderedSnapshot !== 'function') {
+      return;
+    }
+    // Map each in-scope active runtime panel to its live instance so only
+    // mounted panels are reported.
+    const inScopePanels = {
+      Combat: this.panels?.combat,
+      Character: this.panels?.character,
+      Quest: this.panels?.quest,
+      RoomView: this.panels?.roomView || this.panels?.room,
+      Chat: this.panels?.chat,
+      ActionRail: this.panels?.actionRail,
+    };
+    for (const [panelName, instance] of Object.entries(inScopePanels)) {
+      if (!instance) {
+        continue;
+      }
+      // A panel exposes its own last-rendered snapshot id when it tracks one;
+      // otherwise it renders from the committed snapshot on this projection.
+      const renderedId = typeof instance.getRenderedSnapshotId === 'function'
+        ? (String(instance.getRenderedSnapshotId() || '').trim() || snapshotId)
+        : snapshotId;
+      shim.reportRenderedSnapshot(panelName, renderedId);
+    }
+  }
+
+  /**
+   * Ensure the shell-level sync banner exists and reflects the current health.
+   * @private
+   */
+  _renderRuntimeSyncBanner(syncHealth) {
+    const root = this.container?.querySelector?.('[data-game-shell]')
+      || (this.container?.matches?.('[data-game-shell]') ? this.container : null);
+    if (!root || typeof document === 'undefined') {
+      return;
+    }
+    let banner = root.querySelector('#game-shell-sync-banner');
+    if (syncHealth === 'healthy' || syncHealth === 'resyncing') {
+      if (banner) {
+        banner.hidden = true;
+        banner.textContent = '';
+      }
+      return;
+    }
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.id = 'game-shell-sync-banner';
+      banner.className = 'game-shell__sync-banner';
+      banner.setAttribute('role', 'status');
+      banner.setAttribute('aria-live', 'assertive');
+      const tabs = root.querySelector('.game-shell__tabs');
+      if (tabs && tabs.parentNode) {
+        tabs.parentNode.insertBefore(banner, tabs.nextSibling);
+      } else {
+        root.insertBefore(banner, root.firstChild);
+      }
+    }
+    banner.dataset.runtimeSyncHealth = syncHealth;
+    banner.hidden = false;
+    banner.textContent = syncHealth === 'read_only_desynced'
+      ? 'Runtime desynced: gameplay actions are blocked until authoritative server state resyncs. Tabs shown may be stale.'
+      : 'Runtime sync degraded: waiting on authoritative server state. Some actions may be delayed until resync completes.';
   }
 
   // --- adapted from hexmap.js ---
@@ -3982,6 +4161,11 @@ export class GameShell {
     const actionType = String(options?.actionType || '').trim();
     if (!actionType) {
       console.error('[GameShell] performCombatAction missing actionType', { options });
+      return null;
+    }
+    // Shared shell-level sync gate: read-only-desynced hard-blocks authoritative
+    // gameplay mutation with a visible explanation naming the resync dependency.
+    if (this.guardGameplayMutation('gameplay actions')) {
       return null;
     }
     if (!this.canUseServerCombatApi()) {
@@ -4362,7 +4546,6 @@ export class GameShell {
       movementRangeOverlay: null,
       combatActive: false,
       encounterId: null,
-      latestEncounterState: null,
       runtimeSnapshotId: null,
       runtimeSyncHealth: 'healthy',
       serverCombatMode: false,

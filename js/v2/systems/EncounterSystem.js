@@ -910,6 +910,11 @@ export class EncounterSystem {
     }
 
     try {
+    // Shared shell-level desync gate covers both the coordinator and the
+    // character-endpoint skill mutation paths.
+    if (this.shell?.guardGameplayMutation?.('this action')) {
+      return;
+    }
     const context = this._getActionRailContext();
     const characterId = Number(context.characterId || 0) || 0;
     const skillName = String(button.dataset.skillName || '').replace(/_/g, ' ').trim();
@@ -1016,6 +1021,11 @@ export class EncounterSystem {
     }
 
     try {
+    // Shared shell-level desync gate covers both the coordinator and the
+    // character-endpoint spell mutation paths.
+    if (this.shell?.guardGameplayMutation?.('this action')) {
+      return;
+    }
     const context = this._getActionRailContext();
     const hexmap = context.hexmap;
     if (!hexmap || !context.characterId) {
@@ -1217,6 +1227,11 @@ export class EncounterSystem {
     }
 
     try {
+    // Shared shell-level desync gate covers both the coordinator and the
+    // character-endpoint feat mutation paths.
+    if (this.shell?.guardGameplayMutation?.('this action')) {
+      return;
+    }
     const context = this._getActionRailContext();
     const featName = button.dataset.featName || 'feat action';
     const actionCost = getActionRailCost(button.dataset.actionCost, 1);
@@ -1410,6 +1425,12 @@ export class EncounterSystem {
       return { success: false, error: 'Coordinator API unavailable.' };
     }
 
+    // Shared shell-level desync gate: block authoritative gameplay mutation when
+    // the runtime is read-only desynced, before any request is issued.
+    if (this.shell?.guardGameplayMutation?.('this action')) {
+      return { success: false, error: 'Runtime is desynced (read-only). Resync required before actions.', blockedBySync: true };
+    }
+
     const lockKey = this._buildCoordinatorActionLockKey(coordinator, actorRef);
     if (lockKey && this._coordinatorActionLocks.has(lockKey)) {
       const lock = this._coordinatorActionLocks.get(lockKey) || {};
@@ -1566,10 +1587,11 @@ export class EncounterSystem {
           });
         }
         if (retryResult?.success) {
-          coordinator?.runtimeStateStore?.noteSyncSuccess?.({
-            code: 'resync_recovered',
-            actionType: type,
-          });
+          // Recovery of authoritative sync health is commit-gated: like the
+          // normal success path, the caller routes this result through the
+          // canonical commit (applyAuthoritativeUpdate -> RuntimeStateStore),
+          // which recovers health only on a valid snapshot. We do NOT force a
+          // non-commit recovery here (honors the single-authority rule).
           this._refreshSystemLogView();
         }
         return retryResult;

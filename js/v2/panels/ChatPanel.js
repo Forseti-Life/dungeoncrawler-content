@@ -119,9 +119,33 @@ export class ChatPanel {
     this._roomHistoryRequestSequence = 0;
     this._roomHistoryLastShellRequestToken = 0;
     this._roomHistoryHasEncounterTranscript = false;
-    this._roomEncounterEventCursorByRoom = new Map();
+    // The canonical monotonic event cursor is owned by the coordinator's
+    // RuntimeStateStore, not by ChatPanel. Room chat and system log project the
+    // one committed cursor space. ChatPanel independently records the cursor
+    // each of its two sibling projections has actually advanced to so a real
+    // (not tautological) zero-gap convergence assertion can be made.
+    /** @type {number} highest canonical event id rendered into room chat */
+    this._roomProjectedEventCursor = 0;
+    /** @type {number} cursor from which the system-log projection was refreshed */
+    this._systemLogProjectedEventCursor = 0;
     this._mapInitiativeFeedPlaceholderText = 'Narrative and action updates appear here.';
-    this._handleGameEvents = (event) => this.handleGameEvents(event);
+    // Window channel handler. Canonical id-bearing events are owned by the
+    // coordinator `runtime:events-batch` signal (which drives BOTH the room and
+    // system-log projections from one accepted cursor); this window channel only
+    // renders locally-synthesized events that carry no canonical id (e.g. shell
+    // in-room movement/hazard lines), so a canonical event is never rendered
+    // twice into room chat.
+    this._handleGameEvents = (event) => {
+      const raw = Array.isArray(event?.detail?.events) ? event.detail.events : [];
+      const nonCanonical = raw.filter((gameEvent) => {
+        const id = Number(gameEvent?.id);
+        return !(Number.isFinite(id) && id > 0);
+      });
+      if (nonCanonical.length === 0) {
+        return;
+      }
+      this.handleGameEvents({ detail: { events: nonCanonical } });
+    };
   }
 
   init(dungeonData, stateManager) {
@@ -173,6 +197,7 @@ export class ChatPanel {
       // Legacy compatibility event during bus migration.
       this.bus.on('room:occupants-changed', (d) => this.handleRoomOccupantsChanged(d)),
       this.bus.on('runtime:state-committed', (d) => this.handleRuntimeStateCommitted(d)),
+      this.bus.on('runtime:events-batch', (d) => this.handleCoordinatorEventBatch(d)),
       this.bus.on('inventory:changed', (d) => this.handleCharacterContextChanged(d)),
       this.bus.on('session:view-data', (d) => {
         if (d?.view && d?.data) this.renderSessionViewData(d.view, d.data);
@@ -181,7 +206,6 @@ export class ChatPanel {
   }
 
   handleRuntimeStateCommitted(payload = {}) {
-    const context = this.getChatContext();
     const snapshot = payload?.snapshot && typeof payload.snapshot === 'object'
       ? payload.snapshot
       : null;
@@ -189,15 +213,88 @@ export class ChatPanel {
     if (!Number.isFinite(cursor) || cursor <= 0) {
       return;
     }
-    const before = this.getEncounterEventCursor(context);
-    if (cursor <= before) {
+    if (cursor <= this._systemLogProjectedEventCursor) {
       return;
     }
-    this.setEncounterEventCursor(context, cursor);
+    // System log stays server-hydrated, but its refresh/invalidation is driven
+    // strictly by the canonical committed cursor — ChatPanel never owns a
+    // second cursor space. A committed snapshot advances both projections'
+    // cursor space; room chat itself renders from event batches (below), so on a
+    // pure state commit we advance the system-log projection to the committed
+    // cursor and converge the room projection cursor to the same committed
+    // value.
+    this._refreshSystemLogProjection(cursor);
+    if (cursor > this._roomProjectedEventCursor) {
+      this._roomProjectedEventCursor = cursor;
+    }
+    this._assertUnifiedProjectionCursors();
+  }
+
+  /**
+   * Handle the one canonical coordinator event-batch signal.
+   *
+   * Newly accepted (deduplicated) events update BOTH sibling projections from
+   * the same accepted cursor: the room-chat projection renders the batch, and
+   * the system-log projection is invalidated/refreshed from the identical
+   * cursor. The two projected cursors are recorded independently so the
+   * zero-gap convergence assertion is meaningful.
+   *
+   * @param {object} payload
+   */
+  handleCoordinatorEventBatch(payload = {}) {
+    const events = Array.isArray(payload?.events) ? payload.events : [];
+    const acceptedCursor = Number(payload?.cursor ?? 0);
+    const activeRoomId = String(this.getChatContext()?.roomId || '').trim();
+
+    if (events.length > 0) {
+      // Order by canonical event id so the two projections cannot describe
+      // different world moments. handleGameEvents records the room projection
+      // cursor independently (max rendered canonical id).
+      const orderedEvents = [...events].sort(
+        (a, b) => Number(a?.id || 0) - Number(b?.id || 0),
+      );
+      this.handleGameEvents({ detail: { events: orderedEvents } }, { activeRoomId });
+    }
+
+    if (Number.isFinite(acceptedCursor) && acceptedCursor > 0) {
+      this._refreshSystemLogProjection(acceptedCursor);
+    }
+
+    this._assertUnifiedProjectionCursors();
+  }
+
+  /**
+   * Invalidate/refresh the system-log sibling projection from an accepted
+   * cursor and record the cursor it advanced to (independent of the room
+   * projection cursor).
+   *
+   * @param {number} cursor
+   * @private
+   */
+  _refreshSystemLogProjection(cursor) {
+    const normalized = Number(cursor);
+    if (!Number.isFinite(normalized) || normalized <= this._systemLogProjectedEventCursor) {
+      return;
+    }
+    this._systemLogProjectedEventCursor = normalized;
     this.invalidateChatCaches({ sessionViews: ['system-log'] });
     if (this.activeSessionView === 'system-log') {
       void this.loadSessionViewMessages('system-log', { force: true });
     }
+  }
+
+  /**
+   * Emit the room-chat vs system-log zero-gap assertion using the two
+   * independently recorded projection cursors (never the same value twice).
+   *
+   * @private
+   */
+  _assertUnifiedProjectionCursors() {
+    const coordinator = this.stateManager?.hexmap?.gameCoordinator || null;
+    return coordinator?.assertUnifiedEventCursor?.(
+      this._roomProjectedEventCursor,
+      this._systemLogProjectedEventCursor,
+    );
   }
 
   handleRoomChanged(payload = {}) {
@@ -1059,61 +1156,21 @@ export class ChatPanel {
     return this.buildSessionViewCacheKey(view, resolved);
   }
 
-  buildEncounterEventCursorKey(context = null) {
-    const resolved = context || this.getChatContext();
-    if (!resolved?.campaignId || !resolved?.roomId) {
-      return '';
+  /**
+   * Read the canonical committed event cursor owned by the coordinator's
+   * RuntimeStateStore. ChatPanel does not own an event cursor; it projects the
+   * single committed cursor space so room chat and system log can never drift.
+   *
+   * @returns {number}
+   */
+  getCoordinatorEventCursor() {
+    const coordinator = this.stateManager?.hexmap?.gameCoordinator || null;
+    const snapshotCursor = Number(coordinator?.runtimeStateStore?.getSnapshot?.()?.eventCursor ?? NaN);
+    if (Number.isFinite(snapshotCursor) && snapshotCursor >= 0) {
+      return snapshotCursor;
     }
-    return ['encounter-events', resolved.campaignId, resolved.roomId].join(':');
-  }
-
-  getEncounterEventCursor(context = null) {
-    const key = this.buildEncounterEventCursorKey(context);
-    if (!key) {
-      return 0;
-    }
-    const cursor = Number(this._roomEncounterEventCursorByRoom.get(key) ?? 0);
-    return Number.isFinite(cursor) && cursor >= 0 ? cursor : 0;
-  }
-
-  setEncounterEventCursor(context = null, cursor = 0) {
-    const key = this.buildEncounterEventCursorKey(context);
-    if (!key) {
-      return;
-    }
-    const normalized = Number(cursor);
-    if (Number.isFinite(normalized) && normalized >= 0) {
-      this._roomEncounterEventCursorByRoom.set(key, normalized);
-    }
-  }
-
-  advanceEncounterEventCursor(context = null, result = {}, events = []) {
-    let nextCursor = 0;
-    const candidates = [
-      result?.latest_cursor,
-      result?.cursor,
-      result?.event_log_cursor,
-      result?.data?.latest_cursor,
-      result?.data?.cursor,
-    ];
-    for (const candidate of candidates) {
-      const value = Number(candidate);
-      if (Number.isFinite(value) && value > nextCursor) {
-        nextCursor = value;
-      }
-    }
-    if (nextCursor <= 0 && Array.isArray(events)) {
-      for (const gameEvent of events) {
-        const eventId = Number(gameEvent?.id || 0);
-        if (Number.isFinite(eventId) && eventId > nextCursor) {
-          nextCursor = eventId;
-        }
-      }
-    }
-    const currentCursor = this.getEncounterEventCursor(context);
-    if (nextCursor > currentCursor) {
-      this.setEncounterEventCursor(context, nextCursor);
-    }
+    const coordinatorCursor = Number(coordinator?.eventCursor ?? NaN);
+    return Number.isFinite(coordinatorCursor) && coordinatorCursor >= 0 ? coordinatorCursor : 0;
   }
 
   resolveChatChannelKey(view = this.activeSessionView, channelKey = null) {
@@ -3099,10 +3156,15 @@ export class ChatPanel {
     const activeCharacterName = String(characterData?.name || '').trim();
     const normalizeName = (value) => String(value || '').trim().toLowerCase();
     const activeRoomId = String(options?.activeRoomId || this.getChatContext()?.roomId || '').trim();
+    let maxRenderedCanonicalId = 0;
 
     for (const gameEvent of events) {
       if (!this.shouldRenderEncounterEventForRoom(gameEvent, activeRoomId)) {
         continue;
+      }
+      const canonicalId = Number(gameEvent?.id);
+      if (Number.isFinite(canonicalId) && canonicalId > maxRenderedCanonicalId) {
+        maxRenderedCanonicalId = canonicalId;
       }
       const eventType = String(gameEvent?.type || '').trim().toLowerCase();
 
@@ -3151,6 +3213,12 @@ export class ChatPanel {
           }
         );
       }
+    }
+
+    // Record the room-chat projection cursor independently (highest canonical
+    // event id actually rendered into room chat) for the zero-gap assertion.
+    if (maxRenderedCanonicalId > this._roomProjectedEventCursor) {
+      this._roomProjectedEventCursor = maxRenderedCanonicalId;
     }
   }
 
@@ -4400,17 +4468,8 @@ export class ChatPanel {
       if (result?.success && result.data?.messages) {
         this.renderRoomChatHistory(result);
         if ((this.activeChannel || 'room') === 'room') {
-          const snapshot = this.stateManager?.hexmap?.gameCoordinator?.phaseManager?.getSnapshot?.() || {};
-          const snapshotCursor = Number(snapshot?.eventCursor ?? 0);
-          if (Number.isFinite(snapshotCursor) && snapshotCursor > 0) {
-            this.setEncounterEventCursor({
-              campaignId: context.campaignId,
-              roomId: context.roomId,
-            }, snapshotCursor);
-          }
-
           if (!this._roomHistoryHasEncounterTranscript) {
-            await this.renderPersistedEncounterEventHistory();
+            this.renderPersistedEncounterEventHistory();
           }
         }
         this.prefetchSessionViews();
@@ -4498,38 +4557,44 @@ export class ChatPanel {
     }
   }
 
-  async renderPersistedEncounterEventHistory() {
+  /**
+   * Project the persisted encounter transcript from the coordinator's single
+   * committed event stream.
+   *
+   * ChatPanel no longer polls `/api/game/{id}/events` directly. The coordinator
+   * owns the one canonical cursor and its event buffer; ChatPanel renders that
+   * buffer as an idempotent projection (dedup by canonical event id). If the
+   * coordinator's authoritative event stream is unavailable, that is a runtime
+   * sync failure — it is reported to the RuntimeStateStore and surfaced through
+   * sync health rather than swallowed with a console warning.
+   */
+  renderPersistedEncounterEventHistory() {
     const context = this.getChatContext();
     if (!context.campaignId || !context.roomId) {
       return;
     }
-    const eventContext = {
-      campaignId: context.campaignId,
-      roomId: context.roomId,
-    };
-    const sinceCursor = this.getEncounterEventCursor(eventContext);
-    try {
-      const response = await fetch(`/api/game/${encodeURIComponent(context.campaignId)}/events?since=${encodeURIComponent(String(sinceCursor))}`, {
-        method: 'GET',
-        headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-        credentials: 'same-origin',
+    const coordinator = this.stateManager?.hexmap?.gameCoordinator || null;
+    if (!coordinator || typeof coordinator.getRecentEvents !== 'function') {
+      coordinator?.runtimeStateStore?.noteSyncFailure?.({
+        code: 'chat_encounter_projection_unavailable',
+        source: 'chat-panel',
+        roomId: String(context.roomId || '').trim(),
       });
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      const result = await response.json();
-      const events = Array.isArray(result?.events) ? result.events : [];
-      this.advanceEncounterEventCursor(eventContext, result, events);
-      if (events.length === 0) {
-        return;
-      }
-
-      this.handleGameEvents({ detail: { events } }, {
-        activeRoomId: String(context.roomId || '').trim(),
-      });
-    } catch (error) {
-      console.warn('[ChatPanel] Failed to render persisted encounter events:', error?.message || error);
+      return;
     }
+    const events = coordinator.getRecentEvents(200) || [];
+    if (events.length === 0) {
+      return;
+    }
+    // Ordering metadata is derived from canonical event ids/sequence, so the
+    // room chat and system-log projections cannot describe different world
+    // moments.
+    const orderedEvents = [...events].sort(
+      (a, b) => Number(a?.id || 0) - Number(b?.id || 0),
+    );
+    this.handleGameEvents({ detail: { events: orderedEvents } }, {
+      activeRoomId: String(context.roomId || '').trim(),
+    });
   }
 
   async postSessionViewMessage(speaker, message, characterId) {

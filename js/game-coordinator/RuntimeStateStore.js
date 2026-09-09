@@ -36,6 +36,19 @@ export class RuntimeStateStore {
     this._syncHealthListeners = [];
     /** @type {number} */
     this._consecutiveSyncFailures = 0;
+
+    // Event-stream health is deliberately tracked separately from the
+    // authoritative snapshot sync health. The `/events` poll is an observable
+    // narrative-stream surface, NOT an authoritative-state read: a successful
+    // event poll must never recover authoritative sync health (only a valid
+    // canonical snapshot commit may), and an event-stream failure must never
+    // silently masquerade as authoritative desync recovery/progression.
+    /** @type {'healthy'|'degraded'} */
+    this._eventStreamHealth = 'healthy';
+    /** @type {number} */
+    this._consecutiveEventStreamFailures = 0;
+    /** @type {Array<Function>} */
+    this._eventStreamHealthListeners = [];
   }
 
   getSnapshot() {
@@ -44,6 +57,10 @@ export class RuntimeStateStore {
 
   getSyncHealth() {
     return this._syncHealth;
+  }
+
+  getEventStreamHealth() {
+    return this._eventStreamHealth;
   }
 
   onSnapshotCommitted(listener) {
@@ -63,6 +80,16 @@ export class RuntimeStateStore {
     this._syncHealthListeners.push(listener);
     return () => {
       this._syncHealthListeners = this._syncHealthListeners.filter((entry) => entry !== listener);
+    };
+  }
+
+  onEventStreamHealthChanged(listener) {
+    if (typeof listener !== 'function') {
+      return () => {};
+    }
+    this._eventStreamHealthListeners.push(listener);
+    return () => {
+      this._eventStreamHealthListeners = this._eventStreamHealthListeners.filter((entry) => entry !== listener);
     };
   }
 
@@ -95,24 +122,63 @@ export class RuntimeStateStore {
     this.setSyncHealth('healthy', reason);
   }
 
+  /**
+   * Record a successful event-stream (`/events`) poll.
+   *
+   * This is intentionally isolated from authoritative snapshot health: it must
+   * NOT reset `_consecutiveSyncFailures` and must NOT recover `_syncHealth`.
+   * Only a valid canonical snapshot commit may recover authoritative sync
+   * health. A recovering event stream simply clears the (separate) event-stream
+   * degraded signal so event failures remain observable without masking desync.
+   *
+   * @param {object} [reason]
+   */
+  noteEventStreamSuccess(reason = {}) {
+    this._consecutiveEventStreamFailures = 0;
+    this._setEventStreamHealth('healthy', reason);
+  }
+
+  /**
+   * Record a failed event-stream (`/events`) poll.
+   *
+   * Event-stream failures are visible/observable through the dedicated
+   * event-stream health signal, but they do not drive the authoritative
+   * snapshot sync-health state machine (which owns the gameplay-mutation gate).
+   *
+   * @param {object} [reason]
+   */
+  noteEventStreamFailure(reason = {}) {
+    this._consecutiveEventStreamFailures += 1;
+    this._setEventStreamHealth('degraded', {
+      ...reason,
+      consecutiveFailures: this._consecutiveEventStreamFailures,
+    });
+  }
+
+  _setEventStreamHealth(status, reason = {}) {
+    const normalized = status === 'healthy' ? 'healthy' : 'degraded';
+    if (normalized === this._eventStreamHealth) {
+      return;
+    }
+    this._eventStreamHealth = normalized;
+    for (const listener of this._eventStreamHealthListeners) {
+      try {
+        listener({ eventStreamHealth: this._eventStreamHealth, reason });
+      } catch (error) {
+        console.error('[RuntimeStateStore] event-stream health listener error', error);
+      }
+    }
+  }
+
   commitFromResponse(response = {}, metadata = {}) {
     const normalized = this._normalizeResponse(response, metadata);
     this._assertMonotonicOrdering(normalized);
     this._snapshot = normalized;
 
-    if (normalized.integrityIssues.length > 0) {
-      this._consecutiveSyncFailures = 0;
-      this.setSyncHealth('degraded', {
-        code: 'runtime_snapshot_integrity_issues',
-        source: normalized.source,
-        issues: normalized.integrityIssues,
-      });
-    } else {
-      this.noteSyncSuccess({
-        code: 'runtime_snapshot_committed',
-        source: normalized.source,
-      });
-    }
+    this.noteSyncSuccess({
+      code: 'runtime_snapshot_committed',
+      source: normalized.source,
+    });
 
     for (const listener of this._snapshotListeners) {
       try {
@@ -124,7 +190,7 @@ export class RuntimeStateStore {
 
     return {
       snapshot: this.getSnapshot(),
-      integrityIssues: [...normalized.integrityIssues],
+      integrityIssues: [],
     };
   }
 
@@ -147,53 +213,74 @@ export class RuntimeStateStore {
 
   _normalizeResponse(response = {}, metadata = {}) {
     const source = String(metadata?.source || 'unknown').trim() || 'unknown';
-    const gameState = response?.game_state && typeof response.game_state === 'object'
-      ? response.game_state
+
+    // Canonical rule: prefer the wrapped runtime_snapshot projection when the
+    // response carries one and no top-level game_state. This keeps a single
+    // authoritative shape regardless of which coordinator lane produced it.
+    let carrier = response;
+    if (
+      (!response?.game_state || typeof response.game_state !== 'object')
+      && response?.runtime_snapshot
+      && typeof response.runtime_snapshot === 'object'
+      && response.runtime_snapshot.game_state
+      && typeof response.runtime_snapshot.game_state === 'object'
+    ) {
+      carrier = { ...response.runtime_snapshot };
+    }
+
+    const gameState = carrier?.game_state && typeof carrier.game_state === 'object'
+      ? carrier.game_state
       : null;
 
     if (!gameState) {
-      throw new Error('runtime_snapshot_missing_game_state');
+      throw new Error(`runtime_snapshot_missing_game_state:source=${source}`);
     }
 
     const stateVersion = normalizeNumber(
-      response?.state_version ?? gameState?.state_version,
+      carrier?.state_version ?? gameState?.state_version,
       NaN,
     );
     if (!Number.isFinite(stateVersion) || stateVersion < 0) {
-      throw new Error('runtime_snapshot_missing_state_version');
+      throw new Error(`runtime_snapshot_missing_state_version:source=${source}`);
     }
 
+    // event_cursor is the canonical field name; event_log_cursor is retained as
+    // an external-contract projection only.
     const eventCursor = normalizeNumber(
-      response?.event_log_cursor ?? gameState?.event_log_cursor,
+      carrier?.event_cursor
+      ?? gameState?.event_cursor
+      ?? carrier?.event_log_cursor
+      ?? gameState?.event_log_cursor,
       NaN,
     );
     if (!Number.isFinite(eventCursor) || eventCursor < 0) {
-      throw new Error('runtime_snapshot_missing_event_cursor');
+      throw new Error(`runtime_snapshot_missing_event_cursor:source=${source}`);
     }
 
-    const integrityIssues = [];
-    let snapshotId = toNonEmptyString(response?.snapshot_id) || toNonEmptyString(gameState?.snapshot_id);
+    // Strict contract: a real, server-committed snapshot_id is mandatory. The
+    // store never synthesizes/derives one and never degrades-and-continues on a
+    // missing id — the producer/consumer context is surfaced for the failure.
+    const snapshotId = toNonEmptyString(carrier?.snapshot_id) || toNonEmptyString(gameState?.snapshot_id);
     if (!snapshotId) {
-      snapshotId = `derived-v${stateVersion}-c${eventCursor}`;
-      integrityIssues.push('missing_snapshot_id');
+      throw new Error(`runtime_snapshot_missing_snapshot_id:source=${source}:state_version=${stateVersion}:event_cursor=${eventCursor}`);
     }
 
     return {
       snapshotId,
       stateVersion,
       eventCursor,
-      phase: String(response?.phase ?? gameState?.phase ?? 'encounter').trim() || 'encounter',
-      encounterId: normalizeNumber(response?.encounter_id ?? gameState?.encounter_id, 0) || null,
-      activeRoomId: toNonEmptyString(response?.active_room_id ?? gameState?.active_room_id),
-      round: normalizeNumber(response?.round ?? gameState?.round, 0) || null,
-      turn: response?.turn ?? gameState?.turn ?? null,
+      phase: String(carrier?.phase ?? gameState?.phase ?? 'encounter').trim() || 'encounter',
+      encounterId: normalizeNumber(carrier?.encounter_id ?? gameState?.encounter_id, 0) || null,
+      activeRoomId: toNonEmptyString(carrier?.active_room_id ?? gameState?.active_room_id),
+      round: normalizeNumber(carrier?.round ?? gameState?.round, 0) || null,
+      turn: carrier?.turn ?? gameState?.turn ?? null,
       initiativeOrder: Array.isArray(gameState?.initiative_order) ? gameState.initiative_order : [],
-      availableActions: Array.isArray(response?.available_actions) ? response.available_actions : [],
-      actionContract: (response?.action_contract && typeof response.action_contract === 'object')
-        ? response.action_contract
+      availableActions: Array.isArray(carrier?.available_actions) ? carrier.available_actions : [],
+      actionContract: (carrier?.action_contract && typeof carrier.action_contract === 'object')
+        ? carrier.action_contract
         : null,
-      legalIntents: Array.isArray(response?.legal_intents ?? gameState?.legal_intents)
-        ? (response?.legal_intents ?? gameState?.legal_intents)
+      legalIntents: Array.isArray(carrier?.legal_intents ?? gameState?.legal_intents)
+        ? (carrier?.legal_intents ?? gameState?.legal_intents)
         : [],
       campaignClock: gameState?.campaign_clock ?? null,
       gameTime: gameState?.game_time ?? null,
@@ -201,7 +288,6 @@ export class RuntimeStateStore {
       gameState: { ...gameState },
       source,
       committedAt: Date.now(),
-      integrityIssues,
     };
   }
 }

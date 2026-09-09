@@ -37,7 +37,7 @@ assert(
 );
 
 assert(
-  gameShellSource.includes("this.bus.on('runtime:state-committed', ({ snapshot } = {}) => {")
+  gameShellSource.includes("this.bus.on('runtime:state-committed', ({ snapshot, syncHealth } = {}) => {")
     && gameShellSource.includes('this._syncEncounterPlacementsFromRuntimeSnapshot(snapshot);'),
   'GameShell projects committed runtime snapshots into live encounter placements'
 );
