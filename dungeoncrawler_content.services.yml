@@ -1908,10 +1908,10 @@ services:
       - '@dungeoncrawler_content.actor_runtime_mutation_service'
       - '@dungeoncrawler_content.room_runtime_mutation_service'
       - '@dungeoncrawler_content.connection_runtime_mutation_service'
+      - '@dungeoncrawler_content.encounter_state'
       - '@dungeoncrawler_content.narration_engine'
       - '@dungeoncrawler_content.text_to_speech_integration'
       - '@file_url_generator'
-      - '@dungeoncrawler_content.encounter_state'
 
   dungeoncrawler_content.runtime_state_read_model_assembler:
     class: Drupal\dungeoncrawler_content\Service\RuntimeStateReadModelAssembler

@@ -181,13 +181,14 @@ class GameCoordinatorService {
   /**
    * Canonical encounter current-state owner (Phase 2).
    *
-   * When present, the client encounter projection is delegated to this single
-   * owner so the delivery snapshot never diverges into a parallel encounter
-   * projection. Optional for backward-compatible construction only.
+   * The client encounter projection is always delegated to this single owner so
+   * the delivery snapshot never diverges into a parallel encounter projection.
+   * Required dependency: there is no compatibility construction path without it
+   * (Board decision HQ 57871ad098 — no backward-compatible fallbacks).
    *
-   * @var \Drupal\dungeoncrawler_content\Service\EncounterStateService|null
+   * @var \Drupal\dungeoncrawler_content\Service\EncounterStateService
    */
-  protected ?EncounterStateService $encounterState = NULL;
+  protected EncounterStateService $encounterState;
   protected array $actionAvailabilityTurnCache = [];
 
   /**
@@ -214,10 +215,10 @@ class GameCoordinatorService {
     ActorRuntimeMutationService $actor_runtime_mutation_service,
     RoomRuntimeMutationService $room_runtime_mutation_service,
     ConnectionRuntimeMutationService $connection_runtime_mutation_service,
+    EncounterStateService $encounter_state,
     ?NarrationEngine $narration_engine = NULL,
     ?TextToSpeechIntegrationService $text_to_speech_integration = NULL,
-    ?FileUrlGeneratorInterface $file_url_generator = NULL,
-    ?EncounterStateService $encounter_state = NULL
+    ?FileUrlGeneratorInterface $file_url_generator = NULL
   ) {
     $this->database = $database;
     $this->campaignCharacterRuntimeSync = $campaign_character_runtime_sync;
@@ -3176,79 +3177,12 @@ class GameCoordinatorService {
    * Build compact encounter presentation from runtime game_state.
    *
    * Phase 2: the encounter-map-v1 projection is owned by EncounterStateService.
-   * The coordinator delegates to that single owner so the delivery snapshot and
-   * the canonical encounter owner never diverge. The inline fallback below is
-   * retained only for backward-compatible construction where the owner was not
-   * injected; production wiring always injects the owner.
+   * The coordinator unconditionally delegates to that single owner so the
+   * delivery snapshot and the canonical encounter owner never diverge. There is
+   * no inline/backward-compatible projection path (Board decision HQ 57871ad098).
    */
   protected function buildEncounterPresentationFromGameState(array $game_state): array {
-    if ($this->encounterState !== NULL) {
-      return $this->encounterState->buildPresentationFromRuntimeGameState($game_state);
-    }
-
-    return $this->buildEncounterPresentationFromGameStateInline($game_state);
-  }
-
-  /**
-   * Inline backward-compatible encounter-map-v1 projection.
-   *
-   * @deprecated Retained only for construction paths without the canonical
-   *   EncounterStateService owner. Do not add new callers.
-   */
-  protected function buildEncounterPresentationFromGameStateInline(array $game_state): array {
-    $status = trim((string) ($game_state['encounter_status'] ?? ''));
-    if ($status === '') {
-      $status = !empty($game_state['encounter_id']) ? 'active' : 'idle';
-    }
-    $turn_index = is_numeric($game_state['turn']['index'] ?? NULL)
-      ? (int) $game_state['turn']['index']
-      : (is_numeric($game_state['turn_index'] ?? NULL) ? (int) $game_state['turn_index'] : 0);
-    $initiative_rows = array_values(is_array($game_state['initiative_order'] ?? NULL) ? $game_state['initiative_order'] : []);
-    $initiative_cards = [];
-    foreach ($initiative_rows as $index => $entry) {
-      if (!is_array($entry)) {
-        continue;
-      }
-      $team = strtolower(trim((string) ($entry['team'] ?? 'neutral')));
-      if (!in_array($team, ['player', 'enemy', 'ally', 'neutral'], TRUE)) {
-        $team = 'neutral';
-      }
-      $entry_entity_id = trim((string) ($entry['entity_id'] ?? $entry['entity'] ?? ''));
-      $initiative_cards[] = [
-        'entity_id' => $entry_entity_id,
-        'name' => (string) ($entry['name'] ?? $entry_entity_id),
-        'team' => $team,
-        'initiative' => is_numeric($entry['initiative'] ?? NULL) ? (int) $entry['initiative'] : NULL,
-        'is_current' => $index === $turn_index,
-        'is_defeated' => (bool) ($entry['is_defeated'] ?? FALSE),
-        'hp' => [
-          'current' => is_numeric($entry['hp'] ?? NULL) ? (int) $entry['hp'] : NULL,
-          'max' => is_numeric($entry['max_hp'] ?? NULL) ? (int) $entry['max_hp'] : NULL,
-          'visibility' => $team === 'player' ? 'full' : 'status_only',
-        ],
-        'actions_remaining' => is_numeric($entry['actions_remaining'] ?? NULL) ? (int) $entry['actions_remaining'] : NULL,
-        'reaction_available' => array_key_exists('reaction_available', $entry) ? (bool) $entry['reaction_available'] : NULL,
-        'conditions' => [],
-      ];
-    }
-
-    $current_entity_id = trim((string) (
-      $game_state['turn']['entity']
-      ?? ($initiative_cards[$turn_index]['entity_id'] ?? '')
-    ));
-
-    return [
-      'schema_version' => 'encounter-map-v1',
-      'encounter_id' => is_numeric($game_state['encounter_id'] ?? NULL) ? (int) $game_state['encounter_id'] : NULL,
-      'status' => $status,
-      'mode' => 'combat',
-      'title' => !empty($game_state['encounter_id']) ? 'Combat Encounter' : 'No active combat',
-      'room_id' => (string) ($game_state['active_room_id'] ?? ($game_state['encounter_context']['room_id'] ?? '')),
-      'current_round' => is_numeric($game_state['round'] ?? NULL) ? (int) $game_state['round'] : 0,
-      'turn_index' => $turn_index,
-      'current_entity_id' => $current_entity_id,
-      'initiative_order' => $initiative_cards,
-    ];
+    return $this->encounterState->buildPresentationFromRuntimeGameState($game_state);
   }
 
   /**

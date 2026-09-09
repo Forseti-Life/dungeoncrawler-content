@@ -14,8 +14,10 @@ use Drupal\dungeoncrawler_content\Service\CampaignRuntimeStateStore;
 use Drupal\dungeoncrawler_content\Service\CampaignTimeResolverService;
 use Drupal\dungeoncrawler_content\Service\ConnectionRuntimeStateStore;
 use Drupal\dungeoncrawler_content\Service\ConnectionRuntimeMutationService;
+use Drupal\dungeoncrawler_content\Service\CoordinatorRuntimeReadService;
 use Drupal\dungeoncrawler_content\Service\DungeonPayloadStatePersistenceService;
 use Drupal\dungeoncrawler_content\Service\EncounterPhaseHandler;
+use Drupal\dungeoncrawler_content\Service\EncounterStateService;
 use Drupal\dungeoncrawler_content\Service\GameCoordinatorService;
 use Drupal\dungeoncrawler_content\Service\GameEventLogger;
 use Drupal\dungeoncrawler_content\Service\NarrationEngine;
@@ -23,6 +25,7 @@ use Drupal\dungeoncrawler_content\Service\RoomRuntimeStateStore;
 use Drupal\dungeoncrawler_content\Service\RoomRuntimeMutationService;
 use Drupal\dungeoncrawler_content\Service\RuntimeBootstrapService;
 use Drupal\dungeoncrawler_content\Service\RuntimeGraphAssemblerService;
+use Drupal\dungeoncrawler_content\Service\RuntimeStateReadModelAssembler;
 use Drupal\dungeoncrawler_content\Service\TextToSpeechIntegrationService;
 use Drupal\Tests\UnitTestCase;
 
@@ -347,6 +350,8 @@ final class GameCoordinatorServiceTest extends UnitTestCase {
     $ai_gm_service = $this->createMock(AiGmService::class);
     $campaign_time_resolver = $this->createMock(CampaignTimeResolverService::class);
     $runtime_bootstrap = $this->createMock(RuntimeBootstrapService::class);
+    $coordinator_runtime_read_service = $this->createMock(CoordinatorRuntimeReadService::class);
+    $runtime_state_read_model_assembler = $this->createMock(RuntimeStateReadModelAssembler::class);
     $dungeon_payload_state_persistence = $this->createMock(DungeonPayloadStatePersistenceService::class);
     $runtime_graph_assembler = $this->createMock(RuntimeGraphAssemblerService::class);
     $campaign_runtime_state_store = $this->createMock(CampaignRuntimeStateStore::class);
@@ -360,6 +365,7 @@ final class GameCoordinatorServiceTest extends UnitTestCase {
     $actor_runtime_mutation_service = $this->createMock(ActorRuntimeMutationService::class);
     $room_runtime_mutation_service = $this->createMock(RoomRuntimeMutationService::class);
     $connection_runtime_mutation_service = $this->createMock(ConnectionRuntimeMutationService::class);
+    $encounter_state = $this->createMock(EncounterStateService::class);
     $narration_engine = $this->createMock(NarrationEngine::class);
     $text_to_speech_integration = $this->createMock(TextToSpeechIntegrationService::class);
     $file_url_generator = $this->createMock(FileUrlGeneratorInterface::class);
@@ -373,6 +379,8 @@ final class GameCoordinatorServiceTest extends UnitTestCase {
       $ai_gm_service,
       $campaign_time_resolver,
       $runtime_bootstrap,
+      $coordinator_runtime_read_service,
+      $runtime_state_read_model_assembler,
       $dungeon_payload_state_persistence,
       $runtime_graph_assembler,
       $campaign_runtime_state_store,
@@ -383,6 +391,7 @@ final class GameCoordinatorServiceTest extends UnitTestCase {
       $actor_runtime_mutation_service,
       $room_runtime_mutation_service,
       $connection_runtime_mutation_service,
+      $encounter_state,
       $narration_engine,
       $text_to_speech_integration,
       $file_url_generator,
@@ -398,6 +407,8 @@ final class GameCoordinatorServiceTest extends UnitTestCase {
         AiGmService $ai_gm_service,
         CampaignTimeResolverService $campaign_time_resolver,
         RuntimeBootstrapService $runtime_bootstrap,
+        CoordinatorRuntimeReadService $coordinator_runtime_read_service,
+        RuntimeStateReadModelAssembler $runtime_state_read_model_assembler,
         DungeonPayloadStatePersistenceService $dungeon_payload_state_persistence,
         RuntimeGraphAssemblerService $runtime_graph_assembler,
         CampaignRuntimeStateStore $campaign_runtime_state_store,
@@ -408,6 +419,7 @@ final class GameCoordinatorServiceTest extends UnitTestCase {
         ActorRuntimeMutationService $actor_runtime_mutation_service,
         RoomRuntimeMutationService $room_runtime_mutation_service,
         ConnectionRuntimeMutationService $connection_runtime_mutation_service,
+        EncounterStateService $encounter_state,
         ?NarrationEngine $narration_engine,
         ?TextToSpeechIntegrationService $text_to_speech_integration,
         ?FileUrlGeneratorInterface $file_url_generator,
@@ -422,6 +434,8 @@ final class GameCoordinatorServiceTest extends UnitTestCase {
           $ai_gm_service,
           $campaign_time_resolver,
           $runtime_bootstrap,
+          $coordinator_runtime_read_service,
+          $runtime_state_read_model_assembler,
           $dungeon_payload_state_persistence,
           $runtime_graph_assembler,
           $campaign_runtime_state_store,
@@ -432,6 +446,7 @@ final class GameCoordinatorServiceTest extends UnitTestCase {
           $actor_runtime_mutation_service,
           $room_runtime_mutation_service,
           $connection_runtime_mutation_service,
+          $encounter_state,
           $narration_engine,
           $text_to_speech_integration,
           $file_url_generator

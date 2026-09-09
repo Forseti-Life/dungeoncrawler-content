@@ -158,6 +158,65 @@ class EncounterStateAuthorityGuardTest extends TestCase {
   }
 
   /**
+   * Coordinator has no encounter-map assembly and no inline/compat fallback.
+   *
+   * Board decision HQ 57871ad098 forbids backward-compatible fallbacks. The
+   * coordinator must (a) declare the owner as a required (non-nullable)
+   * dependency, (b) unconditionally delegate the encounter projection to the
+   * owner, and (c) contain no inline encounter-map-v1 assembly and no
+   * compatibility-fallback branch around the owner.
+   */
+  public function testCoordinatorHasNoInlineEncounterAssemblyOrCompatFallback(): void {
+    $source = $this->readModuleFile('src/Service/GameCoordinatorService.php');
+
+    // The deleted inline projection method/name must not exist anywhere.
+    $this->assertStringNotContainsString(
+      'buildEncounterPresentationFromGameStateInline',
+      $source,
+      'The inline backward-compatible encounter projection must be deleted.'
+    );
+
+    // The owner is a required, non-nullable dependency (no compat construction).
+    $this->assertStringNotContainsString(
+      '?EncounterStateService $encounterState',
+      $source,
+      'The encounter owner property must be non-nullable.'
+    );
+    $this->assertStringContainsString(
+      'protected EncounterStateService $encounterState;',
+      $source,
+      'The encounter owner must be a required non-nullable dependency.'
+    );
+    $this->assertStringNotContainsString(
+      '?EncounterStateService $encounter_state = NULL',
+      $source,
+      'The encounter owner constructor parameter must be required, not nullable/default.'
+    );
+
+    // No conditional fallback around the owner.
+    $this->assertStringNotContainsString(
+      '$this->encounterState !== NULL',
+      $source,
+      'The coordinator must not branch on a nullable encounter owner.'
+    );
+
+    // The projection method unconditionally delegates to the owner.
+    $this->assertMatchesRegularExpression(
+      '/function buildEncounterPresentationFromGameState\(array \$game_state\): array \{\s*return \$this->encounterState->buildPresentationFromRuntimeGameState\(\$game_state\);\s*\}/',
+      $source,
+      'buildEncounterPresentationFromGameState must unconditionally delegate to the owner.'
+    );
+
+    // No inline encounter-map assembly: the only encounter-map-v1 mention is the
+    // delegation docblock; the schema literal is never emitted in code here.
+    $this->assertSame(
+      0,
+      preg_match_all("/'encounter-map-v1'/", $source),
+      'The coordinator must not assemble the encounter-map-v1 payload; it belongs to the owner.'
+    );
+  }
+
+  /**
    * Enumerate service ids in services.yml that inject the encounter store.
    *
    * @return list<string>
