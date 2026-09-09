@@ -5,7 +5,6 @@ namespace Drupal\dungeoncrawler_content\Service;
 use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\dungeoncrawler_content\Service\Generation\RuntimeCanonicalDungeonService;
-use Drupal\dungeoncrawler_content\Service\Generation\RuntimeGenerationException;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -37,7 +36,7 @@ class DungeonGeneratorService {
    * pool, cached fallback, or legacy generator on failure.
    */
   public function generateDungeon(array $context): array {
-    $this->assertR5Enabled('/canonical_runtime_generation/r7');
+    $this->logger->warning('Deprecated DungeonGeneratorService::generateDungeon() invoked; delegating to the canonical runtime dungeon path (ADR-GEN-06, R8). No legacy dungeon generation authority remains.');
     return $this->runtimeCanonicalDungeon->generateDungeon($context + [
       'canonical_generation_wait' => TRUE,
     ]);
@@ -50,21 +49,10 @@ class DungeonGeneratorService {
    * pool, cached fallback, or legacy generator on failure.
    */
   public function generateLevel(array $context): array {
-    $this->assertR5Enabled('/canonical_runtime_generation/r7');
+    $this->logger->warning('Deprecated DungeonGeneratorService::generateLevel() invoked; delegating to the canonical runtime dungeon path (ADR-GEN-06, R8). No legacy dungeon generation authority remains.');
     return $this->runtimeCanonicalDungeon->generateLevel($context + [
       'canonical_generation_wait' => TRUE,
     ]);
-  }
-
-  private function assertR5Enabled(string $pointer): void {
-    if (!$this->configFactory || $this->configFactory->get('dungeoncrawler_content.settings')->get('canonical_runtime_generation.r7') === FALSE) {
-      throw new RuntimeGenerationException('runtime_generation_failed', [[
-        'code' => 'runtime_generation_failed',
-        'pointer' => $pointer,
-        'message' => 'R7 canonical dungeon generation is disabled; no legacy fallback is available.',
-        'severity' => 'error',
-      ]], 503);
-    }
   }
 
 }

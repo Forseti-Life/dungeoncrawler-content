@@ -5,13 +5,33 @@ namespace Drupal\Tests\dungeoncrawler_content\Unit\Generation;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Freezes legacy generation references for reconciliation slice R1.
+ * Enforces the R8 end state of the generation reconciliation.
  *
  * Source of truth:
  * copilot-hq/sessions/ceo-copilot-2/inbox/
  * 20260908-dc-editor-generation-tools/23-generation-reconciliation-plan.md
- * §3/§4. Slices R2-R8 must shrink this allowlist as callers migrate to the
- * single canonical generation path.
+ * §6 row R8 and §9 ("exactly one generation path").
+ *
+ * R1-R7 shrank an allowlist of legacy generator references as callers migrated
+ * onto the single canonical generation core. R8 closes the reconciliation:
+ *
+ *  - There is no release-scoped `canonical_runtime_generation.*` runtime toggle
+ *    anywhere in source or config; rollback is the previous release/tag, never a
+ *    runtime configuration switch.
+ *  - The remaining legacy generator classes (`RoomGeneratorService`,
+ *    `DungeonGeneratorService`) are deprecated forwarders that delegate
+ *    exclusively into the canonical runtime path and retain zero legacy
+ *    generation authority. Because those classes contain no legacy authority,
+ *    no runtime route or service can invoke legacy authority through them.
+ *  - The obsolete generator classes (`DungeonGenerationEngine`,
+ *    `ContentGenerator`) and the legacy `DungeonController` engine route are
+ *    deleted, not shimmed.
+ *
+ * The reference allowlists below remain as non-growth guards. Every reference is
+ * confined to (a) the deprecated forwarder classes, (b) their dependency-injection
+ * wiring, or (c) call sites that invoke those forwarders — all of which reach only
+ * the canonical core, as proven by
+ * testLegacyRoomAndDungeonGeneratorsAreCanonicalForwardersWithNoLegacyAuthority().
  *
  * @group dungeoncrawler_content
  */
@@ -20,6 +40,8 @@ final class LegacyGeneratorCallerFreezeTest extends TestCase {
   private const FREEZE_PHRASE = 'no new callers; use CanonicalGenerationService';
 
   private const HARD_FAIL_PHRASE = 'runtime generation failures hard-fail with runtime_generation_failed; no generic pool, cached fallback, or legacy generator on failure';
+
+  private const RELEASE_FLAG_TOKEN = 'canonical_runtime_generation';
 
   private const LEGACY_REFERENCE_TOKENS = [
     'dungeoncrawler_content.room_generator',
@@ -69,7 +91,7 @@ final class LegacyGeneratorCallerFreezeTest extends TestCase {
     'src/Service/StorylineRealizationService.php',
   ];
 
-  private const ALLOWED_R4_MAP_FACADE_REFERENCE_FILES = [
+  private const ALLOWED_MAP_FACADE_REFERENCE_FILES = [
     'dungeoncrawler_content.services.yml',
     'src/Commands/InitialGameContentCommands.php',
     'src/Controller/LocationGenerationController.php',
@@ -78,16 +100,83 @@ final class LegacyGeneratorCallerFreezeTest extends TestCase {
     'src/Service/MapGeneratorService.php',
     'src/Service/NavigationRuntimeService.php',
     'src/Service/RoomChatService.php',
-    'src/Service/RoomGeneratorService.php',
     'src/Service/StorylineManagerService.php',
     'src/Service/StorylineRealizationService.php',
+  ];
+
+  /**
+   * Legacy generator classes/routes that must be deleted (not shimmed) after R8.
+   */
+  private const DELETED_LEGACY_CLASS_FILES = [
+    'src/Service/DungeonGenerationEngine.php',
+    'src/Service/ContentGenerator.php',
+    'src/Controller/DungeonController.php',
   ];
 
   private function root(): string {
     return dirname(__DIR__, 4);
   }
 
-  public function testNoNewLegacyGeneratorReferencesOutsideR1Allowlist(): void {
+  /**
+   * R8: no release-scoped runtime generation toggle survives in code or config.
+   */
+  public function testNoReleaseScopedRuntimeGenerationToggleRemains(): void {
+    $offenders = [];
+    foreach ($this->scannedSourceAndConfigFiles() as $relative) {
+      $source = (string) file_get_contents($this->root() . '/' . $relative);
+      if (str_contains($source, self::RELEASE_FLAG_TOKEN)) {
+        $offenders[] = $relative;
+      }
+    }
+    sort($offenders);
+    $this->assertSame([], $offenders, 'R8 removes every release-scoped canonical_runtime_generation toggle; rollback is the previous release/tag, never a runtime config switch.');
+  }
+
+  /**
+   * R8: the surviving legacy generators are pure canonical forwarders.
+   *
+   * This is the core proof that zero runtime routes/services can invoke legacy
+   * generation authority: the only legacy classes with prior authority now hold
+   * none, so every caller reaches only the canonical core.
+   */
+  public function testLegacyRoomAndDungeonGeneratorsAreCanonicalForwardersWithNoLegacyAuthority(): void {
+    $room = $this->sourceForScan('src/Service/RoomGeneratorService.php');
+    $this->assertStringContainsString('$this->runtimeCanonicalRoom->generateRoom(', $room, 'RoomGeneratorService::generateRoom must delegate to the canonical runtime room service.');
+    $this->assertStringContainsString('Deprecated RoomGeneratorService::generateRoom()', (string) file_get_contents($this->root() . '/src/Service/RoomGeneratorService.php'), 'RoomGeneratorService must log a deprecation on delegation.');
+    foreach ([
+      'generateHexes(',
+      'generateEntities(',
+      'generateLighting(',
+      'generateEntryPoints(',
+      'ensureCanonicalContracts(',
+      'normalizeCanonicalExits(',
+      "validate('room'",
+    ] as $legacy_authority) {
+      $this->assertStringNotContainsString($legacy_authority, $room, 'RoomGeneratorService must retain no legacy room-generation authority (' . $legacy_authority . ').');
+    }
+
+    $dungeon = $this->sourceForScan('src/Service/DungeonGeneratorService.php');
+    $this->assertStringContainsString('$this->runtimeCanonicalDungeon->generateDungeon(', $dungeon, 'DungeonGeneratorService::generateDungeon must delegate to the canonical runtime dungeon service.');
+    $this->assertStringContainsString('$this->runtimeCanonicalDungeon->generateLevel(', $dungeon, 'DungeonGeneratorService::generateLevel must delegate to the canonical runtime dungeon service.');
+    $this->assertStringContainsString('Deprecated DungeonGeneratorService::generateDungeon()', (string) file_get_contents($this->root() . '/src/Service/DungeonGeneratorService.php'), 'DungeonGeneratorService must log a deprecation on delegation.');
+    foreach ([
+      'assertR5Enabled',
+      self::RELEASE_FLAG_TOKEN,
+    ] as $legacy_authority) {
+      $this->assertStringNotContainsString($legacy_authority, $dungeon, 'DungeonGeneratorService must retain no legacy flag/authority (' . $legacy_authority . ').');
+    }
+  }
+
+  /**
+   * R8: obsolete legacy generator classes/routes are deleted, not shimmed.
+   */
+  public function testObsoleteLegacyGeneratorClassesAreDeleted(): void {
+    foreach (self::DELETED_LEGACY_CLASS_FILES as $relative) {
+      $this->assertFileDoesNotExist($this->root() . '/' . $relative, $relative . ' must be deleted, not retained, after the generation reconciliation.');
+    }
+  }
+
+  public function testNoNewLegacyGeneratorReferencesOutsideAllowlist(): void {
     $actual = [];
     foreach ($this->scannedFiles() as $relative) {
       $source = $this->sourceForScan($relative);
@@ -103,11 +192,11 @@ final class LegacyGeneratorCallerFreezeTest extends TestCase {
     $expected = self::ALLOWED_LEGACY_REFERENCE_FILES;
     sort($expected);
 
-    $this->assertCount(24, $expected, 'R7 shrinks the legacy generator freeze allowlist after deleting the unused DungeonGenerationEngine route surface.');
+    $this->assertCount(24, $expected, 'The R8 legacy generator reference surface is frozen; it may shrink but must never grow.');
     $this->assertSame($expected, $actual, 'New legacy generator callers/references are forbidden; migrate to CanonicalGenerationService instead.');
   }
 
-  public function testNoNewMapGeneratorFacadeReferencesOutsideR4Allowlist(): void {
+  public function testNoNewMapGeneratorFacadeReferencesOutsideAllowlist(): void {
     $actual = [];
     foreach ($this->scannedFiles() as $relative) {
       $source = $this->sourceForScan($relative);
@@ -120,10 +209,10 @@ final class LegacyGeneratorCallerFreezeTest extends TestCase {
     }
     $actual = array_values(array_unique($actual));
     sort($actual);
-    $expected = self::ALLOWED_R4_MAP_FACADE_REFERENCE_FILES;
+    $expected = self::ALLOWED_MAP_FACADE_REFERENCE_FILES;
     sort($expected);
 
-    $this->assertCount(11, $expected, 'R6 keeps the reconciled MapGeneratorService facade reference surface frozen.');
+    $this->assertCount(10, $expected, 'The reconciled MapGeneratorService facade reference surface is frozen; it may shrink but must never grow.');
     $this->assertSame($expected, $actual, 'MapGeneratorService is reconciled as a runtime facade; add no new direct references during reconciliation.');
   }
 
@@ -160,6 +249,29 @@ final class LegacyGeneratorCallerFreezeTest extends TestCase {
     }
     sort($files);
     return $files;
+  }
+
+  /**
+   * Source and config files scanned for the release-flag audit.
+   *
+   * @return string[]
+   */
+  private function scannedSourceAndConfigFiles(): array {
+    $files = $this->scannedFiles();
+    foreach ([
+      '/config/install',
+      '/config/schema',
+    ] as $config_dir) {
+      $absolute = $this->root() . $config_dir;
+      if (!is_dir($absolute)) {
+        continue;
+      }
+      foreach (glob($absolute . '/*.yml') ?: [] as $file) {
+        $files[] = substr($file, strlen($this->root()) + 1);
+      }
+    }
+    sort($files);
+    return array_values(array_unique($files));
   }
 
   private function sourceForScan(string $relative): string {

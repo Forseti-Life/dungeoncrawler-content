@@ -2,8 +2,6 @@
 
 namespace Drupal\Tests\dungeoncrawler_content\Unit\Generation;
 
-use Drupal\Core\Config\Config;
-use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorCanonicalGenerationPlanService;
 use Drupal\dungeoncrawler_content\Service\Generation\CanonicalRoomProjectionService;
 use Drupal\dungeoncrawler_content\Service\Generation\RuntimeCanonicalRoomService;
@@ -45,10 +43,10 @@ final class RoomGeneratorCanonicalRuntimeShimTest extends UnitTestCase {
   }
 
   public function testMissingCanonicalRuntimeServicesHardFailWithoutLegacyFallback(): void {
-    $service = new class($this->configFactory(TRUE)) extends RoomGeneratorService {
-      public function __construct(ConfigFactoryInterface $config_factory) {
+    $service = new class extends RoomGeneratorService {
+      public function __construct() {
         $this->logger = new NullLogger();
-        $this->configFactory = $config_factory;
+        $this->configFactory = NULL;
         $this->runtimeCanonicalRoom = NULL;
       }
     };
@@ -124,18 +122,6 @@ final class RoomGeneratorCanonicalRuntimeShimTest extends UnitTestCase {
         ];
       }
     };
-  }
-
-  private function configFactory(bool $enabled): ConfigFactoryInterface {
-    $config = $this->createMock(Config::class);
-    $config->method('get')
-      ->with('canonical_runtime_generation.r7')
-      ->willReturn($enabled);
-    $factory = $this->createMock(ConfigFactoryInterface::class);
-    $factory->method('get')
-      ->with('dungeoncrawler_content.settings')
-      ->willReturn($config);
-    return $factory;
   }
 
 }

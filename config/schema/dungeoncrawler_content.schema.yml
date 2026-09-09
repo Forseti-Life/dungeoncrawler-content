@@ -128,13 +128,6 @@ dungeoncrawler_content.settings:
     room_entry_warmup_split_enabled:
       type: boolean
       label: 'Defer room-entry warmup work from visible entry path'
-    canonical_runtime_generation:
-      type: mapping
-      label: 'Canonical runtime generation reconciliation release flags'
-      mapping:
-        r7:
-          type: boolean
-          label: 'Enable R7 NPC/storyline/quest/faction generation through canonical runtime generation'
     latency_toggle_canary_campaign_ids:
       type: string
       label: 'Latency rollout canary campaign IDs'
