@@ -3744,11 +3744,6 @@ class CharacterCreationStepForm extends FormBase {
         + (float) ($price['cp'] ?? 0) / 100
         + (float) ($price['pp'] ?? 0) * 10;
 
-      // Fallback to flat price_gp for legacy scraped data.
-      if ($cost_gp == 0 && isset($schema_data['price_gp'])) {
-        $cost_gp = (float) $schema_data['price_gp'];
-      }
-
       // Skip items over budget.
       if ($cost_gp > 15) {
         continue;

@@ -1337,10 +1337,6 @@ class CharacterCreationStepController extends ControllerBase {
         + (float) ($price['cp'] ?? 0) / 100
         + (float) ($price['pp'] ?? 0) * 10;
 
-      if ($cost_gp == 0 && isset($schema_data['price_gp'])) {
-        $cost_gp = (float) $schema_data['price_gp'];
-      }
-
       if ($cost_gp > 15) {
         continue;
       }

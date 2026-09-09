@@ -4308,6 +4308,31 @@ function dungeoncrawler_content_schema() {
     'publication_status' => ['publication_status'],
   ];
 
+  $schema['dungeoncrawler_content_definition_quarantine'] = [
+    'description' => 'Canonical definition records that cannot be losslessly canonicalized. Auditable, queryable holding set; quarantined subjects are excluded from canonical selection and from the migrated-family audit counts. Rows are tracked, never deleted; no invented data is stored.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE],
+      'family' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'description' => 'Canonical definition family.'],
+      'definition_id' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE, 'description' => 'Canonical definition id (slug).'],
+      'source_table' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'description' => 'Backing storage table the record still lives in.'],
+      'content_type' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'default' => '', 'description' => 'Registry content_type for registry-backed families.'],
+      'reason' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'description' => 'Primary disposition reason category.'],
+      'findings' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE, 'description' => 'JSON schema findings that blocked canonicalization.'],
+      'snapshot' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE, 'description' => 'IP-clean (provenance/envelope-stripped) payload snapshot for re-authoring. No third-party literal data is retained.'],
+      'audit_hook' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'description' => 'Migration hook that quarantined the record.'],
+      'quarantined_at' => ['type' => 'int', 'not null' => TRUE],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'family_definition' => ['family', 'definition_id'],
+    ],
+    'indexes' => [
+      'family' => ['family'],
+      'reason' => ['reason'],
+      'audit_hook' => ['audit_hook'],
+    ],
+  ];
+
   return $schema;
 }
 function dungeoncrawler_content_install() {
@@ -5018,15 +5043,25 @@ function dungeoncrawler_content_update_10199() {
     ->condition('audit_hook', 'update_10199')
     ->execute();
 
+  // Quarantined subjects are excluded from canonical selection and from the
+  // migrated-family counts: they are not canonical candidates and are tracked
+  // in their own queryable holding set instead.
+  $quarantined = _dungeoncrawler_content_quarantined_subjects($database);
+
   $summary = [];
   foreach ($definitions->families() as $family) {
     $checked = 0;
     $failed = 0;
+    $skipped = 0;
     if ($family === 'actor') {
       $rows = $database->select('dc_canonical_actors', 'a')
         ->fields('a', ['actor_id', 'version', 'actor_type', 'display_name', 'state_data'])
         ->execute();
       foreach ($rows as $row) {
+        if (isset($quarantined[$family . ':' . $row->actor_id])) {
+          $skipped++;
+          continue;
+        }
         $checked++;
         $state = json_decode((string) $row->state_data, TRUE);
         $payload = [
@@ -5045,6 +5080,10 @@ function dungeoncrawler_content_update_10199() {
         ->condition('content_type', $definitions->registryContentType($family))
         ->execute();
       foreach ($rows as $row) {
+        if (isset($quarantined[$family . ':' . $row->content_id])) {
+          $skipped++;
+          continue;
+        }
         $checked++;
         $payload = json_decode((string) $row->schema_data, TRUE);
         if (!is_array($payload)) {
@@ -5053,10 +5092,10 @@ function dungeoncrawler_content_update_10199() {
         $failed += _dungeoncrawler_content_flag_definition_findings($database, $definitions, $family, (string) $row->content_id, $payload, $now);
       }
     }
-    $summary[] = $family . ' ' . $failed . '/' . $checked;
+    $summary[] = $family . ' ' . $failed . '/' . $checked . ($skipped > 0 ? ' (quarantined ' . $skipped . ')' : '');
   }
 
-  $message = 'Canonical definition audit (nonconforming/checked): ' . implode(', ', $summary) . '. No row was migrated and no schema was loosened.';
+  $message = 'Canonical definition audit (nonconforming/checked): ' . implode(', ', $summary) . '. Quarantined records are excluded as canonical candidates. No canonical row was loosened.';
   \Drupal::logger('dungeoncrawler_content')->notice($message);
   return $message;
 }
@@ -5127,6 +5166,426 @@ function dungeoncrawler_content_update_10201() {
     return t('Added dc_canonical_actors.metadata for definition provenance.');
   }
   return t('dc_canonical_actors.metadata already exists.');
+}
+
+/**
+ * Ensures the canonical definition quarantine holding table exists.
+ *
+ * Idempotent: safe to call from every migration hook. Fresh installs get the
+ * table from dungeoncrawler_content_schema(); existing sites get it here.
+ */
+function _dungeoncrawler_content_ensure_quarantine_table(): void {
+  $schema_handler = \Drupal::database()->schema();
+  $table = 'dungeoncrawler_content_definition_quarantine';
+  if (!$schema_handler->tableExists($table)) {
+    $schema = dungeoncrawler_content_schema();
+    $schema_handler->createTable($table, $schema[$table]);
+  }
+}
+
+/**
+ * Map of quarantined subjects keyed by "family:definition_id".
+ *
+ * @return array<string, true>
+ */
+function _dungeoncrawler_content_quarantined_subjects($database): array {
+  $schema_handler = $database->schema();
+  if (!$schema_handler->tableExists('dungeoncrawler_content_definition_quarantine')) {
+    return [];
+  }
+  $subjects = [];
+  $rows = $database->select('dungeoncrawler_content_definition_quarantine', 'q')
+    ->fields('q', ['family', 'definition_id'])
+    ->execute();
+  foreach ($rows as $row) {
+    $subjects[$row->family . ':' . $row->definition_id] = TRUE;
+  }
+  return $subjects;
+}
+
+/**
+ * Derives a single primary disposition reason from schema findings.
+ */
+function _dungeoncrawler_content_quarantine_reason(array $findings): string {
+  $codes = [];
+  foreach ($findings as $finding) {
+    $codes[$finding['code'] . ':' . $finding['pointer']] = TRUE;
+  }
+  if (isset($codes['enum_violation:/item_type']) || isset($codes['enum_violation:/creature_type'])) {
+    return 'noncanonical_enum';
+  }
+  // Quest-touchpoint stubs mis-stored under content_type=item carry quest
+  // linkage keys and lack an item identity.
+  if (isset($codes['additional_property:/storyline_id']) || isset($codes['additional_property:/room_id'])) {
+    return 'foreign_quest_touchpoint';
+  }
+  foreach ($findings as $finding) {
+    if ($finding['code'] === 'required_missing'
+      && in_array($finding['pointer'], [
+        '/pf2e_stats', '/ai_personality', '/lifecycle', '/level',
+        '/item_id', '/item_type', '/name',
+      ], TRUE)) {
+      return 'missing_substantive';
+    }
+  }
+  return 'nonlossless_schema';
+}
+
+/**
+ * Registers a record in the quarantine holding table (idempotent merge).
+ *
+ * The snapshot is the provenance/envelope-stripped payload; no third-party
+ * literal data is stored, and the record is tracked rather than deleted.
+ */
+function _dungeoncrawler_content_quarantine_record($database, string $family, string $content_type, string $source_table, string $definition_id, array $snapshot, array $findings, int $now, string $audit_hook): void {
+  $codes = array_count_values(array_column($findings, 'code'));
+  ksort($codes);
+  $database->merge('dungeoncrawler_content_definition_quarantine')
+    ->keys([
+      'family' => $family,
+      'definition_id' => $definition_id,
+    ])
+    ->fields([
+      'source_table' => $source_table,
+      'content_type' => $content_type,
+      'reason' => _dungeoncrawler_content_quarantine_reason($findings),
+      'findings' => json_encode([
+        'finding_count' => count($findings),
+        'codes' => $codes,
+        'findings' => $findings,
+      ], JSON_UNESCAPED_SLASHES),
+      'snapshot' => json_encode($snapshot, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+      'audit_hook' => $audit_hook,
+      'quarantined_at' => $now,
+    ])
+    ->execute();
+}
+
+/**
+ * Removes a subject from quarantine if a later run makes it canonical.
+ */
+function _dungeoncrawler_content_unquarantine($database, string $family, string $definition_id): void {
+  $database->delete('dungeoncrawler_content_definition_quarantine')
+    ->condition('family', $family)
+    ->condition('definition_id', $definition_id)
+    ->execute();
+}
+
+/**
+ * Writes a canonicalized registry payload without touching the version column.
+ *
+ * The definition version column is load bearing: published rooms pin it, so a
+ * mechanical canonicalization must never change it. Only schema_data (and the
+ * updated timestamp when it actually changes) is written.
+ *
+ * @return bool
+ *   TRUE when the stored payload changed.
+ */
+function _dungeoncrawler_content_write_canonical_registry($database, string $content_type, string $definition_id, array $current, array $canonical, int $now): bool {
+  if ($current === $canonical) {
+    return FALSE;
+  }
+  $database->update('dungeoncrawler_content_registry')
+    ->fields([
+      'schema_data' => json_encode($canonical, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+      'updated' => $now,
+    ])
+    ->condition('content_type', $content_type)
+    ->condition('content_id', $definition_id)
+    ->execute();
+  return TRUE;
+}
+
+/**
+ * update_10202: Trap + hazard canonicalization pilot.
+ *
+ * Drops legacy envelope keys (content_id; and hazard's redundant `type`) and
+ * strips any third-party provenance, defaults schema_version, and relies on the
+ * corrected slug id contract. Both families are near-conforming and lossless.
+ * Idempotent: converges to a fixpoint.
+ */
+function dungeoncrawler_content_update_10202(): string {
+  _dungeoncrawler_content_ensure_quarantine_table();
+  $database = \Drupal::database();
+  $now = \Drupal::time()->getRequestTime();
+  $definitions = \Drupal::service('dungeoncrawler_content.canonical_definitions');
+  $provenance = ['source_book', 'bestiary_source', 'url', 'source'];
+
+  $result = [];
+  // trap keeps its own `type` (a required enum); only content_id is envelope.
+  // hazard has no schema `type`, so `type` is envelope and is dropped.
+  foreach (['trap' => ['content_id'], 'hazard' => ['content_id', 'type']] as $family => $envelope) {
+    $canonical = 0;
+    $quarantined = 0;
+    $rows = $database->select('dungeoncrawler_content_registry', 'r')
+      ->fields('r', ['content_id', 'schema_data'])
+      ->condition('content_type', $definitions->registryContentType($family))
+      ->execute();
+    foreach ($rows as $row) {
+      $current = json_decode((string) $row->schema_data, TRUE);
+      if (!is_array($current)) {
+        throw new \RuntimeException('trap_hazard_schema_unreadable:' . $family . ':' . $row->content_id);
+      }
+      $payload = $current;
+      foreach (array_merge($envelope, $provenance) as $key) {
+        unset($payload[$key]);
+      }
+      if (!isset($payload['schema_version'])) {
+        $payload['schema_version'] = '1.0.0';
+      }
+      $findings = $definitions->validateDefinition($family, $payload);
+      if ($findings === []) {
+        _dungeoncrawler_content_write_canonical_registry($database, $definitions->registryContentType($family), (string) $row->content_id, $current, $payload, $now);
+        _dungeoncrawler_content_unquarantine($database, $family, (string) $row->content_id);
+        $canonical++;
+      }
+      else {
+        _dungeoncrawler_content_write_canonical_registry($database, $definitions->registryContentType($family), (string) $row->content_id, $current, $payload, $now);
+        _dungeoncrawler_content_quarantine_record($database, $family, $definitions->registryContentType($family), 'dungeoncrawler_content_registry', (string) $row->content_id, $payload, $findings, $now, 'update_10202');
+        $quarantined++;
+      }
+    }
+    $result[] = $family . ' canonical=' . $canonical . ' quarantined=' . $quarantined;
+  }
+
+  $message = 'update_10202 trap/hazard pilot: ' . implode('; ', $result) . '.';
+  \Drupal::logger('dungeoncrawler_content')->notice($message);
+  return $message;
+}
+
+/**
+ * update_10203: Obstacle canonicalization.
+ *
+ * The obstacle schema now IS the object-catalog vocabulary, so the stored data
+ * already matches. Drop the legacy envelope (content_id, name, type) and any
+ * third-party provenance, default schema_version. Idempotent.
+ */
+function dungeoncrawler_content_update_10203(): string {
+  _dungeoncrawler_content_ensure_quarantine_table();
+  $database = \Drupal::database();
+  $now = \Drupal::time()->getRequestTime();
+  $definitions = \Drupal::service('dungeoncrawler_content.canonical_definitions');
+  $content_type = $definitions->registryContentType('obstacle');
+  $envelope = ['content_id', 'name', 'type'];
+  $provenance = ['source_book', 'bestiary_source', 'url', 'source'];
+
+  $canonical = 0;
+  $quarantined = 0;
+  $rows = $database->select('dungeoncrawler_content_registry', 'r')
+    ->fields('r', ['content_id', 'schema_data'])
+    ->condition('content_type', $content_type)
+    ->execute();
+  foreach ($rows as $row) {
+    $current = json_decode((string) $row->schema_data, TRUE);
+    if (!is_array($current)) {
+      throw new \RuntimeException('obstacle_schema_unreadable:' . $row->content_id);
+    }
+    $payload = $current;
+    foreach (array_merge($envelope, $provenance) as $key) {
+      unset($payload[$key]);
+    }
+    if (!isset($payload['schema_version'])) {
+      $payload['schema_version'] = '1.0.0';
+    }
+    $findings = $definitions->validateDefinition('obstacle', $payload);
+    _dungeoncrawler_content_write_canonical_registry($database, $content_type, (string) $row->content_id, $current, $payload, $now);
+    if ($findings === []) {
+      _dungeoncrawler_content_unquarantine($database, 'obstacle', (string) $row->content_id);
+      $canonical++;
+    }
+    else {
+      _dungeoncrawler_content_quarantine_record($database, 'obstacle', $content_type, 'dungeoncrawler_content_registry', (string) $row->content_id, $payload, $findings, $now, 'update_10203');
+      $quarantined++;
+    }
+  }
+
+  $message = 'update_10203 obstacle: canonical=' . $canonical . ' quarantined=' . $quarantined . '.';
+  \Drupal::logger('dungeoncrawler_content')->notice($message);
+  return $message;
+}
+
+/**
+ * Applies the deterministic item canonicalization transforms to one payload.
+ *
+ * Only approved transforms run: strip envelope + third-party provenance, retire
+ * the competing item_category/category vocabulary, move price_gp into price.gp,
+ * canonicalize hands, apply the two approved enum remaps, and backfill
+ * name/level/rarity/schema_version strictly from the registry columns. No
+ * substantive field is invented, dropped, or guessed.
+ */
+function _dungeoncrawler_content_canonicalize_item(array $payload, ?string $col_name, $col_level, ?string $col_rarity): array {
+  $drop = [
+    // Envelope duplicates of the registry row.
+    'content_id', 'type', 'id',
+    // Retired competing categorization vocabulary (superseded by item_type/traits).
+    'category', 'item_category',
+    // Third-party provenance (stripped, not rehomed).
+    'source', 'url', 'source_book', 'bestiary_source',
+  ];
+  foreach ($drop as $key) {
+    unset($payload[$key]);
+  }
+  $remap = ['gear' => 'adventuring_gear', 'alchemical' => 'consumable'];
+  if (isset($payload['item_type']) && isset($remap[$payload['item_type']])) {
+    $payload['item_type'] = $remap[$payload['item_type']];
+  }
+  if (array_key_exists('price_gp', $payload)) {
+    $gp = $payload['price_gp'];
+    unset($payload['price_gp']);
+    if (is_int($gp)) {
+      if (!isset($payload['price']) || !is_array($payload['price'])) {
+        $payload['price'] = ['gp' => $gp];
+      }
+      elseif (!array_key_exists('gp', $payload['price'])) {
+        $payload['price']['gp'] = $gp;
+      }
+    }
+  }
+  if (array_key_exists('hands', $payload)) {
+    if ($payload['hands'] === NULL) {
+      unset($payload['hands']);
+    }
+    elseif (is_int($payload['hands'])) {
+      $payload['hands'] = (string) $payload['hands'];
+    }
+  }
+  if (!isset($payload['schema_version'])) {
+    $payload['schema_version'] = '1.0.0';
+  }
+  if (!isset($payload['name']) && $col_name !== NULL && trim($col_name) !== '') {
+    $payload['name'] = $col_name;
+  }
+  if (!isset($payload['level']) && $col_level !== NULL && $col_level !== '') {
+    $payload['level'] = (int) $col_level;
+  }
+  if (!isset($payload['rarity']) && $col_rarity !== NULL && trim($col_rarity) !== '') {
+    $payload['rarity'] = $col_rarity;
+  }
+  return $payload;
+}
+
+/**
+ * update_10204: Item canonicalization, batched in chunks of 100.
+ *
+ * Conforming records are written back canonically; every record that cannot be
+ * losslessly canonicalized (rejected enums, foreign quest-touchpoint stubs,
+ * and records with substantive shapes the mechanical pass cannot canonicalize)
+ * is registered in the quarantine holding set. Idempotent and re-entrant.
+ */
+function dungeoncrawler_content_update_10204(&$sandbox): string {
+  _dungeoncrawler_content_ensure_quarantine_table();
+  $database = \Drupal::database();
+  $now = \Drupal::time()->getRequestTime();
+  $definitions = \Drupal::service('dungeoncrawler_content.canonical_definitions');
+
+  if (!isset($sandbox['ids'])) {
+    $sandbox['ids'] = $database->select('dungeoncrawler_content_registry', 'r')
+      ->fields('r', ['content_id'])
+      ->condition('content_type', 'item')
+      ->orderBy('content_id')
+      ->execute()
+      ->fetchCol();
+    $sandbox['total'] = count($sandbox['ids']);
+    $sandbox['progress'] = 0;
+    $sandbox['canonical'] = 0;
+    $sandbox['quarantined'] = 0;
+  }
+
+  $chunk = array_slice($sandbox['ids'], $sandbox['progress'], 100);
+  foreach ($chunk as $content_id) {
+    $row = $database->select('dungeoncrawler_content_registry', 'r')
+      ->fields('r', ['content_id', 'name', 'level', 'rarity', 'schema_data'])
+      ->condition('content_type', 'item')
+      ->condition('content_id', $content_id)
+      ->execute()
+      ->fetchAssoc();
+    $sandbox['progress']++;
+    if (!$row) {
+      continue;
+    }
+    $current = json_decode((string) $row['schema_data'], TRUE);
+    if (!is_array($current)) {
+      throw new \RuntimeException('item_schema_unreadable:' . $content_id);
+    }
+    $payload = _dungeoncrawler_content_canonicalize_item(
+      $current,
+      $row['name'] !== NULL ? (string) $row['name'] : NULL,
+      $row['level'],
+      $row['rarity'] !== NULL ? (string) $row['rarity'] : NULL
+    );
+    $findings = $definitions->validateDefinition('item', $payload);
+    _dungeoncrawler_content_write_canonical_registry($database, 'item', (string) $content_id, $current, $payload, $now);
+    if ($findings === []) {
+      _dungeoncrawler_content_unquarantine($database, 'item', (string) $content_id);
+      $sandbox['canonical']++;
+    }
+    else {
+      _dungeoncrawler_content_quarantine_record($database, 'item', 'item', 'dungeoncrawler_content_registry', (string) $content_id, $payload, $findings, $now, 'update_10204');
+      $sandbox['quarantined']++;
+    }
+  }
+
+  $sandbox['#finished'] = $sandbox['total'] == 0 ? 1 : ($sandbox['progress'] / $sandbox['total']);
+  if ($sandbox['#finished'] >= 1) {
+    $message = 'update_10204 item: canonical=' . $sandbox['canonical'] . ' quarantined=' . $sandbox['quarantined'] . ' of ' . $sandbox['total'] . '.';
+    \Drupal::logger('dungeoncrawler_content')->notice($message);
+    return $message;
+  }
+  return 'update_10204 item: processed ' . $sandbox['progress'] . '/' . $sandbox['total'] . '.';
+}
+
+/**
+ * update_10205: Creature mechanical canonicalization pre-pass.
+ *
+ * Lossless mechanical fields only: drop the legacy envelope (content_id, type),
+ * strip third-party provenance, default schema_version, rely on the corrected
+ * slug id contract. Records still missing substantive game-model fields
+ * (pf2e_stats/ai_personality/lifecycle/level), carrying a placeholder/
+ * noncanonical creature_type, or otherwise unable to be losslessly
+ * canonicalized are quarantined for original/OGL-safe authoring. No creature
+ * content is invented. Idempotent.
+ */
+function dungeoncrawler_content_update_10205(): string {
+  _dungeoncrawler_content_ensure_quarantine_table();
+  $database = \Drupal::database();
+  $now = \Drupal::time()->getRequestTime();
+  $definitions = \Drupal::service('dungeoncrawler_content.canonical_definitions');
+  $envelope = ['content_id', 'type'];
+  $provenance = ['source_book', 'bestiary_source', 'url', 'source'];
+
+  $canonical = 0;
+  $quarantined = 0;
+  $rows = $database->select('dungeoncrawler_content_registry', 'r')
+    ->fields('r', ['content_id', 'schema_data'])
+    ->condition('content_type', 'creature')
+    ->execute();
+  foreach ($rows as $row) {
+    $current = json_decode((string) $row->schema_data, TRUE);
+    if (!is_array($current)) {
+      throw new \RuntimeException('creature_schema_unreadable:' . $row->content_id);
+    }
+    $payload = $current;
+    foreach (array_merge($envelope, $provenance) as $key) {
+      unset($payload[$key]);
+    }
+    if (!isset($payload['schema_version'])) {
+      $payload['schema_version'] = '1.0.0';
+    }
+    $findings = $definitions->validateDefinition('creature', $payload);
+    _dungeoncrawler_content_write_canonical_registry($database, 'creature', (string) $row->content_id, $current, $payload, $now);
+    if ($findings === []) {
+      _dungeoncrawler_content_unquarantine($database, 'creature', (string) $row->content_id);
+      $canonical++;
+    }
+    else {
+      _dungeoncrawler_content_quarantine_record($database, 'creature', 'creature', 'dungeoncrawler_content_registry', (string) $row->content_id, $payload, $findings, $now, 'update_10205');
+      $quarantined++;
+    }
+  }
+
+  $message = 'update_10205 creature: canonical=' . $canonical . ' quarantined=' . $quarantined . '.';
+  \Drupal::logger('dungeoncrawler_content')->notice($message);
+  return $message;
 }
 
 /**
