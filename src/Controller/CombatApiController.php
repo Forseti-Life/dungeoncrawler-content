@@ -4,6 +4,8 @@ namespace Drupal\dungeoncrawler_content\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Database\Connection;
+use Drupal\dungeoncrawler_content\Exception\LegacyCampaignArchivedException;
+use Drupal\dungeoncrawler_content\Service\EncounterStateService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -71,13 +73,21 @@ class CombatApiController extends ControllerBase {
   protected $database;
 
   /**
+   * The canonical encounter current-state owner (Phase 2).
+   *
+   * @var \Drupal\dungeoncrawler_content\Service\EncounterStateService
+   */
+  protected EncounterStateService $encounterState;
+
+  /**
    * Constructor.
    */
-  public function __construct($hp_manager, $condition_manager, $encounter_store, Connection $database) {
+  public function __construct($hp_manager, $condition_manager, $encounter_store, Connection $database, EncounterStateService $encounter_state) {
     $this->hpManager = $hp_manager;
     $this->conditionManager = $condition_manager;
     $this->encounterStore = $encounter_store;
     $this->database = $database;
+    $this->encounterState = $encounter_state;
   }
 
   /**
@@ -88,7 +98,8 @@ class CombatApiController extends ControllerBase {
       $container->get('dungeoncrawler_content.hp_manager'),
       $container->get('dungeoncrawler_content.condition_manager'),
       $container->get('dungeoncrawler_content.combat_encounter_store'),
-      $container->get('database')
+      $container->get('database'),
+      $container->get('dungeoncrawler_content.encounter_state')
     );
   }
 
@@ -347,44 +358,41 @@ class CombatApiController extends ControllerBase {
    * @see /docs/dungeoncrawler/issues/combat-api-endpoints.md#get-initiative-order
    */
   public function getInitiative($encounter_id) {
-    $encounter = $this->encounterStore->loadEncounter((int) $encounter_id);
-    if (!$encounter) {
+    try {
+      $state = $this->encounterState->tryGetState((int) $encounter_id);
+    }
+    catch (LegacyCampaignArchivedException $e) {
+      return new JsonResponse(['error' => $e->getMessage()], 409);
+    }
+    if ($state === NULL) {
       return new JsonResponse(['error' => 'Encounter not found'], 404);
     }
 
+    $turnIndex = (int) ($state['turn_index'] ?? 0);
     $order = [];
-    foreach ($encounter['participants'] as $p) {
-      $conditions = $this->conditionManager->getActiveConditions(
-        (int) $p['id'],
-        (int) $encounter_id
-      );
+    foreach (($state['participants'] ?? []) as $idx => $p) {
+      $conditions = is_array($p['conditions'] ?? NULL) ? $p['conditions'] : [];
       $order[] = [
-        'participant_id' => (int) $p['id'],
-        'name' => $p['name'],
-        'team' => $p['team'],
-        'initiative' => (int) $p['initiative'],
-        'hp' => (int) $p['hp'],
-        'max_hp' => (int) $p['max_hp'],
-        'is_defeated' => (bool) $p['is_defeated'],
-        'is_current_turn' => FALSE,
+        'participant_id' => (int) ($p['id'] ?? 0),
+        'name' => $p['name'] ?? '',
+        'team' => $p['team'] ?? NULL,
+        'initiative' => (int) ($p['initiative'] ?? 0),
+        'hp' => (int) ($p['hp'] ?? 0),
+        'max_hp' => (int) ($p['max_hp'] ?? 0),
+        'is_defeated' => (bool) ($p['is_defeated'] ?? FALSE),
+        'is_current_turn' => (int) $idx === $turnIndex,
         'conditions' => array_values(array_map(function ($c) {
           return [
-            'condition_type' => $c['condition_type'],
-            'value' => $c['value'] !== NULL ? (int) $c['value'] : NULL,
+            'condition_type' => $c['condition_type'] ?? NULL,
+            'value' => isset($c['value']) && $c['value'] !== NULL ? (int) $c['value'] : NULL,
           ];
         }, $conditions)),
       ];
     }
 
-    // Mark current turn participant.
-    $turnIndex = (int) ($encounter['turn_index'] ?? 0);
-    if (isset($order[$turnIndex])) {
-      $order[$turnIndex]['is_current_turn'] = TRUE;
-    }
-
     return new JsonResponse([
       'encounter_id' => (int) $encounter_id,
-      'current_round' => (int) ($encounter['current_round'] ?? 0),
+      'current_round' => (int) ($state['current_round'] ?? 0),
       'turn_index' => $turnIndex,
       'initiative_order' => $order,
     ]);
@@ -464,15 +472,20 @@ class CombatApiController extends ControllerBase {
       return new JsonResponse(['error' => 'Invalid JSON body'], 400);
     }
 
-    $encounter = $this->encounterStore->loadEncounter((int) $encounter_id);
-    if (!$encounter) {
+    try {
+      $state = $this->encounterState->tryGetState((int) $encounter_id);
+    }
+    catch (LegacyCampaignArchivedException $e) {
+      return new JsonResponse(['error' => $e->getMessage()], 409);
+    }
+    if ($state === NULL) {
       return new JsonResponse(['error' => 'Encounter not found'], 404);
     }
 
     // Verify participant belongs to this encounter.
     $found = FALSE;
-    foreach ($encounter['participants'] as $p) {
-      if ((int) $p['id'] === (int) $participant_id) {
+    foreach (($state['participants'] ?? []) as $p) {
+      if ((int) ($p['id'] ?? 0) === (int) $participant_id) {
         $found = TRUE;
         break;
       }
@@ -619,8 +632,13 @@ class CombatApiController extends ControllerBase {
   public function getStatistics($encounter_id) {
     $eid = (int) $encounter_id;
 
-    $encounter = $this->encounterStore->loadEncounter($eid);
-    if (!$encounter) {
+    try {
+      $state = $this->encounterState->tryGetState($eid);
+    }
+    catch (LegacyCampaignArchivedException $e) {
+      return new JsonResponse(['error' => $e->getMessage()], 409);
+    }
+    if ($state === NULL) {
       return new JsonResponse(['error' => 'Encounter not found'], 404);
     }
 
@@ -686,7 +704,7 @@ class CombatApiController extends ControllerBase {
       }
     }
 
-    $roundsElapsed = (int) ($encounter['current_round'] ?? 0);
+    $roundsElapsed = (int) ($state['current_round'] ?? 0);
 
     return new JsonResponse([
       'encounter_id' => $eid,

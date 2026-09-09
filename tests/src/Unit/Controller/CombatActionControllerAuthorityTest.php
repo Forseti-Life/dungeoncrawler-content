@@ -3,7 +3,7 @@
 namespace Drupal\Tests\dungeoncrawler_content\Unit\Controller;
 
 use Drupal\dungeoncrawler_content\Controller\CombatActionController;
-use Drupal\dungeoncrawler_content\Service\CombatEncounterStore;
+use Drupal\dungeoncrawler_content\Service\EncounterStateService;
 use Drupal\Tests\UnitTestCase;
 
 /**
@@ -18,31 +18,21 @@ class CombatActionControllerAuthorityTest extends UnitTestCase {
   /**
    * @covers ::getCurrentTurn
    */
-  public function testGetCurrentTurnReturnsStoreBackedParticipantState(): void {
-    $store = $this->createMock(CombatEncounterStore::class);
-    $store->expects($this->once())
-      ->method('loadEncounter')
+  public function testGetCurrentTurnReturnsOwnerBackedParticipantState(): void {
+    $encounter_state = $this->createMock(EncounterStateService::class);
+    $encounter_state->expects($this->once())
+      ->method('getCurrentTurn')
       ->with(77)
       ->willReturn([
+        'participant_id' => 2,
+        'name' => 'Second',
+        'actions_remaining' => 2,
+        'attacks_this_turn' => 1,
         'turn_index' => 1,
         'current_round' => 3,
-        'participants' => [
-          [
-            'id' => 1,
-            'name' => 'First',
-            'actions_remaining' => 3,
-            'attacks_this_turn' => 0,
-          ],
-          [
-            'id' => 2,
-            'name' => 'Second',
-            'actions_remaining' => 2,
-            'attacks_this_turn' => 1,
-          ],
-        ],
       ]);
 
-    $controller = new CombatActionController($store);
+    $controller = new CombatActionController($encounter_state);
     $response = $controller->getCurrentTurn(77);
     $payload = json_decode((string) $response->getContent(), TRUE);
 
@@ -58,7 +48,7 @@ class CombatActionControllerAuthorityTest extends UnitTestCase {
    * @covers ::startTurn
    */
   public function testStartTurnIsDisabledForCanonicalAuthority(): void {
-    $controller = new CombatActionController($this->createMock(CombatEncounterStore::class));
+    $controller = new CombatActionController($this->createMock(EncounterStateService::class));
     $response = $controller->startTurn(42, 9);
     $payload = json_decode((string) $response->getContent(), TRUE);
 

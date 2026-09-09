@@ -83,7 +83,34 @@ class EncounterStateAuthorityGuardTest extends TestCase {
     return [
       'combat encounter api controller' => ['src/Controller/CombatEncounterApiController.php'],
       'combat action controller' => ['src/Controller/CombatActionController.php'],
+      'encounter ai preview controller' => ['src/Controller/EncounterAiPreviewController.php'],
     ];
+  }
+
+  /**
+   * The mixed read/write CombatApiController routes every encounter
+   * current-state READ through the canonical owner. It may retain the raw
+   * store ONLY for participant persistence writes (updateParticipant), so it
+   * is intentionally not in the strict no-store provider list above.
+   */
+  public function testMixedReadWriteControllerRoutesReadsThroughOwner(): void {
+    $source = $this->readModuleFile('src/Controller/CombatApiController.php');
+
+    $this->assertStringNotContainsString(
+      '->loadEncounter(',
+      $source,
+      'CombatApiController read endpoints must route through the owner, not loadEncounter().'
+    );
+    $this->assertStringContainsString(
+      "get('dungeoncrawler_content.encounter_state')",
+      $source,
+      'CombatApiController must fetch the canonical encounter_state owner for reads.'
+    );
+    $this->assertStringContainsString(
+      '$this->encounterStore->updateParticipant(',
+      $source,
+      'CombatApiController may retain the store only for participant persistence writes.'
+    );
   }
 
   /**

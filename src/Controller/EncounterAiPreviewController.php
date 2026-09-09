@@ -5,8 +5,9 @@ namespace Drupal\dungeoncrawler_content\Controller;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Session\AccountInterface;
 use Drupal\dungeoncrawler_content\Access\CampaignAccessCheck;
-use Drupal\dungeoncrawler_content\Service\CombatEncounterStore;
+use Drupal\dungeoncrawler_content\Exception\LegacyCampaignArchivedException;
 use Drupal\dungeoncrawler_content\Service\EncounterAiIntegrationService;
+use Drupal\dungeoncrawler_content\Service\EncounterStateService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -17,9 +18,9 @@ use Symfony\Component\HttpFoundation\Request;
 class EncounterAiPreviewController extends ControllerBase {
 
   /**
-   * Encounter store.
+   * Canonical encounter current-state owner (Phase 2).
    */
-  protected CombatEncounterStore $encounterStore;
+  protected EncounterStateService $encounterState;
 
   /**
    * Encounter AI integration service.
@@ -39,8 +40,8 @@ class EncounterAiPreviewController extends ControllerBase {
   /**
    * Constructs controller.
    */
-  public function __construct(CombatEncounterStore $encounter_store, EncounterAiIntegrationService $encounter_ai_integration, CampaignAccessCheck $campaign_access_check, AccountInterface $current_account) {
-    $this->encounterStore = $encounter_store;
+  public function __construct(EncounterStateService $encounter_state, EncounterAiIntegrationService $encounter_ai_integration, CampaignAccessCheck $campaign_access_check, AccountInterface $current_account) {
+    $this->encounterState = $encounter_state;
     $this->encounterAiIntegration = $encounter_ai_integration;
     $this->campaignAccessCheck = $campaign_access_check;
     $this->currentAccount = $current_account;
@@ -51,7 +52,7 @@ class EncounterAiPreviewController extends ControllerBase {
    */
   public static function create(ContainerInterface $container) {
     return new static(
-      $container->get('dungeoncrawler_content.combat_encounter_store'),
+      $container->get('dungeoncrawler_content.encounter_state'),
       $container->get('dungeoncrawler_content.encounter_ai_integration'),
       $container->get('dungeoncrawler_content.campaign_access_check'),
       $container->get('current_user'),
@@ -74,8 +75,13 @@ class EncounterAiPreviewController extends ControllerBase {
       return new JsonResponse(['success' => FALSE, 'error' => 'encounterId is required'], 400);
     }
 
-    $encounter = $this->encounterStore->loadEncounter($encounter_id);
-    if (!$encounter) {
+    try {
+      $encounter = $this->encounterState->tryGetState($encounter_id);
+    }
+    catch (LegacyCampaignArchivedException $e) {
+      return new JsonResponse(['success' => FALSE, 'error' => $e->getMessage()], 409);
+    }
+    if ($encounter === NULL) {
       return new JsonResponse(['success' => FALSE, 'error' => 'Encounter not found'], 404);
     }
 
