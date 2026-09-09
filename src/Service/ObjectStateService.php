@@ -2,8 +2,18 @@
 
 namespace Drupal\dungeoncrawler_content\Service;
 
+use Drupal\dungeoncrawler_content\Service\ObjectState\ObjectRef;
+use Drupal\dungeoncrawler_content\Service\ObjectState\ObjectStateProviderRegistry;
+
 /**
- * Unified retrieval facade for canonical object state.
+ * Unified gateway for canonical object state.
+ *
+ * This service normalizes an object-type alias, builds a canonical
+ * {@see ObjectRef}, and delegates to the single registered provider for that
+ * type via {@see ObjectStateProviderRegistry}. It routes every supported read
+ * through exactly one provider and hard-fails on missing/duplicate providers or
+ * invalid refs/envelopes. It never composes state itself and never falls back
+ * to a second owner.
  */
 class ObjectStateService {
 
@@ -18,15 +28,7 @@ class ObjectStateService {
   public const TYPE_EFFECTS = 'effects';
 
   public function __construct(
-    protected CampaignStateService $campaignStateService,
-    protected DungeonStateService $dungeonStateService,
-    protected RoomStateService $roomStateService,
-    protected ActorStateService $actorStateService,
-    protected EncounterStateService $encounterStateService,
-    protected ItemStateService $itemStateService,
-    protected InventoryStateService $inventoryStateService,
-    protected QuestStateService $questStateService,
-    protected EffectStateService $effectStateService,
+    protected ObjectStateProviderRegistry $providerRegistry,
   ) {}
 
   /**
@@ -36,59 +38,12 @@ class ObjectStateService {
    *   Additional routing context such as campaign_id, instance_id, or owner_type.
    *
    * @return array<string,mixed>
-   *   Envelope containing object metadata and canonical state payload.
+   *   Canonical object-state envelope.
    */
   public function getCurrentState(string $object_type, string|int $object_id, array $context = []): array {
-    $normalized_type = $this->normalizeObjectType($object_type);
-    $normalized_id = trim((string) $object_id);
-    if ($normalized_id === '') {
-      throw new \InvalidArgumentException('Object id is required.');
-    }
+    $ref = ObjectRef::create($this->normalizeObjectType($object_type), $object_id, $context);
 
-    $state = match ($normalized_type) {
-      self::TYPE_CAMPAIGN => $this->campaignStateService->getState((int) $normalized_id),
-      self::TYPE_DUNGEON => $this->dungeonStateService->getState(
-        $normalized_id,
-        $this->requireContextInt($context, 'campaign_id', 'Dungeon state requires campaign_id context.')
-      ),
-      self::TYPE_ROOM => $this->roomStateService->getState(
-        $this->requireContextInt($context, 'campaign_id', 'Room state requires campaign_id context.'),
-        $normalized_id
-      ),
-      self::TYPE_ACTOR => $this->actorStateService->getState(
-        $normalized_id,
-        $this->optionalContextInt($context, 'campaign_id'),
-        $this->optionalContextString($context, 'instance_id')
-      ),
-      self::TYPE_ENCOUNTER => $this->encounterStateService->getState((int) $normalized_id),
-      self::TYPE_ITEM => $this->itemStateService->getState(
-        $normalized_id,
-        $this->optionalContextInt($context, 'campaign_id')
-      ),
-      self::TYPE_INVENTORY => $this->inventoryStateService->getState(
-        $normalized_id,
-        $this->optionalContextString($context, 'owner_type') ?: 'character',
-        $this->optionalContextInt($context, 'campaign_id')
-      ),
-      self::TYPE_QUEST => $this->questStateService->getState(
-        $this->requireContextInt($context, 'campaign_id', 'Quest state requires campaign_id context.'),
-        $normalized_id,
-        $this->optionalContextInt($context, 'character_id')
-      ),
-      self::TYPE_EFFECTS => $this->effectStateService->getState(
-        $normalized_id,
-        $this->optionalContextInt($context, 'campaign_id'),
-        $this->optionalContextString($context, 'instance_id')
-      ),
-      default => throw new \InvalidArgumentException(sprintf('Unsupported object type: %s', $object_type)),
-    };
-
-    return [
-      'object_type' => $normalized_type,
-      'object_id' => $normalized_id,
-      'context' => $context,
-      'state' => $state,
-    ];
+    return $this->providerRegistry->getObjectState($ref)->toArray();
   }
 
   /**
@@ -98,20 +53,20 @@ class ObjectStateService {
    *   Keys: object_type, object_id, optional context.
    *
    * @return array<string,mixed>
-   *   Canonical state envelope.
+   *   Canonical object-state envelope.
    */
   public function getCurrentStateByRef(array $object_ref): array {
-    $object_type = (string) ($object_ref['object_type'] ?? $object_ref['type'] ?? '');
-    $object_id = (string) ($object_ref['object_id'] ?? $object_ref['id'] ?? '');
-    $context = is_array($object_ref['context'] ?? NULL) ? $object_ref['context'] : [];
+    $ref = ObjectRef::fromArray($object_ref);
+    $normalized = ObjectRef::create($this->normalizeObjectType($ref->objectType), $ref->objectId, $ref->context);
 
-    foreach (['campaign_id', 'character_id', 'instance_id', 'owner_type'] as $key) {
-      if (array_key_exists($key, $object_ref) && !array_key_exists($key, $context)) {
-        $context[$key] = $object_ref[$key];
-      }
-    }
+    return $this->providerRegistry->getObjectState($normalized)->toArray();
+  }
 
-    return $this->getCurrentState($object_type, $object_id, $context);
+  /**
+   * Whether a canonical provider is registered for the given object type.
+   */
+  public function supports(string $object_type): bool {
+    return $this->providerRegistry->hasProvider($this->normalizeObjectType($object_type));
   }
 
   protected function normalizeObjectType(string $object_type): string {
@@ -129,44 +84,6 @@ class ObjectStateService {
       'effects', 'active_effects' => self::TYPE_EFFECTS,
       default => $normalized,
     };
-  }
-
-  /**
-   * @param array<string,mixed> $context
-   */
-  protected function requireContextInt(array $context, string $key, string $message): int {
-    $value = $this->optionalContextInt($context, $key);
-    if ($value === NULL || $value <= 0) {
-      throw new \InvalidArgumentException($message);
-    }
-
-    return $value;
-  }
-
-  /**
-   * @param array<string,mixed> $context
-   */
-  protected function optionalContextInt(array $context, string $key): ?int {
-    if (!array_key_exists($key, $context) || $context[$key] === NULL || $context[$key] === '') {
-      return NULL;
-    }
-    if (!is_numeric($context[$key])) {
-      throw new \InvalidArgumentException(sprintf('Context value for %s must be numeric.', $key));
-    }
-
-    return (int) $context[$key];
-  }
-
-  /**
-   * @param array<string,mixed> $context
-   */
-  protected function optionalContextString(array $context, string $key): ?string {
-    if (!array_key_exists($key, $context) || $context[$key] === NULL) {
-      return NULL;
-    }
-
-    $value = trim((string) $context[$key]);
-    return $value !== '' ? $value : NULL;
   }
 
 }

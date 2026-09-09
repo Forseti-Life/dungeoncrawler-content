@@ -2,6 +2,10 @@
 
 namespace Drupal\dungeoncrawler_content\Service;
 
+use Drupal\dungeoncrawler_content\Service\ObjectState\ObjectRef;
+use Drupal\dungeoncrawler_content\Service\ObjectState\ObjectStateEnvelope;
+use Drupal\dungeoncrawler_content\Service\ObjectState\ObjectStateProviderInterface;
+
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Psr\Log\LoggerInterface;
@@ -9,7 +13,9 @@ use Psr\Log\LoggerInterface;
 /**
  * Manages dungeon state snapshots with optimistic versioning backed by DB.
  */
-class DungeonStateService {
+class DungeonStateService implements ObjectStateProviderInterface {
+
+  public const OBJECT_TYPE = 'dungeon';
 
   private Connection $database;
   private LoggerInterface $logger;
@@ -226,6 +232,40 @@ class DungeonStateService {
         $state[$alias] = $state[$canonical];
       }
     }
+  }
+
+
+  /**
+   * {@inheritdoc}
+   */
+  public function objectType(): string {
+    return self::OBJECT_TYPE;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function supports(string $object_type): bool {
+    return $object_type === self::OBJECT_TYPE;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function getObjectState(ObjectRef $ref): ObjectStateEnvelope {
+    $campaign_id = $ref->requireContextInt('campaign_id', 'Dungeon state requires campaign_id context.');
+    $state = $this->getState($ref->objectId, $campaign_id);
+
+    return ObjectStateEnvelope::create(
+      self::OBJECT_TYPE,
+      $ref->objectId,
+      self::class,
+      self::class,
+      'campaign_tables',
+      $state,
+      isset($state['version']) ? (int) $state['version'] : NULL,
+      isset($state['updatedAt']) ? (string) $state['updatedAt'] : NULL,
+    );
   }
 
 }

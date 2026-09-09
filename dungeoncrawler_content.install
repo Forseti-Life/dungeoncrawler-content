@@ -5589,6 +5589,34 @@ function dungeoncrawler_content_update_10205(): string {
 }
 
 /**
+ * Archive campaigns lacking the canonical campaign_data.authority contract.
+ *
+ * Board cutover decision (HQ 57871ad098): there is no backward compatibility
+ * for legacy campaigns. Any non-archived campaign missing the canonical
+ * authority marker (graph_source=campaign_tables,
+ * delivery_snapshot_policy=projection_only) is archived through the single-path
+ * CampaignLifecycleService with a `legacy_campaign_contract` reason. No campaign
+ * is deleted and no authority is synthesized. This is idempotent and a no-op on
+ * the live deployment where the 53 legacy campaigns were already archived; it
+ * converges other deployments onto the invariant.
+ */
+function dungeoncrawler_content_update_10206(): string {
+  /** @var \Drupal\dungeoncrawler_content\Service\CampaignLifecycleService $lifecycle */
+  $lifecycle = \Drupal::service('dungeoncrawler_content.campaign_lifecycle');
+  $result = $lifecycle->archiveLegacyCampaignsWithoutAuthority();
+
+  $message = sprintf(
+    'update_10206 legacy campaign cutover: scanned=%d archived=%d ids=[%s].',
+    $result['scanned'],
+    $result['archived'],
+    implode(',', $result['ids'])
+  );
+  \Drupal::logger('dungeoncrawler_content')->notice($message);
+  return $message;
+}
+
+
+/**
  * Records one definition's schema findings as a review flag.
  *
  * @return int

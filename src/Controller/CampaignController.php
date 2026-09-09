@@ -6,6 +6,7 @@ use Drupal\Component\Datetime\TimeInterface;
 use Drupal\Core\Cache\Cache;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Database\Connection;
+use Drupal\dungeoncrawler_content\Service\CampaignLifecycleService;
 use Drupal\Core\Form\FormBuilderInterface;
 use Drupal\Core\Url;
 use Drupal\dungeoncrawler_content\Form\CampaignCreateForm;
@@ -41,8 +42,9 @@ class CampaignController extends ControllerBase {
   protected NavigationService $navigationService;
   protected RuntimeBootstrapService $runtimeBootstrap;
   protected TimeInterface $time;
+  protected CampaignLifecycleService $campaignLifecycle;
 
-  public function __construct(Connection $database, CharacterManager $character_manager, FormBuilderInterface $form_builder, GeneratedImageRepository $image_repository, InstitutionMembershipService $institution_membership, CampaignCharacterRuntimeResolverService $runtime_resolver, GameCoordinatorService $game_coordinator, NavigationService $navigation_service, RuntimeBootstrapService $runtime_bootstrap, TimeInterface $time) {
+  public function __construct(Connection $database, CharacterManager $character_manager, FormBuilderInterface $form_builder, GeneratedImageRepository $image_repository, InstitutionMembershipService $institution_membership, CampaignCharacterRuntimeResolverService $runtime_resolver, GameCoordinatorService $game_coordinator, NavigationService $navigation_service, RuntimeBootstrapService $runtime_bootstrap, TimeInterface $time, CampaignLifecycleService $campaign_lifecycle) {
     $this->database = $database;
     $this->characterManager = $character_manager;
     $this->formBuilderService = $form_builder;
@@ -53,6 +55,7 @@ class CampaignController extends ControllerBase {
     $this->navigationService = $navigation_service;
     $this->runtimeBootstrap = $runtime_bootstrap;
     $this->time = $time;
+    $this->campaignLifecycle = $campaign_lifecycle;
   }
 
   /**
@@ -70,6 +73,7 @@ class CampaignController extends ControllerBase {
       $container->get('dungeoncrawler_content.navigation_service'),
       $container->get('dungeoncrawler_content.runtime_bootstrap'),
       $container->get('datetime.time'),
+      $container->get('dungeoncrawler_content.campaign_lifecycle'),
     );
   }
 
@@ -1681,30 +1685,12 @@ class CampaignController extends ControllerBase {
       ? Url::fromUserInput($destination)->toString()
       : Url::fromRoute('dungeoncrawler_content.campaigns')->toString();
 
-    if ((string) $campaign->status === 'archived') {
+    $result = $this->campaignLifecycle->archive($campaign_id);
+
+    if ($result['status'] === 'already_archived') {
       $this->messenger()->addStatus($this->t('%name is already archived.', ['%name' => $campaign->name]));
       return new RedirectResponse($redirect_url);
     }
-
-    $campaign_data = json_decode((string) ($campaign->campaign_data ?? '{}'), TRUE);
-    if (!is_array($campaign_data)) {
-      $campaign_data = [];
-    }
-    $campaign_data['_archive_meta'] = [
-      'previous_status' => (string) $campaign->status,
-      'archived_at' => $this->time->getRequestTime(),
-    ];
-
-    $this->database->update('dc_campaigns')
-      ->fields([
-        'status' => 'archived',
-        'campaign_data' => json_encode($campaign_data, JSON_UNESCAPED_UNICODE),
-        'changed' => $this->time->getRequestTime(),
-      ])
-      ->condition('id', $campaign_id)
-      ->execute();
-
-    Cache::invalidateTags(['dc_campaigns', 'dc_campaign:' . $campaign_id]);
 
     $this->messenger()->addStatus($this->t('%name archived. It is now hidden from your campaigns list.', [
       '%name' => $campaign->name,

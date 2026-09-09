@@ -195,7 +195,7 @@ class CharacterStateController extends ControllerBase {
       return new JsonResponse([
         'success' => FALSE,
         'error' => $e->getMessage(),
-        'currentVersion' => $this->characterStateService->getState($character_id, $campaign_id, $instance_id)['metadata']['version'] ?? 0,
+        'currentVersion' => $this->actorStateService->getState($character_id, $campaign_id, $instance_id)['metadata']['version'] ?? 0,
       ], $code);
     }
     catch (\Exception $e) {
@@ -277,7 +277,7 @@ class CharacterStateController extends ControllerBase {
     }
     
     try {
-      $state = $this->characterStateService->getState($character_id);
+      $state = $this->actorStateService->getState($character_id);
       
       return new JsonResponse([
         'success' => TRUE,

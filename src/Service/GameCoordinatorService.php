@@ -802,7 +802,22 @@ class GameCoordinatorService {
    * (actor/character scoped state read) while allowing the first gameplay
    * state read to materialize canonical room-entry state when needed.
    */
+  /**
+   * Reject archived or legacy campaigns before materializing game state.
+   *
+   * Board cutover invariant: archived/legacy campaigns can never be launched or
+   * read by the current runtime, even if these endpoints are invoked directly.
+   * Enforced through the single-path CampaignLifecycleService invariant.
+   */
+  protected function assertCampaignLaunchable(int $campaign_id): void {
+    if (!\Drupal::hasContainer() || !\Drupal::hasService('dungeoncrawler_content.campaign_lifecycle')) {
+      return;
+    }
+    \Drupal::service('dungeoncrawler_content.campaign_lifecycle')->assertLaunchable($campaign_id);
+  }
+
   public function getAuthoritativeLaunchState(int $campaign_id, ?string $actor_id = NULL, ?int $character_id = NULL): array {
+    $this->assertCampaignLaunchable($campaign_id);
     $prepared = $this->prepareScopedFullStateContext($campaign_id, $actor_id, $character_id);
     if ($prepared === NULL) {
       return $this->errorResponse('Campaign dungeon data not found.');
@@ -845,6 +860,7 @@ class GameCoordinatorService {
    * mutation work are handled by explicit launch/write lanes, not this reader.
    */
   public function getMaterializedFullState(int $campaign_id, ?string $actor_id = NULL, ?int $character_id = NULL): array {
+    $this->assertCampaignLaunchable($campaign_id);
     $prepared = $this->prepareScopedFullStateContext($campaign_id, $actor_id, $character_id);
     if ($prepared === NULL) {
       return $this->errorResponse('Campaign dungeon data not found.');

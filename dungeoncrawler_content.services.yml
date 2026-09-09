@@ -951,15 +951,21 @@ services:
   dungeoncrawler_content.dungeon_state_service:
     class: Drupal\dungeoncrawler_content\Service\DungeonStateService
     arguments: ['@database', '@logger.factory', '@dungeoncrawler_content.state_validation_service']
+    tags:
+      - { name: dungeoncrawler_content.object_state_provider, object_type: dungeon }
 
   dungeoncrawler_content.campaign_state_service:
     class: Drupal\dungeoncrawler_content\Service\CampaignStateService
     arguments: ['@database', '@logger.factory', '@dungeoncrawler_content.campaign_clock']
+    tags:
+      - { name: dungeoncrawler_content.object_state_provider, object_type: campaign }
 
   dungeoncrawler_content.actor_state:
     class: Drupal\dungeoncrawler_content\Service\ActorStateService
     arguments:
       - '@dungeoncrawler_content.character_state'
+    tags:
+      - { name: dungeoncrawler_content.object_state_provider, object_type: actor }
 
   dungeoncrawler_content.actor_state_service:
     alias: dungeoncrawler_content.actor_state
@@ -968,6 +974,8 @@ services:
     class: Drupal\dungeoncrawler_content\Service\EncounterStateService
     arguments:
       - '@dungeoncrawler_content.combat_encounter_store'
+    tags:
+      - { name: dungeoncrawler_content.object_state_provider, object_type: encounter }
 
   dungeoncrawler_content.encounter_state_service:
     alias: dungeoncrawler_content.encounter_state
@@ -976,6 +984,8 @@ services:
     class: Drupal\dungeoncrawler_content\Service\ItemStateService
     arguments:
       - '@dungeoncrawler_content.inventory_management'
+    tags:
+      - { name: dungeoncrawler_content.object_state_provider, object_type: item }
 
   dungeoncrawler_content.item_state_service:
     alias: dungeoncrawler_content.item_state
@@ -984,6 +994,8 @@ services:
     class: Drupal\dungeoncrawler_content\Service\InventoryStateService
     arguments:
       - '@dungeoncrawler_content.inventory_management'
+    tags:
+      - { name: dungeoncrawler_content.object_state_provider, object_type: inventory }
 
   dungeoncrawler_content.inventory_state_service:
     alias: dungeoncrawler_content.inventory_state
@@ -992,6 +1004,8 @@ services:
     class: Drupal\dungeoncrawler_content\Service\QuestStateService
     arguments:
       - '@dungeoncrawler_content.quest_tracker'
+    tags:
+      - { name: dungeoncrawler_content.object_state_provider, object_type: quest }
 
   dungeoncrawler_content.quest_state_service:
     alias: dungeoncrawler_content.quest_state
@@ -1000,25 +1014,37 @@ services:
     class: Drupal\dungeoncrawler_content\Service\EffectStateService
     arguments:
       - '@dungeoncrawler_content.active_effect_store'
+    tags:
+      - { name: dungeoncrawler_content.object_state_provider, object_type: effects }
 
   dungeoncrawler_content.effect_state_service:
     alias: dungeoncrawler_content.effect_state
 
+  dungeoncrawler_content.object_state_provider_registry:
+    class: Drupal\dungeoncrawler_content\Service\ObjectState\ObjectStateProviderRegistry
+    # Argument 0 is populated by DungeoncrawlerContentServiceProvider from
+    # services tagged dungeoncrawler_content.object_state_provider (container
+    # guard against competing providers for the same object type).
+    arguments:
+      - []
+
   dungeoncrawler_content.object_state:
     class: Drupal\dungeoncrawler_content\Service\ObjectStateService
     arguments:
-      - '@dungeoncrawler_content.campaign_state_service'
-      - '@dungeoncrawler_content.dungeon_state_service'
-      - '@dungeoncrawler_content.room_state_service'
-      - '@dungeoncrawler_content.actor_state'
-      - '@dungeoncrawler_content.encounter_state'
-      - '@dungeoncrawler_content.item_state'
-      - '@dungeoncrawler_content.inventory_state'
-      - '@dungeoncrawler_content.quest_state'
-      - '@dungeoncrawler_content.effect_state'
+      - '@dungeoncrawler_content.object_state_provider_registry'
 
   dungeoncrawler_content.object_state_service:
     alias: dungeoncrawler_content.object_state
+
+  dungeoncrawler_content.campaign_lifecycle:
+    class: Drupal\dungeoncrawler_content\Service\CampaignLifecycleService
+    arguments:
+      - '@database'
+      - '@datetime.time'
+      - '@cache_tags.invalidator'
+
+  dungeoncrawler_content.campaign_lifecycle_service:
+    alias: dungeoncrawler_content.campaign_lifecycle
 
   dungeoncrawler_content.campaign_clock:
     class: Drupal\dungeoncrawler_content\Service\CampaignClockService
@@ -1510,6 +1536,8 @@ services:
   dungeoncrawler_content.room_state_service:
     class: Drupal\dungeoncrawler_content\Service\RoomStateService
     arguments: ['@database', '@logger.factory', '@event_dispatcher', '@dungeoncrawler_content.state_validation_service']
+    tags:
+      - { name: dungeoncrawler_content.object_state_provider, object_type: room }
 
   dungeoncrawler_content.state_validation_service:
     class: Drupal\dungeoncrawler_content\Service\StateValidationService

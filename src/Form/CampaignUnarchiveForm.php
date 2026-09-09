@@ -9,6 +9,8 @@ use Drupal\Core\Form\ConfirmFormBase;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\Core\Url;
+use Drupal\dungeoncrawler_content\Exception\LegacyCampaignArchivedException;
+use Drupal\dungeoncrawler_content\Service\CampaignLifecycleService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
@@ -21,12 +23,14 @@ class CampaignUnarchiveForm extends ConfirmFormBase {
   protected Connection $database;
   protected TimeInterface $time;
   protected AccountProxyInterface $currentUser;
+  protected CampaignLifecycleService $campaignLifecycle;
   protected ?object $campaign = NULL;
 
-  public function __construct(Connection $database, TimeInterface $time, AccountProxyInterface $current_user) {
+  public function __construct(Connection $database, TimeInterface $time, AccountProxyInterface $current_user, CampaignLifecycleService $campaign_lifecycle) {
     $this->database = $database;
     $this->time = $time;
     $this->currentUser = $current_user;
+    $this->campaignLifecycle = $campaign_lifecycle;
   }
 
   /**
@@ -37,6 +41,7 @@ class CampaignUnarchiveForm extends ConfirmFormBase {
       $container->get('database'),
       $container->get('datetime.time'),
       $container->get('current_user'),
+      $container->get('dungeoncrawler_content.campaign_lifecycle'),
     );
   }
 
@@ -109,38 +114,24 @@ class CampaignUnarchiveForm extends ConfirmFormBase {
    * {@inheritdoc}
    */
   public function submitForm(array &$form, FormStateInterface $form_state) {
-    if ((string) $this->campaign->status !== 'archived') {
-      $this->messenger()->addStatus($this->t('%name is not archived.', ['%name' => $this->campaign->name]));
+    try {
+      $result = $this->campaignLifecycle->unarchive((int) $this->campaign->id);
+    }
+    catch (LegacyCampaignArchivedException $e) {
+      // Board cutover: legacy archived campaigns can never re-enter runtime.
+      $this->messenger()->addError($this->t('%name is a legacy campaign and cannot be unarchived into the current runtime (@code). It remains archived.', [
+        '%name' => $this->campaign->name,
+        '@code' => LegacyCampaignArchivedException::CODE,
+      ]));
       $form_state->setRedirectUrl($this->getCancelUrl());
       return;
     }
 
-    $campaign_data = json_decode((string) ($this->campaign->campaign_data ?? '{}'), TRUE);
-    if (!is_array($campaign_data)) {
-      $campaign_data = [];
+    if ($result['status'] === 'not_archived') {
+      $this->messenger()->addStatus($this->t('%name is not archived.', ['%name' => $this->campaign->name]));
+      $form_state->setRedirectUrl($this->getCancelUrl());
+      return;
     }
-
-    $allowed_statuses = ['draft', 'ready', 'active', 'completed'];
-    $restored_status = (string) ($campaign_data['_archive_meta']['previous_status'] ?? 'draft');
-    if (!in_array($restored_status, $allowed_statuses, TRUE)) {
-      $restored_status = 'draft';
-    }
-
-    unset($campaign_data['_archive_meta']);
-
-    $this->database->update('dc_campaigns')
-      ->fields([
-        'status' => $restored_status,
-        'campaign_data' => json_encode($campaign_data, JSON_UNESCAPED_UNICODE),
-        'changed' => $this->time->getRequestTime(),
-      ])
-      ->condition('id', (int) $this->campaign->id)
-      ->execute();
-
-    Cache::invalidateTags([
-      'dc_campaigns',
-      'dc_campaign:' . (int) $this->campaign->id,
-    ]);
 
     $this->messenger()->addStatus($this->t('%name unarchived. It is now visible on your campaigns list.', [
       '%name' => $this->campaign->name,

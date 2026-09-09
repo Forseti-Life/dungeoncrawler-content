@@ -4,12 +4,17 @@ namespace Drupal\dungeoncrawler_content\Service;
 
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
+use Drupal\dungeoncrawler_content\Service\ObjectState\ObjectRef;
+use Drupal\dungeoncrawler_content\Service\ObjectState\ObjectStateEnvelope;
+use Drupal\dungeoncrawler_content\Service\ObjectState\ObjectStateProviderInterface;
 use Psr\Log\LoggerInterface;
 
 /**
  * Manages campaign-level state snapshots with optimistic versioning in DB.
  */
-class CampaignStateService {
+class CampaignStateService implements ObjectStateProviderInterface {
+
+  public const OBJECT_TYPE = 'campaign';
 
   private Connection $database;
   private LoggerInterface $logger;
@@ -61,6 +66,38 @@ class CampaignStateService {
       'version' => $version,
       'updatedAt' => $updated_at,
     ];
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function objectType(): string {
+    return self::OBJECT_TYPE;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function supports(string $object_type): bool {
+    return $object_type === self::OBJECT_TYPE;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function getObjectState(ObjectRef $ref): ObjectStateEnvelope {
+    $state = $this->getState($ref->objectIdAsInt());
+
+    return ObjectStateEnvelope::create(
+      self::OBJECT_TYPE,
+      $ref->objectId,
+      self::class,
+      self::class,
+      'campaign_tables',
+      is_array($state['state'] ?? NULL) ? $state['state'] : $state,
+      isset($state['version']) ? (int) $state['version'] : NULL,
+      isset($state['updatedAt']) ? (string) $state['updatedAt'] : NULL,
+    );
   }
 
   /**

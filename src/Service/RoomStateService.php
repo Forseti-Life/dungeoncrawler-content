@@ -2,6 +2,10 @@
 
 namespace Drupal\dungeoncrawler_content\Service;
 
+use Drupal\dungeoncrawler_content\Service\ObjectState\ObjectRef;
+use Drupal\dungeoncrawler_content\Service\ObjectState\ObjectStateEnvelope;
+use Drupal\dungeoncrawler_content\Service\ObjectState\ObjectStateProviderInterface;
+
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\dungeoncrawler_content\Event\RoomDiscoveredEvent;
@@ -11,7 +15,9 @@ use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 /**
  * Manages per-room runtime state with optimistic versioning.
  */
-class RoomStateService {
+class RoomStateService implements ObjectStateProviderInterface {
+
+  public const OBJECT_TYPE = 'room';
 
   private Connection $database;
   private LoggerInterface $logger;
@@ -389,6 +395,40 @@ class RoomStateService {
     }
 
     return TRUE;
+  }
+
+
+  /**
+   * {@inheritdoc}
+   */
+  public function objectType(): string {
+    return self::OBJECT_TYPE;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function supports(string $object_type): bool {
+    return $object_type === self::OBJECT_TYPE;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function getObjectState(ObjectRef $ref): ObjectStateEnvelope {
+    $campaign_id = $ref->requireContextInt('campaign_id', 'Room state requires campaign_id context.');
+    $state = $this->getState($campaign_id, $ref->objectId);
+
+    return ObjectStateEnvelope::create(
+      self::OBJECT_TYPE,
+      $ref->objectId,
+      self::class,
+      self::class,
+      'campaign_tables',
+      $state,
+      isset($state['version']) ? (int) $state['version'] : NULL,
+      isset($state['updatedAt']) ? (string) $state['updatedAt'] : NULL,
+    );
   }
 
 }
