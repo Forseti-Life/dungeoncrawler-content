@@ -22,6 +22,13 @@ Primary action entry point:
 
 Legacy combat mutation endpoints under `/api/combat/*` are non-canonical support surfaces; player action flow is coordinator-driven.
 
+### Campaign Creation Sources
+
+`/campaigns/create` supports two distinct starting sources:
+
+- **Theme** procedurally generates a new campaign from the selected setting style.
+- **Published dungeon** instantiates the selected current canonical dungeon version with its authored rooms, objects, and connections.
+
 ## 1A. Hexmap UI API Ownership Contract
 
 Hexmap V2 panels must map directly to authoritative read/write API families.

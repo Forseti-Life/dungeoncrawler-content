@@ -105,6 +105,7 @@ class CampaignCreateForm extends FormBase {
         'published_dungeon' => $this->t('Published dungeon'),
       ],
       '#default_value' => (string) ($form_state->getValue('start_from') ?: 'theme'),
+      '#description' => $this->t('Choose Theme to generate a new campaign from a setting style. Choose Published dungeon to play a specific, fully authored dungeon from the canonical library, including its published rooms, objects, and connections.'),
     ];
 
     $form['theme'] = [
@@ -117,6 +118,7 @@ class CampaignCreateForm extends FormBase {
         'undead_crypt' => $this->t('Undead Crypt'),
       ],
       '#default_value' => 'classic_dungeon',
+      '#description' => $this->t('The selected theme guides procedural generation; the campaign is not tied to a pre-authored dungeon layout.'),
       '#states' => [
         'visible' => [
           ':input[name="start_from"]' => ['value' => 'theme'],
@@ -131,8 +133,8 @@ class CampaignCreateForm extends FormBase {
       '#empty_option' => $this->t('- Select a published dungeon -'),
       '#options' => $published_dungeons['options'],
       '#description' => $published_dungeons['licence_notice'] !== ''
-        ? $this->t('Licence notice: @notice', ['@notice' => $published_dungeons['licence_notice']])
-        : $this->t('Only dungeons with a current published version are listed.'),
+        ? $this->t('Starts from the selected canonical dungeon exactly as published. Only dungeons with a current published version are listed. Licence notice: @notice', ['@notice' => $published_dungeons['licence_notice']])
+        : $this->t('Starts from the selected canonical dungeon exactly as published. Only dungeons with a current published version are listed.'),
       '#states' => [
         'visible' => [
           ':input[name="start_from"]' => ['value' => 'published_dungeon'],
