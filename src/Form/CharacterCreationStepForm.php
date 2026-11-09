@@ -170,13 +170,197 @@ class CharacterCreationStepForm extends FormBase {
     return 'character_creation_step_form';
   }
 
+  private ?array $validationDraft = NULL;
+
+  public function recalculateDraft(array $character_data): array {
+    return $this->storeCalculatedAbilityScores($character_data, $this->abilityScoreTracker->calculateAbilityScores($character_data));
+  }
+
+  public function creationEquipmentCatalog(): array {
+    return $this->getEquipmentCatalog();
+  }
+
+  /**
+   * Project GM choices with the same pure step transformations as form submits.
+   */
+  public function projectDraft(array $data, array $changed_fields): array {
+    $steps = [];
+    foreach ([
+      2 => ['ancestry', 'heritage', 'ancestry_feat', 'ancestry_boosts', 'feat_selections'],
+      3 => ['background', 'background_boosts'],
+      4 => ['ancestry_feat', 'class', 'class_key_ability', 'class_feat', 'subclass', 'arcane_thesis', 'cantrips', 'spells_first', 'feat_selections'],
+      5 => ['free_boosts'],
+      6 => ['general_feat', 'trained_skills', 'feat_selections'],
+      7 => ['equipment_ids'],
+    ] as $step => $fields) {
+      if (array_intersect($fields, $changed_fields) !== []) {
+        $steps[] = $step;
+      }
+    }
+    foreach ($steps as $step) {
+      $values = $data;
+      if ($step === 7) {
+        $catalog = $this->getEquipmentCatalog();
+        $ids = $data['gm_equipment_ids'] ?? [];
+        $known_ids = array_merge(...array_values(array_map(static fn(array $items): array => array_column($items, 'id'), $catalog)));
+        if (array_diff($ids, $known_ids) !== []) {
+          throw new \InvalidArgumentException('Unknown starting equipment IDs: ' . implode(', ', array_diff($ids, $known_ids)));
+        }
+        foreach ($catalog as $group => $items) {
+          $values[$group] = array_values(array_intersect($ids, array_column($items, 'id')));
+        }
+      }
+      $state = (new \Drupal\Core\Form\FormState())->set('step', $step)->setValues($values);
+      $data = $this->projectStepValues($data, $step, $state)['character_data'];
+    }
+    $data = $this->recalculateDraft($data);
+    return $this->characterManager->canonicalizeCharacterData($this->wizardHardening->syncWizardDraftFromCharacterData($data));
+  }
+
+  /**
+   * Persist a validated GM patch through the wizard's canonical save authority.
+   */
+  public function saveValidatedDraft(?int $character_id, array $data, int $expected_revision, ?int $campaign_id): int {
+    return (int) $this->saveCharacter($character_id, $data, $character_id ? $expected_revision + 1 : 0, $campaign_id);
+  }
+
+  /**
+   * Inspect a draft using the same elements and validators as every wizard step.
+   *
+   * No submit handler, character save, or portrait generation is invoked.
+   */
+  public function validateDraft(array $character_data, ?int $campaign_id = NULL): array {
+    $previous_draft = $this->validationDraft;
+    $this->validationDraft = $character_data;
+    $builder = \Drupal::formBuilder();
+    $validator = \Drupal::service('dungeoncrawler_content.character_draft_form_validator');
+    $report = ['valid' => TRUE, 'ready' => TRUE, 'errors' => [], 'warnings' => [], 'steps' => []];
+    $checkbox_values = static function (array $values) use (&$checkbox_values): array {
+      foreach ($values as &$value) {
+        if (is_array($value)) {
+          if (array_is_list($value) && count(array_filter($value, 'is_string')) === count($value)) {
+            $ids = self::normalizeList($value);
+            $value = array_combine($ids, $ids);
+          }
+          else {
+            $value = $checkbox_values($value);
+          }
+        }
+      }
+      return $values;
+    };
+    try {
+      for ($step = 1; $step <= 8; $step++) {
+        $values = $character_data;
+        $values['feat_selections'] = $checkbox_values($values['feat_selections'] ?? []);
+        foreach (['ancestry_boosts', 'background_boosts', 'free_boosts'] as $field) {
+          $values[$field] = json_encode(self::normalizeList($values[$field] ?? []), JSON_THROW_ON_ERROR);
+        }
+        $values['cantrips'] = CharacterManager::getSelectedCantripIds($character_data);
+        $values['spells_first'] = CharacterManager::getSelectedFirstLevelSpellIds($character_data);
+        foreach (['cantrips', 'spells_first', 'trained_skills'] as $field) {
+          $ids = self::normalizeList($values[$field] ?? []);
+          $values[$field] = array_combine($ids, $ids);
+        }
+        $equipment_ids = $character_data['gm_equipment_ids']
+          ?? array_column($character_data['inventory']['carried'] ?? [], 'id');
+        foreach ($this->getEquipmentCatalog() as $group => $items) {
+          $ids = array_values(array_intersect($equipment_ids, array_column($items, 'id')));
+          $values[$group] = array_combine($ids, $ids);
+        }
+        $state = new \Drupal\Core\Form\FormState();
+        $state->setProgrammed()->setValues($values)->setUserInput($values);
+        $builder->getFormId($this, $state);
+        $form = $this->buildForm([], $state, $step, NULL, $campaign_id);
+        $builder->prepareForm($this->getFormId(), $form, $state);
+        $form = $builder->doBuildForm($this->getFormId(), $form, $state);
+        $validator->validateForm($this->getFormId(), $form, $state);
+        $choices = [];
+        $collect = function (array $element) use (&$collect, &$choices): void {
+          if (isset($element['#options'], $element['#parents']) && !empty($element['#input'])
+            && in_array($element['#type'] ?? '', ['select', 'radios', 'checkboxes'], TRUE)) {
+            $options = \Drupal\Core\Form\OptGroup::flattenOptions($element['#options']);
+            $choices[implode('][', $element['#parents'])] = [
+              'required' => !empty($element['#required']),
+              'multiple' => ($element['#type'] === 'checkboxes') || !empty($element['#multiple']),
+              'options' => array_map(static fn(mixed $label): string => (string) $label, $options),
+            ];
+          }
+          foreach ($element as $key => $child) {
+            if (!str_starts_with((string) $key, '#') && is_array($child)) {
+              $collect($child);
+            }
+          }
+        };
+        $collect($form);
+        $issues = [];
+        foreach ($state->getErrors() as $field => $message) {
+          $value = $state->getValue(explode('][', $field));
+          if (in_array($field, ['ancestry_boosts', 'background_boosts', 'free_boosts'], TRUE)) {
+            $value = self::normalizeList($value);
+          }
+          elseif (!empty($choices[$field]['multiple']) && is_array($value)) {
+            $value = self::normalizeList($value);
+          }
+          $missing = $step !== 7 && ($value === NULL || $value === '' || $value === []);
+          $issue = [
+            'code' => $missing ? 'character_choice_required' : 'character_choice_invalid',
+            'severity' => $missing ? 'warning' : 'error',
+            'step' => $step,
+            'field' => $field,
+            'path' => 'steps.' . $step . '.' . str_replace('][', '.', $field),
+            'message' => (string) $message,
+          ];
+          $issues[] = $issue;
+          $report[$missing ? 'warnings' : 'errors'][] = $issue;
+        }
+        if ($step === 8) {
+          foreach ($this->collectPendingCreationSelectionGrants($character_data) as $grant) {
+            $issue = [
+              'code' => 'character_feature_choice_required',
+              'severity' => 'warning',
+              'step' => 8,
+              'field' => 'feat_selections',
+              'path' => 'features.featEffects.selection_grants',
+              'message' => (string) ($grant['description'] ?? $grant['selection_type'] ?? 'Unresolved feature selection.'),
+            ];
+            $issues[] = $issue;
+            $report['warnings'][] = $issue;
+          }
+        }
+        $schema = $this->schemaLoader->loadStepSchema($step);
+        $report['steps'][] = [
+          'number' => $step,
+          'name' => $schema['properties']['step_name']['const'] ?? 'Step ' . $step,
+          'complete' => $issues === [],
+          'issues' => $issues,
+          'choices' => $choices,
+        ];
+        $state->clearErrors();
+      }
+    }
+    finally {
+      $this->validationDraft = $previous_draft;
+      if (isset($state)) {
+        $state->clearErrors();
+      }
+    }
+    $report['valid'] = $report['errors'] === [];
+    $report['ready'] = $report['valid'] && $report['warnings'] === [];
+    $report['completed_steps'] = count(array_filter($report['steps'], static fn(array $step): bool => $step['complete']));
+    $report['percent_complete'] = (int) round($report['completed_steps'] / 8 * 100);
+    $incomplete = array_values(array_filter($report['steps'], static fn(array $step): bool => !$step['complete']));
+    $report['next_step'] = $incomplete[0]['number'] ?? 8;
+    return $report;
+  }
+
   /**
    * {@inheritdoc}
    */
   public function buildForm(array $form, FormStateInterface $form_state, int $step = 1, int|string|null $character_id = NULL, int|string|null $campaign_id = NULL): array {
     $embedded = (bool) $this->getRequest()->query->get('embedded');
     $setup_shell = $this->getRequest()->getPathInfo() === '/charactersetup';
-    $compact_layout = $embedded || $setup_shell;
+    $compact_layout = $embedded || $setup_shell || $this->validationDraft !== NULL;
     $character_record = $character_id ? $this->characterManager->loadCharacter((int) $character_id) : NULL;
     $effective_campaign_id = $this->resolveEffectiveCampaignId($character_record, $campaign_id);
     $character_data = $this->loadCharacterData($character_id);
@@ -184,7 +368,7 @@ class CharacterCreationStepForm extends FormBase {
     // Load character record for concurrent-edit version tracking.
     $form['character_version'] = [
       '#type' => 'hidden',
-      '#value' => $character_record ? (int) ($character_record->version ?? 0) : 0,
+      '#default_value' => $character_record ? (int) ($character_record->version ?? 0) : 0,
     ];
 
     // Store metadata
@@ -228,11 +412,12 @@ class CharacterCreationStepForm extends FormBase {
     if (!$compact_layout) {
       $form['#attached']['library'][] = 'dungeoncrawler_content/character-creation-gm-chat';
       $form['#attached']['drupalSettings']['dungeoncrawlerCharacterGm'] = [
-        'endpoint' => Url::fromRoute('dungeoncrawler_content.api.character_gm_chat')->toString(),
+        'endpointTemplate' => Url::fromRoute('dungeoncrawler_content.api.character_creation_gm', ['draft_id' => '0'])->toString(),
+        'createEndpoint' => Url::fromRoute('dungeoncrawler_content.api.character_creation_draft')->toString(),
         'characterId' => $character_id ? (int) $character_id : NULL,
         'campaignId' => $effective_campaign_id > 0 ? $effective_campaign_id : NULL,
         'step' => $step,
-        'csrfToken' => $this->csrfToken->get('rest'),
+        'csrfToken' => $this->csrfToken->get(\Drupal\Core\Access\CsrfRequestHeaderAccessCheck::TOKEN_KEY),
         'history' => $this->characterCreationGm->getChatHistory($character_data),
         'summary' => $this->characterCreationGm->buildSummary($character_data),
       ];
@@ -242,7 +427,7 @@ class CharacterCreationStepForm extends FormBase {
     $progress_markup = $compact_layout ? '' : '<div class="progress-bar"><div class="progress-indicator progress-step-' . $step . '"></div></div><div class="progress-text">' . $this->t('Step @step of @total', ['@step' => $step, '@total' => 8]) . '</div>';
     $form['#prefix'] = Markup::create($prefix
       . '<div class="character-creation-step' . ($compact_layout ? ' character-creation-step--embedded' : '') . '"><div class="creation-container">' . $progress_markup . '<div class="step-content">');
-    $form['#suffix'] = Markup::create('</div></div></div></div>');
+    $form['#suffix'] = Markup::create('</div></div></div>' . ($compact_layout ? '' : '</div>'));
 
     $show_quick_play = $effective_campaign_id > 0
       && (int) $step === 1
@@ -312,8 +497,68 @@ class CharacterCreationStepForm extends FormBase {
         'data-character-setup-submit' => 'wizard_next',
       ],
     ];
+    if ($setup_shell && $this->validationDraft === NULL) {
+      $form['actions']['submit']['#ajax'] = [
+        'callback' => '::workspaceSubmit',
+        'disable-refocus' => TRUE,
+        'progress' => ['type' => 'throbber', 'message' => $this->t('Waiting for the server to validate and save this step...')],
+      ];
+      $query = ['step' => $step];
+      if ($character_id) {
+        $query['character_id'] = (int) $character_id;
+      }
+      if ($effective_campaign_id > 0) {
+        $query['campaign_id'] = $effective_campaign_id;
+      }
+      $form['#action'] = Url::fromRoute('dungeoncrawler_content.character_setup', [], ['query' => $query])->toString();
+      // Fragments render on a GET route, but every form callback posts to setup.
+      $bind = function (array &$element) use (&$bind, $query): void {
+        if (isset($element['#ajax']['callback'])) {
+          $element['#ajax']['url'] = Url::fromRoute('dungeoncrawler_content.character_setup');
+          $element['#ajax']['options']['query'] = $query + ['ajax_form' => 1];
+        }
+        foreach ($element as $key => &$child) {
+          if (!str_starts_with((string) $key, '#') && is_array($child)) {
+            $bind($child);
+          }
+        }
+      };
+      $bind($form);
+    }
 
     return $form;
+  }
+
+  public function workspaceSubmit(array &$form, FormStateInterface $form_state): \Drupal\Core\Ajax\AjaxResponse {
+    $response = new \Drupal\Core\Ajax\AjaxResponse();
+    $redirect = $form_state->get('wizard_redirect');
+    if (!$form_state->hasAnyErrors() && $redirect instanceof Url) {
+      if ($redirect->getRouteName() === 'dungeoncrawler_content.character_setup') {
+        $response->addCommand(new \Drupal\Core\Ajax\InvokeCommand('[data-character-setup-root]', 'trigger', [
+          'characterWorkspaceSaved', $redirect->getOption('query'),
+        ]));
+      }
+      else {
+        $response->addCommand(new \Drupal\Core\Ajax\RedirectCommand($redirect->toString()));
+      }
+      return $response;
+    }
+    $step = (int) $form_state->get('step');
+    $schema = $this->schemaLoader->loadStepSchema($step);
+    $response->addCommand(new \Drupal\Core\Ajax\ReplaceCommand('[data-character-step-region]', [
+      '#theme' => 'character_setup_step',
+      '#active_step' => $step,
+      '#step_name' => $schema['properties']['step_name']['const'] ?? 'Step ' . $step,
+      '#step_form' => $form,
+      '#messages' => ['#type' => 'status_messages'],
+    ]));
+    return $response;
+  }
+
+  private function redirectAfterSave(FormStateInterface $form_state, string $route, array $parameters = [], array $options = []): void {
+    $url = Url::fromRoute($route, $parameters, $options);
+    $form_state->set('wizard_redirect', $url);
+    $form_state->setRedirectUrl($url);
   }
 
   /**
@@ -1216,7 +1461,7 @@ class CharacterCreationStepForm extends FormBase {
         '#type' => 'radios',
         '#title' => $this->t('Select Class Feat'),
         '#options' => $feat_options,
-        '#default_value' => $character_data['class_feat'] ?? '',
+        '#default_value' => ($character_data['class_feat'] ?? '') ?: NULL,
         '#required' => TRUE,
         '#description' => $this->t('Each feat provides unique tactical options that define your combat style.'),
         '#ajax' => [
@@ -1362,7 +1607,7 @@ class CharacterCreationStepForm extends FormBase {
         '#type' => 'radios',
         '#title' => $this->t('Select Arcane School'),
         '#options' => $school_options,
-        '#default_value' => $character_data['subclass'] ?? '',
+        '#default_value' => ($character_data['subclass'] ?? '') ?: NULL,
         '#required' => TRUE,
         '#description' => $this->t('Your arcane school determines your school spell access and specialist feat prerequisites.'),
       ];
@@ -2362,6 +2607,18 @@ class CharacterCreationStepForm extends FormBase {
    */
   public function validateForm(array &$form, FormStateInterface $form_state): void {
     $step = (int) $form_state->get('step');
+    if ($this->validationDraft === NULL && $form_state->get('character_id')) {
+      $record = $this->characterManager->loadCharacter((int) $form_state->get('character_id'));
+      if (!$record || ((int) $record->uid !== (int) $this->currentUser->id()
+        && !$this->currentUser->hasPermission('administer dungeoncrawler content'))) {
+        $form_state->setErrorByName('character_version', $this->t('Character draft access denied.'));
+        return;
+      }
+      if ((int) $record->version !== (int) $form_state->getValue('character_version', -1)) {
+        $form_state->setErrorByName('character_version', $this->t('The character changed in another editor. Your unsaved input is preserved; copy it or discard it before reloading.'));
+        return;
+      }
+    }
 
     switch ($step) {
       case 1:
@@ -2738,6 +2995,18 @@ class CharacterCreationStepForm extends FormBase {
           ]));
         }
         break;
+
+      case 8:
+        if ($this->validationDraft === NULL && !$form_state->hasAnyErrors()) {
+          $data = array_replace($this->loadCharacterData($form_state->get('character_id')), $form_state->getValues());
+          $report = $this->validateDraft($data, (int) $form_state->get('campaign_id'));
+          foreach (array_merge($report['errors'], $report['warnings']) as $issue) {
+            $form_state->setErrorByName('wizard_readiness_' . $issue['step'], $this->t('Step @step: @message', [
+              '@step' => $issue['step'], '@message' => $issue['message'],
+            ]));
+          }
+        }
+        break;
     }
   }
 
@@ -2787,16 +3056,23 @@ class CharacterCreationStepForm extends FormBase {
         $query = $this->preserveShellQueryFlags($query);
         if ($setup_shell) {
           $query['step'] = $step;
-          $form_state->setRedirect('dungeoncrawler_content.character_setup', [], ['query' => $query]);
+          $this->redirectAfterSave($form_state, 'dungeoncrawler_content.character_setup', [], ['query' => $query]);
         }
         else {
-          $form_state->setRedirect('dungeoncrawler_content.character_step', ['step' => $step], ['query' => $query]);
+          $this->redirectAfterSave($form_state, 'dungeoncrawler_content.character_step', ['step' => $step], ['query' => $query]);
         }
         return;
       }
     }
     $next_version = $submitted_version + 1;
+    $projection = $this->projectStepValues($character_data, (int) $step, $form_state);
+    $this->persistSubmittedDraft(
+      $form_state, $projection['character_data'], (int) $step,
+      $character_id, $campaign_id, $next_version, $setup_shell, $projection['selected_items'],
+    );
+  }
 
+  private function projectStepValues(array $character_data, int $step, FormStateInterface $form_state): array {
     // Update character data with form values.
     // Exclude internal Drupal keys AND the step-7 checkbox groups (weapons,
     // armor, gear) which contain raw Drupal checkbox arrays ({id: id|0}).
@@ -3077,6 +3353,11 @@ class CharacterCreationStepForm extends FormBase {
 
         $spell_payload = CharacterManager::buildSpellSelectionPayload($selected_class, $tradition, $cantrip_ids, $spell_ids);
         $character_data['spells'] = $spell_payload['spells'];
+      }
+      else {
+        $character_data['spells'] = [];
+        $character_data['cantrips'] = [];
+        $character_data['spells_first'] = [];
       }
 
       if (($character_data['ancestry_feat'] ?? '') !== 'adapted-cantrip') {
@@ -3431,21 +3712,25 @@ class CharacterCreationStepForm extends FormBase {
         'encumbrance' => $encumbrance,
       ];
 
-      $this->getLogger('dungeoncrawler_content')->notice('Character setup equipment sync: character_id=@character_id campaign_id=@campaign_id selected_ids=@selected_ids carried_ids=@carried_ids remaining_gp=@remaining_gp', [
-        '@character_id' => (string) ($character_id ?? ''),
-        '@campaign_id' => (string) ($campaign_id ?? ''),
-        '@selected_ids' => implode(',', $selected_ids),
-        '@carried_ids' => implode(',', array_map(static fn(array $item): string => (string) ($item['id'] ?? ''), $carried)),
-        '@remaining_gp' => number_format($remaining_gp, 2, '.', ''),
-      ]);
     }
 
+    return ['character_data' => $character_data, 'selected_items' => $selected_items ?? []];
+  }
+
+  private function persistSubmittedDraft(
+    FormStateInterface $form_state, array $character_data, int $step,
+    int|string|null $character_id, int|string|null $campaign_id,
+    int $next_version, bool $setup_shell, array $selected_items,
+  ): void {
+    $character_data = $this->characterManager->canonicalizeCharacterData($this->wizardHardening->syncWizardDraftFromCharacterData($character_data));
     $next_step = min(8, (int) $step + 1);
     $pending_completion_grants = $this->collectPendingCreationSelectionGrants($character_data);
-    $character_data = $this->wizardHardening->advanceProgress($character_data, (int) $step, $pending_completion_grants !== []);
+    $readiness = $this->validateDraft($character_data, (int) $campaign_id);
+    $character_data = $this->wizardHardening->advanceProgress($character_data, (int) $step, $pending_completion_grants !== [] || !$readiness['ready']);
 
     // Save to database
     $character_id = $this->saveCharacter($character_id, $character_data, $next_version, $campaign_id, $form_state, (int) $step);
+    $form_state->set('saved_character_id', (int) $character_id);
 
     $persisted_record = $character_id ? $this->characterManager->loadCharacter((int) $character_id) : NULL;
     $persisted_campaign_id = $persisted_record ? (int) ($persisted_record->campaign_id ?? 0) : 0;
@@ -3460,6 +3745,15 @@ class CharacterCreationStepForm extends FormBase {
     ]);
 
     // Create dc_campaign_item_instances rows when inside a campaign context.
+    if ($step === 7) {
+      $this->getLogger('dungeoncrawler_content')->notice('Character setup equipment sync: character_id=@character_id campaign_id=@campaign_id selected_ids=@selected_ids carried_ids=@carried_ids remaining_gp=@remaining_gp', [
+        '@character_id' => (string) $character_id,
+        '@campaign_id' => (string) ($campaign_id ?? ''),
+        '@selected_ids' => implode(',', $character_data['gm_equipment_ids']),
+        '@carried_ids' => implode(',', array_column($selected_items, 'id')),
+        '@remaining_gp' => number_format((float) $character_data['gold'], 2, '.', ''),
+      ]);
+    }
     if ((int) $step === 7 && $campaign_id && !empty($selected_items)) {
       $this->createCampaignItemInstances((int) $campaign_id, (int) $character_id, $selected_items);
     }
@@ -3485,10 +3779,10 @@ class CharacterCreationStepForm extends FormBase {
         $redirect_query = $this->preserveShellQueryFlags($redirect_query);
         if ($setup_shell) {
           $redirect_query['step'] = 8;
-          $form_state->setRedirect('dungeoncrawler_content.character_setup', [], ['query' => $redirect_query]);
+          $this->redirectAfterSave($form_state, 'dungeoncrawler_content.character_setup', [], ['query' => $redirect_query]);
         }
         else {
-          $form_state->setRedirect('dungeoncrawler_content.character_step', ['step' => 8], ['query' => $redirect_query]);
+          $this->redirectAfterSave($form_state, 'dungeoncrawler_content.character_step', ['step' => 8], ['query' => $redirect_query]);
         }
         return;
       }
@@ -3510,7 +3804,7 @@ class CharacterCreationStepForm extends FormBase {
       if ($campaign_id) {
         $final_options['query'] = ['campaign_id' => $campaign_id];
       }
-      $form_state->setRedirect('dungeoncrawler_content.character_view', ['character_id' => $character_id], $final_options);
+      $this->redirectAfterSave($form_state, 'dungeoncrawler_content.character_view', ['character_id' => $character_id], $final_options);
     } else {
       $redirect_step = $step;
       $next_query = ['character_id' => $character_id];
@@ -3528,14 +3822,14 @@ class CharacterCreationStepForm extends FormBase {
           '@campaign_id' => (string) ($campaign_id ?? ''),
           '@redirect_step' => (int) $next_step,
         ]);
-        $form_state->setRedirect('dungeoncrawler_content.character_setup', [], ['query' => $next_query]);
+        $this->redirectAfterSave($form_state, 'dungeoncrawler_content.character_setup', [], ['query' => $next_query]);
         return;
       }
       else {
         $redirect_step = $next_step;
       }
 
-      $form_state->setRedirect('dungeoncrawler_content.character_step', [
+      $this->redirectAfterSave($form_state, 'dungeoncrawler_content.character_step', [
         'step' => $redirect_step,
       ], ['query' => $next_query]);
     }
@@ -3856,6 +4150,9 @@ class CharacterCreationStepForm extends FormBase {
    *   Character data array with defaults.
    */
   private function loadCharacterData(int|string|null $character_id): array {
+    if ($this->validationDraft !== NULL) {
+      return $this->validationDraft;
+    }
     if ($character_id) {
       $character = $this->characterManager->loadCharacter($character_id);
       if ($character && $character->uid == $this->currentUser->id()) {
@@ -4029,7 +4326,7 @@ class CharacterCreationStepForm extends FormBase {
       $hot = $this->characterManager->extractHotColumnsFromData($schema_data);
 
       if ($character_id) {
-        $this->database->update('dc_campaign_characters')
+        $affected = $this->database->update('dc_campaign_characters')
           ->fields([
             'campaign_id' => $resolved_campaign_id,
             'name' => $schema_data['name'] ?: 'Unnamed Character',
@@ -4049,7 +4346,11 @@ class CharacterCreationStepForm extends FormBase {
             'changed' => $now,
           ])
           ->condition('id', $character_id)
+          ->condition('version', $next_version - 1)
           ->execute();
+        if ((int) $affected !== 1) {
+          throw new \RuntimeException('revision_conflict', 409);
+        }
 
         if ($resolved_campaign_id > 0 && $existing_record) {
           $this->syncCanonicalSourceRowFromCampaignRecord($existing_record, $schema_data, $hot, $now);

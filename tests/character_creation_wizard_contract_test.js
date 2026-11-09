@@ -45,16 +45,15 @@ assert(
 
 assert(
   formSource.includes('$character_data = $this->syncWizardDraftFromCharacterData($character_data);') &&
-  controllerSource.includes('$character_data = $this->syncWizardDraftFromCharacterData($character_data);'),
-  'Both character creation save paths resync the nested wizard draft before persistence'
+  controllerSource.includes('$this->formBuilder()->submitForm(CharacterCreationStepForm::class'),
+  'Legacy saves reach the same form authority that synchronizes wizard mirrors'
 );
 
 assert(
   hardeningServiceSource.includes('$wizard = [];') &&
   hardeningServiceSource.includes("if ($key === 'wizard')") &&
-  formSource.includes('return $this->wizardHardening->syncWizardDraftFromCharacterData($character_data);') &&
-  controllerSource.includes('return $this->wizardHardening->syncWizardDraftFromCharacterData($character_data);'),
-  'Wizard mirrors are rebuilt in shared hardening service and delegated consistently by form/controller save paths'
+  formSource.includes('return $this->wizardHardening->syncWizardDraftFromCharacterData($character_data);'),
+  'Wizard mirrors are rebuilt by the shared hardening service'
 );
 
 assert(
@@ -68,19 +67,14 @@ assert(
 );
 
 assert(
-  controllerSource.includes('new AbilityScoreTracker($this->characterManager);') &&
-  controllerSource.includes('$character_data = $this->storeCalculatedAbilityScores(') &&
-  controllerSource.includes("$character_data['abilities'] = $abilities;") &&
-  controllerSource.includes("$character_data['hit_points'] = [") &&
-  controllerSource.includes("$resources['hitPoints'] = [") &&
-  controllerSource.includes("$defenses['armorClass'] = 10 + $dex_mod;"),
-  'Controller save path also refreshes canonical ability and derived combat mirrors after steps 2-5'
+  !controllerSource.includes('function updateStepData(') &&
+  !controllerSource.includes('function storeCalculatedAbilityScores('),
+  'Legacy transport no longer has competing character or derived-stat mutation logic'
 );
 
 assert(
-  formSource.includes('$this->wizardHardening->advanceProgress($character_data, (int) $step, $pending_completion_grants !== [])') &&
-  controllerSource.includes('$this->wizardHardening->advanceProgress($character_data, $step, $pending_completion_grants !== [])'),
-  'Both save paths delegate progress and explicit finalization to the shared policy before persistence'
+  formSource.includes('$this->wizardHardening->advanceProgress($character_data, (int) $step, $pending_completion_grants !== [] || !$readiness[\'ready\'])'),
+  'Progress policy includes complete native readiness before preserving completion'
 );
 
 assert(

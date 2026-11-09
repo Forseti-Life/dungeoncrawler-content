@@ -427,8 +427,12 @@ services:
       - '@dungeoncrawler_content.ability_score_tracker'
       - '@dungeoncrawler_content.institution_membership'
       - '@dungeoncrawler_content.faction_generation'
-      - '@?ai_conversation.ai_api_service'
-      - '@dungeoncrawler_content.agent_harness_management'
+      - '@class_resolver'
+      - '@dungeoncrawler_content.character_wizard_hardening'
+
+  dungeoncrawler_content.character_draft_form_validator:
+    parent: form_validator
+    class: Drupal\dungeoncrawler_content\Form\CharacterDraftFormValidator
 
   dungeoncrawler_content.character_wizard_hardening:
     class: Drupal\dungeoncrawler_content\Service\CharacterWizardHardeningService
@@ -537,7 +541,6 @@ services:
       - - '@dungeoncrawler_content.editor_gm_harness'
         - '@dungeoncrawler_content.gm_actor_harness'
         - '@dungeoncrawler_content.player_agent_harness'
-        - '@dungeoncrawler_content.character_creation_gm'
 
   # Editor-embedded GM harness. Sibling of the runtime GM stack: it must never
   # depend on game_master_subsystem or gm_tool_execution, and RoomEditorService
@@ -680,6 +683,13 @@ services:
       - '@dungeoncrawler_content.room_editor'
       - '@uuid'
 
+  dungeoncrawler_content.editor_gm_surface.character_creation:
+    class: Drupal\dungeoncrawler_content\Service\EditorGm\CharacterCreationGmSurface
+    arguments:
+      - '@dungeoncrawler_content.character_creation_gm'
+      - '@dungeoncrawler_content.canonical_definitions'
+      - '@dungeoncrawler_content.editor_gm_intent_parser'
+
   dungeoncrawler_content.editor_gm_harness:
     class: Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmHarnessService
     arguments:
@@ -688,6 +698,7 @@ services:
         - '@dungeoncrawler_content.editor_gm_surface.definition_editor'
         - '@dungeoncrawler_content.editor_gm_surface.editor_suite'
         - '@dungeoncrawler_content.editor_gm_surface.storyline_builder'
+        - '@dungeoncrawler_content.editor_gm_surface.character_creation'
       - '@dungeoncrawler_content.editor_gm_intent_parser'
       - '@?ai_conversation.ai_api_service'
       - '@logger.factory'

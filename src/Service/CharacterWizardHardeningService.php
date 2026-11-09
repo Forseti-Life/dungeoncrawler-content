@@ -54,6 +54,13 @@ class CharacterWizardHardeningService {
    * Keep the nested wizard draft aligned with the latest top-level character data.
    */
   public function syncWizardDraftFromCharacterData(array $character_data): array {
+    if (is_array($character_data['basicInfo'] ?? NULL)) {
+      foreach (['name', 'concept', 'ancestry', 'heritage', 'background', 'class', 'alignment', 'deity', 'age', 'appearance', 'personality', 'backstory'] as $field) {
+        if (array_key_exists($field, $character_data)) {
+          $character_data['basicInfo'][$field] = $character_data[$field];
+        }
+      }
+    }
     $wizard = [];
     foreach ($character_data as $key => $value) {
       if ($key === 'wizard') {

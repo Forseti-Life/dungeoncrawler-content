@@ -65,8 +65,8 @@ assert(
 // Assert the whole chain so the contract cannot be broken at either link.
 assert(
   creationFormSource.includes('$this->wizardHardening->ensureCampaignCharacterHasCanonicalSource($character_id, $campaign_id)') &&
-  creationControllerSource.includes('$this->wizardHardening->ensureCampaignCharacterHasCanonicalSource($character_id, $campaign_id)'),
-  'Character creation finalization paths delegate canonical-source setup to the wizard hardening service'
+  creationControllerSource.includes('$this->formBuilder()->submitForm(CharacterCreationStepForm::class'),
+  'Character creation transports use the form authority and shared canonical-source setup'
 );
 
 assert(

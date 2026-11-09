@@ -6,14 +6,13 @@ use Drupal\Component\Uuid\UuidInterface;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\Component\Datetime\TimeInterface;
-use Drupal\ai_conversation\Service\AIApiService;
-use Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessInterface;
-use Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessManagementService;
+use Drupal\Core\DependencyInjection\ClassResolverInterface;
+use Drupal\dungeoncrawler_content\Form\CharacterCreationStepForm;
 
 /**
- * Handles GM-style AI chat for character creation.
+ * Character draft authority used by the shared editor GM surface.
  */
-class CharacterCreationGmService implements AgentHarnessInterface {
+class CharacterCreationGmService {
 
   protected const GM_FACTION_CREATE_LABELS_FIELD = 'faction_refs_create_labels';
   protected const GM_FACTION_CREATE_ROLE_FIELD = 'faction_refs_create_role';
@@ -23,8 +22,6 @@ class CharacterCreationGmService implements AgentHarnessInterface {
   protected const GM_FACTION_CREATE_IDEOLOGY_TAGS_FIELD = 'faction_refs_create_ideology_tags';
   protected const GM_FACTION_CREATE_METHOD_TAGS_FIELD = 'faction_refs_create_method_tags';
   protected const GM_FACTION_CREATE_MEMBERSHIP_STYLE_FIELD = 'faction_refs_create_membership_style';
-
-  protected AgentHarnessManagementService $harnessManagement;
 
   /**
    * Constructs the service.
@@ -38,193 +35,184 @@ class CharacterCreationGmService implements AgentHarnessInterface {
     protected AbilityScoreTracker $abilityScoreTracker,
     protected InstitutionMembershipService $institutionMembership,
     protected FactionGenerationService $factionGeneration,
-    protected ?AIApiService $aiApiService = NULL,
-    ?AgentHarnessManagementService $harnessManagement = NULL,
-  ) {
-    $this->harnessManagement = $harnessManagement ?? new AgentHarnessManagementService($this->aiApiService);
-  }
+    protected ClassResolverInterface $classResolver,
+    protected CharacterWizardHardeningService $wizardHardening,
+  ) {}
 
   /**
-   * {@inheritdoc}
+   * Builds the referential PF2E lookup file for character creation.
    */
-  public function agentId(): string {
-    return 'character_creation_gm';
-  }
-
-  /**
-   * {@inheritdoc}
-   */
-  public function label(): string {
-    return 'Character Creation GM Harness';
-  }
-
-  /**
-   * {@inheritdoc}
-   */
-  public function scope(): string {
-    return AgentHarnessInterface::SCOPE_CHARACTER_DRAFT;
-  }
-
-  /**
-   * {@inheritdoc}
-   */
-  public function defaultExecutionProfile(): string {
-    return AgentHarnessManagementService::PROFILE_CHARACTER_ASSISTANT;
-  }
-
-  /**
-   * {@inheritdoc}
-   */
-  public function listAgentTools(string $profile = 'default'): array {
-    return [
-      'lookup_character_creation_context' => 'Look up character creation options and draft state.',
-      'apply_character_draft_updates' => 'Apply validated updates to the character draft.',
-      'generate_faction_details' => 'Generate canonical faction affiliation details.',
-      'configure_character_portrait' => 'Configure character portrait prompt and generation flags.',
-      AgentHarnessManagementService::TOOL_SUBMIT_BACKLOG_SUGGESTION => 'Submit a system defect, bug report, user complaint, or feature suggestion into the project backlog.',
-    ];
-  }
-
-  /**
-   * {@inheritdoc}
-   */
-  public function describeToolCall(string $tool_name, array $arguments = []): array {
-    return $this->harnessManagement->describeToolCall($tool_name, $arguments);
-  }
-
-  /**
-   * Process a GM chat message for a character draft.
-   */
-  public function handleMessage(?int $character_id, ?int $campaign_id, int $step, string $message): array {
-    if (!$this->aiApiService) {
-      throw new \RuntimeException('The GM chat AI service is unavailable.');
-    }
-
-    $requested_character_id = $character_id ? (int) $character_id : 0;
-    $record = $character_id ? $this->loadOwnedDraft($character_id) : NULL;
-    $resolved_campaign_id = $this->resolveDraftCampaignId($record, $campaign_id);
-    $character_data = $this->loadCharacterData($record);
-    $history = $this->getChatHistory($character_data);
-
-    // Pre-execution user turn persistence so user prompts are never lost on LLM error/timeout.
-    $timestamp = $this->time->getRequestTime();
-    $history_with_user = $history;
-    $history_with_user[] = [
-      'role' => 'user',
-      'content' => $message,
-      'timestamp' => $timestamp,
-    ];
-    $character_data['gm_chat'] = [
-      'messages' => array_slice($history_with_user, -20),
-      'last_updated' => date('c', $timestamp),
-    ];
-    $saved_character_id = $this->saveDraft($record, $character_data, $resolved_campaign_id);
-    $record = $this->loadOwnedDraft($saved_character_id);
-
-    $prompt = $this->buildUserPrompt($message, $step, $character_data, $history, $resolved_campaign_id);
-    $result = $this->aiApiService->invokeModelDirect(
-      $prompt,
-      'dungeoncrawler_content',
-      'character_creation_gm_chat',
-      [
-        'uid' => (int) $this->currentUser->id(),
-        'character_id' => $character_id ?? 0,
-        'campaign_id' => $resolved_campaign_id,
-        'step' => $step,
-        'message_hash' => sha1($message),
-      ],
-      $this->harnessManagement->resolveExecutionOptions(
-        AgentHarnessManagementService::PROFILE_CHARACTER_ASSISTANT,
-        [
-          'skip_cache' => TRUE,
-          'max_tokens' => 2400,
-          'system_prompt' => $this->buildSystemPrompt(),
-        ],
-      ),
-    );
-
-    if (empty($result['success'])) {
-      throw new \RuntimeException((string) ($result['error'] ?? 'GM chat request failed.'));
-    }
-
-    $payload = $this->decodeResponsePayload((string) $result['response']);
-    $sanitized_updates = $this->sanitizeUpdates($payload['updates'] ?? [], $character_data);
-    $applied_updates = $this->applyUpdates($character_data, $sanitized_updates);
-    $this->applyDerivedState($character_data);
-
-    $tool_calls = [
-      $this->describeToolCall('lookup_character_creation_context'),
-    ];
-    if ($applied_updates !== []) {
-      $tool_calls[] = $this->describeToolCall('apply_character_draft_updates', ['fields' => array_keys($applied_updates)]);
-    }
-    if (!empty($applied_updates[self::GM_FACTION_CREATE_LABELS_FIELD])) {
-      $tool_calls[] = $this->describeToolCall('generate_faction_details');
-    }
-    if (!empty($applied_updates['portrait_generate']) || !empty($applied_updates['portrait_prompt'])) {
-      $tool_calls[] = $this->describeToolCall('configure_character_portrait');
-    }
-    $backlog_suggestion = is_array($payload['backlog_suggestion'] ?? NULL) ? $payload['backlog_suggestion'] : [];
-    $backlog_summary = trim((string) ($backlog_suggestion['summary'] ?? ''));
-    if ($backlog_summary !== '') {
-      $suggestion_args = [
-        'summary' => $backlog_summary,
-        'category' => trim((string) ($backlog_suggestion['category'] ?? 'technical_improvement')),
-        'original_message' => trim((string) ($backlog_suggestion['original_message'] ?? $message)),
+  public function getPathfinderCharacterCreationReference(?int $campaign_id = NULL): array {
+    $ancestries = [];
+    foreach (array_keys(CharacterRulesCatalog::ANCESTRIES) as $canonical_name) {
+      $machine_id = strtolower(str_replace(' ', '-', $canonical_name));
+      $ancestry_data = CharacterRulesCatalog::ANCESTRIES[$canonical_name] ?? [];
+      $ancestries[] = [
+        'id' => $machine_id,
+        'name' => $canonical_name,
+        'hp' => (int) ($ancestry_data['hp'] ?? 0),
+        'size' => (string) ($ancestry_data['size'] ?? ''),
+        'speed' => (int) ($ancestry_data['speed'] ?? 0),
       ];
-      $tool_calls[] = $this->describeToolCall(
-        AgentHarnessManagementService::TOOL_SUBMIT_BACKLOG_SUGGESTION,
-        $suggestion_args,
-      );
-      $this->harnessManagement->submitBacklogSuggestion($suggestion_args, [
-        'agent_id' => $this->agentId(),
-        'character_id' => $saved_character_id,
-        'campaign_id' => $resolved_campaign_id,
-        'step' => $step,
-      ]);
     }
 
-    $resolved_step = $this->resolveDraftStep($character_data, max(1, min(8, $step)));
-    $character_data['step'] = $resolved_step;
-
-    $reply = trim((string) ($payload['reply'] ?? ''));
-    if ($reply === '') {
-      $reply = 'I updated your draft and saved the character sheet changes.';
+    $heritages = [];
+    foreach (CharacterRulesCatalog::HERITAGES as $ancestry_name => $entries) {
+      $ancestry_id = strtolower(str_replace(' ', '-', (string) $ancestry_name));
+      $heritages[$ancestry_id] = array_map(static function (array $heritage): array {
+        return [
+          'id' => (string) ($heritage['id'] ?? ''),
+          'name' => (string) ($heritage['name'] ?? ''),
+        ];
+      }, array_values($entries));
     }
 
-    $history_with_user[] = [
-      'role' => 'assistant',
-      'content' => $reply,
-      'timestamp' => $timestamp,
-      'applied_updates' => array_keys($applied_updates),
-      'tool_calls' => $tool_calls,
-    ];
-    $character_data['gm_chat'] = [
-      'messages' => array_slice($history_with_user, -20),
-      'last_updated' => date('c', $timestamp),
-    ];
+    $backgrounds = [];
+    foreach (CharacterRulesCatalog::BACKGROUNDS as $id => $background) {
+      $backgrounds[] = [
+        'id' => (string) $id,
+        'name' => (string) ($background['name'] ?? $id),
+        'skill' => (string) ($background['skill'] ?? ''),
+        'lore' => (string) ($background['lore'] ?? ''),
+        'feat' => (string) ($background['feat'] ?? ''),
+      ];
+    }
 
-    $saved_character_id = $this->saveDraft($record, $character_data, $resolved_campaign_id);
+    $classes = [];
+    foreach (CharacterRulesCatalog::CLASSES as $id => $class) {
+      $key_ability = $class['key_ability'] ?? [];
+      if (is_string($key_ability)) {
+        $key_ability = [$key_ability];
+      }
+      elseif (!is_array($key_ability)) {
+        $key_ability = [];
+      }
 
-    $query = ['character_id' => $saved_character_id];
-    if ($resolved_campaign_id > 0) {
-      $query['campaign_id'] = $resolved_campaign_id;
+      $classes[] = [
+        'id' => (string) $id,
+        'name' => (string) ($class['name'] ?? $id),
+        'key_ability' => array_values(array_map(static fn(mixed $value): string => (string) $value, $key_ability)),
+        'hp' => (int) ($class['hp'] ?? 0),
+      ];
+    }
+
+    $equipment = [];
+    foreach ($this->getEquipmentCatalog() as $category => $items) {
+      $equipment[$category] = array_values(array_map(static function (array $item): array {
+        return [
+          'id' => (string) ($item['id'] ?? ''),
+          'name' => (string) ($item['name'] ?? ''),
+          'type' => (string) ($item['type'] ?? ''),
+          'cost_gp' => (float) ($item['cost'] ?? 0.0),
+          'bulk' => $item['bulk'] ?? 'L',
+          'traits' => array_values(array_map(static fn(mixed $trait): string => (string) $trait, (array) ($item['traits'] ?? []))),
+        ];
+      }, $items));
     }
 
     return [
-      'reply' => $reply,
-      'character_id' => $saved_character_id,
-      'step' => $resolved_step,
-      'history' => $character_data['gm_chat']['messages'],
-      'applied_updates' => $applied_updates,
-      'tool_calls' => $tool_calls,
-      'reload_required' => !empty($applied_updates)
-        || $resolved_step !== max(1, min(8, $step))
-        || $saved_character_id !== $requested_character_id,
-      'reload_url' => \Drupal\Core\Url::fromRoute('dungeoncrawler_content.character_step', ['step' => $resolved_step])
-        ->setOption('query', $query)
-        ->toString(),
-      'summary' => $this->buildSummary($character_data),
+      'file_name' => 'pathfinder-character-creation-reference.v1.json',
+      'schema_version' => 'character-creation-reference-v1',
+      'generated_at' => date('c', $this->time->getRequestTime()),
+      'allowed_update_fields' => $this->allowedUpdateFields($campaign_id),
+      'ability_keys' => ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma', 'str', 'dex', 'con', 'int', 'wis', 'cha'],
+      'alignments' => ['LG', 'NG', 'CG', 'LN', 'N', 'CN', 'LE', 'NE', 'CE'],
+      'roleplay_styles' => ['talker', 'balanced', 'doer', 'observer'],
+      'ancestries' => $ancestries,
+      'heritages' => $heritages,
+      'backgrounds' => $backgrounds,
+      'classes' => $classes,
+      'equipment' => $equipment,
+    ];
+  }
+
+  public function createDraft(): array {
+    $character_id = $this->saveDraft(NULL, $this->loadCharacterData(NULL), NULL);
+    return $this->getDraft($character_id);
+  }
+
+  public function getDraft(int $character_id): array {
+    $record = $this->loadOwnedDraft($character_id);
+    $data = $this->loadCharacterData($record);
+    return [
+      'draft_id' => (string) $character_id,
+      'character_id' => $character_id,
+      'revision' => (int) ($record->version ?? 0),
+      'campaign_id' => (int) ($record->campaign_id ?? 0),
+      'payload' => $data,
+      'summary' => $this->buildSummary($data),
+    ];
+  }
+
+  public function validateData(array $data, ?int $campaign_id = NULL): array {
+    $form = $this->classResolver->getInstanceFromDefinition(CharacterCreationStepForm::class);
+    return $form->validateDraft($data, $campaign_id);
+  }
+
+  /**
+   * Plan a revision-bound patch; incomplete drafts are allowed, invalid choices are not.
+   */
+  public function planUpdates(int $character_id, array $updates): array {
+    $draft = $this->getDraft($character_id);
+    $data = $draft['payload'];
+    $record = $this->loadOwnedDraft($character_id);
+    if ((int) ($record->status ?? 0) === 2 || ($record->lifecycle_state ?? '') === 'campaign_runtime') {
+      throw new \RuntimeException('Archived characters and active campaign runtime objects cannot be changed through character draft tools.', 403);
+    }
+    $unknown = array_diff(array_keys($updates), $this->allowedUpdateFields($draft['campaign_id']));
+    if ($unknown !== []) {
+      throw new \InvalidArgumentException('Unsupported character update fields: ' . implode(', ', $unknown));
+    }
+    $sanitized = $this->sanitizeUpdates($updates, $data);
+    $before = $this->validateData($data, $draft['campaign_id']);
+    $applied = $this->applyUpdates($data, $sanitized);
+    $this->applyDerivedState($data, array_keys($sanitized));
+    $validation = $this->validateData($data, $draft['campaign_id']);
+    $existing_errors = array_map(static fn(array $issue): string => $issue['path'] . ':' . $issue['message'], $before['errors']);
+    $blocking_errors = array_values(array_filter($validation['errors'], static function (array $issue) use ($sanitized, $existing_errors): bool {
+      $field = explode('][', $issue['field'])[0];
+      return array_key_exists($field, $sanitized)
+        || !in_array($issue['path'] . ':' . $issue['message'], $existing_errors, TRUE);
+    }));
+    return [
+      'intent' => 'proposed_execution',
+      'expected_revision' => $draft['revision'],
+      'updates' => $sanitized,
+      'applied_fields' => array_keys($applied),
+      'validation' => $validation,
+      'blocking_errors' => $blocking_errors,
+      'requires_approval' => $blocking_errors === [],
+      'proposed_execution' => $blocking_errors === [] ? [
+        'tool_name' => 'apply_character_draft_updates',
+        'authority' => 'CharacterCreationGmService::applyDraftUpdates',
+        'arguments' => ['expected_revision' => $draft['revision'], 'updates' => $sanitized],
+      ] : NULL,
+    ];
+  }
+
+  public function applyDraftUpdates(int $character_id, int $expected_revision, array $updates): array {
+    $record = $this->loadOwnedDraft($character_id);
+    if ((int) ($record->version ?? 0) !== $expected_revision) {
+      throw new \RuntimeException('The character changed. Refresh the draft and review a new plan before applying.', 409);
+    }
+    $plan = $this->planUpdates($character_id, $updates);
+    if ($plan['blocking_errors'] !== []) {
+      throw new \InvalidArgumentException('Character updates failed validation: ' . implode('; ', array_column($plan['blocking_errors'], 'message')), 422);
+    }
+    $data = $this->loadCharacterData($record);
+    $this->applyUpdates($data, $plan['updates']);
+    $this->applyDerivedState($data, array_keys($plan['updates']));
+    $data['step'] = max((int) ($data['step'] ?? 1), $plan['validation']['next_step']);
+    // The GM edits drafts; finalization remains the explicit final form action.
+    if (!$plan['validation']['ready']) {
+      $data['wizard_complete'] = FALSE;
+    }
+    $this->saveDraft($record, $data, (int) ($record->campaign_id ?? 0));
+    return [
+      'draft' => $this->getDraft($character_id),
+      'applied_fields' => $plan['applied_fields'],
+      'validation' => $plan['validation'],
+      'assistant_response' => 'Saved character changes: ' . implode(', ', $plan['applied_fields']) . '.',
     ];
   }
 
@@ -255,96 +243,24 @@ class CharacterCreationGmService implements AgentHarnessInterface {
    * Resolve the wizard draft state from a stored character payload.
    */
   private function resolveDraftState(array $character_data): array {
+    if (isset($character_data['basicInfo'], $character_data['resources'], $character_data['defenses'])) {
+      return $character_data;
+    }
     $draft = is_array($character_data['wizard'] ?? NULL) ? $character_data['wizard'] : $character_data;
     return is_array($draft) ? $draft : [];
   }
 
   /**
-   * Builds the system prompt for the GM.
+   * Resolves the mutable field whitelist for GM draft updates.
+   *
+   * @return string[]
+   *   Canonical list of accepted update fields.
    */
-  private function buildSystemPrompt(): string {
-    return <<<'PROMPT'
-You are the in-game GM for a Pathfinder 2E character creation wizard.
-
-Your job:
-1. Help the player think through choices in plain language.
-2. When the player directly asks you to change the draft, return structured updates that the app can apply automatically.
-3. Operate on the real wizard fields, not vague prose.
-
-Rules:
-- Return JSON only.
-- Use this shape:
-  {
-    "reply": "short conversational GM reply for the player",
-    "updates": {
-      "...field_name...": "value"
-    },
-    "backlog_suggestion": {
-      "summary": "1-3 sentence defect or feedback summary (include only when the player reports a bug/complaint/suggestion)",
-      "category": "technical_improvement"
-    }
-  }
-- Only include "backlog_suggestion" when the player explicitly reports a system bug, defect, complaint, or feature request to log to the backlog (categories: technical_improvement, content_update, safety_feature, community_initiative, partnership, general_feedback, other).
-- If you are only giving advice and should not change the draft, return an empty "updates" object.
-- Never invent IDs. Only use IDs from the provided option catalogs.
-- Prefer wizard-field updates over derived-stat edits.
-- For ability boosts, use arrays of ability names or short keys.
-- If the player asks for a build direction like "make me a sturdy dwarf fighter", you may set multiple compatible fields at once.
-- If the player asks for a field that is ambiguous, ask a clarifying question in "reply" and leave that field unchanged.
-- Keep replies concise and practical.
-PROMPT;
-  }
-
-  /**
-   * Builds the user prompt with current draft context.
-   */
-  private function buildUserPrompt(string $message, int $step, array $character_data, array $history, ?int $campaign_id = NULL): string {
-    $recent_history = array_slice($history, -8);
-    $history_lines = [];
-    foreach ($recent_history as $entry) {
-      $role = (string) ($entry['role'] ?? 'assistant');
-      $content = trim((string) ($entry['content'] ?? ''));
-      if ($content !== '') {
-        $history_lines[] = strtoupper($role) . ': ' . $content;
-      }
-    }
-
-    $background_options = [];
-    foreach (CharacterRulesCatalog::BACKGROUNDS as $id => $background) {
-      $background_options[] = $id . ' = ' . ($background['name'] ?? $id);
-    }
-
-    $class_options = [];
-    foreach (CharacterRulesCatalog::CLASSES as $id => $class) {
-      $class_options[] = $id . ' = ' . ($class['name'] ?? $id);
-    }
-
-    $ancestry_options = [];
-    foreach (array_keys(CharacterRulesCatalog::ANCESTRIES) as $canonical_name) {
-      $machine_id = strtolower(str_replace(' ', '-', $canonical_name));
-      $ancestry_options[] = $machine_id . ' = ' . $canonical_name;
-    }
-
-    $heritage_options = [];
-    $current_ancestry = (string) ($character_data['ancestry'] ?? '');
-    $canonical_ancestry = CharacterRulesUtility::resolveAncestryCanonicalName($current_ancestry);
-    if ($canonical_ancestry !== '' && !empty(CharacterRulesCatalog::HERITAGES[$canonical_ancestry])) {
-      foreach (CharacterRulesCatalog::HERITAGES[$canonical_ancestry] as $heritage) {
-        $heritage_options[] = ($heritage['id'] ?? '') . ' = ' . ($heritage['name'] ?? '');
-      }
-    }
-
-    $equipment_options = [];
-    foreach ($this->getEquipmentCatalog() as $category => $items) {
-      foreach ($items as $item) {
-        $equipment_options[] = ($item['id'] ?? '') . ' = ' . ($item['name'] ?? '') . ' [' . $category . ']';
-      }
-    }
-
+  private function allowedUpdateFields(?int $campaign_id): array {
     $allowed_update_fields = [
-      'name', 'concept', 'ancestry', 'heritage', 'ancestry_boosts', 'background',
+      'name', 'concept', 'ancestry', 'heritage', 'ancestry_boosts', 'ancestry_feat', 'background',
       'background_boosts', 'class', 'class_key_ability', 'class_feat', 'subclass',
-      'cantrips', 'spells_first', 'free_boosts', 'trained_skills', 'alignment',
+      'arcane_thesis', 'feat_selections', 'cantrips', 'spells_first', 'free_boosts', 'trained_skills', 'alignment',
       'deity', 'general_feat', 'age', 'gender', 'appearance', 'personality',
       'roleplay_style', 'backstory', 'portrait_generate', 'portrait_prompt',
       'equipment_ids',
@@ -361,88 +277,7 @@ PROMPT;
         'faction_refs_create_membership_style',
       ]);
     }
-
-    return implode("\n\n", [
-      'CURRENT STEP: ' . $step,
-      'CURRENT DRAFT JSON: ' . json_encode($this->buildPromptCharacterContext($character_data), JSON_PRETTY_PRINT),
-      'ALLOWED UPDATE FIELDS: ' . implode(', ', $allowed_update_fields),
-      'VALID ANCESTRIES: ' . implode('; ', $ancestry_options),
-      'VALID BACKGROUNDS: ' . implode('; ', $background_options),
-      'VALID CLASSES: ' . implode('; ', $class_options),
-      'VALID ALIGNMENTS: LG, NG, CG, LN, N, CN, LE, NE, CE',
-      'VALID HERITAGES FOR CURRENT ANCESTRY: ' . (!empty($heritage_options) ? implode('; ', $heritage_options) : 'none or ancestry not selected yet'),
-      'VALID ABILITY KEYS: strength, dexterity, constitution, intelligence, wisdom, charisma, str, dex, con, int, wis, cha',
-      'VALID ROLEPLAY STYLE VALUES: balanced, tactical, narrative',
-      'VALID EQUIPMENT IDS: ' . implode('; ', $equipment_options),
-      'RECENT CHAT HISTORY: ' . (!empty($history_lines) ? implode("\n", $history_lines) : 'none'),
-      'PLAYER MESSAGE: ' . $message,
-    ]);
-  }
-
-  /**
-   * Builds a concise prompt context.
-   */
-  private function buildPromptCharacterContext(array $character_data): array {
-    return [
-      'name' => $character_data['name'] ?? '',
-      'concept' => $character_data['concept'] ?? '',
-      'ancestry' => $character_data['ancestry'] ?? '',
-      'heritage' => $character_data['heritage'] ?? '',
-      'ancestry_boosts' => $character_data['ancestry_boosts'] ?? [],
-      'background' => $character_data['background'] ?? '',
-      'background_boosts' => $character_data['background_boosts'] ?? [],
-      'class' => $character_data['class'] ?? '',
-      'class_key_ability' => $character_data['class_key_ability'] ?? '',
-      'class_feat' => $character_data['class_feat'] ?? '',
-      'subclass' => $character_data['subclass'] ?? '',
-      'cantrips' => CharacterManager::getSelectedCantripIds($character_data),
-      'spells_first' => CharacterManager::getSelectedFirstLevelSpellIds($character_data),
-      'free_boosts' => $character_data['free_boosts'] ?? [],
-      'alignment' => $character_data['alignment'] ?? '',
-      'deity' => $character_data['deity'] ?? '',
-      'trained_skills' => $character_data['trained_skills'] ?? [],
-      'general_feat' => $character_data['general_feat'] ?? '',
-      'age' => $character_data['age'] ?? '',
-      'gender' => $character_data['gender'] ?? '',
-      'appearance' => $character_data['appearance'] ?? '',
-      'personality' => $character_data['personality'] ?? '',
-      'roleplay_style' => $character_data['roleplay_style'] ?? 'balanced',
-      'backstory' => $character_data['backstory'] ?? '',
-      'portrait_generate' => $character_data['portrait_generate'] ?? 1,
-      'portrait_prompt' => $character_data['portrait_prompt'] ?? '',
-      'equipment_ids' => $character_data['gm_equipment_ids'] ?? [],
-      'faction_refs' => $character_data['faction_refs'] ?? [],
-    ];
-  }
-
-  /**
-   * Decode JSON payload from the AI response.
-   */
-  private function decodeResponsePayload(string $response): array {
-    $cleaned = trim($response);
-    $cleaned = preg_replace('/^```(?:json)?\s*/', '', $cleaned) ?? $cleaned;
-    $cleaned = preg_replace('/\s*```$/', '', $cleaned) ?? $cleaned;
-
-    $first_brace = strpos($cleaned, '{');
-    $last_brace = strrpos($cleaned, '}');
-    if ($first_brace !== FALSE && $last_brace !== FALSE && $last_brace >= $first_brace) {
-      $cleaned = substr($cleaned, $first_brace, $last_brace - $first_brace + 1);
-    }
-
-    $decoded = json_decode($cleaned, TRUE);
-    if (is_array($decoded)) {
-      return $decoded;
-    }
-
-    $fallback_reply = trim(strip_tags($cleaned));
-    if ($fallback_reply === '') {
-      throw new \RuntimeException('GM chat returned an empty response.');
-    }
-
-    return [
-      'reply' => $fallback_reply,
-      'updates' => [],
-    ];
+    return $allowed_update_fields;
   }
 
   /**
@@ -461,6 +296,8 @@ PROMPT;
       'class_key_ability',
       'class_feat',
       'subclass',
+      'ancestry_feat',
+      'arcane_thesis',
       'alignment',
       'deity',
       'general_feat',
@@ -482,6 +319,9 @@ PROMPT;
 
     foreach ($string_fields as $field) {
       if (array_key_exists($field, $updates)) {
+        if (!is_scalar($updates[$field])) {
+          throw new \InvalidArgumentException('Character field ' . $field . ' must be a scalar value.');
+        }
         $sanitized[$field] = trim((string) $updates[$field]);
       }
     }
@@ -489,24 +329,24 @@ PROMPT;
     if (isset($sanitized['ancestry'])) {
       $sanitized['ancestry'] = strtolower(str_replace(' ', '-', $sanitized['ancestry']));
       if (CharacterRulesUtility::resolveAncestryCanonicalName($sanitized['ancestry']) === '') {
-        unset($sanitized['ancestry']);
+        throw new \InvalidArgumentException('Unknown ancestry: ' . $sanitized['ancestry'], 422);
       }
     }
 
     if (isset($sanitized['background']) && !isset(CharacterRulesCatalog::BACKGROUNDS[$sanitized['background']])) {
-      unset($sanitized['background']);
+      throw new \InvalidArgumentException('Unknown background: ' . $sanitized['background'], 422);
     }
 
     if (isset($sanitized['class']) && !isset(CharacterRulesCatalog::CLASSES[$sanitized['class']])) {
-      unset($sanitized['class']);
+      throw new \InvalidArgumentException('Unknown class: ' . $sanitized['class'], 422);
     }
 
     if (isset($sanitized['alignment']) && !in_array($sanitized['alignment'], ['LG', 'NG', 'CG', 'LN', 'N', 'CN', 'LE', 'NE', 'CE'], TRUE)) {
-      unset($sanitized['alignment']);
+      throw new \InvalidArgumentException('Unknown alignment: ' . $sanitized['alignment'], 422);
     }
 
-    if (isset($sanitized['roleplay_style']) && !in_array($sanitized['roleplay_style'], ['balanced', 'tactical', 'narrative'], TRUE)) {
-      unset($sanitized['roleplay_style']);
+    if (isset($sanitized['roleplay_style']) && !in_array($sanitized['roleplay_style'], ['talker', 'balanced', 'doer', 'observer'], TRUE)) {
+      throw new \InvalidArgumentException('Unknown roleplay style: ' . $sanitized['roleplay_style'], 422);
     }
 
     if (array_key_exists('portrait_generate', $updates)) {
@@ -515,21 +355,42 @@ PROMPT;
 
     foreach (['ancestry_boosts', 'background_boosts', 'free_boosts'] as $field) {
       if (array_key_exists($field, $updates)) {
+        if (!is_array($updates[$field]) || !array_is_list($updates[$field])) {
+          throw new \InvalidArgumentException($field . ' must be a list of ability IDs.');
+        }
         $sanitized[$field] = $this->sanitizeAbilityList($updates[$field]);
       }
     }
 
     foreach (['cantrips', 'spells_first', 'trained_skills', 'equipment_ids', self::GM_FACTION_CREATE_LABELS_FIELD] as $field) {
       if (array_key_exists($field, $updates)) {
+        if (!is_array($updates[$field]) || !array_is_list($updates[$field])
+          || array_filter($updates[$field], static fn(mixed $id): bool => !is_string($id) || trim($id) === '') !== []) {
+          throw new \InvalidArgumentException($field . ' must be a list of non-empty IDs.');
+        }
         $sanitized[$field] = $this->sanitizeStringList($updates[$field]);
       }
+    }
+    if (array_key_exists('feat_selections', $updates)) {
+      if (!is_array($updates['feat_selections'])) {
+        throw new \InvalidArgumentException('feat_selections must be an object.', 422);
+      }
+      $sanitized['feat_selections'] = $updates['feat_selections'];
+    }
+    $class = (string) ($sanitized['class'] ?? $current_data['class'] ?? '');
+    if ((!empty($sanitized['cantrips']) || !empty($sanitized['spells_first']))
+      && !$this->characterManager->resolveClassTradition($class, array_replace($current_data, $sanitized))) {
+      throw new \InvalidArgumentException('Class spell selections require a spellcasting class.');
+    }
+    if (!empty($sanitized['arcane_thesis']) && $class !== 'wizard') {
+      throw new \InvalidArgumentException('Arcane thesis requires the wizard class.');
     }
 
     $ancestry_for_heritage = $sanitized['ancestry'] ?? (string) ($current_data['ancestry'] ?? '');
     if (isset($sanitized['heritage']) && $ancestry_for_heritage !== '') {
       $canonical = CharacterRulesUtility::resolveAncestryCanonicalName($ancestry_for_heritage);
       if ($canonical === '' || !CharacterManager::isValidHeritageForAncestry($canonical, $sanitized['heritage'])) {
-        unset($sanitized['heritage']);
+        throw new \InvalidArgumentException('The heritage does not belong to the selected ancestry.', 422);
       }
     }
 
@@ -542,15 +403,15 @@ PROMPT;
   private function applyUpdates(array &$character_data, array $updates): array {
     $applied = [];
     foreach ($updates as $field => $value) {
+      if ($field === 'equipment_ids') {
+        $character_data['gm_equipment_ids'] = $value;
+        $applied[$field] = $value;
+        continue;
+      }
       if (($character_data[$field] ?? NULL) !== $value) {
         $character_data[$field] = $value;
         $applied[$field] = $value;
       }
-    }
-
-    if (isset($updates['equipment_ids'])) {
-      $this->applyEquipmentSelection($character_data, $updates['equipment_ids']);
-      $applied['equipment_ids'] = $updates['equipment_ids'];
     }
 
     return $applied;
@@ -559,58 +420,9 @@ PROMPT;
   /**
    * Apply derived state after wizard-field updates.
    */
-  private function applyDerivedState(array &$character_data): void {
-    $calculation = $this->abilityScoreTracker->calculateAbilityScores($character_data);
-    foreach ($calculation['scores'] as $ability => $score) {
-      $character_data[$ability] = $score;
-    }
-    $character_data['ability_sources'] = $calculation['sources'];
-
-    if (!empty($character_data['background']) && isset(CharacterRulesCatalog::BACKGROUNDS[$character_data['background']])) {
-      $background = CharacterRulesCatalog::BACKGROUNDS[$character_data['background']];
-      $character_data['background_skill_training'] = $background['skill'] ?? '';
-      $character_data['background_lore_skill'] = $background['lore'] ?? '';
-      $character_data['background_skill_feat'] = $background['feat'] ?? '';
-    }
-
-    if (!empty($character_data['class']) && isset(CharacterRulesCatalog::CLASSES[$character_data['class']]['proficiencies'])) {
-      $character_data['class_proficiencies'] = CharacterRulesCatalog::CLASSES[$character_data['class']]['proficiencies'];
-    }
-  }
-
-  /**
-   * Resolve which wizard step the draft should open on next.
-   */
-  private function resolveDraftStep(array $character_data, int $current_step): int {
-    if (empty($character_data['name'])) {
-      return 1;
-    }
-    if (empty($character_data['ancestry'])) {
-      return 2;
-    }
-
-    $boost_config = CharacterManager::getAncestryBoostConfig((string) $character_data['ancestry'], (string) ($character_data['heritage'] ?? ''));
-    $required_ancestry_boosts = (int) ($boost_config['free_boosts'] ?? 0);
-    if ($required_ancestry_boosts > 0 && count($character_data['ancestry_boosts'] ?? []) < $required_ancestry_boosts) {
-      return 2;
-    }
-
-    if (empty($character_data['background'])) {
-      return 3;
-    }
-    if (empty($character_data['class'])) {
-      return 4;
-    }
-    if (count($character_data['free_boosts'] ?? []) < 4) {
-      return 5;
-    }
-    if (empty($character_data['alignment'])) {
-      return 6;
-    }
-    if (empty($character_data['inventory']['carried']) && empty($character_data['gm_equipment_ids'])) {
-      return 7;
-    }
-    return max($current_step, 8);
+  private function applyDerivedState(array &$character_data, array $changed_fields): void {
+    $form = $this->classResolver->getInstanceFromDefinition(CharacterCreationStepForm::class);
+    $character_data = $form->projectDraft($character_data, $changed_fields);
   }
 
   /**
@@ -620,7 +432,7 @@ PROMPT;
     $record = $this->characterManager->loadCharacter($character_id);
     $is_admin = $this->currentUser->hasPermission('administer dungeoncrawler content');
     if (!$record || ((int) $record->uid !== (int) $this->currentUser->id() && !$is_admin)) {
-      throw new \RuntimeException('Character draft not found or access denied.');
+      throw new \UnexpectedValueException('Character draft not found or access denied.');
     }
     return $record;
   }
@@ -631,7 +443,8 @@ PROMPT;
   private function loadCharacterData(?object $record): array {
     if ($record) {
       $data = json_decode((string) $record->character_data, TRUE);
-      $form_data = is_array($data['wizard'] ?? NULL) ? $data['wizard'] : $data;
+      $canonical = is_array($data['basicInfo'] ?? NULL) && is_array($data['resources'] ?? NULL) && is_array($data['defenses'] ?? NULL);
+      $form_data = $canonical ? $data : (is_array($data['wizard'] ?? NULL) ? $data['wizard'] : $data);
       return $this->characterManager->canonicalizeCharacterData(is_array($form_data) ? $form_data : []);
     }
 
@@ -676,116 +489,17 @@ PROMPT;
    * Save the draft and return the character ID.
    */
   private function saveDraft(?object $record, array $character_data, ?int $campaign_id): int {
-    $now = $this->time->getRequestTime();
     $resolved_campaign_id = $this->resolveDraftCampaignId($record, $campaign_id);
-    $character_id = 0;
-    $instance_id = '';
-
+    $transaction = $this->database->startTransaction();
     try {
-      $transaction = $this->database->startTransaction();
       $this->resolveFactionDraftCreations($character_data, $resolved_campaign_id);
-      
-      // Ensure nested wizard state is synced with top-level updates before canonicalization.
-      if (isset($character_data['gm_chat']) && is_array($character_data['gm_chat'])) {
-        if (!isset($character_data['wizard']) || !is_array($character_data['wizard'])) {
-          $character_data['wizard'] = [];
-        }
-        $character_data['wizard']['gm_chat'] = $character_data['gm_chat'];
-      }
-      
-      $schema_data = $this->characterManager->canonicalizeCharacterData($character_data);
-      if (empty($schema_data['created_at'])) {
-        $schema_data['created_at'] = date('c', $now);
-      }
-      $schema_data['updated_at'] = date('c', $now);
-      $hot = $this->characterManager->extractHotColumnsFromData($schema_data);
-
-      if ($record) {
-        $next_version = (int) ($record->version ?? 0) + 1;
-        $this->database->update('dc_campaign_characters')
-          ->fields([
-            'campaign_id' => $resolved_campaign_id,
-            'name' => $schema_data['name'] ?: 'Unnamed Character',
-            'level' => $schema_data['level'],
-            'ancestry' => $schema_data['ancestry'] ?? '',
-            'class' => $schema_data['class'] ?? '',
-            'hp_current' => $hot['hp_current'],
-            'hp_max' => $hot['hp_max'],
-            'armor_class' => $hot['armor_class'],
-            'experience_points' => (int) ($schema_data['experience_points'] ?? 0),
-            'position_q' => (int) ($schema_data['position']['q'] ?? 0),
-            'position_r' => (int) ($schema_data['position']['r'] ?? 0),
-            'position_h3' => strtolower(trim((string) (
-              $schema_data['position']['h3_index_res14']
-              ?? $schema_data['position']['h3_index']
-              ?? ''
-            ))),
-            'last_room_id' => (string) ($schema_data['position']['room_id'] ?? ''),
-            'character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
-            'default_locations' => trim((string) ($schema_data['default_locations'] ?? '')) !== ''
-              ? (string) $schema_data['default_locations']
-              : NULL,
-            'portrait' => trim((string) ($schema_data['portrait'] ?? '')) !== ''
-              ? (string) $schema_data['portrait']
-              : NULL,
-            'status' => $schema_data['step'] >= 8 ? 1 : 0,
-            'lifecycle_state' => $resolved_campaign_id > 0 ? 'campaign_draft' : 'draft_library',
-            'version' => $next_version,
-            'changed' => $now,
-          ])
-          ->condition('id', (int) $record->id)
-          ->execute();
-        $character_id = (int) $record->id;
-        $instance_id = (string) ($record->instance_id ?? '');
-      }
-      else {
-        $instance_id = $this->uuid->generate();
-        $character_id = (int) $this->database->insert('dc_campaign_characters')
-          ->fields([
-            'uuid' => $instance_id,
-            'campaign_id' => $resolved_campaign_id,
-            'character_id' => 0,
-            'source_character_id' => NULL,
-            'instance_id' => $instance_id,
-            'uid' => (int) $this->currentUser->id(),
-            'name' => $schema_data['name'] ?: 'Unnamed Character',
-            'level' => $schema_data['level'],
-            'ancestry' => $schema_data['ancestry'] ?? '',
-            'class' => $schema_data['class'] ?? '',
-            'hp_current' => $hot['hp_current'],
-            'hp_max' => $hot['hp_max'],
-            'armor_class' => $hot['armor_class'],
-            'experience_points' => (int) ($schema_data['experience_points'] ?? 0),
-            'position_q' => (int) ($schema_data['position']['q'] ?? 0),
-            'position_r' => (int) ($schema_data['position']['r'] ?? 0),
-            'position_h3' => strtolower(trim((string) (
-              $schema_data['position']['h3_index_res14']
-              ?? $schema_data['position']['h3_index']
-              ?? ''
-            ))),
-            'last_room_id' => (string) ($schema_data['position']['room_id'] ?? ''),
-            'character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
-            'default_locations' => trim((string) ($schema_data['default_locations'] ?? '')) !== ''
-              ? (string) $schema_data['default_locations']
-              : NULL,
-            'portrait' => trim((string) ($schema_data['portrait'] ?? '')) !== ''
-              ? (string) $schema_data['portrait']
-              : NULL,
-            'status' => $schema_data['step'] >= 8 ? 1 : 0,
-            'lifecycle_state' => $resolved_campaign_id > 0 ? 'campaign_draft' : 'draft_library',
-            'created' => $now,
-            'changed' => $now,
-          ])
-          ->execute();
-      }
-
-      if ($resolved_campaign_id > 0 && $instance_id !== '' && (int) ($schema_data['step'] ?? 0) >= 8) {
-        $this->institutionMembership->syncCampaignCharacterMemberships(
-          $resolved_campaign_id,
-          $instance_id,
-          $schema_data
-        );
-      }
+      $form = $this->classResolver->getInstanceFromDefinition(CharacterCreationStepForm::class);
+      return $form->saveValidatedDraft(
+        $record ? (int) $record->id : NULL,
+        $character_data,
+        (int) ($record->version ?? 0),
+        $resolved_campaign_id,
+      );
     }
     catch (\Throwable $exception) {
       if (is_object($transaction ?? NULL) && method_exists($transaction, 'rollBack')) {
@@ -793,8 +507,6 @@ PROMPT;
       }
       throw $exception;
     }
-
-    return $character_id;
   }
 
   /**
@@ -885,13 +597,16 @@ PROMPT;
    * Sanitize an ability-selection list.
    */
   private function sanitizeAbilityList(mixed $value): array {
-    $items = $this->sanitizeStringList($value);
     $normalized = [];
-    foreach ($items as $item) {
-      $ability = $this->abilityScoreTracker->normalizeAbilityKey($item);
-      if ($ability) {
-        $normalized[] = $ability;
+    foreach ($value as $item) {
+      if (!is_string($item)) {
+        throw new \InvalidArgumentException('Ability boosts must contain string IDs.');
       }
+      $ability = $this->abilityScoreTracker->normalizeAbilityKey($item);
+      if (!$ability || in_array($ability, $normalized, TRUE)) {
+        throw new \InvalidArgumentException('Ability boosts must contain distinct, supported ability IDs.');
+      }
+      $normalized[] = $ability;
     }
     return array_values(array_unique($normalized));
   }
@@ -976,98 +691,11 @@ PROMPT;
   }
 
   /**
-   * Apply equipment selections to the draft.
-   */
-  private function applyEquipmentSelection(array &$character_data, array $equipment_ids): void {
-    $catalog_by_id = [];
-    foreach ($this->getEquipmentCatalog() as $items) {
-      foreach ($items as $item) {
-        $catalog_by_id[$item['id']] = $item;
-      }
-    }
-
-    $selected_items = [];
-    $total_cost = 0.0;
-    foreach ($equipment_ids as $item_id) {
-      if (isset($catalog_by_id[$item_id])) {
-        $selected_items[] = $catalog_by_id[$item_id];
-        $total_cost += (float) $catalog_by_id[$item_id]['cost'];
-      }
-    }
-
-    $carried = [];
-    foreach ($selected_items as $item) {
-      $carried[] = [
-        'id' => $item['id'],
-        'name' => $item['name'],
-        'type' => $item['type'],
-        'bulk' => $item['bulk'] ?? 'L',
-        'quantity' => 1,
-        'traits' => $item['traits'] ?? [],
-      ];
-    }
-
-    $character_data['gm_equipment_ids'] = array_values($equipment_ids);
-    $character_data['gold'] = max(0, round(15 - $total_cost, 2));
-    $character_data['inventory'] = [
-      'worn' => [
-        'weapons' => [],
-        'armor' => NULL,
-        'shield' => NULL,
-        'accessories' => [],
-      ],
-      'carried' => $carried,
-      'currency' => [
-        'cp' => 0,
-        'sp' => 0,
-        'gp' => $character_data['gold'],
-        'pp' => 0,
-      ],
-      'totalBulk' => 0,
-      'encumbrance' => 'unencumbered',
-    ];
-  }
-
-  /**
    * Starter equipment catalog for GM chat updates.
    */
   private function getEquipmentCatalog(): array {
-    return [
-      'weapons' => [
-        ['id' => 'longsword', 'name' => 'Longsword', 'type' => 'weapon', 'cost' => 1.0, 'bulk' => 1, 'traits' => ['versatile P']],
-        ['id' => 'shortsword', 'name' => 'Shortsword', 'type' => 'weapon', 'cost' => 0.9, 'bulk' => 'L', 'traits' => ['agile', 'finesse']],
-        ['id' => 'dagger', 'name' => 'Dagger', 'type' => 'weapon', 'cost' => 0.2, 'bulk' => 'L', 'traits' => ['agile', 'finesse', 'thrown 10 ft.']],
-        ['id' => 'rapier', 'name' => 'Rapier', 'type' => 'weapon', 'cost' => 2.0, 'bulk' => 1, 'traits' => ['deadly d8', 'disarm', 'finesse']],
-        ['id' => 'battleaxe', 'name' => 'Battle Axe', 'type' => 'weapon', 'cost' => 1.0, 'bulk' => 1, 'traits' => ['sweep']],
-        ['id' => 'warhammer', 'name' => 'Warhammer', 'type' => 'weapon', 'cost' => 1.0, 'bulk' => 1, 'traits' => ['shove']],
-        ['id' => 'shortbow', 'name' => 'Shortbow', 'type' => 'weapon', 'cost' => 3.0, 'bulk' => 1, 'traits' => ['range 60 ft.']],
-        ['id' => 'longbow', 'name' => 'Longbow', 'type' => 'weapon', 'cost' => 6.0, 'bulk' => 2, 'traits' => ['range 100 ft.']],
-        ['id' => 'staff', 'name' => 'Staff', 'type' => 'weapon', 'cost' => 0.0, 'bulk' => 1, 'traits' => ['two-hand d8']],
-      ],
-      'armor' => [
-        ['id' => 'leather', 'name' => 'Leather Armor', 'type' => 'armor', 'cost' => 2.0, 'bulk' => 1, 'traits' => []],
-        ['id' => 'studded_leather_armor', 'name' => 'Studded Leather Armor', 'type' => 'armor', 'cost' => 3.0, 'bulk' => 1, 'traits' => []],
-        ['id' => 'chain_shirt', 'name' => 'Chain Shirt', 'type' => 'armor', 'cost' => 5.0, 'bulk' => 1, 'traits' => ['flexible', 'noisy']],
-        ['id' => 'hide_armor', 'name' => 'Hide Armor', 'type' => 'armor', 'cost' => 2.0, 'bulk' => 2, 'traits' => []],
-        ['id' => 'scale_mail', 'name' => 'Scale Mail', 'type' => 'armor', 'cost' => 4.0, 'bulk' => 2, 'traits' => []],
-        ['id' => 'chain_mail', 'name' => 'Chain Mail', 'type' => 'armor', 'cost' => 6.0, 'bulk' => 2, 'traits' => ['flexible', 'noisy']],
-        ['id' => 'breastplate', 'name' => 'Breastplate', 'type' => 'armor', 'cost' => 8.0, 'bulk' => 2, 'traits' => []],
-        ['id' => 'wooden_shield', 'name' => 'Wooden Shield', 'type' => 'armor', 'cost' => 1.0, 'bulk' => 1, 'traits' => []],
-      ],
-      'gear' => [
-        ['id' => 'backpack', 'name' => 'Backpack', 'type' => 'adventuring_gear', 'cost' => 0.1, 'bulk' => 'L', 'traits' => []],
-        ['id' => 'bedroll', 'name' => 'Bedroll', 'type' => 'adventuring_gear', 'cost' => 0.1, 'bulk' => 'L', 'traits' => []],
-        ['id' => 'rope', 'name' => 'Rope (50 ft.)', 'type' => 'adventuring_gear', 'cost' => 0.5, 'bulk' => 'L', 'traits' => []],
-        ['id' => 'torches', 'name' => 'Torches (5)', 'type' => 'adventuring_gear', 'cost' => 0.05, 'bulk' => 'L', 'traits' => []],
-        ['id' => 'rations', 'name' => 'Rations (1 week)', 'type' => 'adventuring_gear', 'cost' => 0.4, 'bulk' => 'L', 'traits' => []],
-        ['id' => 'waterskin', 'name' => 'Waterskin', 'type' => 'adventuring_gear', 'cost' => 0.05, 'bulk' => 'L', 'traits' => []],
-        ['id' => 'healers_tools', 'name' => "Healer's Tools", 'type' => 'adventuring_gear', 'cost' => 5.0, 'bulk' => 1, 'traits' => []],
-        ['id' => 'thieves_tools', 'name' => "Thieves' Tools", 'type' => 'adventuring_gear', 'cost' => 3.0, 'bulk' => 'L', 'traits' => []],
-        ['id' => 'grappling_hook', 'name' => 'Grappling Hook', 'type' => 'adventuring_gear', 'cost' => 0.1, 'bulk' => 'L', 'traits' => []],
-        ['id' => 'hooded_lantern', 'name' => 'Hooded Lantern', 'type' => 'adventuring_gear', 'cost' => 0.7, 'bulk' => 'L', 'traits' => []],
-        ['id' => 'oil_flask', 'name' => 'Oil (1 flask)', 'type' => 'adventuring_gear', 'cost' => 0.1, 'bulk' => 'L', 'traits' => []],
-      ],
-    ];
+    $form = $this->classResolver->getInstanceFromDefinition(CharacterCreationStepForm::class);
+    return $form->creationEquipmentCatalog();
   }
 
 }

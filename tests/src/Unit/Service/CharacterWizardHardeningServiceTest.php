@@ -66,4 +66,17 @@ class CharacterWizardHardeningServiceTest extends TestCase {
     $this->buildService()->advanceProgress(['step' => 1], 9, FALSE);
   }
 
+  public function testEditedIdentityWinsOverCanonicalAndWizardMirrors(): void {
+    $result = $this->buildService()->syncWizardDraftFromCharacterData([
+      'name' => 'Current Hero', 'alignment' => 'N', 'backstory' => '',
+      'basicInfo' => ['name' => 'Stale Hero', 'alignment' => 'LG', 'backstory' => 'Stale history'],
+      'wizard' => ['name' => 'Older Hero'],
+    ]);
+    $this->assertSame('Current Hero', $result['basicInfo']['name']);
+    $this->assertSame('N', $result['basicInfo']['alignment']);
+    $this->assertSame('', $result['basicInfo']['backstory']);
+    $this->assertSame($result['basicInfo'], $result['wizard']['basicInfo']);
+    $this->assertSame('Current Hero', $result['wizard']['name']);
+  }
+
 }

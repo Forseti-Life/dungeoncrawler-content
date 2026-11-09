@@ -407,6 +407,11 @@ function dungeoncrawler_content_theme(array $existing, string $type, string $the
       'path' => $path . '/templates',
     ],
 
+    'character_setup_step' => [
+      'variables' => ['step_form' => [], 'active_step' => 1, 'step_name' => '', 'messages' => []],
+      'template' => 'character-setup-step',
+      'path' => $path . '/templates',
+    ],
     'character_setup_page' => [
       'variables' => [
         'steps' => [],

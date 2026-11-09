@@ -96,8 +96,11 @@ class EditorGmController extends ControllerBase {
    * Resolves persistent conversation storage for draft-scoped Editor GM surfaces.
    */
   private function conversationSession(string $surface, ?string $draft_id, bool $create = TRUE): ?array {
-    if (!in_array($surface, ['storyline_builder', 'dungeon_editor', 'room_editor'], TRUE) || $draft_id === NULL || trim($draft_id) === '') {
+    if (!in_array($surface, ['storyline_builder', 'dungeon_editor', 'room_editor', 'character_creation'], TRUE) || $draft_id === NULL || trim($draft_id) === '') {
       return NULL;
+    }
+    if ($surface === 'character_creation') {
+      $this->harness->surface($surface)->createContext($draft_id, 'editing');
     }
     if (!$create) {
       return $this->chatSessions->loadSession($this->chatSessions->editorGmSessionKey($surface, $draft_id));
@@ -106,6 +109,7 @@ class EditorGmController extends ControllerBase {
       'storyline_builder' => 'Storyline Builder GM',
       'dungeon_editor' => 'Dungeon Editor GM',
       'room_editor' => 'Room Editor GM',
+      'character_creation' => 'Character Creation GM',
       default => 'Editor GM',
     };
     return $this->chatSessions->ensureEditorGmSession($surface, $draft_id, $label);
@@ -262,6 +266,7 @@ class EditorGmController extends ControllerBase {
       $exception instanceof \InvalidArgumentException => 400,
       $exception instanceof \OutOfBoundsException => 404,
       $exception instanceof \UnexpectedValueException => 403,
+      $exception instanceof \RuntimeException && in_array($exception->getCode(), [403, 409, 422], TRUE) => $exception->getCode(),
       in_array($code, ['revision_conflict', 'idempotency_conflict', 'base_version_conflict', 'connector_identity_conflict', 'publication_blocked_by_active_campaign', 'definition_version_conflict'], TRUE) => 409,
       $exception instanceof DefinitionValidationException,
       $exception instanceof \DomainException => 422,

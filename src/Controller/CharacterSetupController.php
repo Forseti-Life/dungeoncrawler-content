@@ -3,6 +3,11 @@
 namespace Drupal\dungeoncrawler_content\Controller;
 
 use Drupal\Core\Access\CsrfTokenGenerator;
+use Drupal\Core\Access\CsrfRequestHeaderAccessCheck;
+use Drupal\Core\Ajax\AjaxResponse;
+use Drupal\Core\Ajax\InvokeCommand;
+use Drupal\Core\Ajax\ReplaceCommand;
+use Drupal\Core\Ajax\SettingsCommand;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Url;
 use Drupal\dungeoncrawler_content\Service\CharacterCreationGmService;
@@ -10,6 +15,7 @@ use Drupal\dungeoncrawler_content\Service\CharacterManager;
 use Drupal\dungeoncrawler_content\Service\SchemaLoader;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 
 /**
@@ -107,11 +113,13 @@ class CharacterSetupController extends ControllerBase {
       : Url::fromRoute('dungeoncrawler_content.characters_roster')->toString();
 
     $gm_settings = [
-      'endpoint' => Url::fromRoute('dungeoncrawler_content.api.character_gm_chat')->toString(),
+      'endpointTemplate' => Url::fromRoute('dungeoncrawler_content.api.character_creation_gm', ['draft_id' => '0'])->toString(),
+      'createEndpoint' => Url::fromRoute('dungeoncrawler_content.api.character_creation_draft')->toString(),
+      'referenceEndpoint' => Url::fromRoute('dungeoncrawler_content.api.character_creation_reference')->toString(),
       'characterId' => $character_id,
       'campaignId' => $campaign_id !== NULL && $campaign_id !== '' ? (int) $campaign_id : NULL,
       'step' => $active_step,
-      'csrfToken' => $this->csrfToken->get('rest'),
+      'csrfToken' => $this->csrfToken->get(CsrfRequestHeaderAccessCheck::TOKEN_KEY),
       'history' => $this->characterCreationGm->getChatHistory($character_data),
       'summary' => $this->characterCreationGm->buildSummary($character_data),
       'shellMode' => 'character_setup',
@@ -145,6 +153,8 @@ class CharacterSetupController extends ControllerBase {
             'activeStep' => $active_step,
             'maxAccessibleStep' => $max_accessible_step,
             'showQuickPlay' => $show_quick_play,
+            'refreshUrl' => Url::fromRoute('dungeoncrawler_content.character_setup_refresh')->toString(),
+            'steps' => $steps,
           ],
           'dungeoncrawlerCharacterGm' => $gm_settings,
         ],
@@ -154,6 +164,62 @@ class CharacterSetupController extends ControllerBase {
         'tags' => ['dc_campaign_characters'],
         'max-age' => 0,
       ],
+    ];
+  }
+
+  /**
+   * Create a canonical library draft before the first shared GM conversation.
+   */
+  public function createDraft(Request $request): JsonResponse {
+    $token = (string) $request->headers->get('X-CSRF-Token');
+    if (!$this->currentUser()->isAuthenticated() || !$this->csrfToken->validate($token, CsrfRequestHeaderAccessCheck::TOKEN_KEY)) {
+      return new JsonResponse(['error' => 'Invalid or missing CSRF token.'], 403);
+    }
+    return new JsonResponse(['draft' => $this->characterCreationGm->createDraft()], 201);
+  }
+
+  /**
+   * Refresh only the editor, preserving the conversation and the page shell.
+   */
+  public function refresh(Request $request): AjaxResponse {
+    $query = $request->query->all();
+    unset($query['_wrapper_format'], $query['ajax_page_state']);
+    $url = Url::fromRoute('dungeoncrawler_content.character_setup', [], ['query' => $query])->toString();
+    $get = Request::create($request->getSchemeAndHttpHost() . $url, 'GET');
+    $get->setSession($request->getSession());
+    $get->attributes->add($request->attributes->all());
+    $stack = \Drupal::service('request_stack');
+    $stack->push($get);
+    try {
+      $page = $this->page($get);
+    }
+    finally {
+      $stack->pop();
+    }
+    $region = $this->stepRegion($page);
+    $response = new AjaxResponse();
+    $response->setAttachments($page['#attached']);
+    $response->addCommand(new SettingsCommand($page['#attached']['drupalSettings'], TRUE));
+    $response->addCommand(new ReplaceCommand('[data-character-step-region]', $region));
+    $response->addCommand(new InvokeCommand('[data-character-setup-root]', 'trigger', [
+      'characterWorkspaceRefreshed', $page['#attached']['drupalSettings']['dungeoncrawlerCharacterSetup'],
+    ]));
+    return $response;
+  }
+
+  private function stepRegion(array $page): array {
+    $step_name = '';
+    foreach ($page['#steps'] as $step) {
+      if ($step['number'] === $page['#active_step']) {
+        $step_name = $step['name'];
+      }
+    }
+    return [
+      '#theme' => 'character_setup_step',
+      '#step_form' => $page['#step_form'],
+      '#active_step' => $page['#active_step'],
+      '#step_name' => $step_name,
+      '#messages' => ['#type' => 'status_messages'],
     ];
   }
 

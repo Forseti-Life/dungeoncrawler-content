@@ -24,12 +24,33 @@ Legacy combat mutation endpoints under `/api/combat/*` are non-canonical support
 
 ### Character Setup Assistant
 
-`/charactersetup` displays the Game Master Agent above the structured character
-editor, using the Storyline Builder's assistant panel styling and shared
-transcript renderer. Suggested requests populate the composer for review before
-sending. Conversation history remains in the character's `wizard.gm_chat`
-payload and is restored using `character_id` when returning to edit; it is not
-a browser-global conversation.
+`/charactersetup` uses a left-hand step/quicklink sidebar and a larger right
+workspace, with the Character Creation GM above the structured editor. Native
+Drupal AJAX refreshes only the editor, preserving the conversation, composer,
+and viewport. Unsaved fields block navigation and GM apply until saved or
+explicitly discarded.
+
+The character-specific `character_creation` surface runs on the shared Editor
+GM harness. Registered tools inspect the canonical draft/reference, validate,
+explain findings, plan patches, and apply approved revision-bound patches.
+Natural-language task queues stop at a validated proposal rather than applying
+changes automatically. GM tools never finalize characters or modify campaign
+runtime characters.
+
+All mutation transports delegate to `CharacterCreationStepForm` for native
+validation and canonical persistence. Read-only inspection builds all eight
+real forms without running submit handlers. Missing choices remain visible;
+invalid populated choices block their proposed changes. Final submission checks
+every step. Manual saves and GM patches also share the pure step projection for
+spell, feat, familiar, skill, and equipment payloads. Identity, ability/combat,
+and wizard mirrors share the form save authority, and writes use an atomic
+version condition.
+
+New conversations use shared Editor GM chat sessions keyed by character ID.
+Existing `wizard.gm_chat` history remains visible and available as legacy
+context; no duplicate transcript writes are made. Legacy step URLs redirect to
+the workspace. The old custom `/api/character/gm-chat` transport is retired;
+the shared endpoint is `/api/character/creation/{draft_id}/gm`.
 
 Ability boost validation uses only the interactive selector, not compact score
 previews. Selection and submission share the server-provided boost limit, and
@@ -390,8 +411,8 @@ Editor-embedded GM assistants share `EditorGmChatClient.js` for tool parsing
 and rendering, request envelopes, transcripts, approval controls, and
 Enter-to-send behavior. Their server requests still resolve through the
 existing Editor GM harness and each surface's registered domain tools.
-Character Creation reuses only the shared composer behavior because its
-existing character-draft service remains the sole mutation authority.
+Character Creation uses the same harness and browser contracts, with its own
+registered tools and the canonical wizard form as validation/save authority.
 
 ## 4. API Surface (Grouped from Routing)
 

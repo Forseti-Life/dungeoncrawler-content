@@ -252,6 +252,14 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     }
 
     $definition = $surface->registry()->get($intent['tool_name'])->definition();
+    if ($surface->id() === CharacterCreationGmSurface::ID && $definition->name === 'apply_character_draft_updates') {
+      return $this->executeTool(
+        $surface, $draft_id, $profile, 'plan_character_draft_updates',
+        ['updates' => $intent['arguments']['updates']], FALSE,
+        $intent['reasoning'], $scope,
+        array_values((array) ($intent['next_steps'] ?? [])), $author_message,
+      );
+    }
     if (!$definition->mutating) {
       return $this->executeTool(
         $surface,
@@ -363,6 +371,10 @@ class EditorGmHarnessService implements AgentHarnessInterface {
 
       $task_tool_name = (string) ($task['tool_name'] ?? '');
       $task_arguments = is_array($task['arguments'] ?? NULL) ? $task['arguments'] : [];
+      if ($surface->id() === CharacterCreationGmSurface::ID && $task_tool_name === 'apply_character_draft_updates') {
+        $task_tool_name = 'plan_character_draft_updates';
+        $task_arguments = ['updates' => $task_arguments['updates']];
+      }
       if ($surface->id() === StorylineBuilderGmSurface::ID && array_key_exists('expected_revision', $task_arguments)) {
         $live_context = $this->createContext($surface, $draft_id, $profile, $scope);
         $task_arguments['expected_revision'] = (int) ($live_context->draft()['revision'] ?? $task_arguments['expected_revision']);
@@ -383,6 +395,9 @@ class EditorGmHarnessService implements AgentHarnessInterface {
       );
       $accumulated_tool_calls = array_values((array) ($last_envelope['tool_calls'] ?? $accumulated_tool_calls));
       $completed_count++;
+      if ($surface->id() === CharacterCreationGmSurface::ID && $task_tool_name === 'plan_character_draft_updates') {
+        break;
+      }
     }
 
     if ($last_envelope === NULL) {
@@ -784,6 +799,9 @@ class EditorGmHarnessService implements AgentHarnessInterface {
       'current_state' => $context_snapshot['current_state'] ?? [],
       'dungeon' => $context_snapshot['dungeon'] ?? [],
       'room' => $context_snapshot['room'] ?? [],
+      'character' => $context_snapshot['character'] ?? [],
+      'legacy_conversation' => $context_snapshot['legacy_conversation'] ?? [],
+      'authority_boundary' => $context_snapshot['authority_boundary'] ?? [],
       'validation_summary' => $context_snapshot['validation_summary'] ?? [],
       'publication' => $context_snapshot['publication'] ?? [],
       'conversation_context' => $context_snapshot['conversation_context'] ?? '',

@@ -1,0 +1,11 @@
+<section id="character-setup-editor" data-character-step-region aria-labelledby="character-setup-step-title">
+  {{ messages }}
+  <div class="character-setup-page__panel-header">
+    <div>
+      <p class="character-setup-page__panel-label">Structured character editor</p>
+      <h2 id="character-setup-step-title" class="character-setup-page__panel-title" data-character-setup-active-title>{{ step_name }}</h2>
+    </div>
+    <p class="character-setup-page__panel-meta" data-character-setup-active-meta>Step {{ active_step }} of 8</p>
+  </div>
+  <div class="character-setup-page__frame-shell">{{ step_form }}</div>
+</section>

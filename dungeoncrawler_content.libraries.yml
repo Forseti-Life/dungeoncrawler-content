@@ -74,7 +74,7 @@ character-creation-style:
     - dungeoncrawler_content/character-step-base
 
 character-creation-gm-chat:
-  version: 20261109-character-gm-panel-1
+  version: 20261109-character-workspace-3
   css:
     theme:
       css/character-creation-gm-chat.css: {}
@@ -88,7 +88,7 @@ character-creation-gm-chat:
     - core/drupalSettings
 
 character-setup-tabs:
-  version: 20261109-character-gm-panel-1
+  version: 20261109-character-workspace-3
   css:
     theme:
       css/character-setup-tabs.css: {}
@@ -99,6 +99,7 @@ character-setup-tabs:
     - core/drupal
     - core/once
     - core/drupalSettings
+    - core/drupal.ajax
 
 editor-gm-chat-style:
   version: 20261109-character-gm-panel-1
@@ -228,7 +229,7 @@ hexmap:
 # All js/v2/** modules are imported inside hexmap-v2.js (ES module imports);
 # only the entry point is listed here.
 hexmap-v2:
-  version: 20261025-search-narrator-1
+  version: 20261109-runtime-snapshot-sync-1
   js:
     # PixiJS CDN (version locked — same as hexmap library)
     https://cdn.jsdelivr.net/npm/pixi.js@7.3.2/dist/pixi.min.js: { type: external, minified: true }

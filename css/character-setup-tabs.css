@@ -2,6 +2,10 @@
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
+  padding: clamp(0.75rem, 2vw, 1.5rem);
+  border-radius: 1rem;
+  background: #121826;
+  color: #fff8e6;
 }
 
 .character-setup-page__header,
@@ -48,7 +52,7 @@
 
 .character-setup-page__sidebar {
   position: sticky;
-  top: 1rem;
+  top: calc(var(--drupal-displace-offset-top, 0px) + 1rem);
   align-self: start;
 }
 
@@ -177,7 +181,78 @@
     flex-direction: column;
     align-items: stretch;
   }
+}
 
+  .character-setup-page[data-character-setup-root] .character-setup-page__layout {
+    grid-template-columns: minmax(13rem, 17rem) minmax(0, 1fr);
+  }
+
+  .character-setup-page[data-character-setup-root] .character-setup-page__workspace {
+    display: grid;
+    gap: 1.25rem;
+    overflow-anchor: none;
+  }
+
+  .character-setup-page[data-character-setup-root] .character-setup-page__sidebar {
+    max-height: calc(100vh - var(--drupal-displace-offset-top, 0px) - 2rem);
+    overflow-y: auto;
+  }
+
+  .character-setup-page[data-character-setup-root] .character-setup-page__tab[aria-disabled='true'] {
+    pointer-events: auto;
+  }
+
+  .character-setup-page__quicklinks {
+    display: grid;
+    gap: 0.6rem;
+  }
+
+  .character-setup-page[data-character-setup-root] .gm-storyline-wizard__assistant-log {
+    max-height: 22rem;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .character-setup-page[data-character-setup-root] .room-editor__gm-message {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    padding: 0.75rem;
+    border-radius: 0.6rem;
+    background: rgba(18, 24, 38, 0.9);
+  }
+
+  .character-setup-page[data-character-setup-root] .room-editor__gm-message pre {
+    max-height: 14rem;
+    overflow: auto;
+    white-space: pre-wrap;
+  }
+
+  [data-character-workspace-status].is-error {
+    color: #ffb7b0;
+  }
+
+  [data-character-step-region][aria-busy='true'] {
+    opacity: 0.65;
+    pointer-events: none;
+  }
+
+  @media (max-width: 880px) {
+    .character-setup-page[data-character-setup-root] .character-setup-page__layout {
+      grid-template-columns: 1fr;
+    }
+
+    .character-setup-page[data-character-setup-root] .character-setup-page__sidebar {
+      max-height: none;
+      overflow: visible;
+    }
+
+    .character-setup-page[data-character-setup-root] .character-setup-page__tabs {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+    }
+  }
+
+@media (max-width: 880px) {
   .character-setup-page__layout {
     grid-template-columns: 1fr;
   }

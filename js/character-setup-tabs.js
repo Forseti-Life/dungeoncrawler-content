@@ -1,157 +1,146 @@
-(function (Drupal, once, drupalSettings) {
+(function (Drupal, once, drupalSettings, $) {
   'use strict';
-
-  function parseUrl(value) {
-    try {
-      return new URL(value, window.location.origin);
-    }
-    catch (error) {
-      return null;
-    }
-  }
-
-  function buildStepUrl(settings, step, characterId, campaignId) {
-    const url = parseUrl(settings.shellUrl);
-    if (!url) {
-      return settings.shellUrl;
-    }
-
-    url.searchParams.set('step', String(step));
-    if (characterId) {
-      url.searchParams.set('character_id', String(characterId));
-    }
-    else {
-      url.searchParams.delete('character_id');
-    }
-
-    if (campaignId) {
-      url.searchParams.set('campaign_id', String(campaignId));
-    }
-    else {
-      url.searchParams.delete('campaign_id');
-    }
-
-    return url.toString();
-  }
-
-  function updateSummaryFields(root, summary) {
-    if (!summary || typeof summary !== 'object') {
-      return;
-    }
-
-    Object.keys(summary).forEach((key) => {
-      const target = root.querySelector('[data-gm-chat-summary-field="' + key + '"]');
-      if (!target) {
-        return;
-      }
-
-      const value = summary[key];
-      target.textContent = value === null || value === undefined || value === '' ? 'Not selected' : String(value);
-    });
-  }
-
-  function serializeSubmitter(submitter) {
-    if (!submitter) {
-      return null;
-    }
-
-    return {
-      tagName: submitter.tagName || null,
-      type: submitter.getAttribute ? submitter.getAttribute('type') : null,
-      name: submitter.getAttribute ? submitter.getAttribute('name') : null,
-      value: submitter.value || (submitter.textContent ? submitter.textContent.trim() : null),
-      href: submitter.href || null,
-      dataset: submitter.dataset ? { ...submitter.dataset } : {},
-    };
-  }
-
-  function logSetupInteraction(message, payload) {
-    console.log('[CharacterSetup]', message, payload);
-  }
 
   Drupal.behaviors.dungeoncrawlerCharacterSetup = {
     attach(context) {
-      const settings = drupalSettings.dungeoncrawlerCharacterSetup;
-      if (!settings) {
-        return;
-      }
-
       once('dungeoncrawlerCharacterSetup', '[data-character-setup-root]', context).forEach((root) => {
-        const state = {
-          activeStep: Number(settings.activeStep || 1),
-          maxAccessibleStep: Number(settings.maxAccessibleStep || 1),
-          characterId: settings.characterId ? Number(settings.characterId) : null,
-          campaignId: settings.campaignId ? Number(settings.campaignId) : null,
-        };
-        const form = root.querySelector('form.character-creation-form');
+        const state = { ...drupalSettings.dungeoncrawlerCharacterSetup };
+        const status = root.querySelector('[data-character-workspace-status]');
+        const dirtyActions = root.querySelector('[data-character-dirty-actions]');
+        let baseline = null;
+        let busy = false;
+        let mutationPending = false;
 
+        const snapshot = () => {
+          const form = root.querySelector('form.character-creation-form');
+          if (!form) return '';
+          return JSON.stringify(Array.from(form.elements)
+            .filter((element) => element.name && !element.disabled
+              && !['submit', 'button', 'file'].includes(element.type)
+              && (element.type !== 'hidden' || /^(ancestry_boosts|background_boosts|free_boosts|feat_selections)/.test(element.name)))
+            .map((element) => [element.name, element.type === 'checkbox' || element.type === 'radio' ? element.checked : element.value]));
+        };
+        const isDirty = () => baseline !== null && baseline !== snapshot();
+        const setStatus = (message, error = false) => {
+          status.textContent = message;
+          status.classList.toggle('is-error', error);
+          dirtyActions.hidden = !isDirty();
+        };
+        const urlFor = (step, refresh = false) => {
+          const url = new URL(refresh ? state.refreshUrl : state.shellUrl, window.location.origin);
+          url.searchParams.set('step', String(step));
+          if (state.characterId) url.searchParams.set('character_id', String(state.characterId));
+          if (state.campaignId) url.searchParams.set('campaign_id', String(state.campaignId));
+          return url;
+        };
+        const updateTabs = () => {
+          root.querySelectorAll('[data-character-setup-tab]').forEach((tab) => {
+            const step = Number(tab.dataset.step);
+            const enabled = step <= Number(state.maxAccessibleStep);
+            tab.href = urlFor(step).toString();
+            tab.classList.toggle('is-active', step === Number(state.activeStep));
+            tab.setAttribute('aria-current', step === Number(state.activeStep) ? 'step' : 'false');
+            tab.setAttribute('aria-disabled', enabled ? 'false' : 'true');
+            tab.title = enabled ? '' : 'Waiting for earlier steps to be saved';
+            tab.querySelector('[data-character-step-state]').textContent = enabled
+              ? (step === Number(state.activeStep) ? 'Editing' : 'Available') : 'Save earlier steps to unlock';
+          });
+        };
+        const refresh = async ({ step = state.activeStep, characterId = state.characterId, saved = false, push = false } = {}) => {
+          if (busy) throw new Error('Waiting for the server to finish refreshing the character editor.');
+          if (mutationPending && !saved) throw new Error('Waiting for the server to finish applying the approved GM changes.');
+          if (!saved && isDirty()) {
+            const message = 'Unsaved edits: save this step or discard edits before continuing.';
+            setStatus(message, true);
+            throw new Error(message);
+          }
+          state.characterId = characterId;
+          busy = true;
+          const scrollY = window.scrollY;
+          root.querySelector('[data-character-step-region]').setAttribute('aria-busy', 'true');
+          setStatus('Waiting for the server to load the character step...');
+          try {
+            await new Promise((resolve, reject) => {
+              const ajax = Drupal.ajax({
+                url: urlFor(step, true).toString(),
+                httpMethod: 'GET',
+                progress: false,
+                'disable-refocus': true,
+              });
+              const success = ajax.success.bind(ajax);
+              ajax.success = (response, responseStatus) => Promise.resolve(success(response, responseStatus)).then(resolve, reject);
+              ajax.error = (xhr, uri, message) => reject(new Drupal.AjaxError(xhr, uri, message));
+              ajax.execute();
+            });
+            baseline = snapshot();
+            history[push ? 'pushState' : 'replaceState']({}, '', urlFor(state.activeStep));
+            window.scrollTo({ top: scrollY, behavior: 'instant' });
+            setStatus('Character editor is up to date.');
+            root.dispatchEvent(new CustomEvent('character:refreshed', { bubbles: true }));
+          }
+          catch (error) {
+            setStatus('Editor refresh failed. Your conversation is preserved. ' + error.message, true);
+            throw error;
+          }
+          finally {
+            busy = false;
+            root.querySelector('[data-character-step-region]')?.removeAttribute('aria-busy');
+          }
+        };
+        $(root).on('characterWorkspaceRefreshed', (_event, settings) => {
+          Object.assign(state, settings);
+          updateTabs();
+        });
+        $(root).on('characterWorkspaceSaved', (_event, query) => {
+          refresh({ step: Number(query.step), characterId: Number(query.character_id), saved: true })
+            .catch((error) => setStatus(error.message, true));
+        });
         root.addEventListener('click', (event) => {
-          const target = event.target instanceof Element ? event.target.closest('button, a') : null;
-          if (!target) {
+          const tab = event.target.closest('[data-character-setup-tab]');
+          if (!tab || event.ctrlKey || event.metaKey || event.shiftKey || event.button > 0) return;
+          event.preventDefault();
+          if (tab.getAttribute('aria-disabled') === 'true') {
+            setStatus('Waiting for earlier character steps to be saved before this step unlocks.');
             return;
           }
-
-          if (target.matches('[data-character-setup-submit]') || target.matches('[data-character-setup-quick-play]')) {
-            logSetupInteraction('click', {
-              url: window.location.href,
-              activeStep: state.activeStep,
-              campaignId: state.campaignId,
-              characterId: state.characterId,
-              target: serializeSubmitter(target),
-            });
-          }
+          refresh({ step: Number(tab.dataset.step), push: true }).catch((error) => setStatus(error.message, true));
         });
-
-        if (form) {
-          form.addEventListener('submit', (event) => {
-            const formData = new FormData(form);
-            const payload = {
-              url: window.location.href,
-              action: form.action || window.location.href,
-              method: form.method || 'get',
-              activeStep: state.activeStep,
-              campaignId: state.campaignId,
-              characterId: state.characterId,
-              submitter: serializeSubmitter(event.submitter || document.activeElement),
-              fields: {
-                op: formData.get('op'),
-                wizard_next: formData.get('wizard_next'),
-                campaign_id: formData.get('campaign_id'),
-                character_version: formData.get('character_version'),
-                form_id: formData.get('form_id'),
-              },
-            };
-            logSetupInteraction('form-submit', payload);
-          }, true);
-        }
-
-        root.querySelectorAll('[data-character-setup-tab]').forEach((tab) => {
-          tab.addEventListener('click', (event) => {
-            if (tab.getAttribute('aria-disabled') === 'true') {
-              event.preventDefault();
-              return;
-            }
-
-            const step = Number(tab.dataset.step || '1');
-            if (step > state.maxAccessibleStep) {
-              event.preventDefault();
-            }
-          });
+        root.addEventListener('input', () => {
+          dirtyActions.hidden = !isDirty();
         });
-
-        window.addEventListener('dungeoncrawler:character-setup-gm-update', (event) => {
-          const payload = event.detail || {};
-          if (payload.character_id) {
-            state.characterId = Number(payload.character_id);
-          }
-          if (payload.step) {
-            state.activeStep = Number(payload.step);
-            state.maxAccessibleStep = Math.max(state.maxAccessibleStep, state.activeStep);
-          }
-          updateSummaryFields(root, payload.summary || {});
-          window.location.assign(buildStepUrl(settings, state.activeStep, state.characterId, state.campaignId));
+        root.addEventListener('change', () => {
+          dirtyActions.hidden = !isDirty();
         });
+        root.querySelector('[data-character-discard]').addEventListener('click', () => {
+          refresh({ saved: true }).catch((error) => setStatus(error.message, true));
+        });
+        window.addEventListener('beforeunload', (event) => {
+          if (!isDirty()) return;
+          event.preventDefault();
+          event.returnValue = '';
+        });
+        window.addEventListener('popstate', () => {
+          const step = Number(new URL(window.location.href).searchParams.get('step') || 1);
+          if (isDirty()) {
+            history.replaceState({}, '', urlFor(state.activeStep));
+            setStatus('Unsaved edits: save or discard them before navigating.', true);
+            return;
+          }
+          refresh({ step }).catch((error) => setStatus(error.message, true));
+        });
+        Drupal.characterCreationWorkspace = {
+          refresh, isDirty, isBusy: () => busy || mutationPending,
+          lock() {
+            mutationPending = true;
+            root.querySelector('[data-character-step-region]').inert = true;
+          },
+          unlock() {
+            mutationPending = false;
+            root.querySelector('[data-character-step-region]').inert = false;
+          },
+        };
+        requestAnimationFrame(() => { baseline = snapshot(); });
       });
     },
   };
-})(Drupal, once, drupalSettings);
+})(Drupal, once, drupalSettings, jQuery);

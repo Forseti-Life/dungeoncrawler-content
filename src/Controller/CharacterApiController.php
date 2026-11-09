@@ -251,9 +251,9 @@ class CharacterApiController extends ControllerBase {
   }
 
   /**
-   * Process a GM chat message and apply draft updates.
+   * Returns the referential Pathfinder lookup file for character creation.
    */
-  public function gmChat(Request $request): JsonResponse {
+  public function getCharacterCreationReference(Request $request): JsonResponse {
     if (!$this->currentUser()->isAuthenticated()) {
       return new JsonResponse([
         'success' => FALSE,
@@ -261,65 +261,12 @@ class CharacterApiController extends ControllerBase {
       ], 401);
     }
 
-    $token = $request->headers->get('X-CSRF-Token');
-    if (!$token || !$this->csrfToken->validate($token, 'rest')) {
-      return new JsonResponse([
-        'success' => FALSE,
-        'error' => 'Invalid or missing CSRF token',
-      ], 403);
-    }
-
-    $data = json_decode($request->getContent(), TRUE);
-    if (json_last_error() !== JSON_ERROR_NONE) {
-      return new JsonResponse([
-        'success' => FALSE,
-        'error' => 'Invalid JSON',
-      ], 400);
-    }
-
-    $message = trim((string) ($data['message'] ?? ''));
-    if ($message === '') {
-      return new JsonResponse([
-        'success' => FALSE,
-        'error' => 'Message is required',
-      ], 400);
-    }
-
-    try {
-      $result = $this->characterCreationGm->handleMessage(
-        !empty($data['character_id']) ? (int) $data['character_id'] : NULL,
-        !empty($data['campaign_id']) ? (int) $data['campaign_id'] : NULL,
-        max(1, min(8, (int) ($data['step'] ?? 1))),
-        $message,
-      );
-
-      return new JsonResponse([
-        'success' => TRUE,
-        'reply' => $result['reply'],
-        'character_id' => $result['character_id'],
-        'step' => $result['step'],
-        'history' => $result['history'],
-        'applied_updates' => $result['applied_updates'],
-        'reload_required' => !empty($result['reload_required']),
-        'reload_url' => $result['reload_url'],
-        'summary' => $result['summary'],
-      ]);
-    }
-    catch (\Throwable $exception) {
-      \Drupal::logger('dungeoncrawler_content')->error('GM chat error: @message', [
-        '@message' => $exception->getMessage(),
-      ]);
-
-      $status_code = (int) $exception->getCode();
-      if ($status_code < 400 || $status_code >= 600) {
-        $status_code = 500;
-      }
-
-      return new JsonResponse([
-        'success' => FALSE,
-        'error' => $exception->getMessage(),
-      ], $status_code);
-    }
+    return new JsonResponse([
+      'success' => TRUE,
+      'reference_file' => $this->characterCreationGm->getPathfinderCharacterCreationReference(
+        $request->query->get('campaign_id') !== NULL ? (int) $request->query->get('campaign_id') : NULL
+      ),
+    ]);
   }
 
   /**

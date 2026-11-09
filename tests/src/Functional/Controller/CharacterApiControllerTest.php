@@ -120,7 +120,7 @@ class CharacterApiControllerTest extends BrowserTestBase {
     $user = $this->drupalCreateUser(['create dungeoncrawler characters']);
     $this->drupalLogin($user);
 
-    $response = $this->getHttpClient()->post($this->buildUrl('/api/character/gm-chat'), [
+    $response = $this->getHttpClient()->post($this->buildUrl('/api/character/creation/1/gm'), [
       'headers' => [
         'Accept' => 'application/json',
         'Content-Type' => 'application/json',
@@ -137,8 +137,30 @@ class CharacterApiControllerTest extends BrowserTestBase {
     $this->assertSame(403, $response->getStatusCode(), 'Invalid GM chat CSRF token should return 403.');
     $payload = json_decode((string) $response->getBody(), TRUE);
     $this->assertIsArray($payload, 'Response should decode as JSON.');
-    $this->assertFalse($payload['success'] ?? TRUE, 'Invalid GM chat token should fail.');
-    $this->assertSame('Invalid or missing CSRF token', $payload['error'] ?? '');
+    $this->assertSame('csrf_token_invalid', $payload['error']['code'] ?? '');
+  }
+
+  /**
+   * Tests character creation reference endpoint returns the PF2E lookup file.
+   */
+  public function testCharacterCreationReferenceApi(): void {
+    $user = $this->drupalCreateUser(['create dungeoncrawler characters']);
+    $this->drupalLogin($user);
+
+    $response = $this->getHttpClient()->get($this->buildUrl('/api/character/creation-reference'), [
+      'headers' => [
+        'Accept' => 'application/json',
+      ],
+      'cookies' => $this->getSessionCookies(),
+      'http_errors' => FALSE,
+    ]);
+
+    $this->assertSame(200, $response->getStatusCode(), 'Reference endpoint should return 200 for authorized users.');
+    $payload = json_decode((string) $response->getBody(), TRUE);
+    $this->assertIsArray($payload, 'Response should decode as JSON.');
+    $this->assertTrue((bool) ($payload['success'] ?? FALSE), 'Reference endpoint should succeed.');
+    $this->assertSame('pathfinder-character-creation-reference.v1.json', $payload['reference_file']['file_name'] ?? '');
+    $this->assertNotEmpty($payload['reference_file']['classes'] ?? [], 'Reference file should include class catalog.');
   }
 
 }
