@@ -62,8 +62,8 @@ async function main() {
           const max = typeof apiCount === 'function' ? apiCount(url.pathname) : apiCount;
           return route.fulfill({ json: {
             available: abilities,
-            disabled: payload.selected_boosts.length >= max
-              ? abilities.filter(ability => !payload.selected_boosts.includes(ability)) : [],
+            disabled: [...new Set([...(options.disabled || []), ...(payload.selected_boosts.length >= max
+              ? abilities.filter(ability => !payload.selected_boosts.includes(ability)) : [])])],
             max_selections: max,
           } });
         }
@@ -109,6 +109,22 @@ async function main() {
     {
       const { page } = await fixture(`<form class="character-creation-form">${preview}</form>`, 0);
       assert.equal((await submit(page)).blocked, false, 'read-only preview cannot gate non-boost steps');
+      await page.close();
+      passed++;
+    }
+    for (const step of ['ancestry', 'background']) {
+      const { page } = await fixture(
+        `<form class="character-creation-form">${widget(step, 1, ['strength'])}</form>`, 1,
+        { disabled: ['strength'] }
+      );
+      assert.equal(await page.locator('[data-ability="strength"] .ability-checkbox').isDisabled(), false, 'An invalid selected boost must remain removable.');
+      await page.locator('[data-ability="strength"]').click();
+      await page.waitForFunction(() => document.querySelector('[data-ability="strength"] .ability-checkbox').disabled);
+      assert.equal(await page.locator(`#${step}-boosts-field`).inputValue(), '[]');
+      assert.equal(await page.locator('[data-ability="strength"] .ability-checkbox').isDisabled(), true, 'A forbidden boost cannot be reselected.');
+      await page.locator('[data-ability="dexterity"]').click();
+      await page.waitForFunction(step => document.querySelector(`#${step}-boosts-field`).value === '["dexterity"]', step);
+      assert.equal((await submit(page)).blocked, false, 'A valid replacement must clear the selection dead end.');
       await page.close();
       passed++;
     }

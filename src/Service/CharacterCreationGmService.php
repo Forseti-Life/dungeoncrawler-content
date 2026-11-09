@@ -358,7 +358,7 @@ class CharacterCreationGmService {
         if (!is_array($updates[$field]) || !array_is_list($updates[$field])) {
           throw new \InvalidArgumentException($field . ' must be a list of ability IDs.');
         }
-        $sanitized[$field] = $this->sanitizeAbilityList($updates[$field]);
+        $sanitized[$field] = $this->sanitizeAbilityList($updates[$field], $field);
       }
     }
 
@@ -596,15 +596,18 @@ class CharacterCreationGmService {
   /**
    * Sanitize an ability-selection list.
    */
-  private function sanitizeAbilityList(mixed $value): array {
+  private function sanitizeAbilityList(mixed $value, string $field): array {
     $normalized = [];
     foreach ($value as $item) {
       if (!is_string($item)) {
-        throw new \InvalidArgumentException('Ability boosts must contain string IDs.');
+        throw new \InvalidArgumentException($field . ' must contain string ability IDs.', 422);
       }
       $ability = $this->abilityScoreTracker->normalizeAbilityKey($item);
-      if (!$ability || in_array($ability, $normalized, TRUE)) {
-        throw new \InvalidArgumentException('Ability boosts must contain distinct, supported ability IDs.');
+      if (!$ability) {
+        throw new \InvalidArgumentException($field . ' contains an unsupported ability ID: ' . $item, 422);
+      }
+      if (in_array($ability, $normalized, TRUE)) {
+        throw new \InvalidArgumentException($field . ' repeats ' . $ability . '. Select distinct abilities; aliases refer to the same ability.', 422);
       }
       $normalized[] = $ability;
     }

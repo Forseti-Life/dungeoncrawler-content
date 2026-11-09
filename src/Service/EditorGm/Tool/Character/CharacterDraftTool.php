@@ -25,6 +25,9 @@ final class CharacterDraftTool implements EditorGmToolInterface {
     $planning = $this->operation === 'plan_character_draft_updates';
     $applying = $this->operation === 'apply_character_draft_updates';
     $arguments = [];
+    if ($this->operation === 'get_character_creation_reference') {
+      $arguments[] = EditorGmToolDefinition::argument('updates', 'object', FALSE, 'Read-only candidate ancestry/background/class patch. Returns native conditional choices for that proposed object without saving or approving it.');
+    }
     if ($applying) {
       $arguments[] = EditorGmToolDefinition::argument('expected_revision', 'integer', TRUE, 'The revision from the inspected draft or approved plan.');
     }
@@ -53,10 +56,21 @@ final class CharacterDraftTool implements EditorGmToolInterface {
       return $draft;
     }
     if ($this->operation === 'get_character_creation_reference') {
-      return [
+      $reference = [
         ...$context->drafts->getPathfinderCharacterCreationReference($draft['campaign_id']),
+        'draft_revision' => $draft['revision'],
         'current_step_choices' => $context->validation()['steps'],
       ];
+      if (array_key_exists('updates', $arguments)) {
+        $plan = $context->drafts->planUpdates($draft['character_id'], EditorGmToolContext::requireArray($arguments, 'updates'));
+        $reference['candidate_step_choices'] = $plan['validation']['steps'];
+        $reference['candidate_updates'] = $plan['updates'];
+        $reference['candidate_findings'] = [
+          'errors' => $plan['validation']['errors'],
+          'warnings' => $plan['validation']['warnings'],
+        ];
+      }
+      return $reference;
     }
     $updates = EditorGmToolContext::requireArray($arguments, 'updates');
     if ($this->operation === 'plan_character_draft_updates') {

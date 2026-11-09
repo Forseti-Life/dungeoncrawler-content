@@ -36,6 +36,16 @@ final class CharacterCreationGmToolContext extends EditorGmToolContext {
     }
     $this->report ??= $this->drafts->validateData($this->draft['payload'], $this->draft['campaign_id']);
     $report = $this->report;
+    $report['player_review'] = array_map(static function (array $issue) use ($report): array {
+      return [
+        'field' => $issue['field'],
+        'step' => $issue['step'],
+        'path' => $issue['path'],
+        'status' => $issue['code'] === 'character_choice_invalid' ? 'invalid' : 'missing',
+        'message' => $issue['message'],
+        'choices' => $report['steps'][$issue['step'] - 1]['choices'][$issue['field']] ?? NULL,
+      ];
+    }, array_merge($report['errors'], $report['warnings']));
     if ($profile === 'publication') {
       $report['valid'] = $report['ready'];
     }

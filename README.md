@@ -46,6 +46,14 @@ spell, feat, familiar, skill, and equipment payloads. Identity, ability/combat,
 and wizard mirrors share the form save authority, and writes use an atomic
 version condition.
 
+The actor and character are the same canonical object. The shared
+`validate_draft` and `explain_validation_findings` tools expose creation-profile
+findings and a player-review checklist derived from those findings, not a
+separate completeness model. Native choices include exact/distinct boost
+constraints. `get_character_creation_reference` accepts a read-only candidate
+patch to inspect ancestry/background/class-dependent choices before proposing
+them; no actor copy or approval is created by that inspection.
+
 New conversations use shared Editor GM chat sessions keyed by character ID.
 Existing `wizard.gm_chat` history remains visible and available as legacy
 context; no duplicate transcript writes are made. Legacy step URLs redirect to

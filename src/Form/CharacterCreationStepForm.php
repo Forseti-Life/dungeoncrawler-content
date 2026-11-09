@@ -277,12 +277,24 @@ class CharacterCreationStepForm extends FormBase {
         $validator->validateForm($this->getFormId(), $form, $state);
         $choices = [];
         $collect = function (array $element) use (&$collect, &$choices): void {
+          if (($element['#theme'] ?? NULL) === 'character_ability_widget' && ($element['#mode'] ?? '') === 'interactive') {
+            $field = $element['#attributes']['data-step'] . '_boosts';
+            $abilities = array_filter($element['#abilities'], static fn(array $ability): bool => empty($ability['disabled']));
+            $choices[$field] = [
+              'required' => TRUE,
+              'multiple' => TRUE,
+              'selection_count' => (int) $element['#boosts_total'],
+              'unique_items' => TRUE,
+              'options' => array_combine(array_keys($abilities), array_keys($abilities)),
+            ];
+          }
           if (isset($element['#options'], $element['#parents']) && !empty($element['#input'])
             && in_array($element['#type'] ?? '', ['select', 'radios', 'checkboxes'], TRUE)) {
             $options = \Drupal\Core\Form\OptGroup::flattenOptions($element['#options']);
             $choices[implode('][', $element['#parents'])] = [
               'required' => !empty($element['#required']),
               'multiple' => ($element['#type'] === 'checkboxes') || !empty($element['#multiple']),
+              'description' => strip_tags((string) ($element['#description'] ?? '')),
               'options' => array_map(static fn(mixed $label): string => (string) $label, $options),
             ];
           }
@@ -1239,6 +1251,12 @@ class CharacterCreationStepForm extends FormBase {
 
     $calculation = $this->abilityScoreTracker->calculateAbilityScores($character_data_for_widget);
     $abilities_data = $this->buildInteractiveAbilityData($calculation, $selected_background_boosts);
+    if ($has_fixed_boost) {
+      $fixed_ability = $this->abilityScoreTracker->normalizeAbilityKey($bg_boost_data['fixed_boost']);
+      if (isset($abilities_data[$fixed_ability])) {
+        $abilities_data[$fixed_ability]['disabled'] = TRUE;
+      }
+    }
 
     $form['background_dynamic'] = [
       '#type' => 'container',

@@ -64,7 +64,7 @@ class EditorGmIntentParser {
       throw new \InvalidArgumentException('editor_gm_utterance_too_long');
     }
     if (
-      in_array($surface_label, ['Storyline Builder', 'Dungeon Editor', 'Room Editor'], TRUE)
+      in_array($surface_label, ['Storyline Builder', 'Dungeon Editor', 'Room Editor', 'Character Creation'], TRUE)
       && $this->isStatusOnlyRequest($utterance)
     ) {
       return [
@@ -74,7 +74,7 @@ class EditorGmIntentParser {
       ];
     }
     if (
-      in_array($surface_label, ['Storyline Builder', 'Dungeon Editor', 'Room Editor'], TRUE)
+      in_array($surface_label, ['Storyline Builder', 'Dungeon Editor', 'Room Editor', 'Character Creation'], TRUE)
       && $this->isValidationReviewRequest($utterance, $context_snapshot)
     ) {
       return [
@@ -135,6 +135,9 @@ class EditorGmIntentParser {
       'okay what is next',
       'where are we',
       'what remains',
+      'what still needs work',
+      'what needs review',
+      'what is missing',
       'what is left',
       'how complete is this',
       'how complete is the draft',
@@ -391,6 +394,18 @@ Hard rules:
   execution tools.
 - %s
 - Obey every nested argument shape in the selected tool definition exactly.
+  For Character Creation, obey creation_contract and the native step choices.
+  Select exactly selection_count distinct boost IDs; never repeat an ability
+  or use two aliases for the same ability. Discover conditional choices with
+  get_character_creation_reference(updates) before planning a new build.
+  If conversation_context already contains matching VERIFIED CHARACTER
+  CHOICES at the current draft revision, use them to plan instead of
+  repeating that lookup. A valid partial patch is allowed; leave unresolved
+  player decisions missing rather than inventing invalid choices.
+  Never invent a heritage, feat, spell, skill, or equipment ID. For missing
+  player decisions, use existing validation findings and their player_review
+  checklist; do not propose unrelated changes or treat runtime placement
+  requirements as character creation choices.
   Before returning a Storyline draft operation plan, verify every operation
   type and JSON-pointer path against the grounded storyline payload and its
   collection_contracts. A schema-declared collection may be omitted only

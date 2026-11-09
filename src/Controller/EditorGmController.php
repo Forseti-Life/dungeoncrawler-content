@@ -9,6 +9,7 @@ use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\dungeoncrawler_content\Service\ChatSessionManager;
 use Drupal\dungeoncrawler_content\Service\DungeonEditorFindingsInterface;
 use Drupal\dungeoncrawler_content\Service\Definition\DefinitionValidationException;
+use Drupal\dungeoncrawler_content\Service\EditorGm\CharacterCreationGmToolContext;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmHarnessService;
 use Drupal\dungeoncrawler_content\Service\Generation\CanonicalGenerationException;
 use Symfony\Component\DependencyInjection\ContainerInterface;
@@ -76,6 +77,9 @@ class EditorGmController extends ControllerBase {
       $scope = $session
         ? ['conversation_context' => $this->chatSessions->buildSessionContext((int) $session['id'], 20)]
         : [];
+      if ($_surface === 'character_creation' && $session) {
+        $scope['conversation_context'] .= $this->characterReferenceContext($session, (string) $draft_id);
+      }
       $session ??= $this->conversationSession($_surface, $draft_id);
       if ($session) {
         $this->persistAuthorTurn($session, $body);
@@ -90,6 +94,31 @@ class EditorGmController extends ControllerBase {
     catch (\Throwable $exception) {
       return $this->errorResponse($exception);
     }
+  }
+
+  /**
+   * Retain verified conditional choices without creating another actor draft.
+   */
+  private function characterReferenceContext(array $session, string $draft_id): string {
+    $context = CharacterCreationGmToolContext::of($this->harness->surface('character_creation')->createContext($draft_id, 'editing'));
+    $revision = $context->draft()['revision'];
+    $messages = $this->chatSessions->getRecentMessagesChronological((int) $session['id'], 20);
+    foreach (array_reverse($messages) as $message) {
+      $result = $message['metadata']['editor_gm_response']['tool_result'] ?? [];
+      $steps = $result['candidate_step_choices'] ?? $result['validation']['steps'] ?? NULL;
+      $inspected_revision = $result['draft_revision'] ?? $result['expected_revision'] ?? NULL;
+      if (is_array($steps) && $inspected_revision === $revision) {
+        return "\nVERIFIED CHARACTER CHOICES (read-only reference; nothing was saved):\n" . json_encode([
+          'draft_revision' => $revision,
+          'candidate_updates' => $result['candidate_updates'] ?? $result['updates'],
+          'blocking_errors' => $result['blocking_errors'] ?? [],
+          'steps' => array_map(static fn(array $step): array => [
+            'number' => $step['number'], 'choices' => $step['choices'],
+          ], $steps),
+        ], JSON_THROW_ON_ERROR);
+      }
+    }
+    return '';
   }
 
   /**
@@ -262,6 +291,7 @@ class EditorGmController extends ControllerBase {
     $status = match (TRUE) {
       $exception instanceof CanonicalGenerationException => $exception->httpStatus(),
       $exception instanceof \InvalidArgumentException && $code === 'definition_exists' => 409,
+      $exception instanceof \InvalidArgumentException && $exception->getCode() === 422 => 422,
       $exception instanceof \JsonException,
       $exception instanceof \InvalidArgumentException => 400,
       $exception instanceof \OutOfBoundsException => 404,
@@ -278,7 +308,7 @@ class EditorGmController extends ControllerBase {
       ]);
       $code = 'editor_gm_internal_error';
     }
-    elseif ($exception instanceof \DomainException) {
+    elseif ($exception instanceof \DomainException || $exception instanceof \InvalidArgumentException) {
       $this->getLogger('dungeoncrawler_content')->warning('Editor GM contract rejected request: @code', [
         '@code' => $code,
       ]);

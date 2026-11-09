@@ -51,6 +51,25 @@ async function main() {
     await page.waitForFunction(() => !Drupal.characterCreationWorkspace.isBusy());
     assert.equal(await page.locator('#characterSetupGmInput').inputValue(), 'Keep this unsent question');
     assert.equal(await page.locator('.character-setup-page__workspace [data-character-gm-chat]').count(), 1);
+    const rejected = await page.evaluate(async () => {
+      const settings = drupalSettings.dungeoncrawlerCharacterGm;
+      const endpoint = settings.endpointTemplate.replace('/0/gm', '/' + settings.characterId + '/gm');
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': settings.csrfToken },
+        body: JSON.stringify({
+          schema_version: 'editor-gm-request-v1',
+          tool_context: { tool_id: 'character_creation', draft_id: String(settings.characterId), validation_profile: 'editing' },
+          intent: { type: 'tool_call', tool_name: 'plan_character_draft_updates', arguments: {
+            updates: { free_boosts: ['strength', 'constitution', 'charisma', 'strength'] },
+          } },
+          options: { dry_run: false },
+        }),
+      });
+      return { status: response.status, payload: await response.json() };
+    });
+    assert.equal(rejected.status, 422);
+    assert.match(rejected.payload.error.message, /free boosts repeats strength/i);
     await page.locator('[data-character-setup-tab][data-step="1"]').click();
     await page.waitForFunction(() => drupalSettings.dungeoncrawlerCharacterSetup.activeStep === 1);
     await page.waitForFunction(() => !Drupal.characterCreationWorkspace.isBusy());
@@ -91,7 +110,7 @@ async function main() {
       writeFileSync(join(artifacts, 'character-workspace-browser-errors.json'), JSON.stringify(errors));
     }
     assert.deepEqual(errors, []);
-    console.log('PASS: native save/errors, stable tabs/chat, dirty protection, real GM plan/approval, persisted history, responsive layout.');
+    console.log('PASS: explicit invalid-boost rejection, native save/errors, stable tabs/chat, dirty protection, real GM plan/approval, persisted history, responsive layout.');
   }
   catch (error) {
     console.error('Workspace:', await page.locator('[data-character-step-region]').innerText());

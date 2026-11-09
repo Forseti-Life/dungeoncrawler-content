@@ -40,12 +40,36 @@ try {
       'options' => ['dry_run' => $dry_run],
     ]);
   };
+  $review = $call('validate_draft')['tool_result'];
+  $check(count($review['player_review']) === count($report['errors']) + count($report['warnings']), 'Player review must reuse all authoritative findings, not a second completeness model.');
+  $boost_choices = $review['steps'][4]['choices']['free_boosts'];
+  $check($boost_choices['selection_count'] === 4 && $boost_choices['unique_items'], 'Boost contracts must expose the native exact count and uniqueness.');
+  $preview = $call('get_character_creation_reference', ['updates' => [
+    'ancestry' => 'orc', 'background' => 'warrior', 'class' => 'champion',
+  ]])['tool_result'];
+  $check(!empty($preview['candidate_step_choices'][1]['choices']['heritage']['options']), 'Candidate reference must expose actual ancestry-dependent choices.');
+  $check(isset($preview['candidate_step_choices'][2]['choices']['background_boosts']['selection_count']), 'Candidate reference must expose actual background boost limits.');
+  $fixed_background_ability = \Drupal::service('dungeoncrawler_content.ability_score_tracker')->normalizeAbilityKey(\Drupal\dungeoncrawler_content\Service\CharacterRulesCatalog::BACKGROUNDS['warrior']['fixed_boost']);
+  $check(!array_key_exists($fixed_background_ability, $preview['candidate_step_choices'][2]['choices']['background_boosts']['options']), 'Background choices must exclude the already applied fixed boost.');
+  $check(!isset($preview['proposed_execution']) && $before === $manager->loadCharacter($id)->character_data, 'Candidate inspection must neither save nor expose approval.');
+  $chat = \Drupal::service('dungeoncrawler_content.chat_session_manager');
+  $preview_session = $chat->ensureEditorGmSession('character_creation', (string) $id, 'Original Preview Fixture');
+  $chat->postMessage((int) $preview_session['id'], 0, 'Game Master Agent', 'gm', '', 'Inspected candidate choices.', 'dialogue', 'private',
+    ['editor_gm_response' => ['tool_result' => $preview]], FALSE);
+  $controller = \Drupal\dungeoncrawler_content\Controller\EditorGmController::create(\Drupal::getContainer());
+  $reference_context = new \ReflectionMethod($controller, 'characterReferenceContext');
+  $check(str_contains($reference_context->invoke($controller, $preview_session, (string) $id), 'VERIFIED CHARACTER CHOICES'), 'Native candidate choices must survive into the next conversational turn.');
+  $parser = \Drupal::service('dungeoncrawler_content.editor_gm_intent_parser');
+  $surface = $harness->surface('character_creation');
+  $intent = $parser->parse('what needs review', $surface->assembler()->assemble($surface->createContext((string) $id, 'editing')), $surface->registry(), $surface->label());
+  $check($intent['type'] === 'direct_response', 'Review requests must stay read-only rather than propose a build mutation.');
   $plan = $call('plan_character_draft_updates', ['updates' => ['name' => 'Original Workspace Fixture']]);
   $check($plan['tool_result']['requires_approval'], 'Plans must require approval.');
   $check($before === $manager->loadCharacter($id)->character_data, 'Planning must not persist.');
   $proposal = $plan['tool_result']['proposed_execution'];
   $call($proposal['tool_name'], $proposal['arguments']);
   $saved = $drafts->getDraft($id);
+  $check($reference_context->invoke($controller, $preview_session, (string) $id) === '', 'Stale candidate choices must not be used after the canonical object changes.');
   $check($saved['revision'] === $draft['revision'] + 1, 'Apply must increment the revision.');
   $check($saved['payload']['basicInfo']['name'] === 'Original Workspace Fixture', 'Canonical identity must reflect edits.');
   $check($saved['payload']['wizard']['name'] === 'Original Workspace Fixture', 'Wizard mirror must reflect edits.');
@@ -62,6 +86,11 @@ try {
   $invalid = $call('plan_character_draft_updates', ['updates' => ['free_boosts' => ['strength']]]);
   $check($invalid['tool_result']['blocking_errors'] !== [], 'Populated invalid boost counts must be reported.');
   $check($invalid['tool_result']['proposed_execution'] === NULL, 'Invalid plans must not expose approval.');
+  $check($invalid['tool_result']['intent'] === 'validation_blocked' && $invalid['messages'][0]['level'] === 'error', 'Rejected proposals must be explicit validation failures, never success-shaped approvals.');
+  $chat->postMessage((int) $preview_session['id'], 0, 'Game Master Agent', 'gm', '', 'Proposal failed native validation.', 'dialogue', 'private',
+    ['editor_gm_response' => ['tool_result' => $invalid['tool_result']]], FALSE);
+  $repair_context = $reference_context->invoke($controller, $preview_session, (string) $id);
+  $check(str_contains($repair_context, 'blocking_errors') && str_contains($repair_context, 'Select exactly 4'), 'Proposal failures and candidate constraints must remain available for the next repair turn.');
   $publication = $call('validate_draft', ['profile' => 'publication']);
   $check(!$publication['tool_result']['valid'], 'Publication must reject incomplete drafts.');
   $queue = new \ReflectionMethod($harness, 'executeTaskQueue');

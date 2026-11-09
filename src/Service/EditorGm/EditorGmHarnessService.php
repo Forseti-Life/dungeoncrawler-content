@@ -538,6 +538,16 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     if ($next_steps !== []) {
       $result['next_steps'] = $next_steps;
     }
+    if ($surface->id() === CharacterCreationGmSurface::ID && !empty($result['blocking_errors'])) {
+      $result['intent'] = 'validation_blocked';
+      $result['assistant_response'] = "Proposed changes failed validation; nothing was saved.\n"
+        . implode("\n", array_map(static fn(array $issue): string => 'Step ' . $issue['step'] . ', ' . $issue['field'] . ': ' . $issue['message'], $result['blocking_errors']));
+      $result['next_steps'] = ['Review the listed fields and their native candidate choices.', 'Ask the GM to revise the proposal or choose valid replacements.'];
+      return $this->envelope(
+        $surface, 'editor_validation_blocked', $snapshot, $result, $context->validation(),
+        [['level' => 'error', 'text' => $result['assistant_response']]], [], $tool_calls,
+      );
+    }
     $proposed_execution = is_array($result['proposed_execution'] ?? NULL)
       ? $result['proposed_execution']
       : [];

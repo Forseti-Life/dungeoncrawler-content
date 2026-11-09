@@ -234,7 +234,8 @@
           var $c = $(this);
           var ab = $c.data('ability');
           var isSelected = selectedBoosts.indexOf(ab) !== -1;
-          var off = disabled.indexOf(ab) !== -1 || (avail.indexOf(ab) === -1 && !isSelected);
+          // Invalid saved selections must remain removable, not selectable again.
+          var off = !isSelected && (disabled.indexOf(ab) !== -1 || avail.indexOf(ab) === -1);
           $c.toggleClass('ability-card--disabled', off);
           $c.find('.ability-checkbox').prop('disabled', off);
         });
