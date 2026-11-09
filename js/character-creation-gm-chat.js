@@ -1,4 +1,4 @@
-import { shouldSubmitEditorGmKey } from './v2/editor/EditorGmChatClient.js?v=20261024-tool-calls-1';
+import { appendEditorGmMessage, renderEditorGmToolCalls, shouldSubmitEditorGmKey } from './v2/editor/EditorGmChatClient.js?v=20261024-tool-calls-1';
 
 (function (Drupal, once, drupalSettings) {
   'use strict';
@@ -13,6 +13,23 @@ import { shouldSubmitEditorGmKey } from './v2/editor/EditorGmChatClient.js?v=202
   }
 
   function renderMessages(historyContainer, messages) {
+    if (historyContainer.tagName === 'UL') {
+      if (!messages.length) {
+        return;
+      }
+      historyContainer.replaceChildren();
+      messages.forEach((entry) => {
+        renderEditorGmToolCalls(historyContainer, entry.tool_calls || []);
+        appendEditorGmMessage(historyContainer, entry.role === 'user' ? 'user' : entry.role === 'tool' ? 'tool' : 'assistant', entry.content || '');
+      });
+      historyContainer.querySelectorAll('.room-editor__gm-message').forEach((item) => {
+        const role = item.classList.contains('room-editor__gm-message--user')
+          ? 'user' : item.classList.contains('room-editor__gm-message--tool') ? 'status' : 'assistant';
+        item.classList.add('gm-storyline-wizard__assistant-item', 'gm-storyline-wizard__assistant-item--' + role);
+      });
+      historyContainer.scrollTop = historyContainer.scrollHeight;
+      return;
+    }
     if (!messages.length) {
       historyContainer.innerHTML = '<div class="character-creation-gm-chat__message character-creation-gm-chat__message--assistant">' +
         '<div class="character-creation-gm-chat__message-role">GM</div>' +
@@ -69,7 +86,7 @@ import { shouldSubmitEditorGmKey } from './v2/editor/EditorGmChatClient.js?v=202
         return;
       }
 
-      once('characterCreationGmChat', '.character-creation-gm-chat', context).forEach((chatRoot) => {
+      once('characterCreationGmChat', '.character-creation-gm-chat, [data-character-gm-chat]', context).forEach((chatRoot) => {
         const historyContainer = chatRoot.querySelector('[data-gm-chat-history]');
         const statusEl = chatRoot.querySelector('[data-gm-chat-status]');
         const sendButton = chatRoot.querySelector('[data-gm-chat-send]');
@@ -93,6 +110,7 @@ import { shouldSubmitEditorGmKey } from './v2/editor/EditorGmChatClient.js?v=202
 
           pending = true;
           sendButton.disabled = true;
+          chatRoot.setAttribute('aria-busy', 'true');
           setStatus('GM is updating your draft...');
           messages.push({ role: 'user', content: message });
           messages.push({ role: 'tool', content: 'Now looking up character creation options and draft state…' });
@@ -158,10 +176,20 @@ import { shouldSubmitEditorGmKey } from './v2/editor/EditorGmChatClient.js?v=202
           finally {
             pending = false;
             sendButton.disabled = false;
+            chatRoot.setAttribute('aria-busy', 'false');
           }
         };
 
         sendButton.addEventListener('click', send);
+        chatRoot.querySelectorAll('[data-character-gm-prompt]').forEach((button) => {
+          button.addEventListener('click', () => {
+            if (pending) {
+              return;
+            }
+            input.value = button.dataset.characterGmPrompt;
+            input.focus();
+          });
+        });
         input.addEventListener('keydown', (event) => {
           if (shouldSubmitEditorGmKey(event)) {
             event.preventDefault();

@@ -10,10 +10,59 @@
     <div>
       <p class="character-setup-page__eyebrow">Character creation workspace</p>
       <h1 class="character-setup-page__title">Character Setup</h1>
-      <p class="character-setup-page__intro">Use the tabs to move through the full creation flow in one place while the GM guide stays available beside the wizard.</p>
+      <p class="character-setup-page__intro">Work with the Game Master Agent, then use the tabs below to inspect and refine your character. This conversation stays with the character when you return to edit.</p>
     </div>
     <a href="{{ back_url }}" class="btn btn-secondary character-setup-page__back">Back to characters</a>
   </div>
+
+    <section class="gm-storyline-wizard__assistant-panel gm-storyline-wizard__assistant-panel--primary" data-character-gm-chat aria-labelledby="character-setup-assistant-title">
+      <div class="gm-storyline-wizard__assistant-header">
+        <div>
+          <p class="gm-storyline-wizard__assistant-eyebrow">Primary character interface</p>
+          <h3 id="character-setup-assistant-title">Game Master Agent</h3>
+          <p>Describe the character you want, ask for recommendations, or request structured changes. Clear requests update this character's draft and remain editable.</p>
+        </div>
+      </div>
+      <div class="gm-storyline-wizard__assistant-prompts" aria-label="Suggested requests">
+        <button type="button" class="btn btn-secondary btn-sm" data-character-gm-prompt="Help me build this character. Ask me for the most important missing decisions one at a time.">Build a character</button>
+        <button type="button" class="btn btn-secondary btn-sm" data-character-gm-prompt="Review this character and identify incomplete or incompatible choices without changing the draft.">Review current work</button>
+        <button type="button" class="btn btn-secondary btn-sm" data-character-gm-prompt="Recommend compatible abilities, skills, feats, spells, and equipment for this character. Ask before applying changes.">Recommend a build</button>
+      </div>
+      <div class="character-creation-gm-chat__summary">
+        <span class="character-creation-gm-chat__pill"><strong>Name:</strong> <span data-gm-chat-summary-field="name">{{ summary.name ?: 'Unnamed Character' }}</span></span>
+        <span class="character-creation-gm-chat__pill"><strong>Ancestry:</strong> <span data-gm-chat-summary-field="ancestry">{{ summary.ancestry ?: 'Not selected' }}</span></span>
+        <span class="character-creation-gm-chat__pill"><strong>Class:</strong> <span data-gm-chat-summary-field="class">{{ summary.class ?: 'Not selected' }}</span></span>
+        <span class="character-creation-gm-chat__pill"><strong>Background:</strong> <span data-gm-chat-summary-field="background">{{ summary.background ?: 'Not selected' }}</span></span>
+        <span class="character-creation-gm-chat__pill"><strong>Step:</strong> <span data-gm-chat-summary-field="step">{{ summary.step ?: active_step }}</span>/8</span>
+      </div>
+      <h4 class="gm-storyline-wizard__assistant-log-title">GM conversation</h4>
+      <ul class="gm-storyline-wizard__assistant-log" data-gm-chat-history aria-live="polite" aria-relevant="additions">
+        {% if history %}
+          {% for entry in history %}
+            {% set role = entry.role == 'user' ? 'user' : 'assistant' %}
+            <li class="gm-storyline-wizard__assistant-item gm-storyline-wizard__assistant-item--{{ role }}">
+              <strong>{{ role == 'user' ? 'You' : 'GM' }}</strong>
+              <div>{{ entry.content|e|nl2br }}</div>
+            </li>
+          {% endfor %}
+        {% else %}
+          <li class="gm-storyline-wizard__assistant-item gm-storyline-wizard__assistant-item--assistant gm-storyline-wizard__assistant-item--welcome">
+            <strong>Welcome to Character Creation. Let's build a complete character together.</strong>
+            <span>Describe your character, ask for recommendations, or request draft changes. Use the structured fields below to inspect and refine every choice.</span>
+            <span>This conversation is saved with the character and restored when you return to edit.</span>
+          </li>
+        {% endif %}
+      </ul>
+      <div data-gm-chat-status role="status" aria-live="polite"></div>
+      <div class="gm-storyline-wizard__assistant-composer">
+        <label for="characterSetupGmInput">Ask the Game Master Agent</label>
+        <textarea id="characterSetupGmInput" class="form-textarea character-creation-gm-chat__input" rows="4" placeholder="Describe your character, ask for an analysis, or request a structured change."></textarea>
+        <div class="gm-storyline-wizard__assistant-composer-actions">
+          <span>Enter to send · Shift + Enter for a new line</span>
+          <button type="button" class="btn btn-primary" data-gm-chat-send>Send to GM</button>
+        </div>
+      </div>
+    </section>
 
   <div class="character-setup-page__layout">
     <aside class="character-setup-page__sidebar">
@@ -22,15 +71,11 @@
           <h2 class="character-setup-page__sidebar-title">Creation Tabs</h2>
           <div class="character-setup-page__tabs" role="tablist" aria-label="Character creation steps">
             {% for step in steps %}
-              <a
-                href="{{ step.enabled ? step.url : '#' }}"
+              <a href="{{ step.enabled ? step.url : '#' }}"
                 class="character-setup-page__tab{{ step.number == active_step ? ' is-active' : '' }}"
-                data-character-setup-tab
-                data-step="{{ step.number }}"
+                data-character-setup-tab data-step="{{ step.number }}"
                 {% if not step.enabled %}aria-disabled="true"{% endif %}
-                aria-selected="{{ step.number == active_step ? 'true' : 'false' }}"
-                role="tab"
-              >
+                aria-selected="{{ step.number == active_step ? 'true' : 'false' }}" role="tab">
                 <span class="character-setup-page__tab-number">{{ step.number }}</span>
                 <span class="character-setup-page__tab-copy">
                   <span class="character-setup-page__tab-name">{{ step.name }}</span>
@@ -42,72 +87,17 @@
             {% endfor %}
           </div>
         </div>
-
       </div>
     </aside>
-
     <section class="character-setup-page__workspace">
       <div class="character-setup-page__panel-header">
         <div>
           <p class="character-setup-page__panel-label">Active step</p>
-          <h2 class="character-setup-page__panel-title" data-character-setup-active-title>
-            {{ active_step_name }}
-          </h2>
+          <h2 class="character-setup-page__panel-title" data-character-setup-active-title>{{ active_step_name }}</h2>
         </div>
         <p class="character-setup-page__panel-meta" data-character-setup-active-meta>Step {{ active_step }} of {{ steps|length }}</p>
       </div>
-
-      <div class="character-setup-page__frame-shell">
-        {{ step_form }}
-      </div>
+      <div class="character-setup-page__frame-shell">{{ step_form }}</div>
     </section>
   </div>
-
-  <details class="character-setup-page__chat-drawer">
-    <summary class="btn btn-primary character-setup-page__chat-toggle">GM Chat</summary>
-    <section id="characterSetupChatOverlay" class="character-creation-gm-chat character-creation-gm-chat--overlay" aria-label="GM character guide">
-      <div class="character-creation-gm-chat__header">
-        <div>
-          <div class="character-creation-gm-chat__eyebrow">GM-assisted creation</div>
-          <h2 class="character-creation-gm-chat__title">GM Character Guide</h2>
-          <p class="character-creation-gm-chat__intro">Ask for build recommendations or let the GM update the draft while you stay inside the tabbed setup shell.</p>
-        </div>
-        <div class="character-setup-page__chat-header-actions">
-          <span class="character-setup-page__chat-close-hint">Click GM Chat to collapse</span>
-        </div>
-      </div>
-      <div class="character-creation-gm-chat__summary">
-        <span class="character-creation-gm-chat__pill"><strong>Name:</strong> <span data-gm-chat-summary-field="name">{{ summary.name ?: 'Unnamed Character' }}</span></span>
-        <span class="character-creation-gm-chat__pill"><strong>Ancestry:</strong> <span data-gm-chat-summary-field="ancestry">{{ summary.ancestry ?: 'Not selected' }}</span></span>
-        <span class="character-creation-gm-chat__pill"><strong>Class:</strong> <span data-gm-chat-summary-field="class">{{ summary.class ?: 'Not selected' }}</span></span>
-        <span class="character-creation-gm-chat__pill"><strong>Background:</strong> <span data-gm-chat-summary-field="background">{{ summary.background ?: 'Not selected' }}</span></span>
-        <span class="character-creation-gm-chat__pill"><strong>Step:</strong> <span data-gm-chat-summary-field="step">{{ summary.step ?: active_step }}</span>/8</span>
-      </div>
-      <div class="character-creation-gm-chat__history" data-gm-chat-history>
-        {% if history %}
-          {% for entry in history %}
-            {% set role = entry.role == 'user' ? 'user' : 'assistant' %}
-            <div class="character-creation-gm-chat__message character-creation-gm-chat__message--{{ role }}">
-              <div class="character-creation-gm-chat__message-role">{{ role == 'user' ? 'You' : 'GM' }}</div>
-              <div class="character-creation-gm-chat__message-body">{{ entry.content|e|nl2br }}</div>
-            </div>
-          {% endfor %}
-        {% else %}
-          <div class="character-creation-gm-chat__message character-creation-gm-chat__message--assistant">
-            <div class="character-creation-gm-chat__message-role">GM</div>
-            <div class="character-creation-gm-chat__message-body">Welcome to Character Creation. Building a complete character is hard; describe the character you want, ask for recommendations, or ask me to update the draft while you remain in control of every choice.</div>
-          </div>
-        {% endif %}
-      </div>
-      <div class="character-creation-gm-chat__composer">
-        <label class="character-creation-gm-chat__label" for="characterSetupGmInput">Message the GM</label>
-        <textarea id="characterSetupGmInput" class="character-creation-gm-chat__input" rows="3" placeholder="Example: build me a sturdy dwarf fighter with a simple backstory and heavy armor."></textarea>
-        <div class="character-creation-gm-chat__actions">
-          <div class="character-creation-gm-chat__status" data-gm-chat-status></div>
-          <span class="character-creation-gm-chat__hint">Enter to send · Shift + Enter for a new line</span>
-          <button type="button" class="btn btn-primary character-creation-gm-chat__send" data-gm-chat-send>Send to GM</button>
-        </div>
-      </div>
-    </section>
-  </details>
 </div>

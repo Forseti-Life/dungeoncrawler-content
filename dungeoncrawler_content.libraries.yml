@@ -74,19 +74,21 @@ character-creation-style:
     - dungeoncrawler_content/character-step-base
 
 character-creation-gm-chat:
-  version: 20261024-tool-calls-1
+  version: 20261109-character-gm-panel-1
   css:
     theme:
       css/character-creation-gm-chat.css: {}
   js:
     js/character-creation-gm-chat.js: { attributes: { type: module } }
   dependencies:
+    - dungeoncrawler_content/editor-gm-chat-style
     - dungeoncrawler_content/character-step-base
     - core/drupal
     - core/once
     - core/drupalSettings
 
 character-setup-tabs:
+  version: 20261109-character-gm-panel-1
   css:
     theme:
       css/character-setup-tabs.css: {}
@@ -98,14 +100,18 @@ character-setup-tabs:
     - core/once
     - core/drupalSettings
 
-gm-storyline-builder:
-  version: 20261024-tool-calls-1
+editor-gm-chat-style:
+  version: 20261109-character-gm-panel-1
   css:
     theme:
       css/gm-storyline-builder.css: {}
+
+gm-storyline-builder:
+  version: 20261024-tool-calls-1
   js:
     js/gm-storyline-builder.js: { attributes: { type: module } }
   dependencies:
+    - dungeoncrawler_content/editor-gm-chat-style
     - core/drupal
     - core/once
     - core/drupalSettings

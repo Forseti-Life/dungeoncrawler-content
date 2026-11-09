@@ -22,6 +22,15 @@ Primary action entry point:
 
 Legacy combat mutation endpoints under `/api/combat/*` are non-canonical support surfaces; player action flow is coordinator-driven.
 
+### Character Setup Assistant
+
+`/charactersetup` displays the Game Master Agent above the structured character
+editor, using the Storyline Builder's assistant panel styling and shared
+transcript renderer. Suggested requests populate the composer for review before
+sending. Conversation history remains in the character's `wizard.gm_chat`
+payload and is restored using `character_id` when returning to edit; it is not
+a browser-global conversation.
+
 ### Campaign Creation Sources
 
 `/campaigns/create` supports two distinct starting sources:
