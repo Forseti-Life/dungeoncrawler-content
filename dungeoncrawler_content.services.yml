@@ -429,6 +429,8 @@ services:
       - '@dungeoncrawler_content.faction_generation'
       - '@class_resolver'
       - '@dungeoncrawler_content.character_wizard_hardening'
+      - '@dungeoncrawler_content.feat_library'
+      - '@dungeoncrawler_content.spell_catalog'
 
   dungeoncrawler_content.character_draft_form_validator:
     parent: form_validator

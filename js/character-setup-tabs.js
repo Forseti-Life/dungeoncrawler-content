@@ -89,6 +89,7 @@
         };
         $(root).on('characterWorkspaceRefreshed', (_event, settings) => {
           Object.assign(state, settings);
+          root.querySelector('[data-character-step-region]').inert = mutationPending;
           updateTabs();
         });
         $(root).on('characterWorkspaceSaved', (_event, query) => {
@@ -99,6 +100,10 @@
           const tab = event.target.closest('[data-character-setup-tab]');
           if (!tab || event.ctrlKey || event.metaKey || event.shiftKey || event.button > 0) return;
           event.preventDefault();
+          if (mutationPending) {
+            setStatus('Waiting for the character GM to save and refresh the editor...');
+            return;
+          }
           if (tab.getAttribute('aria-disabled') === 'true') {
             setStatus('Waiting for earlier character steps to be saved before this step unlocks.');
             return;
@@ -130,8 +135,15 @@
         });
         Drupal.characterCreationWorkspace = {
           refresh, isDirty, isBusy: () => busy || mutationPending,
-          lock() {
+          async lock() {
             mutationPending = true;
+            root.querySelector('[data-character-step-region]').inert = true;
+            const started = Date.now();
+            while (busy || (Drupal.ajax.instances || []).some((ajax) => ajax?.ajaxing && ajax.element && root.querySelector('[data-character-step-region]').contains(ajax.element))) {
+              setStatus('Waiting for the current form request before the GM takes over...');
+              if (Date.now() - started > 30000) throw new Error('The current character form request did not finish. The GM has not saved changes.');
+              await new Promise((resolve) => setTimeout(resolve, 25));
+            }
             root.querySelector('[data-character-step-region]').inert = true;
           },
           unlock() {

@@ -72,9 +72,6 @@ import {
         };
         const ensureDraft = async () => {
           if (settings().characterId) return;
-          if (Drupal.characterCreationWorkspace?.isDirty()) {
-            throw new Error('Save or discard your unsaved first-step edits before starting the GM conversation.');
-          }
           const payload = await readResponse(await fetch(settings().createEndpoint, {
             method: 'POST',
             headers: { 'X-CSRF-Token': settings().csrfToken },
@@ -88,15 +85,12 @@ import {
         const execute = async (intent) => {
           if (pending) throw new Error('Waiting for the character GM to finish the current request.');
           const maySave = intent.type === 'natural_language' || intent.tool_name === 'apply_character_draft_updates';
-          if (maySave && (Drupal.characterCreationWorkspace?.isDirty() || Drupal.characterCreationWorkspace?.isBusy())) {
-            throw new Error('Save or discard editor changes and wait for the editor to finish before asking the GM to edit your character.');
-          }
           pending = true;
-          if (maySave) Drupal.characterCreationWorkspace?.lock();
           sendButton.disabled = true;
           root.setAttribute('aria-busy', 'true');
           setStatus('Waiting for the character GM. Valid requested edits will be saved automatically...');
           try {
+            if (maySave) await Drupal.characterCreationWorkspace?.lock();
             await ensureDraft();
             const payload = await readResponse(await fetch(endpoint(), {
               method: 'POST',

@@ -368,7 +368,7 @@ class EditorGmIntentParser {
   private function systemPrompt(string $surface_label): string {
     $mutation_rule = match ($surface_label) {
       'Storyline Builder' => 'For Storyline Builder, use plan_storyline_draft_operations for explicitly requested draft changes and plan_storyline_remediation only when the author explicitly asks to fix or create missing canonical assets; the harness may immediately apply that authorized plan through the owning authorities.',
-      'Character Creation' => 'For Character Creation, use plan_character_draft_updates for requested changes. The harness immediately saves valid patches through the revision-safe apply authority; no separate approval is required. Do not ask for approval. Present genuine unresolved player decisions as numbered choices, one option per line. Read-only inspection and reference lookups never save changes.',
+      'Character Creation' => 'For Character Creation, use plan_character_draft_updates for requested changes. The GM has authority to overwrite unsaved form edits and applies validated patches against the latest locked character; never ask for save/discard, conflict resolution, or approval. Present genuine unresolved player decisions as numbered choices, one option per line. Read-only inspection and local catalog lookups never save changes.',
       default => 'Prefer planning tools over execution tools. A mutating tool call is a proposal that the author must approve; it is never applied by you.',
     };
     return sprintf(<<<'PROMPT'
@@ -394,6 +394,18 @@ Hard rules:
   direct_response. The governing harness answers from its grounded context;
   do not route those requests into planning, remediation, generation, or
   execution tools.
+- Exception for Character Creation catalog/rules questions: use
+  search_character_catalog to discover local entries, or
+  get_character_catalog_entry to read the full stored entry when its exact ID
+  or full name is known. Both return complete local records. For
+  heritage IDs, supply their parent ancestry or use the unique full heritage
+  name: some heritage IDs are shared across ancestries. For
+  subclass, thesis, and other native field/feature questions, read the class
+  catalog entry or get_character_creation_reference with
+  include_descriptions=true and an optional step or candidate updates patch.
+  Do not answer these questions from model memory or names alone. Never
+  propose a character mutation for an informational question. Local catalogs
+  only: no web lookup, importing, or fabricated missing descriptions.
 - %s
 - Obey every nested argument shape in the selected tool definition exactly.
   For Character Creation, obey creation_contract and the native step choices.

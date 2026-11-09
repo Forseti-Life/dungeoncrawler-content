@@ -41,6 +41,21 @@ try {
     ]);
   };
   $review = $call('validate_draft')['tool_result'];
+  foreach (['ancestry', 'heritage', 'background', 'class', 'feat', 'spell', 'equipment', 'familiar_ability'] as $family) {
+    $catalog = $drafts->searchCatalog($family, '', 1);
+    $check($catalog['total'] > 0 && count($catalog['entries']) === 1, "Local $family catalog must be accessible with bounded results.");
+    $entry = $drafts->getCatalogEntry($family, $catalog['entries'][0]['id']);
+    $check($entry['entry']['id'] === $catalog['entries'][0]['id'], "Local $family full entry must resolve the actual catalog ID.");
+  }
+  $catalog = $call('search_character_catalog', ['family' => 'heritage', 'limit' => 1])['tool_result'];
+  $check($catalog['next_offset'] === 1, 'Local catalog discovery must support pagination.');
+  $entry = $call('get_character_catalog_entry', ['family' => 'heritage', 'entry_id' => $catalog['entries'][0]['id']])['tool_result'];
+  $check(!empty($entry['entry']['benefit']), 'The agent must receive full heritage benefits, not names only.');
+  $feat = \Drupal::service('dungeoncrawler_content.feat_library')->getFeats()[0];
+  $check($drafts->getCatalogEntry('feat', $feat['id'])['entry'] === $feat, 'Feat rules must come intact from the owning local library.');
+  $spell = \Drupal::service('dungeoncrawler_content.spell_catalog')->getSpells()[0];
+  $check($drafts->getCatalogEntry('spell', $spell['id'])['entry'] === $spell, 'Spell rules and description provenance must come intact from the local spell service.');
+  $check($before === $manager->loadCharacter($id)->character_data, 'Catalog tools must not modify the character.');
   $check(count($review['player_review']) === count($report['errors']) + count($report['warnings']), 'Player review must reuse all authoritative findings, not a second completeness model.');
   $boost_choices = $review['steps'][4]['choices']['free_boosts'];
   $check($boost_choices['selection_count'] === 4 && $boost_choices['unique_items'], 'Boost contracts must expose the native exact count and uniqueness.');
@@ -52,6 +67,15 @@ try {
   $fixed_background_ability = \Drupal::service('dungeoncrawler_content.ability_score_tracker')->normalizeAbilityKey(\Drupal\dungeoncrawler_content\Service\CharacterRulesCatalog::BACKGROUNDS['warrior']['fixed_boost']);
   $check(!array_key_exists($fixed_background_ability, $preview['candidate_step_choices'][2]['choices']['background_boosts']['options']), 'Background choices must exclude the already applied fixed boost.');
   $check(!isset($preview['proposed_execution']) && $before === $manager->loadCharacter($id)->character_data, 'Candidate inspection must neither save nor expose approval.');
+  $cards = $call('get_character_creation_reference', [
+    'updates' => [
+      'class' => 'wizard',
+      'arcane_thesis' => array_key_first(\Drupal\dungeoncrawler_content\Service\CharacterRulesCatalog::CLASSES['wizard']['arcane_thesis']['options']),
+    ], 'include_descriptions' => TRUE, 'step' => 4,
+  ])['tool_result'];
+  $check(count($cards['candidate_step_choices']) === 1 && $cards['candidate_step_choices'][0]['number'] === 4, 'Detailed native reference reads must honor the requested step.');
+  $check(!empty($cards['candidate_step_choices'][0]['option_cards']['arcane_thesis']['options']), 'The GM must see the actual native conditional option descriptions and facts.');
+  $check($before === $manager->loadCharacter($id)->character_data, 'Detailed candidate option lookups must stay read-only.');
   $chat = \Drupal::service('dungeoncrawler_content.chat_session_manager');
   $preview_session = $chat->ensureEditorGmSession('character_creation', (string) $id, 'Original Preview Fixture');
   $chat->postMessage((int) $preview_session['id'], 0, 'Game Master Agent', 'gm', '', 'Inspected candidate choices.', 'dialogue', 'private',
@@ -77,13 +101,11 @@ try {
   $check($saved['payload']['basicInfo']['name'] === 'Original Workspace Fixture', 'Canonical identity must reflect edits.');
   $check($saved['payload']['wizard']['name'] === 'Original Workspace Fixture', 'Wizard mirror must reflect edits.');
   $check((int) $manager->loadCharacter($id)->status === 0, 'GM apply must not finalize.');
-  try {
-    $call($proposal['tool_name'], $proposal['arguments']);
-    throw new \LogicException('A stale plan was accepted.');
-  }
-  catch (\RuntimeException $exception) {
-    $check($exception->getCode() === 409, 'Stale plans must return revision conflicts.');
-  }
+  $drafts->applyDraftUpdates($id, $saved['revision'], ['concept' => 'Original newer saved concept']);
+  $authoritative = $call($proposal['tool_name'], $proposal['arguments']);
+  $check($authoritative['tool_result']['applied_to_revision'] === $saved['revision'] + 1, 'GM patches must use the latest locked revision instead of surfacing stale conflicts.');
+  $saved = $drafts->getDraft($id);
+  $check($saved['payload']['concept'] === 'Original newer saved concept', 'Authoritative patches must preserve unrelated newer saved fields.');
   $call('apply_character_draft_updates', ['expected_revision' => $saved['revision'], 'updates' => ['name' => 'Dry Run']], TRUE);
   $check($drafts->getDraft($id)['revision'] === $saved['revision'], 'Dry runs must not mutate.');
   $automatic_parser = new class(NULL, \Drupal::service('logger.factory')) extends \Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmIntentParser {

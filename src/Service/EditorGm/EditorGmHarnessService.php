@@ -977,6 +977,12 @@ Hard rules:
   the native wizard order, using only their available choices. Do not jump to
   later missing steps unless the player explicitly requests them. A completed
   build awaits the wizard's final submission; never finalize it yourself.
+- On Character Creation, a catalog entry is evidence about its stored rules,
+  not proof that this character can select it. Only native wizard choices and
+  validation establish eligibility. Explain missing or partial local text
+  explicitly: description_source=description_snippet is partial, and fallback
+  is not a complete rules description. Never fill gaps from model memory or
+  outside websites. Informational lookups do not modify the character.
 - On Storyline Builder, an object present in authored_objects.generation_specs
   is explicit intent to create that canonical id. Do not ask whether to repoint
   a missing asset when its exact id has an authored generation spec.

@@ -32,6 +32,7 @@ async function main() {
     });
     await page.goto(drush('user:login', '--uid=1', '--no-browser'));
     await page.goto(base + '/charactersetup');
+    await page.locator('form.character-creation-form [name="name"]').fill('Unsaved first-step fixture');
     await page.locator('#characterSetupGmInput').fill('Start my character draft with the name Original New Draft Fixture. Leave all other decisions for me.');
     await page.locator('[data-gm-chat-send]').click();
     await page.waitForFunction(() => drupalSettings.dungeoncrawlerCharacterGm.characterId > 0);
@@ -82,6 +83,7 @@ async function main() {
     await page.waitForFunction(() => document.querySelector('[data-character-step-region]').textContent.includes('field is required'));
     assert.equal(await page.locator('#characterSetupGmInput').inputValue(), 'Keep this unsent question');
     await page.evaluate(() => Drupal.characterCreationWorkspace.refresh({ saved: true }));
+    await page.locator('form.character-creation-form [name="name"]').fill('Unsaved local name to be replaced');
     await page.locator('#characterSetupGmInput').fill("Change my character's name to Original GM Browser Fixture. Do not change any other fields.");
     await page.locator('[data-gm-chat-send]').click();
     await page.locator('#characterSetupGmInput').fill('Keep this after saving');
@@ -91,6 +93,7 @@ async function main() {
     await page.waitForFunction(() => !Drupal.characterCreationWorkspace.isBusy());
     assert.equal(await page.locator('#characterSetupGmInput').inputValue(), 'Keep this after saving');
     assert.equal(await page.locator('form.character-creation-form [name="name"]').inputValue(), 'Original GM Browser Fixture');
+    assert.equal(await page.locator('[data-gm-chat-status]').evaluate(element => element.classList.contains('is-error')), false, 'Unsaved form input must not block an authoritative GM save.');
     assert.equal(await page.evaluate(() => drupalSettings.dungeoncrawlerCharacterSetup.activeStep), 1);
     drush('php:eval', `
       $chat = \\Drupal::service('dungeoncrawler_content.chat_session_manager');
@@ -113,9 +116,18 @@ async function main() {
     const firstBox = await firstOption.boundingBox();
     const secondBox = await secondOption.boundingBox();
     assert.ok(secondBox.y >= firstBox.y + firstBox.height, 'Numbered options must appear on separate list rows.');
+    const refreshPath = await page.evaluate(() => new URL(drupalSettings.dungeoncrawlerCharacterSetup.refreshUrl, location.origin).pathname);
+    await page.route(url => url.pathname === refreshPath, async route => {
+      await new Promise(resolve => setTimeout(resolve, 400));
+      await route.continue();
+    }, { times: 1 });
+    const inFlightRefresh = page.evaluate(() => Drupal.characterCreationWorkspace.refresh({ saved: true }));
+    await page.waitForFunction(() => Drupal.characterCreationWorkspace.isBusy());
     await firstOption.click();
+    await inFlightRefresh;
     await page.waitForFunction(() => !document.querySelector('[data-character-gm-chat]').hasAttribute('aria-busy'), null, { timeout: 120000 });
     assert.equal(await page.locator('form.character-creation-form [name="name"]').inputValue(), 'Original Option Fixture', 'Selecting an option must execute and save without another send or approval.');
+    assert.equal(await page.locator('[data-gm-chat-status]').evaluate(element => element.classList.contains('is-error')), false, 'An in-flight form refresh must finish before the GM writes, without surfacing a conflict.');
     assert.equal(await page.getByRole('button', { name: /approve and run/i }).count(), 0);
     await page.locator('#characterSetupGmInput').fill('Set my ancestry to orc. Leave heritage, ancestry feat, and ability boosts for me to choose next. Do not change any other fields.');
     await page.locator('[data-gm-chat-send]').click();
@@ -130,6 +142,15 @@ async function main() {
     assert.equal(process.context_snapshot.process_flow.current_step, process.validation.next_step);
     assert.ok(process.context_snapshot.process_flow.decision_points.some(issue => issue.field === 'heritage'), 'The flow must discover conditional ancestry choices before moving to later wizard steps.');
     assert.ok(process.context_snapshot.process_flow.decision_points.every(issue => issue.step === 2));
+    const heritage = process.context_snapshot.character_reference.heritages.orc[0];
+    const lookupResponse = page.waitForResponse(response => response.request().method() === 'POST' && /\/creation\/\d+\/gm$/.test(new URL(response.url()).pathname), { timeout: 120000 });
+    await page.locator('#characterSetupGmInput').fill(`Explain the ${heritage.name} heritage using only our local catalog. Do not change my character.`);
+    await page.locator('[data-gm-chat-send]').click();
+    const lookup = await (await lookupResponse).json();
+    await page.waitForFunction(() => !document.querySelector('[data-character-gm-chat]').hasAttribute('aria-busy'), null, { timeout: 120000 });
+    assert.equal(lookup.data.tool_result.tool, 'get_character_catalog_entry', 'Description questions must read the local catalog instead of answering from names or model memory.');
+    assert.equal(lookup.data.tool_result.entry.id, heritage.id);
+    assert.equal(lookup.data.context_snapshot.draft.revision, process.context_snapshot.draft.revision, 'Catalog questions must not mutate character state.');
     if (artifacts) {
       mkdirSync(artifacts, { recursive: true });
       await page.screenshot({ path: join(artifacts, 'character-workspace-desktop.png'), fullPage: true });

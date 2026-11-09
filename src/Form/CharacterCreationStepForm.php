@@ -229,7 +229,7 @@ class CharacterCreationStepForm extends FormBase {
    *
    * No submit handler, character save, or portrait generation is invoked.
    */
-  public function validateDraft(array $character_data, ?int $campaign_id = NULL): array {
+  public function validateDraft(array $character_data, ?int $campaign_id = NULL, bool $include_option_details = FALSE): array {
     $previous_draft = $this->validationDraft;
     $this->validationDraft = $character_data;
     $builder = \Drupal::formBuilder();
@@ -276,7 +276,13 @@ class CharacterCreationStepForm extends FormBase {
         $form = $builder->doBuildForm($this->getFormId(), $form, $state);
         $validator->validateForm($this->getFormId(), $form, $state);
         $choices = [];
-        $collect = function (array $element) use (&$collect, &$choices): void {
+        $option_cards = [];
+        $collect = function (array $element) use (&$collect, &$choices, &$option_cards, $include_option_details): void {
+          if ($include_option_details) {
+            foreach ($element['#attached']['drupalSettings']['characterOptionCards'] ?? [] as $group => $cards) {
+              $option_cards[$group] = $cards;
+            }
+          }
           if (($element['#theme'] ?? NULL) === 'character_ability_widget' && ($element['#mode'] ?? '') === 'interactive') {
             $field = $element['#attributes']['data-step'] . '_boosts';
             $abilities = array_filter($element['#abilities'], static fn(array $ability): bool => empty($ability['disabled']));
@@ -347,6 +353,7 @@ class CharacterCreationStepForm extends FormBase {
           'complete' => $issues === [],
           'issues' => $issues,
           'choices' => $choices,
+          ...($include_option_details ? ['option_cards' => $option_cards] : []),
         ];
         $state->clearErrors();
       }

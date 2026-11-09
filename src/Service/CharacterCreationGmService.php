@@ -37,6 +37,8 @@ class CharacterCreationGmService {
     protected FactionGenerationService $factionGeneration,
     protected ClassResolverInterface $classResolver,
     protected CharacterWizardHardeningService $wizardHardening,
+    protected FeatLibraryService $featLibrary,
+    protected SpellCatalogService $spellCatalog,
   ) {}
 
   /**
@@ -144,15 +146,111 @@ class CharacterCreationGmService {
     ];
   }
 
-  public function validateData(array $data, ?int $campaign_id = NULL): array {
+  public function validateData(array $data, ?int $campaign_id = NULL, bool $include_option_details = FALSE): array {
     $form = $this->classResolver->getInstanceFromDefinition(CharacterCreationStepForm::class);
-    return $form->validateDraft($data, $campaign_id);
+    return $form->validateDraft($data, $campaign_id, $include_option_details);
+  }
+
+  /**
+   * Browse the same local catalogs used by the native wizard.
+   */
+  public function searchCatalog(string $family, string $query = '', int $limit = 10, int $offset = 0): array {
+    if ($limit < 1 || $limit > 25 || $offset < 0) {
+      throw new \InvalidArgumentException('Character catalog limit must be 1-25 and offset must be nonnegative.');
+    }
+    $entries = $this->catalogEntries($family);
+    $query = mb_strtolower(trim($query));
+    if ($query !== '') {
+      $entries = array_values(array_filter($entries, static fn(array $entry): bool =>
+        str_contains(mb_strtolower(json_encode($entry, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)), $query)
+      ));
+    }
+    usort($entries, static fn(array $left, array $right): int =>
+      [mb_strtolower($left['name']), $left['id']] <=> [mb_strtolower($right['name']), $right['id']]
+    );
+    $total = count($entries);
+    return [
+      'source' => 'local_character_catalog',
+      'family' => $family,
+      'query' => $query,
+      'total' => $total,
+      'offset' => $offset,
+      'next_offset' => $offset + $limit < $total ? $offset + $limit : NULL,
+      'entries' => array_slice($entries, $offset, $limit),
+      'message' => $total === 0 ? 'No matching entries exist in this local catalog. No external lookup was attempted.' : '',
+      'selection_authority' => 'Catalog membership is not eligibility. Use native wizard choices and validation before saving selections.',
+    ];
+  }
+
+  public function getCatalogEntry(string $family, string $entry_id, ?string $ancestry = NULL): array {
+    if (trim($entry_id) === '') {
+      throw new \InvalidArgumentException('Character catalog entry ID or name is required.');
+    }
+    if ($ancestry !== NULL && ($family !== 'heritage' || trim($ancestry) === '')) {
+      throw new \InvalidArgumentException('An ancestry qualifier is valid only for a heritage lookup and must not be empty.');
+    }
+    $matches = array_values(array_filter($this->catalogEntries($family), static function (array $entry) use ($entry_id, $ancestry): bool {
+      $identity_matches = strcasecmp($entry['id'], $entry_id) === 0 || strcasecmp($entry['name'], $entry_id) === 0;
+      return $identity_matches && ($ancestry === NULL
+        || strcasecmp(str_replace(' ', '-', $entry['ancestry']), str_replace(' ', '-', $ancestry)) === 0);
+    }));
+    if ($matches === []) {
+      throw new \OutOfBoundsException("No local $family catalog entry matches '$entry_id'.", 404);
+    }
+    if (count($matches) !== 1) {
+      throw new \InvalidArgumentException("The local $family ID '$entry_id' is shared. Use its full name or qualify its ancestry. Matches: " . implode(', ', array_column($matches, 'name')));
+    }
+    $entry = $matches[0];
+    return [
+      'source' => 'local_character_catalog',
+      'family' => $family,
+      'entry' => $entry,
+      'description_available' => trim((string) ($entry['description'] ?? $entry['benefit'] ?? '')) !== '',
+      'selection_authority' => 'Use native wizard choices and validation to determine whether this entry is selectable for the current character.',
+    ];
+  }
+
+  private function catalogEntries(string $family): array {
+    if ($family === 'feat') {
+      return $this->featLibrary->getFeats();
+    }
+    if ($family === 'spell') {
+      return $this->spellCatalog->getSpells();
+    }
+    if ($family === 'equipment') {
+      return array_merge(...array_values($this->getEquipmentCatalog()));
+    }
+    if ($family === 'heritage') {
+      $entries = [];
+      foreach (CharacterRulesCatalog::HERITAGES as $ancestry => $heritages) {
+        foreach ($heritages as $heritage) {
+          $entries[] = [...$heritage, 'ancestry' => $ancestry];
+        }
+      }
+      return $entries;
+    }
+    $catalog = match ($family) {
+      'ancestry' => CharacterRulesCatalog::ANCESTRIES,
+      'background' => CharacterRulesCatalog::BACKGROUNDS,
+      'class' => CharacterRulesCatalog::CLASSES,
+      'familiar_ability' => FamiliarService::ABILITY_CATALOG,
+      default => throw new \InvalidArgumentException('Unsupported local character catalog family: ' . $family),
+    };
+    $entries = [];
+    foreach ($catalog as $id => $entry) {
+      $entries[] = [
+        ...$entry,
+        'id' => $entry['id'] ?? strtolower(str_replace(' ', '-', $id)),
+        'name' => $entry['name'] ?? $id,
+      ];
+    }
+    return $entries;
   }
 
   /**
    * Plan a revision-bound patch; incomplete drafts are allowed, invalid choices are not.
    */
-  public function planUpdates(int $character_id, array $updates): array {
+  public function planUpdates(int $character_id, array $updates, bool $include_option_details = FALSE): array {
     $draft = $this->getDraft($character_id);
     $data = $draft['payload'];
     $record = $this->loadOwnedDraft($character_id);
@@ -167,7 +265,7 @@ class CharacterCreationGmService {
     $before = $this->validateData($data, $draft['campaign_id']);
     $applied = $this->applyUpdates($data, $sanitized);
     $this->applyDerivedState($data, array_keys($sanitized));
-    $validation = $this->validateData($data, $draft['campaign_id']);
+    $validation = $this->validateData($data, $draft['campaign_id'], $include_option_details);
     $existing_errors = array_map(static fn(array $issue): string => $issue['path'] . ':' . $issue['message'], $before['errors']);
     $blocking_errors = array_values(array_filter($validation['errors'], static function (array $issue) use ($sanitized, $existing_errors): bool {
       $field = explode('][', $issue['field'])[0];
@@ -191,29 +289,38 @@ class CharacterCreationGmService {
   }
 
   public function applyDraftUpdates(int $character_id, int $expected_revision, array $updates): array {
-    $record = $this->loadOwnedDraft($character_id);
-    if ((int) ($record->version ?? 0) !== $expected_revision) {
-      throw new \RuntimeException('The character changed. Refresh the draft before retrying your changes.', 409);
+    $this->loadOwnedDraft($character_id);
+    $transaction = $this->database->startTransaction();
+    try {
+      $this->database->select('dc_campaign_characters', 'c')->fields('c', ['id'])
+        ->condition('id', $character_id)->forUpdate()->execute()->fetchField();
+      $record = $this->loadOwnedDraft($character_id);
+      $plan = $this->planUpdates($character_id, $updates);
+      if ($plan['blocking_errors'] !== []) {
+        throw new \InvalidArgumentException('Character updates failed validation: ' . implode('; ', array_column($plan['blocking_errors'], 'message')), 422);
+      }
+      $data = $this->loadCharacterData($record);
+      $this->applyUpdates($data, $plan['updates']);
+      $this->applyDerivedState($data, array_keys($plan['updates']));
+      $data['step'] = max((int) ($data['step'] ?? 1), $plan['validation']['next_step']);
+      // The GM edits drafts; finalization remains the explicit final form action.
+      if (!$plan['validation']['ready']) {
+        $data['wizard_complete'] = FALSE;
+      }
+      $this->saveDraft($record, $data, (int) ($record->campaign_id ?? 0));
+      return [
+        'draft' => $this->getDraft($character_id),
+        'inspected_revision' => $expected_revision,
+        'applied_to_revision' => (int) $record->version,
+        'applied_fields' => $plan['applied_fields'],
+        'validation' => $plan['validation'],
+        'assistant_response' => 'Saved character changes: ' . implode(', ', $plan['applied_fields']) . '.',
+      ];
     }
-    $plan = $this->planUpdates($character_id, $updates);
-    if ($plan['blocking_errors'] !== []) {
-      throw new \InvalidArgumentException('Character updates failed validation: ' . implode('; ', array_column($plan['blocking_errors'], 'message')), 422);
+    catch (\Throwable $exception) {
+      $transaction->rollBack();
+      throw $exception;
     }
-    $data = $this->loadCharacterData($record);
-    $this->applyUpdates($data, $plan['updates']);
-    $this->applyDerivedState($data, array_keys($plan['updates']));
-    $data['step'] = max((int) ($data['step'] ?? 1), $plan['validation']['next_step']);
-    // The GM edits drafts; finalization remains the explicit final form action.
-    if (!$plan['validation']['ready']) {
-      $data['wizard_complete'] = FALSE;
-    }
-    $this->saveDraft($record, $data, (int) ($record->campaign_id ?? 0));
-    return [
-      'draft' => $this->getDraft($character_id),
-      'applied_fields' => $plan['applied_fields'],
-      'validation' => $plan['validation'],
-      'assistant_response' => 'Saved character changes: ' . implode(', ', $plan['applied_fields']) . '.',
-    ];
   }
 
   /**

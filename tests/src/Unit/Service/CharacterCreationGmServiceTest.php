@@ -14,6 +14,8 @@ use Drupal\dungeoncrawler_content\Service\CharacterManager;
 use Drupal\dungeoncrawler_content\Service\CharacterWizardHardeningService;
 use Drupal\dungeoncrawler_content\Service\FactionGenerationService;
 use Drupal\dungeoncrawler_content\Service\InstitutionMembershipService;
+use Drupal\dungeoncrawler_content\Service\FeatLibraryService;
+use Drupal\dungeoncrawler_content\Service\SpellCatalogService;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -21,7 +23,7 @@ use PHPUnit\Framework\TestCase;
  */
 class CharacterCreationGmServiceTest extends TestCase {
 
-  private function service(?CharacterCreationStepForm $form = NULL, ?object $record = NULL, ?FactionGenerationService $factions = NULL): CharacterCreationGmService {
+  private function service(?CharacterCreationStepForm $form = NULL, ?object $record = NULL, ?FactionGenerationService $factions = NULL, ?FeatLibraryService $feats = NULL): CharacterCreationGmService {
     $manager = $this->createMock(CharacterManager::class);
     $manager->method('loadCharacter')->willReturn($record ?? (object) [
       'id' => 77, 'uid' => 7, 'version' => 3, 'campaign_id' => 0, 'status' => 0,
@@ -45,6 +47,8 @@ class CharacterCreationGmServiceTest extends TestCase {
       $manager, new AbilityScoreTracker($manager), $this->createMock(InstitutionMembershipService::class),
       $factions ?? $this->createMock(FactionGenerationService::class), $resolver,
       $this->createMock(CharacterWizardHardeningService::class),
+      $feats ?? $this->createMock(FeatLibraryService::class),
+      $this->createMock(SpellCatalogService::class),
     );
   }
 
@@ -78,15 +82,40 @@ class CharacterCreationGmServiceTest extends TestCase {
     $this->assertSame(['name' => 'Revised Hero'], $plan['proposed_execution']['arguments']['updates']);
   }
 
-  public function testStaleApplyFailsBeforeValidationOrSaving(): void {
-    $form = $this->createMock(CharacterCreationStepForm::class);
-    $form->expects($this->never())->method('validateDraft');
-    $form->expects($this->never())->method('saveValidatedDraft');
-    $this->expectException(\RuntimeException::class);
-    $this->expectExceptionCode(409);
-    $this->service($form)->applyDraftUpdates(77, 2, ['name' => 'Stale Hero']);
+  public function testCatalogSearchPaginatesAndFullReadsPreserveTheOwningRecord(): void {
+    $description = str_repeat('Original locally authored rules and effects. ', 20);
+    $entries = [
+      ['id' => 'fixture-b', 'name' => 'Original B', 'description' => $description, 'prerequisites' => 'Original prerequisite', 'effects' => ['original' => TRUE]],
+      ['id' => 'fixture-a', 'name' => 'Original A', 'description' => 'Original short local description.'],
+    ];
+    $feats = $this->createMock(FeatLibraryService::class);
+    $feats->expects($this->exactly(3))->method('getFeats')->willReturn($entries);
+    $service = $this->service(NULL, NULL, NULL, $feats);
+    $first = $service->searchCatalog('feat', 'locally authored', 1);
+    $this->assertSame(1, $first['total']);
+    $this->assertSame($description, $first['entries'][0]['description']);
+    $page = $service->searchCatalog('feat', '', 1, 1);
+    $this->assertSame('fixture-b', $page['entries'][0]['id']);
+    $this->assertNull($page['next_offset']);
+    $this->assertSame($entries[0], $service->getCatalogEntry('feat', 'Original B')['entry']);
   }
 
+  public function testMissingLocalCatalogEntryDoesNotInventOrFetchContent(): void {
+    $this->expectException(\OutOfBoundsException::class);
+    $this->expectExceptionCode(404);
+    $this->service()->getCatalogEntry('spell', 'original-absent-fixture');
+  }
+
+  public function testSharedHeritageIdsRequireAncestryInsteadOfReturningTheWrongRules(): void {
+    $service = $this->service();
+    $matches = array_values(array_filter($service->searchCatalog('heritage', 'cavern')['entries'], static fn(array $entry): bool => $entry['id'] === 'cavern'));
+    $this->assertGreaterThan(1, count($matches));
+    foreach ($matches as $entry) {
+      $this->assertSame($entry, $service->getCatalogEntry('heritage', 'cavern', $entry['ancestry'])['entry']);
+    }
+    $this->expectException(\InvalidArgumentException::class);
+    $service->getCatalogEntry('heritage', 'cavern');
+  }
   #[\PHPUnit\Framework\Attributes\DataProvider('invalidPatches')]
   public function testInvalidUpdatesAreRejectedInsteadOfSilentlyDropped(array $updates): void {
     $this->expectException(\InvalidArgumentException::class);

@@ -74,7 +74,7 @@ character-creation-style:
     - dungeoncrawler_content/character-step-base
 
 character-creation-gm-chat:
-  version: 20261109-character-auto-save-1
+  version: 20261109-character-gm-authority-2
   css:
     theme:
       css/character-creation-gm-chat.css: {}
@@ -88,7 +88,7 @@ character-creation-gm-chat:
     - core/drupalSettings
 
 character-setup-tabs:
-  version: 20261109-character-auto-save-1
+  version: 20261109-character-gm-authority-2
   css:
     theme:
       css/character-setup-tabs.css: {}

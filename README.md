@@ -35,17 +35,34 @@ not falsely clear a state-sync failure.
 `/charactersetup` uses a left-hand step/quicklink sidebar and a larger right
 workspace, with the Character Creation GM above the structured editor. Native
 Drupal AJAX refreshes only the editor, preserving the conversation, composer,
-and viewport. Unsaved fields block navigation and GM apply until saved or
-explicitly discarded.
+and viewport. Unsaved fields still protect manual navigation, but the GM can
+overwrite them without a save/discard or conflict-resolution prompt. It waits
+for an in-flight native form request before taking over and refreshes the form
+after saving while preserving conversation, composer, and current step.
 
 The character-specific `character_creation` surface runs on the shared Editor
 GM harness. Registered tools inspect the canonical draft/reference, validate,
-explain findings, plan patches, and apply revision-bound patches. Valid changes
+explain findings, plan patches, and apply authoritative patches. Valid changes
 requested in conversation are saved immediately, including serial task queues;
 there is no separate approval button. Choices appear as a vertical numbered
 list, and players can revise saved choices later. Direct planning/reference
 calls and dry runs remain read-only. GM tools never finalize characters or
 modify campaign runtime characters.
+
+GM writes lock the canonical character, validate the requested patch against
+its latest state, and save through the same atomic native authority. An older
+inspected revision is retained for audit rather than presented as a conflict;
+requested fields win and unrelated newer saved fields remain intact.
+
+`search_character_catalog` provides bounded, paginated local discovery, and
+`get_character_catalog_entry` reads complete stored ancestry, heritage,
+background, class, feat, spell, equipment, and familiar-ability records. These
+tools reuse the wizard's catalogs and existing feat/spell services, never web
+lookups or a separate dataset. `get_character_creation_reference` can include
+the native option-card descriptions/facts with `include_descriptions=true`,
+optionally restricted to one `step`, including candidate conditional choices.
+Catalog membership is not eligibility; native validation still decides what
+can be selected. Missing or partial descriptions remain explicit.
 
 The GM follows the native wizard's step order and conditional decision points.
 Its revision-bound `process_flow` is projected from the same eight-step native
