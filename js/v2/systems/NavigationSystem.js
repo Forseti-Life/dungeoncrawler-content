@@ -877,6 +877,14 @@ export class NavigationSystem {
           : !isPassable,
         origin_hex: forward ? fromHex : toHex,
         target_hex: forward ? toHex : fromHex,
+        destination_dungeon_id: String(
+          forward
+            ? (connection?.to_dungeon_id || connection?.destination_dungeon_id || '')
+            : (connection?.from_dungeon_id || connection?.destination_dungeon_id || '')
+        ).trim(),
+        dungeon_switch: connection?.dungeon_switch && typeof connection.dungeon_switch === 'object'
+          ? { ...connection.dungeon_switch }
+          : null,
       });
     });
 

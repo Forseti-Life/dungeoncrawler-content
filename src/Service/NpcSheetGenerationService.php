@@ -315,26 +315,41 @@ class NpcSheetGenerationService {
     $state = is_array($payload['state_data'] ?? NULL) ? $payload['state_data'] : [];
     $name = (string) ($payload['display_name'] ?? $state['name'] ?? $seed_data['name'] ?? $content_id);
     $level = max(1, (int) ($state['level'] ?? $seed_data['level'] ?? 1));
+    $saves = is_array($state['saves'] ?? NULL) ? $state['saves'] : [];
     $stats = Pf2eGenerationRules::normalizeNpcSheetStats([
       'ac' => (int) ($state['ac'] ?? 10 + $level),
-      'perception' => 5 + $level,
-      'fortitude' => 4 + $level,
-      'reflex' => 4 + $level,
-      'will' => 4 + $level,
+      'perception' => (int) ($state['perception'] ?? (5 + $level)),
+      'fortitude' => (int) ($saves['fortitude'] ?? (4 + $level)),
+      'reflex' => (int) ($saves['reflex'] ?? (4 + $level)),
+      'will' => (int) ($saves['will'] ?? (4 + $level)),
       'currentHp' => (int) ($state['hp_current'] ?? $state['max_hp'] ?? (12 + ($level * 8))),
       'maxHp' => (int) ($state['max_hp'] ?? $state['hp_current'] ?? (12 + ($level * 8))),
     ], is_array($seed_data['stats'] ?? NULL) ? $seed_data['stats'] : []);
     $sheet = $this->normalizeGeneratedSheet($content_id, $seed_data, [
       'name' => $name,
       'level' => $level,
-      'ancestry' => (string) ($state['species'] ?? $seed_data['ancestry'] ?? 'Humanoid'),
+      'ancestry' => (string) ($state['ancestry'] ?? $state['species'] ?? $seed_data['ancestry'] ?? 'Humanoid'),
       'class' => (string) ($state['class'] ?? $seed_data['class'] ?? 'Commoner'),
-      'occupation' => (string) ($seed_data['occupation'] ?? $state['class'] ?? 'npc'),
-      'role' => (string) ($seed_data['role'] ?? $state['class'] ?? 'neutral'),
-      'alignment' => (string) ($seed_data['alignment'] ?? 'N'),
+      'occupation' => (string) ($state['occupation'] ?? $seed_data['occupation'] ?? $state['class'] ?? 'npc'),
+      'role' => (string) ($state['role'] ?? $seed_data['role'] ?? $state['class'] ?? 'neutral'),
+      'alignment' => (string) ($state['alignment'] ?? $seed_data['alignment'] ?? 'N'),
       'description' => (string) ($state['description'] ?? $seed_data['description'] ?? ''),
+      'backstory' => (string) ($state['backstory'] ?? $seed_data['backstory'] ?? ''),
+      'personality_traits' => is_array($state['personality_traits'] ?? NULL) ? $state['personality_traits'] : [],
+      'motivations' => (string) ($state['motivations'] ?? $seed_data['motivations'] ?? ''),
+      'fears' => (string) ($state['fears'] ?? $seed_data['fears'] ?? ''),
+      'bonds' => (string) ($state['bonds'] ?? $seed_data['bonds'] ?? ''),
+      'abilities' => is_array($state['abilities'] ?? NULL) ? $state['abilities'] : [],
       'stats' => $stats,
-      'psychology' => is_array($seed_data['psychology'] ?? NULL) ? $seed_data['psychology'] : [],
+      'skills' => is_array($state['skills'] ?? NULL) ? $state['skills'] : [],
+      'attacks' => is_array($state['attacks'] ?? NULL) ? $state['attacks'] : [],
+      'equipment' => is_array($state['equipment'] ?? NULL) ? $state['equipment'] : [],
+      'languages' => is_array($state['languages'] ?? NULL) ? $state['languages'] : [],
+      'senses' => is_array($state['senses'] ?? NULL) ? $state['senses'] : [],
+      'spells' => is_array($state['spells'] ?? NULL) ? $state['spells'] : [],
+      'psychology' => is_array($state['psychology'] ?? NULL) && $state['psychology'] !== []
+        ? $state['psychology']
+        : (is_array($seed_data['psychology'] ?? NULL) ? $seed_data['psychology'] : []),
     ]);
     $sheet['source'] = 'runtime_generated_canonical_actor';
     $sheet['canonical_actor_id'] = (string) ($result['definition_id'] ?? $payload['actor_id'] ?? '');
@@ -780,13 +795,21 @@ class NpcSheetGenerationService {
    */
   protected function buildCampaignCharacterPayload(array $sheet): array {
     return [
+      'schema_version' => 'character-state-v1',
+      'actor_id' => (string) ($sheet['canonical_actor_id'] ?? $sheet['content_id'] ?? ''),
+      'actor_type' => 'npc',
+      'step' => 8,
+      'wizard_complete' => TRUE,
+      'name' => $sheet['name'],
       'basicInfo' => [
         'name' => $sheet['name'],
         'level' => $sheet['level'],
         'ancestry' => $sheet['ancestry'],
         'class' => $sheet['class'],
         'alignment' => $sheet['alignment'],
+        'appearance' => $sheet['description'],
         'personality' => implode(', ', $sheet['personality_traits'] ?? []),
+        'backstory' => $sheet['backstory'],
       ],
       'resources' => [
         'hitPoints' => [
@@ -802,6 +825,18 @@ class NpcSheetGenerationService {
         'will' => $sheet['stats']['will'],
         'perception' => $sheet['stats']['perception'],
       ],
+      'hit_points' => [
+        'current' => $sheet['stats']['currentHp'],
+        'max' => $sheet['stats']['maxHp'],
+        'temp' => 0,
+      ],
+      'armor_class' => $sheet['stats']['ac'],
+      'saves' => [
+        'fortitude' => $sheet['stats']['fortitude'],
+        'reflex' => $sheet['stats']['reflex'],
+        'will' => $sheet['stats']['will'],
+      ],
+      'perception' => $sheet['stats']['perception'],
       'inventory' => [
         'carried' => [],
         'equipped' => [],
@@ -819,6 +854,7 @@ class NpcSheetGenerationService {
       'class' => $sheet['class'],
       'occupation' => $sheet['occupation'],
       'level' => $sheet['level'],
+      'appearance' => $sheet['description'],
       'description' => $sheet['description'],
       'backstory' => $sheet['backstory'],
       'role' => $sheet['role'],
@@ -836,6 +872,16 @@ class NpcSheetGenerationService {
       'motivations' => $sheet['motivations'],
       'fears' => $sheet['fears'],
       'bonds' => $sheet['bonds'],
+      'profile' => [
+        'display_name' => $sheet['name'],
+        'role' => $sheet['role'],
+        'appearance' => $sheet['description'],
+        'personality_traits' => $sheet['personality_traits'] ?? [],
+        'psychology' => $sheet['psychology'] ?? [],
+        'motivations' => $sheet['motivations'],
+        'fears' => $sheet['fears'],
+        'bonds' => $sheet['bonds'],
+      ],
     ];
   }
 

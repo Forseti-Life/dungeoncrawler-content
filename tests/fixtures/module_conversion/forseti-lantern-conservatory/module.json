@@ -1,0 +1,20 @@
+{
+  "id": "forseti-lantern-conservatory",
+  "title": "Forseti Lantern Conservatory",
+  "version": "1.0.0",
+  "description": "Original project-authored fixture for module conversion gating.",
+  "authors": [
+    {
+      "name": "Forseti Project"
+    }
+  ],
+  "packs": [
+    {
+      "name": "adventure",
+      "label": "Forseti Adventure",
+      "path": "packs/adventure.json",
+      "type": "Adventure",
+      "system": "pf2e"
+    }
+  ]
+}

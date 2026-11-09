@@ -29,8 +29,21 @@
  */
 
 import { GameEventBus } from '../GameEventBus.js?v=20260908g1';
-import { HexCanvas } from '../canvas/HexCanvas.js?v=20260908g1';
+import { HexCanvas } from '../canvas/HexCanvas.js?v=20261009-module-background-1';
 import './placementTransform.js?v=20260908g1';
+import {
+  appendEditorGmMessage,
+  buildEditorGmRequest,
+  describeEditorGmToolCall,
+  parseEditorGmMessage,
+  renderEditorGmClarification,
+  renderEditorGmProposal,
+  renderEditorGmToolCalls,
+  renderEditorGmToolset,
+  restoreEditorGmConversation,
+  selectEditorGmTool,
+  shouldSubmitEditorGmKey,
+} from './EditorGmChatClient.js?v=20261024-tool-calls-1';
 
 const transform = globalThis.DungeonCrawlerPlacementTransform;
 if (!transform) {
@@ -131,6 +144,10 @@ export class DungeonEditorShell {
     this._bindHeaderEvents();
     this._bindAuthorDrawerEvents();
     this._bindGmEvents();
+    this._appendGmMessage(
+      'assistant',
+      'Welcome to the Dungeon Editor GM. Building a connected dungeon is hard; describe what you want to create, edit, inspect, or validate, and I will help you use the same dungeon-authoring capabilities available in this interface.',
+    );
     this._bindAuthoringEvents();
     this._initCanvas();
     this._loadRoomLibrary();
@@ -163,12 +180,6 @@ export class DungeonEditorShell {
   // ---------------------------------------------------------------------------
 
   async loadDungeon(dungeonId) {
-    const selected = this._dungeonOption(dungeonId);
-    if (selected && !selected.published_version_id && !selected.has_active_draft) {
-      this._setStatus(`${selected.name} is not published in the Dungeon Editor yet. Start New Dungeon, or publish it before loading it as an editor draft.`, 'warning');
-      this._syncDungeonLoadState();
-      return null;
-    }
     return this._createOrLoadDraft(dungeonId ? String(dungeonId) : null);
   }
 
@@ -186,6 +197,9 @@ export class DungeonEditorShell {
     const url = this._draftUrl('describe');
     const response = await this._getJson(url);
     this._setModel(response.data);
+    if (this._gmRefreshPromise) {
+      await this._gmRefreshPromise;
+    }
   }
 
   /**
@@ -775,19 +789,13 @@ export class DungeonEditorShell {
       this._submitGmMessage();
     });
     this._dom.gmInput?.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+      if (shouldSubmitEditorGmKey(event)) {
         event.preventDefault();
         this._submitGmMessage();
       }
     });
     this._dom.gmTools?.addEventListener('click', (event) => {
-      const button = event.target.closest('[data-gm-tool]');
-      if (!button || !this._dom.gmInput) {
-        return;
-      }
-      const template = button.getAttribute('data-gm-template') || '{}';
-      this._dom.gmInput.value = `${button.getAttribute('data-gm-tool')} ${template}`;
-      this._dom.gmInput.focus();
+      selectEditorGmTool(event, this._dom.gmInput);
     });
     this._dom.gmDiscardPlanBtn?.addEventListener('click', () => this._setGmPlan(null));
     this._dom.gmPreviewPlanBtn?.addEventListener('click', () => this._previewGmPlan());
@@ -1016,17 +1024,14 @@ export class DungeonEditorShell {
   _syncDungeonLoadState() {
     const id = this._dom.dungeonSelect?.value || '';
     const selected = this._dungeonOption(id);
-    const disabled = !!(selected && !selected.published_version_id && !selected.has_active_draft);
     if (this._dom.loadBtn) {
-      this._dom.loadBtn.disabled = disabled;
-      this._dom.loadBtn.title = disabled
-        ? 'This dungeon has no published editor version or active editor draft yet. Use New Dungeon or convert it before loading.'
-        : '';
+      this._dom.loadBtn.disabled = !id;
+      this._dom.loadBtn.title = !id ? 'Choose a dungeon to load.' : '';
     }
     if (selected && !selected.published_version_id && !selected.has_active_draft) {
-      this._setStatus(`${selected.name} is listed from legacy dungeon data but has no published editor version yet.`, 'warning');
+      this._setStatus(`${selected.name} has no published editor version yet; loading it starts an editor draft.`, 'info');
     } else if (selected && selected.has_active_draft && !selected.published_version_id) {
-      this._setStatus(`${selected.name} has an active converted editor draft and can be loaded.`, 'info');
+      this._setStatus(`${selected.name} has an active editor draft and can be loaded.`, 'info');
     }
   }
 
@@ -1063,7 +1068,7 @@ export class DungeonEditorShell {
     this._renderValidation(model.validation);
     this._renderPublicationReadiness();
     this.refreshPublicationReadiness();
-    this._refreshGmContext();
+    this._gmRefreshPromise = this._refreshGmContext();
     this._updateHistoryButtons();
   }
 
@@ -1822,6 +1827,12 @@ export class DungeonEditorShell {
       const result = await this._getJson(url);
       this._gm.context = result?.data?.context_snapshot || null;
       this._gm.manifest = this._gm.context?.tools || null;
+      if (this._gm.restoredDraftId !== this.draft.draft_id) {
+        this._gm.restoredDraftId = this.draft.draft_id;
+        restoreEditorGmConversation(this._dom.gmTranscript, result?.data?.conversation, {
+          onSelectOption: (selectionText) => this._submitNaturalLanguageMessage(selectionText),
+        });
+      }
       this._renderGmContext();
       this._renderGmToolset();
       this._setGmState(`Grounded on revision ${this._gm.context?.draft?.revision ?? '?'}.`);
@@ -1874,35 +1885,7 @@ export class DungeonEditorShell {
    * is always exactly what the surface registry exposes.
    */
   _renderGmToolset() {
-    const body = this._dom.gmTools;
-    if (!body) {
-      return;
-    }
-    clearElement(body);
-    const manifest = this._gm?.manifest;
-    if (!manifest) {
-      body.appendChild(makeEl('p', 'room-editor__hint', 'Toolset unavailable.'));
-      return;
-    }
-    Object.keys(manifest.families || {}).forEach((family) => {
-      body.appendChild(makeEl('p', 'room-editor__gm-tool-family', family));
-      const list = makeEl('ul', 'room-editor__gm-tool-list');
-      (manifest.families[family] || []).forEach((tool) => {
-        const item = makeEl('li');
-        const button = makeEl('button', `room-editor__gm-tool${tool.mutating ? ' room-editor__gm-tool--mutating' : ''}`, tool.name);
-        button.type = 'button';
-        button.title = `${tool.summary}\n${tool.authority}`;
-        button.setAttribute('data-gm-tool', tool.name);
-        const template = {};
-        (tool.arguments || []).filter((arg) => arg.required).forEach((arg) => {
-          template[arg.name] = arg.type === 'integer' ? 0 : (arg.type === 'array' ? [] : (arg.type === 'boolean' ? false : ''));
-        });
-        button.setAttribute('data-gm-template', JSON.stringify(template));
-        item.appendChild(button);
-        list.appendChild(item);
-      });
-      body.appendChild(list);
-    });
+    renderEditorGmToolset(this._dom.gmTools, this._gm?.manifest);
   }
 
   _setGmState(text, level = 'info') {
@@ -1913,16 +1896,7 @@ export class DungeonEditorShell {
   }
 
   _appendGmMessage(kind, text, detail) {
-    const list = this._dom.gmTranscript;
-    if (!list) {
-      return;
-    }
-    const item = makeEl('li', `room-editor__gm-message room-editor__gm-message--${kind}`, text);
-    if (detail !== undefined && detail !== null) {
-      item.appendChild(makeEl('pre', null, typeof detail === 'string' ? detail : JSON.stringify(detail, null, 2)));
-    }
-    list.appendChild(item);
-    list.scrollTop = list.scrollHeight;
+    appendEditorGmMessage(this._dom.gmTranscript, kind, text, detail);
   }
 
   /**
@@ -1934,38 +1908,27 @@ export class DungeonEditorShell {
    * explicit proposal; it can never mutate directly.
    */
   _parseGmMessage(raw) {
-    const text = String(raw || '').trim();
-    if (!text) {
-      throw new Error('Enter a request, or a tool name to run directly.');
-    }
-    const match = text.match(/^([a-z][a-z0-9_]*)\s*([\s\S]*)$/);
-    if (!match || !this._isKnownGmTool(match[1])) {
-      return { kind: 'natural_language', utterance: text };
-    }
-    const rest = match[2].trim();
-    let args = {};
-    if (rest) {
-      let parsed = null;
-      try {
-        parsed = JSON.parse(rest);
-      } catch (_err) {
-        throw new Error('Tool arguments must be a JSON object.');
-      }
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        throw new Error('Tool arguments must be a JSON object.');
-      }
-      args = parsed;
-    }
-    return { kind: 'tool_call', toolName: match[1], args };
-  }
-
-  _isKnownGmTool(name) {
-    return !!this._gm?.manifest
-      && Object.values(this._gm.manifest.families || {}).some((tools) => tools.some((t) => t.name === name));
+    return parseEditorGmMessage(raw, this._gm?.manifest);
   }
 
   async _submitGmMessage() {
     const raw = this._dom.gmInput?.value || '';
+    if (!this.draft?.draft_id) {
+      const fallbackDungeonId = this._dom.dungeonSelect?.value || this.settings.selectedDungeonId || '';
+      if (fallbackDungeonId) {
+        await this.loadDungeon(fallbackDungeonId);
+      }
+    }
+    if (!this.draft?.draft_id) {
+      this._appendGmMessage('error', 'Load or create a dungeon before using the assistant.');
+      return;
+    }
+    if (this._gmRefreshPromise) {
+      await this._gmRefreshPromise;
+    }
+    if (!this._gm?.context) {
+      await this._refreshGmContext();
+    }
     let parsed = null;
     try {
       parsed = this._parseGmMessage(raw);
@@ -1986,6 +1949,15 @@ export class DungeonEditorShell {
       return;
     }
     await this._invokeGmTool(parsed.toolName, parsed.args, !!this._dom.gmDryRun?.checked);
+  }
+
+  async _submitNaturalLanguageMessage(utterance) {
+    const prompt = String(utterance || '').trim();
+    if (!prompt) {
+      return;
+    }
+    this._appendGmMessage('user', prompt);
+    await this._sendGmRequest({ type: 'natural_language', utterance: prompt }, false, 'assistant');
   }
 
   async _invokeGmTool(toolName, args, dryRun) {
@@ -2036,16 +2008,20 @@ export class DungeonEditorShell {
       this._appendGmMessage('error', 'Another request is still running.');
       return null;
     }
-    const body = {
-      schema_version: 'editor-gm-request-v1',
-      tool_context: {
-        tool_id: 'dungeon_editor',
-        draft_id: this.draft.draft_id,
-        validation_profile: this._gmProfile(),
-      },
+    const body = buildEditorGmRequest({
+      toolId: 'dungeon_editor',
+      draftId: this.draft.draft_id,
+      validationProfile: this._gmProfile(),
       intent,
-      options: { dry_run: !!dryRun },
-    };
+      dryRun,
+    });
+
+    const skipToolMessages = new Set();
+    if (intent?.type === 'tool_call' && intent.tool_name) {
+      const initialToolMessage = describeEditorGmToolCall(intent.tool_name, intent.arguments || {});
+      this._appendGmMessage('tool', initialToolMessage);
+      skipToolMessages.add(initialToolMessage);
+    }
 
     this._setBusy(true);
     this._setGmState(label === 'generate_dungeon_layout' ? 'Waiting on generator (LLM)…' : `Running ${label}...`);
@@ -2068,15 +2044,30 @@ export class DungeonEditorShell {
     this._gm.manifest = this._gm.context?.tools || this._gm.manifest;
     this._renderGmContext();
     this._renderGmToolset();
+    renderEditorGmToolCalls(
+      this._dom.gmTranscript,
+      envelope.tool_calls || envelope.tool_result?.tool_calls || [],
+      { skipMessages: skipToolMessages },
+    );
 
     if (Array.isArray(envelope.command_plan) && envelope.command_plan.length) {
       this._setGmPlan(envelope.command_plan);
     }
-    this._appendGmMessage(dryRun ? 'info' : 'success', `${label} → ${envelope.route_family}`, envelope.tool_result);
+    if (envelope.tool_result?.intent === 'clarification') {
+      renderEditorGmClarification(this._dom.gmTranscript, envelope.tool_result, {
+        onSelectOption: (selectionText) => this._submitNaturalLanguageMessage(selectionText),
+      });
+    } else if (typeof envelope.tool_result?.assistant_response === 'string' && envelope.tool_result.assistant_response.trim() !== '') {
+      this._appendGmMessage('assistant', envelope.tool_result.assistant_response.trim(), envelope.tool_result);
+    } else {
+      this._appendGmMessage(dryRun ? 'info' : 'success', `${label} → ${envelope.route_family}`, envelope.tool_result);
+    }
     this._renderGmProposal(envelope.tool_result);
-    (envelope.messages || []).forEach((message) => {
-      this._appendGmMessage(message.level === 'error' ? 'error' : 'info', message.text);
-    });
+    if (!envelope.tool_result?.assistant_response && envelope.tool_result?.intent !== 'clarification') {
+      (envelope.messages || []).forEach((message) => {
+        this._appendGmMessage(message.level === 'error' ? 'error' : 'info', message.text);
+      });
+    }
 
     const applied = envelope.tool_result?.final_revision;
     if (Number.isInteger(applied) && !dryRun && applied !== this.model?.revision) {
@@ -2105,27 +2096,9 @@ export class DungeonEditorShell {
    * tool_call intent, so the mutation is always author-authorised.
    */
   _renderGmProposal(result) {
-    const proposal = result?.proposed_execution;
-    if (!proposal || result.intent !== 'proposed_execution') {
-      return;
-    }
-    const list = this._dom.gmTranscript;
-    if (!list) {
-      return;
-    }
-    const item = makeEl('li', 'room-editor__gm-message room-editor__gm-message--warning');
-    item.appendChild(makeEl('span', null, `Proposed: ${proposal.tool_name} (${proposal.authority})`));
-    item.appendChild(makeEl('pre', null, JSON.stringify(proposal.arguments || {}, null, 2)));
-    const approve = makeEl('button', 'room-editor__button room-editor__button--primary', 'Approve and run');
-    approve.type = 'button';
-    approve.setAttribute('data-dungeon-editor-gm-approve', proposal.tool_name);
-    approve.addEventListener('click', () => {
-      approve.disabled = true;
-      this._invokeGmTool(proposal.tool_name, proposal.arguments || {}, false);
+    renderEditorGmProposal(this._dom.gmTranscript, result, {
+      onApprove: (proposal) => this._invokeGmTool(proposal.tool_name, proposal.arguments || {}, false),
     });
-    item.appendChild(approve);
-    list.appendChild(item);
-    list.scrollTop = list.scrollHeight;
   }
 
   _setGmPlan(plan) {

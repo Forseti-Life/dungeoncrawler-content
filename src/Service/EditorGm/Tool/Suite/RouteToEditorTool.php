@@ -5,12 +5,14 @@ namespace Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Suite;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolContext;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolDefinition;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolInterface;
-use Drupal\dungeoncrawler_content\Service\EditorGm\EditorSuiteGmToolContext;
+use Drupal\dungeoncrawler_content\Service\EditorSuite\EditorSuiteService;
 
 /**
  * Resolves the editor deep link for one subject so the assistant can route the author.
  */
 final class RouteToEditorTool implements EditorGmToolInterface {
+
+  public function __construct(private readonly EditorSuiteService $suite) {}
 
   public function definition(): EditorGmToolDefinition {
     return new EditorGmToolDefinition(
@@ -27,13 +29,12 @@ final class RouteToEditorTool implements EditorGmToolInterface {
   }
 
   public function execute(array $arguments, EditorGmToolContext $context): array {
-    $context = EditorSuiteGmToolContext::of($context);
     $kind = EditorGmToolContext::requireString($arguments, 'kind');
     $id = $arguments['id'] ?? '';
     if (!is_string($id)) {
       throw new \InvalidArgumentException('argument_invalid:id');
     }
-    return ['kind' => $kind, 'id' => $id, 'route' => $context->suite->editorUrl($kind, trim($id))];
+    return ['kind' => $kind, 'id' => $id, 'route' => $this->suite->editorUrl($kind, trim($id))];
   }
 
 }

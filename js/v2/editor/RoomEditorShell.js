@@ -33,8 +33,21 @@
 /* global PIXI */
 
 import { GameEventBus } from '../GameEventBus.js?v=20260908g1';
-import { HexCanvas } from '../canvas/HexCanvas.js?v=20260908g1';
+import { HexCanvas } from '../canvas/HexCanvas.js?v=20261009-module-background-1';
 import { SpriteService } from '../../SpriteService.js?v=20260908g1';
+import {
+  appendEditorGmMessage,
+  buildEditorGmRequest,
+  describeEditorGmToolCall,
+  parseEditorGmMessage,
+  renderEditorGmClarification,
+  renderEditorGmProposal,
+  renderEditorGmToolCalls,
+  renderEditorGmToolset,
+  restoreEditorGmConversation,
+  selectEditorGmTool,
+  shouldSubmitEditorGmKey,
+} from './EditorGmChatClient.js?v=20261024-tool-calls-1';
 
 const FAMILIES = ['creature', 'actor', 'item', 'obstacle', 'trap', 'hazard'];
 const SOLID_FAMILIES = ['actor', 'creature', 'obstacle'];
@@ -206,6 +219,10 @@ export class RoomEditorShell {
     this._bindInspectorEvents();
     this._bindAuthorDrawerEvents();
     this._bindGmEvents();
+    this._appendGmMessage(
+      'assistant',
+      'Welcome to the Room Editor GM. Building a playable room is hard; describe what you want to create, edit, inspect, or validate, and I will help you use the same room-authoring capabilities available in this interface.',
+    );
     this._initCanvas();
     this._setTool('select');
     this._renderInspector();
@@ -289,6 +306,8 @@ export class RoomEditorShell {
       catalogEmpty: q('[data-room-editor-catalog-empty]'),
       catalogMoreBtn: q('[data-room-editor-action="catalog-more"]'),
       catalogSelectedLabel: q('[data-room-editor-catalog-selected]'),
+      catalogCreateBtn: q('[data-room-editor-action="catalog-create-definition"]'),
+      catalogEditBtn: q('[data-room-editor-action="catalog-edit-definition"]'),
       generatePrompt: q('[data-room-editor-generation-prompt]'),
       generateTheme: q('[data-room-editor-generation-theme]'),
       generateSize: q('[data-room-editor-generation-size]'),
@@ -296,6 +315,11 @@ export class RoomEditorShell {
       generateMaxHexes: q('[data-room-editor-generation-max-hexes]'),
       generateSeed: q('[data-room-editor-generation-seed]'),
       generateBtn: q('[data-room-editor-action="generate-room-layout"]'),
+      defGenFamily: q('[data-room-editor-defgen-family]'),
+      defGenPrompt: q('[data-room-editor-defgen-prompt]'),
+      defGenSubtype: q('[data-room-editor-defgen-subtype]'),
+      defGenLevel: q('[data-room-editor-defgen-level]'),
+      defGenBtn: q('[data-room-editor-action="generate-canonical-definition"]'),
       inspectorBody: q('[data-room-editor-inspector-body]'),
       validationList: q('[data-room-editor-validation-list]'),
       workspace: q('[data-room-editor-workspace]'),
@@ -358,6 +382,26 @@ export class RoomEditorShell {
       this._loadCatalog(true);
     });
     this._dom.catalogMoreBtn?.addEventListener('click', () => this._loadCatalog(false));
+    this._dom.catalogCreateBtn?.addEventListener('click', () => {
+      const family = this.catalog.family || this._dom.defGenFamily?.value || 'obstacle';
+      const url = this._canonicalLibraryCreateUrl(family);
+      if (url) {
+        window.open(url, '_blank', 'noopener');
+      } else {
+        this._setStatus('Canonical library create route is not configured.', 'error');
+      }
+    });
+    this._dom.catalogEditBtn?.addEventListener('click', () => {
+      const selected = this._selectedCatalogDefinition;
+      if (!selected) {
+        this._setStatus('Select a catalog object first.', 'error');
+        return;
+      }
+      const url = this._canonicalLibraryEditUrl(selected.family, selected.definition_id);
+      if (url) {
+        window.open(url, '_blank', 'noopener');
+      }
+    });
   }
 
   _bindInspectorEvents() {
@@ -1402,6 +1446,9 @@ export class RoomEditorShell {
         if (this._dom.catalogSelectedLabel) {
           this._dom.catalogSelectedLabel.textContent = `Selected: ${definition.label}`;
         }
+        if (this._dom.catalogEditBtn) {
+          this._dom.catalogEditBtn.disabled = false;
+        }
       };
       item.addEventListener('keydown', (event) => {
         if (event.key === 'Enter' || event.key === ' ') {
@@ -2377,24 +2424,19 @@ export class RoomEditorShell {
       this._submitGmMessage();
     });
     this._dom.gmInput?.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+      if (shouldSubmitEditorGmKey(event)) {
         event.preventDefault();
         this._submitGmMessage();
       }
     });
     this._dom.gmTools?.addEventListener('click', (event) => {
-      const button = event.target.closest('[data-gm-tool]');
-      if (!button || !this._dom.gmInput) {
-        return;
-      }
-      const template = button.getAttribute('data-gm-template') || '{}';
-      this._dom.gmInput.value = `${button.getAttribute('data-gm-tool')} ${template}`;
-      this._dom.gmInput.focus();
+      selectEditorGmTool(event, this._dom.gmInput);
     });
     this._dom.gmDiscardPlanBtn?.addEventListener('click', () => this._setGmPlan(null));
     this._dom.gmPreviewPlanBtn?.addEventListener('click', () => this._previewGmPlan());
     this._dom.gmApplyPlanBtn?.addEventListener('click', () => this._applyGmPlan());
     this._dom.generateBtn?.addEventListener('click', () => this._generateRoomLayout());
+    this._dom.defGenBtn?.addEventListener('click', () => this._generateCanonicalDefinition());
 
     this._setGmState('Load or create a room to ground the assistant.');
   }
@@ -2422,6 +2464,12 @@ export class RoomEditorShell {
       const result = await this._getJson(url);
       this._gm.context = result?.data?.context_snapshot || null;
       this._gm.manifest = this._gm.context?.tools || null;
+      if (this._gm.restoredDraftId !== this.draft.draft_id) {
+        this._gm.restoredDraftId = this.draft.draft_id;
+        restoreEditorGmConversation(this._dom.gmTranscript, result?.data?.conversation, {
+          onSelectOption: (selectionText) => this._submitNaturalLanguageMessage(selectionText),
+        });
+      }
       this._renderGmContext();
       this._renderGmToolset();
       this._setGmState(`Grounded on revision ${this._gm.context?.draft?.revision ?? '?'}.`);
@@ -2468,35 +2516,7 @@ export class RoomEditorShell {
    * is always exactly what the harness registry exposes.
    */
   _renderGmToolset() {
-    const body = this._dom.gmTools;
-    if (!body) {
-      return;
-    }
-    body.textContent = '';
-    const manifest = this._gm.manifest;
-    if (!manifest) {
-      body.append(makeEl('p', 'room-editor__hint', 'Toolset unavailable.'));
-      return;
-    }
-    Object.keys(manifest.families || {}).forEach((family) => {
-      body.append(makeEl('p', 'room-editor__gm-tool-family', family));
-      const list = makeEl('ul', 'room-editor__gm-tool-list');
-      (manifest.families[family] || []).forEach((tool) => {
-        const item = makeEl('li');
-        const button = makeEl('button', `room-editor__gm-tool${tool.mutating ? ' room-editor__gm-tool--mutating' : ''}`, tool.name);
-        button.type = 'button';
-        button.title = `${tool.summary}\n${tool.authority}`;
-        button.setAttribute('data-gm-tool', tool.name);
-        const template = {};
-        (tool.arguments || []).filter((arg) => arg.required).forEach((arg) => {
-          template[arg.name] = arg.type === 'integer' ? 0 : (arg.type === 'array' ? [] : '');
-        });
-        button.setAttribute('data-gm-template', JSON.stringify(template));
-        item.append(button);
-        list.append(item);
-      });
-      body.append(list);
-    });
+    renderEditorGmToolset(this._dom.gmTools, this._gm.manifest);
   }
 
   _setGmState(text, level = 'info') {
@@ -2507,17 +2527,7 @@ export class RoomEditorShell {
   }
 
   _appendGmMessage(kind, text, detail) {
-    const list = this._dom.gmTranscript;
-    if (!list) {
-      return;
-    }
-    const item = makeEl('li', `room-editor__gm-message room-editor__gm-message--${kind}`, text);
-    if (detail !== undefined && detail !== null) {
-      const pre = makeEl('pre', null, typeof detail === 'string' ? detail : JSON.stringify(detail, null, 2));
-      item.append(pre);
-    }
-    list.append(item);
-    list.scrollTop = list.scrollHeight;
+    appendEditorGmMessage(this._dom.gmTranscript, kind, text, detail);
   }
 
   /**
@@ -2529,34 +2539,7 @@ export class RoomEditorShell {
    * read-only tool run or an explicit proposal — it can never mutate directly.
    */
   _parseGmMessage(raw) {
-    const text = String(raw || '').trim();
-    if (!text) {
-      throw new Error('Enter a request, or a tool name to run directly.');
-    }
-    const match = text.match(/^([a-z][a-z0-9_]*)\s*([\s\S]*)$/);
-    if (!match || !this._isKnownGmTool(match[1])) {
-      return { kind: 'natural_language', utterance: text };
-    }
-    const rest = match[2].trim();
-    let args = {};
-    if (rest) {
-      let parsed = null;
-      try {
-        parsed = JSON.parse(rest);
-      } catch (_err) {
-        throw new Error('Tool arguments must be a JSON object.');
-      }
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        throw new Error('Tool arguments must be a JSON object.');
-      }
-      args = parsed;
-    }
-    return { kind: 'tool_call', toolName: match[1], args };
-  }
-
-  _isKnownGmTool(name) {
-    return !!this._gm.manifest
-      && Object.values(this._gm.manifest.families || {}).some((tools) => tools.some((t) => t.name === name));
+    return parseEditorGmMessage(raw, this._gm.manifest);
   }
 
   async _submitGmMessage() {
@@ -2589,6 +2572,15 @@ export class RoomEditorShell {
       return;
     }
     await this._invokeGmTool(parsed.toolName, parsed.args, !!this._dom.gmDryRun?.checked);
+  }
+
+  async _submitNaturalLanguageMessage(utterance) {
+    const prompt = String(utterance || '').trim();
+    if (!prompt) {
+      return;
+    }
+    this._appendGmMessage('user', prompt);
+    await this._sendGmRequest({ type: 'natural_language', utterance: prompt }, false, 'assistant');
   }
 
   /**
@@ -2630,6 +2622,46 @@ export class RoomEditorShell {
     }
   }
 
+  async _generateCanonicalDefinition() {
+    const family = String(this._dom.defGenFamily?.value || 'obstacle').trim();
+    const prompt = String(this._dom.defGenPrompt?.value || '').trim();
+    if (!prompt) {
+      this._setStatus('Enter a prompt to generate a canonical library object.', 'error');
+      return null;
+    }
+    const args = { family, prompt };
+    const subtype = String(this._dom.defGenSubtype?.value || '').trim();
+    const levelRaw = String(this._dom.defGenLevel?.value || '').trim();
+    if (levelRaw !== '' && family !== 'obstacle') {
+      const level = Number.parseInt(levelRaw, 10);
+      if (Number.isInteger(level)) {
+        args.level = level;
+      }
+    }
+    if (subtype !== '') {
+      if (family === 'obstacle' && ['bar', 'table', 'stool', 'crate', 'door', 'decor', 'wall', 'custom'].includes(subtype)) {
+        args.category = subtype;
+      } else if (family === 'hazard' && ['simple', 'complex'].includes(subtype)) {
+        args.complexity = subtype;
+      } else if (family === 'trap') {
+        if (['mechanical', 'magical', 'haunt', 'environmental'].includes(subtype)) {
+          args.type = subtype;
+        } else if (['simple', 'complex'].includes(subtype)) {
+          args.complexity = subtype;
+        }
+      } else if (family === 'creature' || family === 'actor') {
+        args.role = subtype;
+      }
+    }
+    this._waitingOnGenerator = true;
+    try {
+      return await this._invokeGmTool('generate_canonical_definition', args, false);
+    } finally {
+      this._waitingOnGenerator = false;
+      this._setBusy(false);
+    }
+  }
+
   /**
    * Posts one request envelope and folds the response into shared editor state.
    */
@@ -2644,20 +2676,23 @@ export class RoomEditorShell {
     }
     const profile = this._dom.validateProfile?.value || 'editing';
     const url = this._urlFor('gm', this.draft.draft_id);
-    const body = {
-      schema_version: 'editor-gm-request-v1',
-      tool_context: {
-        tool_id: 'room_editor',
-        draft_id: this.draft.draft_id,
-        validation_profile: profile,
-      },
+    const body = buildEditorGmRequest({
+      toolId: 'room_editor',
+      draftId: this.draft.draft_id,
+      validationProfile: profile,
       intent,
-      options: { dry_run: !!dryRun },
-    };
+      dryRun,
+    });
     const toolName = label;
 
     return this._runExclusive(async () => {
-      this._setGmState(toolName === 'generate_room_layout' ? 'Waiting on generator (LLM)…' : `Running ${toolName}...`);
+      const skipToolMessages = new Set();
+      if (intent?.type === 'tool_call' && intent.tool_name) {
+        const initialToolMessage = describeEditorGmToolCall(intent.tool_name, intent.arguments || {});
+        this._appendGmMessage('tool', initialToolMessage);
+        skipToolMessages.add(initialToolMessage);
+      }
+      this._setGmState((toolName === 'generate_room_layout' || toolName === 'generate_canonical_definition') ? 'Waiting on generator (LLM)…' : `Running ${toolName}...`);
       let envelope = null;
       try {
         const result = await this._postJson(url, body);
@@ -2671,21 +2706,43 @@ export class RoomEditorShell {
       this._gm.manifest = this._gm.context?.tools || this._gm.manifest;
       this._renderGmContext();
       this._renderGmToolset();
+      renderEditorGmToolCalls(
+        this._dom.gmTranscript,
+        envelope.tool_calls || envelope.tool_result?.tool_calls || [],
+        { skipMessages: skipToolMessages },
+      );
 
       const applied = envelope.tool_result?.draft;
       if (applied) {
         this._setDraft(applied, null);
         this._setStatus(`Assistant applied ${toolName} (revision ${this.draft.revision}).`, 'success');
       }
+      if ((toolName === 'create_canonical_definition' || toolName === 'update_canonical_definition') && envelope.tool_result?.definition_id) {
+        const defFamily = envelope.tool_result.family || '';
+        const defId = envelope.tool_result.definition_id;
+        this._catalogEntryCache.delete(`${defFamily}:${defId}`);
+        this._loadCatalog(true);
+        this._setStatus(`Saved ${defFamily}:${defId} (${envelope.tool_result.version || '1.0.0'}) to canonical library.`, 'success');
+      }
       if (Array.isArray(envelope.command_plan) && envelope.command_plan.length) {
         this._setGmPlan(envelope.command_plan);
       }
       this._renderValidation(envelope.validation);
-      this._appendGmMessage(dryRun ? 'info' : 'success', `${toolName} → ${envelope.route_family}`, envelope.tool_result);
+      if (envelope.tool_result?.intent === 'clarification') {
+        renderEditorGmClarification(this._dom.gmTranscript, envelope.tool_result, {
+          onSelectOption: (selectionText) => this._submitNaturalLanguageMessage(selectionText),
+        });
+      } else if (typeof envelope.tool_result?.assistant_response === 'string' && envelope.tool_result.assistant_response.trim() !== '') {
+        this._appendGmMessage('assistant', envelope.tool_result.assistant_response.trim(), envelope.tool_result);
+      } else {
+        this._appendGmMessage(dryRun ? 'info' : 'success', `${toolName} → ${envelope.route_family}`, envelope.tool_result);
+      }
       this._renderGmProposal(envelope.tool_result);
-      (envelope.messages || []).forEach((message) => {
-        this._appendGmMessage(message.level === 'error' ? 'error' : 'info', message.text);
-      });
+      if (!envelope.tool_result?.assistant_response && envelope.tool_result?.intent !== 'clarification') {
+        (envelope.messages || []).forEach((message) => {
+          this._appendGmMessage(message.level === 'error' ? 'error' : 'info', message.text);
+        });
+      }
       this._setGmState(`Grounded on revision ${this._gm.context?.draft?.revision ?? '?'}.`);
       return envelope;
     });
@@ -2697,26 +2754,9 @@ export class RoomEditorShell {
    * tool_call intent, so the mutation is always author-authorised.
    */
   _renderGmProposal(result) {
-    const proposal = result?.proposed_execution;
-    if (!proposal || result.intent !== 'proposed_execution') {
-      return;
-    }
-    const list = this._dom.gmTranscript;
-    if (!list) {
-      return;
-    }
-    const item = makeEl('li', 'room-editor__gm-message room-editor__gm-message--warning');
-    item.append(makeEl('span', null, `Proposed: ${proposal.tool_name} (${proposal.authority})`));
-    item.append(makeEl('pre', null, JSON.stringify(proposal.arguments || {}, null, 2)));
-    const approve = makeEl('button', 'button button--primary', 'Approve and run');
-    approve.type = 'button';
-    approve.addEventListener('click', () => {
-      approve.disabled = true;
-      this._invokeGmTool(proposal.tool_name, proposal.arguments || {}, false);
+    renderEditorGmProposal(this._dom.gmTranscript, result, {
+      onApprove: (proposal) => this._invokeGmTool(proposal.tool_name, proposal.arguments || {}, false),
     });
-    item.append(approve);
-    list.append(item);
-    list.scrollTop = list.scrollHeight;
   }
 
   _setGmPlan(plan) {
@@ -2796,6 +2836,16 @@ export class RoomEditorShell {
     const base = template
       .replace('{family}', encodeURIComponent(family))
       .replace('{definition_id}', encodeURIComponent(definitionId));
+    if (!base) {
+      return '';
+    }
+    const returnTo = encodeURIComponent(`${window.location.pathname}${window.location.search}`);
+    return `${base}?return_to=${returnTo}`;
+  }
+
+  _canonicalLibraryCreateUrl(family) {
+    const template = this.urls.canonicalLibraryCreate || '';
+    const base = template.replace('{family}', encodeURIComponent(family || 'obstacle'));
     if (!base) {
       return '';
     }
@@ -2912,7 +2962,7 @@ export class RoomEditorShell {
   _setBusy(busy) {
     const controls = [
       this._dom.newRoomBtn, this._dom.loadRoomBtn, this._dom.saveBtn, this._dom.publishBtn,
-      this._dom.validateBtn, this._dom.roomSelect, this._dom.generateBtn,
+      this._dom.validateBtn, this._dom.roomSelect, this._dom.generateBtn, this._dom.defGenBtn,
     ];
     controls.forEach((el) => {
       if (el) {
@@ -2921,6 +2971,9 @@ export class RoomEditorShell {
     });
     if (this._dom.generateBtn) {
       this._dom.generateBtn.textContent = busy && this._waitingOnGenerator ? 'Waiting on generator (LLM)…' : 'Generate room plan';
+    }
+    if (this._dom.defGenBtn) {
+      this._dom.defGenBtn.textContent = busy && this._waitingOnGenerator ? 'Waiting on generator (LLM)…' : 'Generate library object';
     }
     if (!busy) {
       this._updateHistoryButtons();

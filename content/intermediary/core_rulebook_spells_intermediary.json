@@ -4092,7 +4092,7 @@
                 "targets": "none",
                 "duration": "none",
                 "save": "basic Reflex",
-                "save_type": "reflex",
+                "save_type": "basic_reflex",
                 "trigger": "none",
                 "requirements": "none",
                 "cost": "none",
@@ -4118,13 +4118,13 @@
                 ],
                 "damage": [
                     {
-                        "formula": "none",
-                        "type": "none",
+                        "formula": "2d6",
+                        "type": "fire",
                         "persistent": false
                     }
                 ],
                 "damage_type": [
-                    "none"
+                    "fire"
                 ],
                 "effects": {
                     "description": "Gouts of flame rush from your hands. You deal 2d6 fire damage to creatures in the area.",
@@ -5312,7 +5312,7 @@
             "content_type": "spell",
             "content_id": "dirge_of_doom",
             "name": "Dirge of Doom",
-            "level": 1,
+            "level": 0,
             "rarity": "uncommon",
             "tags": [
                 "composition",
@@ -9088,7 +9088,7 @@
             "content_type": "spell",
             "content_id": "mask_of_terror",
             "name": "Mask of Terror",
-            "level": 1,
+            "level": 7,
             "rarity": "common",
             "tags": [
                 "arcane",
@@ -9101,7 +9101,7 @@
             "schema_data": {
                 "id": "mask_of_terror",
                 "name": "Mask of Terror",
-                "rank": 1,
+                "rank": 7,
                 "is_cantrip": false,
                 "spell_type": "spell",
                 "school": "enchantment",
@@ -9860,7 +9860,7 @@
             "content_type": "spell",
             "content_id": "phantasmal_killer",
             "name": "Phantasmal Killer",
-            "level": 1,
+            "level": 4,
             "rarity": "common",
             "tags": [
                 "arcane",
@@ -9871,7 +9871,7 @@
             "schema_data": {
                 "id": "phantasmal_killer",
                 "name": "Phantasmal Killer",
-                "rank": 1,
+                "rank": 4,
                 "is_cantrip": false,
                 "spell_type": "spell",
                 "school": "enchantment",
@@ -11229,6 +11229,7 @@
                 "cost": "none",
                 "primary_check": "none",
                 "secondary_casters": "none",
+                "requires_attack_roll": true,
                 "description": "You shroud your hands in a crackling field of lightning. Make a melee spell attack roll. On a hit, the target takes 2d12 electricity damage. If the target is wearing metal armor or is made of metal, you gain a +1 circumstance bonus to your attack roll with shocking grasp, and the target also takes 1d4 persistent electricity damage on a hit.",
                 "description_snippet": "Shock a creature in reach with a melee spell attack.",
                 "heightened": [
@@ -11249,13 +11250,18 @@
                 ],
                 "damage": [
                     {
-                        "formula": "none",
-                        "type": "none",
+                        "formula": "2d12",
+                        "type": "electricity",
                         "persistent": false
+                    },
+                    {
+                        "formula": "1d4",
+                        "type": "electricity",
+                        "persistent": true
                     }
                 ],
                 "damage_type": [
-                    "none"
+                    "electricity"
                 ],
                 "effects": {
                     "description": "You shroud your hands in a crackling field of lightning. Make a melee spell attack roll. On a hit, the target takes 2d12 electricity damage. If the target is wearing metal armor or is made of metal, you gain a +1 circumstance bonus to your attack roll with shocking grasp, and the target also takes 1d4 persistent electricity damage on a hit.",

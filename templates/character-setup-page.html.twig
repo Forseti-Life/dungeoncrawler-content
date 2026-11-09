@@ -93,7 +93,10 @@
             </div>
           {% endfor %}
         {% else %}
-          <div class="character-creation-gm-chat__empty">Ask the GM to build your character, recommend options, or directly change the draft while you stay in the setup shell.</div>
+          <div class="character-creation-gm-chat__message character-creation-gm-chat__message--assistant">
+            <div class="character-creation-gm-chat__message-role">GM</div>
+            <div class="character-creation-gm-chat__message-body">Welcome to Character Creation. Building a complete character is hard; describe the character you want, ask for recommendations, or ask me to update the draft while you remain in control of every choice.</div>
+          </div>
         {% endif %}
       </div>
       <div class="character-creation-gm-chat__composer">
@@ -101,6 +104,7 @@
         <textarea id="characterSetupGmInput" class="character-creation-gm-chat__input" rows="3" placeholder="Example: build me a sturdy dwarf fighter with a simple backstory and heavy armor."></textarea>
         <div class="character-creation-gm-chat__actions">
           <div class="character-creation-gm-chat__status" data-gm-chat-status></div>
+          <span class="character-creation-gm-chat__hint">Enter to send · Shift + Enter for a new line</span>
           <button type="button" class="btn btn-primary character-creation-gm-chat__send" data-gm-chat-send>Send to GM</button>
         </div>
       </div>

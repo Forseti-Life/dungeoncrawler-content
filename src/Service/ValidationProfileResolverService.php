@@ -65,5 +65,17 @@ class ValidationProfileResolverService {
     return $errors;
   }
 
-}
+  /**
+   * Remove ingest-only provenance fields before canonical persistence.
+   *
+   * @return array<string, mixed>
+   */
+  public static function canonicalizePayload(array $payload, string $content_type): array {
+    $type = strtolower(trim($content_type));
+    foreach (self::INTERMEDIARY_ONLY_FIELDS_BY_TYPE[$type] ?? [] as $field) {
+      unset($payload[$field]);
+    }
+    return $payload;
+  }
 
+}

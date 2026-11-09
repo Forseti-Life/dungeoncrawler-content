@@ -378,6 +378,11 @@ class ConnectorDefinitionService {
   public function saveCampaignConnector(int $campaign_id, array $data): string {
     $this->validateConnectorData($data);
     $this->assertConnectorEndpointColumnsPresent('dc_campaign_connections');
+    $to_dungeon_id = trim((string) ($data['to_dungeon_id'] ?? ''));
+    if ($to_dungeon_id !== '') {
+      $this->assertCampaignGatewayColumnPresent();
+      $this->assertCampaignGatewayEndpointMembership($campaign_id, $data);
+    }
     $endpoint_hexes = $this->requireConnectorEndpointHexes($data);
     $endpoint_h3 = $this->resolveConnectorEndpointH3Indexes($data, $endpoint_hexes);
     $connection_id = $this->deriveConnectionId($data);
@@ -385,6 +390,7 @@ class ConnectorDefinitionService {
 
     $fields = [
       'dungeon_id' => (string) $data['dungeon_id'],
+      'to_dungeon_id' => $to_dungeon_id !== '' ? $to_dungeon_id : NULL,
       'from_room_id' => (string) $data['from_room_id'],
       'to_room_id' => (string) $data['to_room_id'],
       'from_hex_q' => $endpoint_hexes['from_hex']['q'],
@@ -451,11 +457,15 @@ class ConnectorDefinitionService {
    * @return array<int, array<string, mixed>>
    */
   public function loadCampaignConnectorsForDungeon(int $campaign_id, string $dungeon_id): array {
-    $campaign_rows = $this->database->select('dc_campaign_connections', 'c')
+    $campaign_query = $this->database->select('dc_campaign_connections', 'c')
       ->fields('c')
-      ->condition('campaign_id', $campaign_id)
-      ->condition('dungeon_id', $dungeon_id)
-      ->execute()
+      ->condition('campaign_id', $campaign_id);
+    $campaign_query->condition(
+      $campaign_query->orConditionGroup()
+        ->condition('dungeon_id', $dungeon_id)
+        ->condition('to_dungeon_id', $dungeon_id)
+    );
+    $campaign_rows = $campaign_query->execute()
       ->fetchAllAssoc('connection_id', \PDO::FETCH_ASSOC);
 
     $canonical_rows = $this->database->select('dungeoncrawler_content_connections', 'c')
@@ -779,11 +789,85 @@ class ConnectorDefinitionService {
     }
 
     $dungeon = trim((string) ($data['dungeon_id'] ?? 'unknown'));
+    $to_dungeon = trim((string) ($data['to_dungeon_id'] ?? ''));
     $from = trim((string) ($data['from_room_id'] ?? 'unknown'));
     $to = trim((string) ($data['to_room_id'] ?? 'unknown'));
     $kind = trim((string) ($data['kind'] ?? 'hallway'));
 
-    return $dungeon . '::' . $from . '::' . $to . '::' . $kind;
+    return $dungeon . ($to_dungeon !== '' ? '::' . $to_dungeon : '') . '::' . $from . '::' . $to . '::' . $kind;
+  }
+
+  /**
+   * Enforce the installed cross-dungeon gateway storage contract.
+   */
+  protected function assertCampaignGatewayColumnPresent(): void {
+    if (!$this->database->schema()->fieldExists('dc_campaign_connections', 'to_dungeon_id')) {
+      throw new \RuntimeException(
+        'ConnectorDefinitionService: dc_campaign_connections.to_dungeon_id is required. Run update hook 10221.'
+      );
+    }
+  }
+
+  /**
+   * Verify each gateway endpoint belongs to its declared campaign dungeon.
+   */
+  protected function assertCampaignGatewayEndpointMembership(int $campaign_id, array $data): void {
+    $from_dungeon_id = trim((string) ($data['dungeon_id'] ?? ''));
+    $to_dungeon_id = trim((string) ($data['to_dungeon_id'] ?? ''));
+    $from_room_id = trim((string) ($data['from_room_id'] ?? ''));
+    $to_room_id = trim((string) ($data['to_room_id'] ?? ''));
+    if ($from_dungeon_id === '' || $to_dungeon_id === '' || $from_room_id === '' || $to_room_id === '') {
+      throw new \InvalidArgumentException(
+        'ConnectorDefinitionService: cross-dungeon gateways require both dungeon and room endpoints.'
+      );
+    }
+    if ($from_dungeon_id === $to_dungeon_id) {
+      throw new \InvalidArgumentException(
+        'ConnectorDefinitionService: to_dungeon_id must differ from dungeon_id for a cross-dungeon gateway.'
+      );
+    }
+
+    foreach ([
+      [$from_dungeon_id, $from_room_id, 'source'],
+      [$to_dungeon_id, $to_room_id, 'destination'],
+    ] as [$dungeon_id, $room_id, $endpoint]) {
+      $row = $this->database->select('dc_campaign_dungeons', 'd')
+        ->fields('d', ['dungeon_data'])
+        ->condition('campaign_id', $campaign_id)
+        ->condition('dungeon_id', $dungeon_id)
+        ->range(0, 1)
+        ->execute()
+        ->fetchAssoc();
+      if (!is_array($row)) {
+        throw new \InvalidArgumentException(sprintf(
+          'ConnectorDefinitionService: gateway %s dungeon %s does not exist in campaign %d.',
+          $endpoint,
+          $dungeon_id,
+          $campaign_id
+        ));
+      }
+      $payload = json_decode((string) ($row['dungeon_data'] ?? ''), TRUE, 512, JSON_THROW_ON_ERROR);
+      $room_ids = [];
+      foreach ((array) ($payload['rooms'] ?? []) as $room) {
+        if (!is_array($room)) {
+          continue;
+        }
+        foreach (['room_id', 'placement_id'] as $field) {
+          $candidate = trim((string) ($room[$field] ?? ''));
+          if ($candidate !== '') {
+            $room_ids[$candidate] = TRUE;
+          }
+        }
+      }
+      if (!isset($room_ids[$room_id])) {
+        throw new \InvalidArgumentException(sprintf(
+          'ConnectorDefinitionService: gateway %s room %s is not owned by campaign dungeon %s.',
+          $endpoint,
+          $room_id,
+          $dungeon_id
+        ));
+      }
+    }
   }
 
   /**

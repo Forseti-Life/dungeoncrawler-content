@@ -22,6 +22,7 @@ final class GenerateCreatureDefinitionTool implements EditorGmToolInterface {
       'propose only; validate_definition/create_definition approval required',
       [
         EditorGmToolDefinition::argument('prompt', 'string', TRUE, 'Original creature request, 1..2000 chars.'),
+        EditorGmToolDefinition::argument('definition_id', 'string', FALSE, 'Required canonical id when fulfilling an existing reference.'),
         EditorGmToolDefinition::argument('level', 'integer', FALSE, 'Creature level -1..25, default 1.'),
         EditorGmToolDefinition::argument('role', 'string', FALSE, 'Optional role such as skirmisher|guardian|leader.'),
         EditorGmToolDefinition::argument('creature_type', 'string', FALSE, 'Canonical creature type, default animal.'),

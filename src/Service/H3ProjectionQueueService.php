@@ -313,20 +313,20 @@ class H3ProjectionQueueService {
   protected function projectRoomCoverageFromCanonical(string $dungeon_id, string $room_id): array {
     $now = time();
 
-    $source_anchor_query = $this->database->select('dungeoncrawler_content_h3_room_anchors', 'a')
+    $source_anchor = $this->database->select('dungeoncrawler_content_h3_room_anchors', 'a')
       ->fields('a', ['dungeon_id', 'room_id', 'h3_resolution', 'h3_index', 'center_latitude', 'center_longitude', 'reference_q', 'reference_r', 'hex_size_meters', 'metadata'])
+      ->condition('a.dungeon_id', $dungeon_id)
       ->condition('a.room_id', $room_id)
       ->orderBy('a.h3_resolution', 'DESC')
       ->orderBy('a.id', 'ASC')
-      ->range(0, 1);
-    $source_anchor = $source_anchor_query
-      ->condition('a.dungeon_id', $dungeon_id, '<>')
+      ->range(0, 1)
       ->execute()
       ->fetchAssoc();
     if (!is_array($source_anchor)) {
       $source_anchor = $this->database->select('dungeoncrawler_content_h3_room_anchors', 'a')
         ->fields('a', ['dungeon_id', 'room_id', 'h3_resolution', 'h3_index', 'center_latitude', 'center_longitude', 'reference_q', 'reference_r', 'hex_size_meters', 'metadata'])
         ->condition('a.room_id', $room_id)
+        ->condition('a.dungeon_id', $dungeon_id, '<>')
         ->orderBy('a.h3_resolution', 'DESC')
         ->orderBy('a.id', 'ASC')
         ->range(0, 1)

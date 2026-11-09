@@ -85,6 +85,51 @@ final class CanonicalTemplateGenerationServiceTest extends TestCase {
     ], TRUE);
   }
 
+  public function testReviewedOriginalQuestUsesCanonicalPublicationPath(): void {
+    $merge_count = 0;
+    $service = $this->service(NULL, $this->database($merge_count));
+    $template = [
+      'schema_version' => 'quest-template-v1',
+      'template_id' => 'original-island-exploration',
+      'version' => '1.0.0',
+      'name' => 'Chart the Passage',
+      'description' => 'Explore the original island passages.',
+      'quest_type' => 'main',
+      'level_min' => 1,
+      'level_max' => 4,
+      'tags' => ['island'],
+      'objectives_schema' => [[
+        'phase' => 1,
+        'objectives' => [[
+          'objective_id' => 'visit-first-room',
+          'type' => 'explore',
+          'description' => 'Explore the first room.',
+          'next_step' => 'Travel to the first room.',
+          'location_id' => 'pinned-room-placement',
+          'completion_criteria' => [
+            'kind' => 'flag',
+            'metric' => 'discovered',
+            'required_value' => TRUE,
+            'description' => 'Complete when the room is discovered.',
+          ],
+        ]],
+      ]],
+      'rewards_schema' => ['xp' => ['base' => 50, 'per_level' => 0]],
+      'metadata' => [
+        'rights_status' => 'project_original',
+        'reviewed_by' => 1,
+        'source_release_id' => 'reviewed-revision',
+      ],
+    ];
+    $this->assertSame('original-island-exploration', $service->publishQuestTemplate($template)['template_id']);
+    $this->assertSame(1, $merge_count);
+
+    $template['metadata']['rights_status'] = 'unreviewed';
+    $this->expectException(CanonicalGenerationException::class);
+    $this->expectExceptionMessage('generation_nonconforming');
+    $service->publishQuestTemplate($template);
+  }
+
   private function service(?object $ai, Connection $database): CanonicalTemplateGenerationService {
     $core = new CanonicalGenerationService($ai, $this->time(), $this->loggerFactory());
     return new CanonicalTemplateGenerationService($database, $core, new DefinitionSchemaValidator());

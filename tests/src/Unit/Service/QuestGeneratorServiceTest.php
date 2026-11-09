@@ -5,6 +5,7 @@ namespace Drupal\Tests\dungeoncrawler_content\Unit\Service;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\dungeoncrawler_content\Service\NumberGenerationService;
+use Drupal\dungeoncrawler_content\Service\ObjectiveTypeService;
 use Drupal\dungeoncrawler_content\Service\QuestGeneratorService;
 use Drupal\dungeoncrawler_content\Service\StateValidationService;
 use Drupal\dungeoncrawler_content\Service\StorylineManagerService;
@@ -39,6 +40,19 @@ class QuestGeneratorServiceTest extends UnitTestCase {
       $logger_factory,
       $this->createMock(NumberGenerationService::class),
       $state_validation
+    );
+  }
+
+  public function testOptionalTemplateRewardsProduceCompleteQuestRewardContract(): void {
+    $scale = new \ReflectionMethod($this->service, 'scaleRewards');
+
+    $this->assertSame(
+      ['xp' => 100, 'gold' => 0, 'items' => []],
+      $scale->invoke($this->service, ['xp' => ['base' => 100, 'per_level' => 0]], 1, 'moderate')
+    );
+    $this->assertSame(
+      ['xp' => 0, 'gold' => 0, 'items' => []],
+      $scale->invoke($this->service, [], 1, 'moderate')
     );
   }
 
@@ -172,7 +186,8 @@ class QuestGeneratorServiceTest extends UnitTestCase {
       $this->createMock(Connection::class),
       $logger_factory,
       $this->createMock(NumberGenerationService::class),
-      $state_validation
+      $state_validation,
+      new ObjectiveTypeService()
     ) extends QuestGeneratorService {
       public function exposedGenerateObjectiveNode(array $objective_schema, array $variables = [], array $context = []): array {
         return $this->generateObjectiveNode($objective_schema, $variables, $context);
@@ -191,6 +206,19 @@ class QuestGeneratorServiceTest extends UnitTestCase {
 
     $this->assertSame('scholar_npc', $objective['target']);
     $this->assertSame('tavern_entrance', $objective['location_id']);
+    $this->assertArrayNotHasKey('item', $objective);
+
+    $item_objective = $service->exposedGenerateObjectiveNode([
+      'objective_id' => 'inspect_waymark',
+      'type' => 'interact',
+      'target' => 'original-waymark',
+      'item' => 'original-waymark',
+      'location_id' => '{location}',
+      'description' => 'Inspect the original waymark.',
+    ], ['location' => 'island-entrance']);
+    $this->assertSame('original-waymark', $item_objective['item']);
+    $this->assertSame('original-waymark', $item_objective['target']);
+    $this->assertSame('island-entrance', $item_objective['location_id']);
   }
 
   /**

@@ -362,7 +362,6 @@ trait RoomChatServiceIntentAndDeterminismTrait {
       'its stuck',
       'it s stuck',
       'stuck again',
-      'broken',
       'why is nothing happening',
       'do them one at a time',
       'something is wrong',
@@ -526,6 +525,26 @@ trait RoomChatServiceIntentAndDeterminismTrait {
       return FALSE;
     }
     if ($this->looksLikeActiveRoomConversationPivot($normalized_message)) {
+      return FALSE;
+    }
+    if ($this->looksLikeGmAdjudicationQuery($player_message, $normalized_message)) {
+      return FALSE;
+    }
+    if ($this->looksLikeRoomRosterQuery($normalized_message)
+      || $this->looksLikeRoomDescriptionQuery($normalized_message)
+      || $this->looksLikeNavigationQuery($normalized_message)
+      || $this->looksLikeNavigationTurn($normalized_message)
+      || $this->looksLikeCombatEngagementTurn($normalized_message)) {
+      return FALSE;
+    }
+    if ($this->textContainsAny($normalized_message, [
+      'everyone',
+      'everybody',
+      'anyone else',
+      'somebody else',
+      'who else',
+      'all of you',
+    ])) {
       return FALSE;
     }
     if ($this->textContainsAny($normalized_message, [

@@ -26,6 +26,70 @@ services:
       - '@extension.list.module'
       - '@logger.factory'
 
+  dungeoncrawler_content.module_conversion.leveldb_pack_reader:
+    class: Drupal\dungeoncrawler_content\Service\ModuleConversion\NodeLevelDbPackReader
+    arguments:
+      - '@extension.list.module'
+      - '@logger.factory'
+
+  Drupal\dungeoncrawler_content\Service\ModuleConversion\LevelDbPackReaderInterface:
+    alias: dungeoncrawler_content.module_conversion.leveldb_pack_reader
+
+  dungeoncrawler_content.module_conversion.catalog:
+    class: Drupal\dungeoncrawler_content\Service\ModuleConversion\ModuleConversionCatalogService
+
+  dungeoncrawler_content.module_conversion.archive_inspector:
+    class: Drupal\dungeoncrawler_content\Service\ModuleConversion\ModuleConversionArchiveInspectorService
+    arguments:
+      - '@dungeoncrawler_content.module_conversion.leveldb_pack_reader'
+      - '@file_system'
+
+  dungeoncrawler_content.module_conversion.explorer:
+    class: Drupal\dungeoncrawler_content\Service\ModuleConversion\ModuleArchiveExplorerService
+    arguments: ['@file_system', '@dungeoncrawler_content.module_conversion.archive_inspector']
+
+  dungeoncrawler_content.module_conversion.plan:
+    class: Drupal\dungeoncrawler_content\Service\ModuleConversion\ModuleConversionPlanService
+
+  dungeoncrawler_content.module_conversion.gap_analysis:
+    class: Drupal\dungeoncrawler_content\Service\ModuleConversion\ModuleConversionGapAnalysisService
+    arguments: ['@dungeoncrawler_content.canonical_definition_generation']
+
+  dungeoncrawler_content.module_conversion.scene_generation:
+    class: Drupal\dungeoncrawler_content\Service\ModuleConversion\ModuleSceneGenerationAdapter
+    arguments:
+      - '@dungeoncrawler_content.editor_canonical_generation_plan'
+      - '@dungeoncrawler_content.movement_resolver'
+
+  dungeoncrawler_content.module_conversion.scene_map_staging:
+    class: Drupal\dungeoncrawler_content\Service\ModuleConversion\ModuleSceneMapStagingService
+    arguments:
+      - '@dungeoncrawler_content.generated_image_repository'
+
+  dungeoncrawler_content.module_conversion.dungeon_assembly:
+    class: Drupal\dungeoncrawler_content\Service\ModuleConversion\ModuleDungeonAssemblyAdapter
+    arguments:
+      - '@dungeoncrawler_content.canonical_dungeon_layout_plan'
+      - '@dungeoncrawler_content.dungeon_editor'
+
+  dungeoncrawler_content.module_conversion.release:
+    class: Drupal\dungeoncrawler_content\Service\ModuleConversion\ModuleConversionReleaseService
+    arguments:
+      - '@database'
+      - '@uuid'
+      - '@datetime.time'
+      - '@dungeoncrawler_content.room_editor'
+      - '@dungeoncrawler_content.dungeon_editor'
+      - '@dungeoncrawler_content.canonical_definitions'
+      - '@dungeoncrawler_content.module_conversion.scene_generation'
+      - '@dungeoncrawler_content.module_conversion.dungeon_assembly'
+      - '@dungeoncrawler_content.module_conversion.scene_map_staging'
+      - '@dungeoncrawler_content.canonical_definition_generation'
+      - '@dungeoncrawler_content.canonical_template_generation'
+      - '@dungeoncrawler_content.canonical_quest_template'
+      - '@file_system'
+      - '@dungeoncrawler_content.generated_image_repository'
+
   dungeoncrawler_content.character_manager:
     class: Drupal\dungeoncrawler_content\Service\CharacterManager
     arguments: ['@database', '@current_user', '@uuid', '@dungeoncrawler_content.inventory_management', '@dungeoncrawler_content.deity_catalog', '@dungeoncrawler_content.name_generator', '@dungeoncrawler_content.feat_library', '@dungeoncrawler_content.spell_catalog']
@@ -211,6 +275,7 @@ services:
       - '@current_user'
       - '@dungeoncrawler_content.h3_projection_queue'
       - '@dungeoncrawler_content.campaign_authorization'
+      - '@?dungeoncrawler_content.storyline_manager'
 
   dungeoncrawler_content.gm_actor_chat_transport:
     class: Drupal\dungeoncrawler_content\Service\GmActorChatTransportService
@@ -480,6 +545,7 @@ services:
     arguments:
       - '@database'
       - '@?dungeoncrawler_content.dungeon_editor'
+      - '@dungeoncrawler_content.module_conversion.release'
 
   dungeoncrawler_content.canonical_room_projection:
     class: Drupal\dungeoncrawler_content\Service\Generation\CanonicalRoomProjectionService
@@ -574,6 +640,7 @@ services:
       - '@dungeoncrawler_content.room_editor'
       - '@dungeoncrawler_content.dungeon_editor'
       - '@dungeoncrawler_content.canonical_definitions'
+      - '@dungeoncrawler_content.module_conversion.release'
       - '@dungeoncrawler_content.editor_review_flags'
       - '@url_generator'
       - '@current_user'
@@ -586,6 +653,18 @@ services:
       - '@dungeoncrawler_content.canonical_definitions'
       - '@dungeoncrawler_content.editor_gm_intent_parser'
 
+  dungeoncrawler_content.editor_gm_surface.storyline_builder:
+    class: Drupal\dungeoncrawler_content\Service\EditorGm\StorylineBuilderGmSurface
+    arguments:
+      - '@dungeoncrawler_content.storyline_authoring_drafts'
+      - '@dungeoncrawler_content.canonical_definitions'
+      - '@dungeoncrawler_content.editor_suite'
+      - '@dungeoncrawler_content.editor_gm_intent_parser'
+      - '@dungeoncrawler_content.canonical_definition_generation'
+      - '@dungeoncrawler_content.editor_canonical_generation_plan'
+      - '@dungeoncrawler_content.room_editor'
+      - '@uuid'
+
   dungeoncrawler_content.editor_gm_harness:
     class: Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmHarnessService
     arguments:
@@ -593,7 +672,10 @@ services:
         - '@dungeoncrawler_content.editor_gm_surface.dungeon_editor'
         - '@dungeoncrawler_content.editor_gm_surface.definition_editor'
         - '@dungeoncrawler_content.editor_gm_surface.editor_suite'
+        - '@dungeoncrawler_content.editor_gm_surface.storyline_builder'
       - '@dungeoncrawler_content.editor_gm_intent_parser'
+      - '@?ai_conversation.ai_api_service'
+      - '@logger.factory'
 
   dungeoncrawler_content.content_query:
     class: Drupal\dungeoncrawler_content\Service\ContentQuery
@@ -905,6 +987,16 @@ services:
       - '@dungeoncrawler_content.combat_resolution_contract'
       - '@dungeoncrawler_content.hp_manager'
 
+  dungeoncrawler_content.spell_effect_resolver:
+    class: Drupal\dungeoncrawler_content\Service\SpellEffectResolverService
+    arguments:
+      - '@dungeoncrawler_content.encounter_state'
+      - '@dungeoncrawler_content.number_generation'
+      - '@dungeoncrawler_content.combat_calculator'
+      - '@dungeoncrawler_content.hp_manager'
+      - '@dungeoncrawler_content.condition_manager'
+      - '@dungeoncrawler_content.combat_resolution_contract'
+
   dungeoncrawler_content.unified_movement_engine:
     class: Drupal\dungeoncrawler_content\Service\UnifiedMovementEngine
     arguments:
@@ -943,6 +1035,8 @@ services:
       - '@?dungeoncrawler_content.relationship_attitude_service'
       - '@?dungeoncrawler_content.relationships_actor_identity_resolver'
       - '@?dungeoncrawler_content.institution_membership'
+      - '@dungeoncrawler_content.spell_effect_resolver'
+      - '@dungeoncrawler_content.rules_data_validator'
 
   dungeoncrawler_content.encounter_intent_router:
     class: Drupal\dungeoncrawler_content\Service\EncounterIntentRouter
@@ -1199,6 +1293,7 @@ services:
     arguments:
       - '@database'
       - '@?dungeoncrawler_content.relationship_manager'
+      - '@?dungeoncrawler_content.storyline_manager'
 
   dungeoncrawler_content.storyline_manager:
     class: Drupal\dungeoncrawler_content\Service\StorylineManagerService
@@ -1211,12 +1306,24 @@ services:
       - '@?dungeoncrawler_content.storyline_realization_service'
       - '@dungeoncrawler_content.objective_type'
       - '@dungeoncrawler_content.content_registry'
+      - '@dungeoncrawler_content.canonical_definitions'
 
   dungeoncrawler_content.storyline_realization_service:
     class: Drupal\dungeoncrawler_content\Service\StorylineRealizationService
     arguments:
       - '@database'
       - '@?dungeoncrawler_content.npc_sheet_generation'
+
+  dungeoncrawler_content.storyline_campaign_attachment:
+    class: Drupal\dungeoncrawler_content\Service\StorylineCampaignAttachmentService
+    arguments:
+      - '@database'
+      - '@dungeoncrawler_content.storyline_manager'
+      - '@dungeoncrawler_content.storyline_realization_service'
+      - '@dungeoncrawler_content.runtime_canonical_content_resolver'
+      - '@dungeoncrawler_content.campaign_initialization'
+      - '@dungeoncrawler_content.relationship_manager'
+      - '@dungeoncrawler_content.exit_connector_authority'
 
   dungeoncrawler_content.storyline_generation_service:
     class: Drupal\dungeoncrawler_content\Service\StorylineGenerationService
@@ -1236,6 +1343,16 @@ services:
       - '@dungeoncrawler_content.storyline_realization_service'
       - '@dungeoncrawler_content.objective_type'
       - '@dungeoncrawler_content.canonical_template_generation'
+
+  dungeoncrawler_content.storyline_authoring_drafts:
+    class: Drupal\dungeoncrawler_content\Service\StorylineAuthoringDraftService
+    arguments:
+      - '@database'
+      - '@dungeoncrawler_content.storyline_manager'
+      - '@current_user'
+      - '@uuid'
+      - '@datetime.time'
+      - '@dungeoncrawler_content.definition_schema_validator'
 
   dungeoncrawler_content.gameplay_action_processor:
     class: Drupal\dungeoncrawler_content\Service\GameplayActionProcessor
@@ -1592,6 +1709,9 @@ services:
       - '@?dungeoncrawler_content.dungeon_editor'
       - '@dungeoncrawler_content.runtime_canonical_content_resolver'
       - '@dungeoncrawler_content.canonical_room_projection'
+      - '@?dungeoncrawler_content.module_conversion.release'
+      - '@dungeoncrawler_content.canonical_quest_template'
+      - '@dungeoncrawler_content.room_state_service'
 
   dungeoncrawler_content.room_state_service:
     class: Drupal\dungeoncrawler_content\Service\RoomStateService
@@ -1785,6 +1905,7 @@ services:
       - '@dungeoncrawler_content.character_state'
       - '@dungeoncrawler_content.inventory_management'
       - '@dungeoncrawler_content.quest_validator'
+      - '@dungeoncrawler_content.room_state_service'
 
   dungeoncrawler_content.storyline_quest_lifecycle:
     class: Drupal\dungeoncrawler_content\Service\StorylineQuestLifecycleService
@@ -1889,6 +2010,9 @@ services:
       - '@dungeoncrawler_content.campaign_clock'
       - '@dungeoncrawler_content.text_to_speech_integration'
       - '@file_url_generator'
+      - ~
+      - ~
+      - '@dungeoncrawler_content.navigation_service'
 
   dungeoncrawler_content.encounter_phase_handler:
     class: Drupal\dungeoncrawler_content\Service\EncounterPhaseHandler
@@ -1967,9 +2091,11 @@ services:
       - '@dungeoncrawler_content.room_runtime_mutation_service'
       - '@dungeoncrawler_content.connection_runtime_mutation_service'
       - '@dungeoncrawler_content.encounter_state'
+      - '@dungeoncrawler_content.room_state_service'
       - '@dungeoncrawler_content.narration_engine'
       - '@dungeoncrawler_content.text_to_speech_integration'
       - '@file_url_generator'
+      - '@dungeoncrawler_content.quest_touchpoint'
 
   dungeoncrawler_content.runtime_state_read_model_assembler:
     class: Drupal\dungeoncrawler_content\Service\RuntimeStateReadModelAssembler

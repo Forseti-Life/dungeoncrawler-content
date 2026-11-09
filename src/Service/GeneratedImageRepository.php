@@ -179,6 +179,141 @@ class GeneratedImageRepository {
   }
 
   /**
+   * Store an inspected, rights-authorized original image without optimization.
+   *
+   * The caller must validate the source bytes, dimensions and rights. Unlike
+   * generated previews, imported maps must retain their source resolution.
+   *
+   * @param array<string, mixed> $provenance
+   *   Archive, scene and license information retained with the image record.
+   *
+   * @return array<string, mixed>
+   *   Stored image ID, UUID, URI and client URL.
+   */
+  public function persistSourceMap(string $binary, string $mime_type, int $width, int $height, array $provenance, int $owner_uid): array {
+    if (!$this->database->schema()->tableExists('dc_generated_images')) {
+      throw new \RuntimeException('source_map_repository_table_missing');
+    }
+    if ($binary === '' || $width < 1 || $height < 1 || $owner_uid < 0 || !in_array($mime_type, ['image/png', 'image/jpeg', 'image/webp'], TRUE)) {
+      throw new \InvalidArgumentException('source_map_repository_payload_invalid');
+    }
+    $encoded = json_encode($provenance, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    $image_uuid = $this->uuid->generate();
+    $extension = $this->extensionFromMime($mime_type);
+    $uri = $this->saveImageBinary($binary, $image_uuid, $extension);
+    $notice_uri = $uri . '.LICENSE.txt';
+    $notice = $provenance['license_notice'] ?? NULL;
+    if (!is_string($notice) || $notice === '') {
+      $this->fileSystem->delete($uri);
+      throw new \InvalidArgumentException('source_map_license_notice_required');
+    }
+    $saved_notice = $this->fileSystem->saveData($notice, $notice_uri, FileSystemInterface::EXISTS_ERROR);
+    if ($saved_notice !== $notice_uri) {
+      $this->fileSystem->delete($uri);
+      throw new \RuntimeException('source_map_license_notice_save_failed');
+    }
+    $image_url = $this->resolveClientUrl(['file_uri' => $uri]);
+    $notice_url = $this->resolveClientUrl(['file_uri' => $notice_uri]);
+    if (!is_string($image_url) || $image_url === '' || !is_string($notice_url) || $notice_url === '') {
+      $this->fileSystem->delete($uri);
+      $this->fileSystem->delete($notice_uri);
+      throw new \RuntimeException('source_map_public_urls_unavailable');
+    }
+    $now = $this->time->getCurrentTime();
+    try {
+      $image_id = (int) $this->database->insert('dc_generated_images')
+        ->fields([
+          'image_uuid' => $image_uuid,
+          'owner_uid' => $owner_uid,
+          'provider' => 'module-import',
+          'provider_request_id' => (string) ($provenance['archive_sha256'] ?? ''),
+          'provider_model' => '',
+          'status' => 'ready',
+          'mime_type' => $mime_type,
+          'width' => $width,
+          'height' => $height,
+          'bytes' => strlen($binary),
+          'storage_scheme' => 'public',
+          'file_uri' => $uri,
+          'public_url' => NULL,
+          'sha256' => hash('sha256', $binary),
+          'prompt_text' => '',
+          'negative_prompt' => '',
+          'generation_params' => $encoded,
+          'safety_metadata' => NULL,
+          'created' => $now,
+          'updated' => $now,
+          'deleted' => 0,
+        ])
+        ->execute();
+      if ($image_id < 1) {
+        throw new \RuntimeException('source_map_repository_insert_failed');
+      }
+    }
+    catch (\Throwable $exception) {
+      $this->fileSystem->delete($uri);
+      $this->fileSystem->delete($notice_uri);
+      throw $exception;
+    }
+    return [
+      'stored' => TRUE,
+      'image_id' => $image_id,
+      'image_uuid' => $image_uuid,
+      'file_uri' => $uri,
+      'license_notice_uri' => $notice_uri,
+      'license_notice_url' => $notice_url,
+      'url' => $image_url,
+      'sha256' => hash('sha256', $binary),
+    ];
+  }
+
+  /**
+   * Discard a source map staged by a conversion batch that did not commit.
+   */
+  public function discardSourceMap(array $stored): void {
+    $image_id = $stored['image_id'] ?? NULL;
+    $uri = $stored['file_uri'] ?? NULL;
+    if (!is_int($image_id) || $image_id < 1 || !is_string($uri)
+      || !preg_match('~^public://generated-images/\d{4}/\d{2}/[a-zA-Z0-9-]+\.(?:png|jpg|webp)$~D', $uri)
+      || ($stored['license_notice_uri'] ?? NULL) !== $uri . '.LICENSE.txt') {
+      throw new \InvalidArgumentException('source_map_discard_payload_invalid');
+    }
+    $row = $this->database->select('dc_generated_images', 'i')
+      ->fields('i', ['file_uri', 'provider'])
+      ->condition('id', $image_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!is_array($row) || $row['file_uri'] !== $uri || $row['provider'] !== 'module-import') {
+      throw new \DomainException('source_map_discard_record_mismatch');
+    }
+    $this->database->delete('dc_generated_images')->condition('id', $image_id)->execute();
+    $this->fileSystem->delete($uri);
+    $this->fileSystem->delete($uri . '.LICENSE.txt');
+    if (file_exists($uri) || file_exists($uri . '.LICENSE.txt')) {
+      throw new \RuntimeException('source_map_discard_failed');
+    }
+  }
+
+  /**
+   * Write bytes to the generated-image store without changing their content.
+   */
+  private function saveImageBinary(string $binary, string $image_uuid, string $extension): string {
+    $base = 'public://generated-images';
+    $directory = $base . '/' . date('Y', $this->time->getCurrentTime()) . '/' . date('m', $this->time->getCurrentTime());
+    foreach ([$base, dirname($directory), $directory] as $path) {
+      if (!$this->fileSystem->prepareDirectory($path, FileSystemInterface::CREATE_DIRECTORY | FileSystemInterface::MODIFY_PERMISSIONS)) {
+        throw new \RuntimeException('source_map_repository_directory_unavailable');
+      }
+    }
+    $uri = $this->fileSystem->saveData($binary, $directory . '/' . $image_uuid . '.' . $extension, FileSystemInterface::EXISTS_ERROR);
+    if (!is_string($uri) || $uri === '') {
+      throw new \RuntimeException('source_map_repository_save_failed');
+    }
+    return $uri;
+  }
+
+  /**
    * Loads an image by UUID.
    */
   public function loadImageByUuid(string $image_uuid): ?array {

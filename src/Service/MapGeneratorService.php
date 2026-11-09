@@ -282,13 +282,7 @@ class MapGeneratorService {
         );
 
         if (!empty($room['room_id'])) {
-          $this->roomStateService->setState($campaign_id, $room['room_id'], $dungeon_id, [
-            'roomId' => $room['room_id'],
-            'dungeonId' => $dungeon_id,
-            'explored' => TRUE,
-            'visibility' => 'visible',
-            'isCleared' => FALSE,
-          ], NULL);
+          $this->roomStateService->recordArrival($campaign_id, (string) $room['room_id'], $dungeon_id);
         }
       });
 
@@ -441,13 +435,7 @@ class MapGeneratorService {
         $setting
       );
       $this->canonicalRoomProjection->persistProjectedRoom($campaign_id, $room);
-      $this->roomStateService->setState($campaign_id, (string) $room['room_id'], $dungeon_id, [
-        'roomId' => (string) $room['room_id'],
-        'dungeonId' => $dungeon_id,
-        'explored' => TRUE,
-        'visibility' => 'visible',
-        'isCleared' => FALSE,
-      ], NULL);
+      $this->roomStateService->recordArrival($campaign_id, (string) $room['room_id'], $dungeon_id);
     });
 
     return [

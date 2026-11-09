@@ -9,6 +9,7 @@ use Drupal\Core\Url;
 use Drupal\dungeoncrawler_content\Service\EditorSuite\EditorSuiteService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\RedirectResponse;
 
 /**
  * Editor suite hub: the single entry point for every authoring surface.
@@ -27,25 +28,9 @@ final class EditorSuiteController extends ControllerBase {
     );
   }
 
-  public function page(): array {
-    return [
-      '#theme' => 'editor_suite',
-      '#attached' => [
-        'library' => ['dungeoncrawler_content/editor-suite'],
-        'drupalSettings' => [
-          'dungeoncrawlerContent' => [
-            'editorSuite' => [
-              'csrfToken' => $this->csrfToken->get(CsrfRequestHeaderAccessCheck::TOKEN_KEY),
-              'urls' => [
-                'summary' => Url::fromRoute('dungeoncrawler_content.editor_suite_summary')->toString(),
-                'gm' => Url::fromRoute('dungeoncrawler_content.editor_suite_gm_describe')->toString(),
-              ],
-            ],
-          ],
-        ],
-      ],
-      '#cache' => ['max-age' => 0],
-    ];
+  public function page(): RedirectResponse {
+    $this->messenger()->addStatus($this->t('Editor Suite is deprecated and the suite GM assistant is redundant. Use Storylines, Room Editor, Dungeon Editor, and Canonical Library directly.'));
+    return new RedirectResponse(Url::fromRoute('dungeoncrawler_content.storyline_management')->toString());
   }
 
   /**

@@ -1,0 +1,668 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "storyline-authoring-draft-v1",
+  "title": "Storyline authoring draft",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema_version",
+    "storyline_id",
+    "title",
+    "description",
+    "premise",
+    "process_flow",
+    "objects",
+    "orchestration"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "storyline-authoring-draft-v1"
+    },
+    "storyline_id": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "premise": {
+      "type": "string"
+    },
+    "level_range": {
+      "type": "string"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "player_hook": {
+      "type": "string"
+    },
+    "entry_actor_id": {
+      "type": "string"
+    },
+    "entry_location_id": {
+      "type": "string"
+    },
+    "ending": {
+      "type": "string"
+    },
+    "process_flow": {
+      "type": "object",
+      "required": [
+        "journal_entries",
+        "tasks",
+        "objective_completion_criteria",
+        "conflicts",
+        "narrative_architecture"
+      ],
+      "properties": {
+        "journal_entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/journal_entry"
+          }
+        },
+        "tasks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/task"
+          }
+        },
+        "branch_choices": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/branch_choice"
+          }
+        },
+        "objective_completion_criteria": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/objective"
+          }
+        },
+        "conflicts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/conflict"
+          }
+        },
+        "narrative_architecture": {
+          "$ref": "#/$defs/narrative_architecture"
+        }
+      }
+    },
+    "objects": {
+      "type": "object",
+      "required": [
+        "actors",
+        "dungeons",
+        "rooms",
+        "items"
+      ],
+      "properties": {
+        "actors": {
+          "type": "object",
+          "required": ["generation_specs", "validation_criteria"],
+          "properties": {
+            "generation_specs": {
+              "type": "array",
+              "items": {"$ref": "#/$defs/actor"}
+            },
+            "validation_criteria": {"type": "array"}
+          }
+        },
+        "dungeons": {
+          "type": "object",
+          "required": ["generation_specs"],
+          "properties": {
+            "generation_specs": {
+              "type": "array",
+              "items": {"$ref": "#/$defs/dungeon"}
+            }
+          }
+        },
+        "rooms": {
+          "type": "object",
+          "required": ["generation_specs", "validation_criteria"],
+          "properties": {
+            "generation_specs": {
+              "type": "array",
+              "items": {"$ref": "#/$defs/room"}
+            },
+            "validation_criteria": {"type": "array"}
+          }
+        },
+        "items": {
+          "type": "object",
+          "required": ["generation_specs", "validation_criteria"],
+          "properties": {
+            "generation_specs": {
+              "type": "array",
+              "items": {"$ref": "#/$defs/item"}
+            },
+            "validation_criteria": {"type": "array"}
+          }
+        }
+      }
+    },
+    "orchestration": {
+      "type": "object",
+      "required": [
+        "generation",
+        "validation"
+      ],
+      "properties": {
+        "generation": {
+          "type": "array"
+        },
+        "validation": {
+          "type": "array"
+        }
+      }
+    },
+    "canonical_template": {
+      "type": "object",
+      "description": "Immutable source template attached by the draft authority."
+    }
+  },
+  "$defs": {
+    "string_or_string_array": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "narrative_architecture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["beats", "adventure_requirements"],
+      "properties": {
+        "beats": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "inciting_incident",
+            "threshold_of_no_return",
+            "progressive_complications",
+            "crisis",
+            "climax",
+            "denouement"
+          ],
+          "properties": {
+            "inciting_incident": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["disruption", "stakes"],
+              "properties": {
+                "disruption": {"type": "string"},
+                "stakes": {"type": "string"}
+              }
+            },
+            "threshold_of_no_return": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["crossing", "point_of_no_return"],
+              "properties": {
+                "crossing": {"type": "string"},
+                "point_of_no_return": {"type": "string"}
+              }
+            },
+            "progressive_complications": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["road_of_trials", "midpoint_shift"],
+              "properties": {
+                "road_of_trials": {"type": "string"},
+                "midpoint_shift": {"type": "string"}
+              }
+            },
+            "crisis": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["dark_night", "psychological_pivot"],
+              "properties": {
+                "dark_night": {"type": "string"},
+                "psychological_pivot": {"type": "string"}
+              }
+            },
+            "climax": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["central_confrontation", "premise_resolution"],
+              "properties": {
+                "central_confrontation": {"type": "string"},
+                "premise_resolution": {"type": "string"}
+              }
+            },
+            "denouement": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["new_equilibrium", "internal_shift"],
+              "properties": {
+                "new_equilibrium": {"type": "string"},
+                "internal_shift": {"type": "string"}
+              }
+            }
+          }
+        },
+        "adventure_requirements": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "physical_quest",
+            "antagonistic_force",
+            "mentor_guide",
+            "boon_macguffin"
+          ],
+          "properties": {
+            "physical_quest": {"type": "string"},
+            "antagonistic_force": {"type": "string"},
+            "mentor_guide": {"type": "string"},
+            "boon_macguffin": {"type": "string"}
+          }
+        }
+      }
+    },
+    "journal_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "chapter_id",
+        "scene_id",
+        "title",
+        "summary"
+      ],
+      "properties": {
+        "chapter_id": {
+          "type": "string"
+        },
+        "scene_id": {
+          "type": "string"
+        },
+        "order": {
+          "oneOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "trigger": {
+          "type": "string"
+        },
+        "room_ids": {
+          "$ref": "#/$defs/string_or_string_array"
+        },
+        "central_conflict": {
+          "type": "string"
+        },
+        "dramatic_function": {
+          "type": "string"
+        },
+        "themes": {
+          "$ref": "#/$defs/string_or_string_array"
+        },
+        "character_ids": {
+          "$ref": "#/$defs/string_or_string_array"
+        },
+        "foreshadows_scene_id": {
+          "type": "string"
+        },
+        "relationship_changes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/relationship_change"
+          }
+        }
+      }
+    },
+    "relationship_change": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_actor_id",
+        "target_actor_id",
+        "before",
+        "after",
+        "reason"
+      ],
+      "properties": {
+        "source_actor_id": {
+          "type": "string"
+        },
+        "target_actor_id": {
+          "type": "string"
+        },
+        "before": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": -100,
+              "maximum": 100
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "after": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": -100,
+              "maximum": 100
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "task_id",
+        "chapter_id",
+        "scene_id"
+      ],
+      "properties": {
+        "task_id": {
+          "type": "string"
+        },
+        "chapter_id": {
+          "type": "string"
+        },
+        "scene_id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "unlocks_after": {
+          "$ref": "#/$defs/string_or_string_array"
+        },
+        "unlocks_to": {
+          "$ref": "#/$defs/string_or_string_array"
+        },
+        "unlock_condition": {
+          "type": "string"
+        }
+      }
+    },
+    "branch_choice": {
+      "type": "object",
+      "required": [
+        "decision_id",
+        "source_task_id",
+        "choice_id",
+        "label",
+        "trigger",
+        "effects"
+      ],
+      "properties": {
+        "decision_id": {"type": "string"},
+        "source_task_id": {"type": "string"},
+        "choice_id": {"type": "string"},
+        "label": {"type": "string"},
+        "trigger": {"$ref": "#/$defs/branch_trigger"},
+        "effects": {"$ref": "#/$defs/branch_effects"},
+        "target_task_id": {"type": "string"},
+        "target_scene_id": {"type": "string"},
+        "terminal": {
+          "oneOf": [
+            {"type": "boolean"},
+            {"type": "string"}
+          ]
+        }
+      }
+    },
+    "branch_trigger": {
+      "type": "object",
+      "required": ["type", "condition", "source_id"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": [
+            "player_choice",
+            "action",
+            "objective_result",
+            "skill_result",
+            "actor_state",
+            "environment_state",
+            "item_state",
+            "timer",
+            "gm_decision"
+          ]
+        },
+        "condition": {"type": "string"},
+        "interaction": {"enum": ["other", "attacked", "killed"]},
+        "source_id": {"type": "string"}
+      }
+    },
+    "branch_state_change": {
+      "type": "object",
+      "required": ["key", "operation", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "key": {"type": "string"},
+        "operation": {"enum": ["set", "increment", "decrement", "add", "remove"]},
+        "value": {}
+      }
+    },
+    "branch_effects": {
+      "type": "object",
+      "required": ["summary", "actors", "environment", "storyline"],
+      "additionalProperties": false,
+      "properties": {
+        "summary": {"type": "string"},
+        "actors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["actor_id", "effect", "state_changes"],
+            "additionalProperties": false,
+            "properties": {
+              "actor_id": {"type": "string"},
+              "interaction": {"enum": ["other", "attacked", "killed"]},
+              "reaction": {"type": "string"},
+              "effect": {"type": "string"},
+              "state_changes": {
+                "type": "array",
+                "items": {"$ref": "#/$defs/branch_state_change"}
+              }
+            }
+          }
+        },
+        "environment": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["target_type", "target_id", "effect", "state_changes"],
+            "additionalProperties": false,
+            "properties": {
+              "target_type": {"enum": ["room", "dungeon", "location", "world"]},
+              "target_id": {"type": "string"},
+              "effect": {"type": "string"},
+              "state_changes": {
+                "type": "array",
+                "items": {"$ref": "#/$defs/branch_state_change"}
+              }
+            }
+          }
+        },
+        "storyline": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["target_type", "target_id", "operation", "effect", "follow_up_required", "state_changes"],
+            "additionalProperties": false,
+            "properties": {
+              "target_type": {"enum": ["task", "scene", "conflict", "chapter", "storyline"]},
+              "target_id": {"type": "string"},
+              "source_actor_id": {"type": "string"},
+              "operation": {"enum": ["unlock", "lock", "reveal", "conceal", "redirect", "escalate", "resolve", "set"]},
+              "effect": {"type": "string"},
+              "follow_up_required": {"type": "boolean"},
+              "state_changes": {
+                "type": "array",
+                "items": {"$ref": "#/$defs/branch_state_change"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "objective": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "objective_id",
+        "description"
+      ],
+      "properties": {
+        "objective_id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "metric": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "required": {
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    "conflict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "conflict_id",
+        "title",
+        "introduced_scene_id",
+        "status"
+      ],
+      "properties": {
+        "conflict_id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "actor_ids": {
+          "$ref": "#/$defs/string_or_string_array"
+        },
+        "introduced_scene_id": {
+          "type": "string"
+        },
+        "escalation_scene_ids": {
+          "$ref": "#/$defs/string_or_string_array"
+        },
+        "resolved_scene_id": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "active",
+            "resolved",
+            "intentional_open_thread"
+          ]
+        }
+      }
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contact_id", "actor_id", "role", "display_name"],
+      "properties": {
+        "contact_id": {"type": "string"},
+        "actor_id": {"type": "string"},
+        "role": {"type": "string"},
+        "display_name": {"type": "string"},
+        "motivation": {"type": "string"},
+        "dialogue": {"type": "string"},
+        "knowledge": {"type": "string"},
+        "attitude": {"type": "string"},
+        "availability": {"type": "string"},
+        "chapter_id": {"type": "string"},
+        "scene_id": {"type": "string"},
+        "location_id": {"type": "string"}
+      }
+    },
+    "dungeon": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dungeon_id", "chapter_id"],
+      "properties": {
+        "dungeon_id": {"type": "string"},
+        "chapter_id": {"type": "string"},
+        "purpose": {"type": "string"},
+        "entrance_room": {"type": "string"}
+      }
+    },
+    "room": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["room_id", "dungeon_id", "scene_id"],
+      "properties": {
+        "dungeon_id": {"type": "string"},
+        "chapter_id": {"type": "string"},
+        "scene_id": {"type": "string"},
+        "room_id": {"type": "string"},
+        "narrative": {"type": "string"}
+      }
+    },
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["item_id", "purpose"],
+      "properties": {
+        "item_id": {"type": "string"},
+        "purpose": {"type": "string"},
+        "acquisition": {"type": "string"},
+        "chapter_id": {"type": "string"},
+        "scene_id": {"type": "string"},
+        "quest_id": {"type": "string"},
+        "actor_id": {"type": "string"},
+        "prerequisite_ids": {"$ref": "#/$defs/string_or_string_array"},
+        "reward": {"type": "string"}
+      }
+    }
+  }
+}

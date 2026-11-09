@@ -1,0 +1,221 @@
+{#
+ # Storyline Management — /storylines page
+ # Canonical storyline inventory grouped by authorship.
+ #}
+<div class="dc-character-list dc-character-list--storylines">
+  <div class="dc-character-list__header">
+    <h1 class="dc-character-list__title">Storyline Management</h1>
+    <div class="dc-sheet__nav-actions">
+      <a href="{{ campaigns_url }}" class="dc-btn dc-btn-secondary">Campaigns</a>
+      <a href="{{ storyline_explorer_url }}" class="dc-btn dc-btn-secondary">Storyline Explorer</a>
+      <a href="{{ builder_url }}" class="dc-btn dc-btn-primary">
+        <span class="dc-btn__icon">+</span> Create New Storyline
+      </a>
+    </div>
+  </div>
+
+  <section class="storyline-metrics" aria-labelledby="storyline-metrics-heading">
+    <h2 id="storyline-metrics-heading" class="visually-hidden">Storyline library metrics</h2>
+    <div class="storyline-metrics__card">
+      <strong>{{ metrics.canonical_total|default(0) }}</strong>
+      <span>Canonical storylines</span>
+    </div>
+    <div class="storyline-metrics__card">
+      <strong>{{ metrics.canonical_mine|default(0) }}</strong>
+      <span>My canonical stories</span>
+    </div>
+    <div class="storyline-metrics__card">
+      <strong>{{ metrics.my_drafts|default(0) }}</strong>
+      <span>My drafts</span>
+    </div>
+    <div class="storyline-metrics__card">
+      <strong>{{ metrics.my_editing_drafts|default(0) }}</strong>
+      <span>Drafts in progress</span>
+    </div>
+    <div class="storyline-metrics__card">
+      <strong>{{ metrics.shared_drafts|default(0) }}</strong>
+      <span>Shared latest drafts</span>
+    </div>
+    <div class="storyline-metrics__card">
+      <strong>{{ metrics.my_saved_versions|default(0) }}</strong>
+      <span>My saved versions</span>
+    </div>
+  </section>
+
+  <div class="dc-sheet__section storyline-drafts">
+    <h2 class="dc-sheet__section-title">Storyline Drafts</h2>
+    <p>Only each draft's latest saved version is shared. Historical versions remain private to the owner.</p>
+
+    <details>
+      <summary>My drafts ({{ my_drafts|length }})</summary>
+      {% if my_drafts|length > 0 %}
+        <div class="storyline-drafts__table-wrap">
+          <table class="storyline-drafts__table">
+            <thead>
+              <tr><th>Draft</th><th>Status</th><th>Latest</th><th>My versions</th><th>Updated</th><th>Actions</th></tr>
+            </thead>
+            <tbody>
+              {% for draft in my_drafts %}
+                <tr data-storyline-draft-row="{{ draft.draft_id }}">
+                  <td><a href="{{ draft.edit_url }}">{{ draft.title }}</a></td>
+                  <td>{{ draft.status|replace({'_':' '})|capitalize }}</td>
+                  <td>Revision {{ draft.revision }}</td>
+                  <td>{{ draft.revision_count }}</td>
+                  <td>{{ draft.updated }}</td>
+                  <td class="storyline-drafts__actions">
+                    <a href="{{ draft.edit_url }}" class="dc-btn dc-btn-secondary">Open</a>
+                    <button type="button" class="dc-btn dc-btn-danger" data-storyline-draft-delete data-delete-url="{{ draft.delete_url }}" data-draft-title="{{ draft.title }}">Delete</button>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <p>No owned drafts.</p>
+      {% endif %}
+    </details>
+
+    <details>
+      <summary>Shared latest drafts ({{ shared_drafts|length }})</summary>
+      {% if shared_drafts|length > 0 %}
+        <div class="storyline-drafts__table-wrap">
+          <table class="storyline-drafts__table">
+            <thead>
+              <tr><th>Draft</th><th>Owner</th><th>Status</th><th>Available version</th><th>Updated</th><th>Action</th></tr>
+            </thead>
+            <tbody>
+              {% for draft in shared_drafts %}
+                <tr>
+                  <td><a href="{{ draft.edit_url }}">{{ draft.title }}</a></td>
+                  <td>{{ draft.owner_name }}</td>
+                  <td>{{ draft.status|replace({'_':' '})|capitalize }}</td>
+                  <td>Latest — revision {{ draft.revision }}</td>
+                  <td>{{ draft.updated }}</td>
+                  <td><a href="{{ draft.edit_url }}" class="dc-btn dc-btn-secondary">Open latest</a></td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <p>No shared drafts.</p>
+      {% endif %}
+    </details>
+    <p class="storyline-drafts__status" data-storyline-draft-delete-status role="status" aria-live="polite"></p>
+  </div>
+
+  <div class="dc-sheet__section dc-character-list__campaign-setup">
+    <h2 class="dc-sheet__section-title">My Storylines</h2>
+    <p class="storyline-completeness-help">
+      <strong>Narrative completeness</strong> tracks story identity, beats, conflict, and requirements (Stages 1-2).
+      <strong>Structure/object completeness</strong> tracks actors, rooms/dungeons, and item bindings (Stages 3-5).
+    </p>
+    {% if my_storylines|length > 0 %}
+      <div class="dc-character-grid">
+        {% for storyline in my_storylines %}
+          <div class="dc-character-card dc-character-card--{{ storyline.status|default('canonical') }}">
+            <a href="{{ storyline.edit_url ?: builder_url }}" class="dc-character-card__main-link">
+              <div class="dc-character-card__portrait">
+                <div class="dc-character-card__portrait-placeholder">
+                  <span class="dc-character-card__initial">{{ storyline.name|first|upper }}</span>
+                </div>
+                <div class="dc-character-card__status-badge">Mine</div>
+              </div>
+              <div class="dc-character-card__info">
+                <h3 class="dc-character-card__name">{{ storyline.name }}</h3>
+                <div class="dc-character-card__subtitle">
+                  {{ storyline.template_id }}
+                </div>
+                {% if storyline.goal %}
+                  <p class="dc-character-card__meta">{{ storyline.goal }}</p>
+                {% endif %}
+                <div class="dc-character-card__meta">
+                  <span>Status: {{ storyline.status|replace({'_':' '})|capitalize }}</span>
+                  {% if storyline.latest_revision %}<span>Latest draft revision: {{ storyline.latest_revision }}</span>{% endif %}
+                  {% if storyline.source %}<span>Source: {{ storyline.source }}</span>{% endif %}
+                  {% if storyline.updated %}<span>Updated {{ storyline.updated }}</span>{% endif %}
+                </div>
+                <div class="storyline-completeness">
+                  {% if storyline.narrative_completeness is not null %}
+                    <span><strong>Narrative:</strong> {{ storyline.narrative_completeness }}%</span>
+                    <span><strong>Structure/object:</strong> {{ storyline.structure_object_completeness }}%</span>
+                    <span><strong>Overall:</strong> {{ storyline.overall_completeness }}%</span>
+                  {% else %}
+                    <span>Completeness appears after a draft revision is created.</span>
+                  {% endif %}
+                </div>
+                <div class="dc-character-card__action-text">
+                  <span class="dc-btn dc-btn-primary">{{ storyline.action_label ?: 'Edit Storyline' }}</span>
+                </div>
+              </div>
+              <div class="dc-character-card__arrow">›</div>
+            </a>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p>No authored canonical storylines yet.</p>
+    {% endif %}
+  </div>
+
+  <div class="dc-sheet__section dc-character-list__campaign-setup">
+    <h2 class="dc-sheet__section-title">Other's Storylines</h2>
+    {% if other_storylines|length > 0 %}
+      <div class="dc-character-grid">
+        {% for storyline in other_storylines %}
+          <div class="dc-character-card dc-character-card--{{ storyline.status|default('canonical') }}">
+            <a href="{{ storyline.edit_url ?: builder_url }}" class="dc-character-card__main-link">
+              <div class="dc-character-card__portrait">
+                <div class="dc-character-card__portrait-placeholder">
+                  <span class="dc-character-card__initial">{{ storyline.name|first|upper }}</span>
+                </div>
+                <div class="dc-character-card__status-badge">Shared</div>
+              </div>
+              <div class="dc-character-card__info">
+                <h3 class="dc-character-card__name">{{ storyline.name }}</h3>
+                <div class="dc-character-card__subtitle">
+                  {{ storyline.template_id }}
+                </div>
+                {% if storyline.goal %}
+                  <p class="dc-character-card__meta">{{ storyline.goal }}</p>
+                {% endif %}
+                <div class="dc-character-card__meta">
+                  <span>Status: {{ storyline.status|replace({'_':' '})|capitalize }}</span>
+                  {% if storyline.latest_revision %}<span>Latest available revision: {{ storyline.latest_revision }}</span>{% endif %}
+                  {% if storyline.source %}<span>Source: {{ storyline.source }}</span>{% endif %}
+                  {% if storyline.updated %}<span>Updated {{ storyline.updated }}</span>{% endif %}
+                </div>
+                <div class="storyline-completeness">
+                  {% if storyline.narrative_completeness is not null %}
+                    <span><strong>Narrative:</strong> {{ storyline.narrative_completeness }}%</span>
+                    <span><strong>Structure/object:</strong> {{ storyline.structure_object_completeness }}%</span>
+                    <span><strong>Overall:</strong> {{ storyline.overall_completeness }}%</span>
+                  {% else %}
+                    <span>Completeness appears after a draft revision is created.</span>
+                  {% endif %}
+                </div>
+                <div class="dc-character-card__action-text">
+                  <span class="dc-btn dc-btn-secondary">{{ storyline.action_label ?: 'Edit Storyline' }}</span>
+                </div>
+              </div>
+              <div class="dc-character-card__arrow">›</div>
+            </a>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p>No other canonical storylines available.</p>
+    {% endif %}
+  </div>
+
+  {% if my_storylines|length == 0 and other_storylines|length == 0 %}
+    <div class="dc-character-list__empty">
+      <h2>No Storylines Yet</h2>
+      <p>Create a canonical storyline from the GM Storyline Builder.</p>
+      <a href="{{ builder_url }}" class="dc-btn dc-btn-primary">
+        Create New Storyline
+      </a>
+    </div>
+  {% endif %}
+</div>

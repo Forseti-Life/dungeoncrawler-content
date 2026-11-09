@@ -101,7 +101,12 @@ class RuntimeGraphAssemblerService {
     $canonical_room_names = $this->loadCanonicalRoomNames(array_values(array_unique(array_merge($room_id_list, $connection_endpoint_room_ids))));
     $connection_payloads = [];
     foreach ($connections as $connection) {
-      $connection_payloads[] = $this->buildConnectionPayload($connection, $room_names, $canonical_room_names);
+      $connection_payloads[] = $this->buildConnectionPayload(
+        $connection,
+        $room_names,
+        $canonical_room_names,
+        $dungeon_id
+      );
     }
     $connection_ids = array_values(array_filter(array_map(
       static fn(array $connection): string => trim((string) ($connection['connection_id'] ?? '')),
@@ -376,6 +381,7 @@ class RuntimeGraphAssemblerService {
       'name' => (string) ($room_row['name'] ?? ''),
       'description' => (string) ($room_row['description'] ?? ''),
       'hexes' => is_array($layout_data['hexes'] ?? NULL) ? $layout_data['hexes'] : [],
+      'metadata' => is_array($layout_data['metadata'] ?? NULL) ? $layout_data['metadata'] : [],
       'exits' => $exit_payloads,
       'entry_points' => is_array($layout_data['entry_points'] ?? NULL) ? $layout_data['entry_points'] : [],
       'exit_points' => is_array($layout_data['exit_points'] ?? NULL) ? $layout_data['exit_points'] : [],
@@ -405,19 +411,53 @@ class RuntimeGraphAssemblerService {
    */
   protected function buildRuntimeEntityHints(array $contents_data): array {
     $npc_content_ids = [];
-    foreach (['npcs', 'entities', 'creatures'] as $bucket) {
-      foreach ((array) ($contents_data[$bucket] ?? []) as $entity) {
-        if (!is_array($entity)) {
-          continue;
-        }
-        $content_id = trim((string) (
-          $entity['content_id']
-          ?? $entity['entity_ref']['content_id']
-          ?? ''
-        ));
-        if ($content_id !== '') {
-          $npc_content_ids[$content_id] = TRUE;
-        }
+    foreach ((array) ($contents_data['npcs'] ?? []) as $npc) {
+      if (!is_array($npc)) {
+        continue;
+      }
+      $content_id = trim((string) (
+        $npc['content_id']
+        ?? $npc['entity_ref']['content_id']
+        ?? ''
+      ));
+      if ($content_id !== '') {
+        $npc_content_ids[$content_id] = TRUE;
+      }
+    }
+
+    foreach ((array) ($contents_data['entities'] ?? []) as $entity) {
+      if (!is_array($entity)) {
+        continue;
+      }
+      $content_type = strtolower(trim((string) (
+        $entity['entity_ref']['content_type']
+        ?? $entity['content_type']
+        ?? ''
+      )));
+      if (!in_array($content_type, ['npc', 'creature', 'monster', 'follower', 'companion'], TRUE)) {
+        continue;
+      }
+      $content_id = trim((string) (
+        $entity['content_id']
+        ?? $entity['entity_ref']['content_id']
+        ?? ''
+      ));
+      if ($content_id !== '') {
+        $npc_content_ids[$content_id] = TRUE;
+      }
+    }
+
+    foreach ((array) ($contents_data['creatures'] ?? []) as $creature) {
+      if (!is_array($creature)) {
+        continue;
+      }
+      $content_id = trim((string) (
+        $creature['content_id']
+        ?? $creature['entity_ref']['content_id']
+        ?? ''
+      ));
+      if ($content_id !== '') {
+        $npc_content_ids[$content_id] = TRUE;
       }
     }
 
@@ -541,8 +581,18 @@ class RuntimeGraphAssemblerService {
   protected function buildExitPayloadForRoom(array $connection, string $source_room_id, string $target_room_id, string $target_room_name, array $authored_exit = [], bool $reverse = FALSE): array {
     $origin_hex = !$reverse ? (array) ($connection['from_hex'] ?? []) : (array) ($connection['to_hex'] ?? []);
     $target_hex = !$reverse ? (array) ($connection['to_hex'] ?? []) : (array) ($connection['from_hex'] ?? []);
+    $origin_dungeon_id = trim((string) (
+      !$reverse
+        ? ($connection['from_dungeon_id'] ?? '')
+        : ($connection['to_dungeon_id'] ?? '')
+    ));
+    $destination_dungeon_id = trim((string) (
+      !$reverse
+        ? ($connection['to_dungeon_id'] ?? '')
+        : ($connection['from_dungeon_id'] ?? '')
+    ));
 
-    return [
+    $payload = [
       'connection_id' => (string) ($connection['connection_id'] ?? ''),
       'type' => (string) ($connection['type'] ?? 'hallway'),
       'target_room_id' => $target_room_id,
@@ -561,6 +611,17 @@ class RuntimeGraphAssemblerService {
       'label' => trim((string) ($authored_exit['label'] ?? '')),
       'link_type' => trim((string) ($authored_exit['link_type'] ?? '')),
     ];
+    if ($destination_dungeon_id !== '' && $destination_dungeon_id !== $origin_dungeon_id) {
+      $payload['destination_dungeon_id'] = $destination_dungeon_id;
+      $payload['dungeon_switch'] = [
+        'dungeon_id' => $destination_dungeon_id,
+        'map_id' => $destination_dungeon_id,
+        'room_id' => $target_room_id,
+        'target_room_id' => $target_room_id,
+        'next_room_id' => '',
+      ];
+    }
+    return $payload;
   }
 
   /**
@@ -574,9 +635,11 @@ class RuntimeGraphAssemblerService {
       return [];
     }
 
-    return $this->database->select('dc_campaign_connections', 'c')
+    $query = $this->database->select('dc_campaign_connections', 'c')
       ->fields('c', [
         'connection_id',
+          'dungeon_id',
+          'to_dungeon_id',
         'from_room_id',
         'to_room_id',
         'from_hex_q',
@@ -592,8 +655,13 @@ class RuntimeGraphAssemblerService {
         'is_discovered',
         'is_passable',
       ])
-      ->condition('campaign_id', $campaign_id)
-      ->condition('dungeon_id', $dungeon_id)
+      ->condition('campaign_id', $campaign_id);
+    $query->condition(
+      $query->orConditionGroup()
+        ->condition('dungeon_id', $dungeon_id)
+        ->condition('to_dungeon_id', $dungeon_id)
+    );
+    return $query
       ->orderBy('created', 'ASC')
       ->execute()
       ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
@@ -665,12 +733,20 @@ class RuntimeGraphAssemblerService {
    * @return array<string, mixed>
    *   Connection payload.
    */
-  protected function buildConnectionPayload(array $connection_row, array $campaign_room_names, array $canonical_room_names): array {
+  protected function buildConnectionPayload(
+    array $connection_row,
+    array $campaign_room_names,
+    array $canonical_room_names,
+    string $current_dungeon_id,
+  ): array {
     $from_room_id = trim((string) ($connection_row['from_room_id'] ?? ''));
     $to_room_id = trim((string) ($connection_row['to_room_id'] ?? ''));
     $state = trim((string) ($connection_row['state'] ?? 'open'));
 
-    return [
+    $from_dungeon_id = trim((string) ($connection_row['dungeon_id'] ?? ''));
+    $to_dungeon_id = trim((string) ($connection_row['to_dungeon_id'] ?? ''));
+    $is_gateway = $to_dungeon_id !== '';
+    $payload = [
       'connection_id' => trim((string) ($connection_row['connection_id'] ?? '')),
       'from_room' => $from_room_id,
       'from_room_id' => $from_room_id,
@@ -687,6 +763,8 @@ class RuntimeGraphAssemblerService {
       'travel_cost' => (int) ($connection_row['travel_cost'] ?? 0),
       'destination_type' => 'room',
       'destination_id' => $to_room_id,
+      'from_dungeon_id' => $from_dungeon_id,
+      'to_dungeon_id' => $to_dungeon_id,
       'from_hex' => [
         'q' => (int) ($connection_row['from_hex_q'] ?? 0),
         'r' => (int) ($connection_row['from_hex_r'] ?? 0),
@@ -698,6 +776,14 @@ class RuntimeGraphAssemblerService {
       'from_h3_index_res14' => strtolower(trim((string) ($connection_row['from_h3_index_res14'] ?? ''))),
       'to_h3_index_res14' => strtolower(trim((string) ($connection_row['to_h3_index_res14'] ?? ''))),
     ];
+    if ($is_gateway) {
+      $payload['gateway'] = TRUE;
+      $destination_dungeon_id = $current_dungeon_id === $to_dungeon_id
+        ? $from_dungeon_id
+        : $to_dungeon_id;
+      $payload['destination_dungeon_id'] = $destination_dungeon_id;
+    }
+    return $payload;
   }
 
 }

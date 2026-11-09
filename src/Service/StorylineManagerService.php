@@ -30,6 +30,7 @@ class StorylineManagerService {
   protected StateValidationService $stateValidationService;
   protected ?StorylineQuestLifecycleService $storylineQuestLifecycleService;
   protected ?ContentRegistry $contentRegistry;
+  protected ?CanonicalDefinitionService $canonicalDefinitions;
   protected ?StorylineRealizationService $storylineRealizationService;
   protected ?ObjectiveTypeService $objectiveTypeService;
   protected ?array $canonicalLocationTemplateIndex = NULL;
@@ -55,11 +56,13 @@ class StorylineManagerService {
       'storyline_realization_service' => $storyline_realization_service,
       'objective_type_service' => $objective_type_service,
       'content_registry' => $content_registry,
+      'canonical_definitions' => $canonical_definitions,
     ] = $this->resolveOptionalConstructorDependencies($arg6, $arg7, $arg8, $arg9);
     $this->storylineQuestLifecycleService = $storyline_quest_lifecycle_service;
     $this->storylineRealizationService = $storyline_realization_service;
     $this->objectiveTypeService = $objective_type_service;
     $this->contentRegistry = $content_registry;
+    $this->canonicalDefinitions = $canonical_definitions;
   }
 
   /**
@@ -72,7 +75,8 @@ class StorylineManagerService {
    *   storyline_quest_lifecycle_service: ?StorylineQuestLifecycleService,
    *   storyline_realization_service: ?StorylineRealizationService,
    *   objective_type_service: ?ObjectiveTypeService,
-   *   content_registry: ?ContentRegistry
+   *   content_registry: ?ContentRegistry,
+   *   canonical_definitions: ?CanonicalDefinitionService
    * }
    */
   protected function resolveOptionalConstructorDependencies(
@@ -85,6 +89,7 @@ class StorylineManagerService {
     $storyline_realization_service = NULL;
     $objective_type_service = NULL;
     $content_registry = NULL;
+    $canonical_definitions = NULL;
 
     foreach ([$arg6, $arg7, $arg8, $arg9] as $argument) {
       if ($argument === NULL) {
@@ -106,6 +111,10 @@ class StorylineManagerService {
         $content_registry = $argument;
         continue;
       }
+      if ($argument instanceof CanonicalDefinitionService) {
+        $canonical_definitions = $argument;
+        continue;
+      }
       throw new \InvalidArgumentException(sprintf(
         'Unsupported StorylineManagerService constructor dependency argument type: %s',
         get_debug_type($argument)
@@ -124,6 +133,9 @@ class StorylineManagerService {
         : NULL,
       'content_registry' => $content_registry instanceof ContentRegistry
         ? $content_registry
+        : NULL,
+      'canonical_definitions' => $canonical_definitions instanceof CanonicalDefinitionService
+        ? $canonical_definitions
         : NULL,
     ];
   }
@@ -402,9 +414,8 @@ class StorylineManagerService {
       return $storyline;
     }
 
-    if (!empty($options['realize_storyline_assets']) && $this->storylineRealizationService !== NULL) {
-      $this->storylineRealizationService->realizeStorylineAssets($campaign_id, $storyline);
-      $this->storylineRealizationService->realizeStorylineNpcs($campaign_id, $storyline);
+    if (!empty($options['realize_storyline_assets'])) {
+      throw new \RuntimeException('storyline_attachment_plan_required');
     }
 
     $this->ensureActiveStorylineRoomsAvailableInCampaign($campaign_id, $storyline);
@@ -416,13 +427,20 @@ class StorylineManagerService {
    * Normalize and validate a storyline definition for storage/runtime use.
    */
   public function normalizeStorylineDefinition(array $definition): array {
-    $normalized = $this->normalizeTemplateDefinition($definition);
+    $normalized = $this->prepareStorylineDefinition($definition);
     $validation = $this->validateNormalizedStorylineDefinition($normalized);
     if (!($validation['valid'] ?? FALSE)) {
       throw new \InvalidArgumentException('Storyline definition failed validation: ' . implode('; ', $validation['errors'] ?? []), 400);
     }
 
     return $normalized;
+  }
+
+  /**
+   * Normalize a definition for staged validation without persisting it.
+   */
+  public function prepareStorylineDefinition(array $definition): array {
+    return $this->normalizeTemplateDefinition($definition);
   }
 
   /**
@@ -557,16 +575,38 @@ class StorylineManagerService {
       'errors' => $schema_errors,
     ];
 
+    $completeness_errors = $this->validateStorylineDefinitionCompleteness($storyline_data, $normalized_payload_type);
+    $stages['definition_completeness'] = [
+      'valid' => $completeness_errors === [],
+      'errors' => $completeness_errors,
+    ];
+
     $cross_reference_errors = $this->validateStorylineCrossReferences($storyline_data);
     $stages['cross_references'] = [
       'valid' => $cross_reference_errors === [],
       'errors' => $cross_reference_errors,
     ];
 
-    $questline_progression_errors = $this->validateQuestlineProgressionFlow($storyline_data);
+    $questline_progression_errors = $this->validateQuestlineProgressionFlow($storyline_data, $normalized_payload_type);
     $stages['questline_progression'] = [
       'valid' => $questline_progression_errors === [],
       'errors' => $questline_progression_errors,
+    ];
+
+    $narrative_analysis = $this->analyzeStorylineNarrative($storyline_data);
+    $narrative_errors = array_values(array_map(
+      static fn(array $finding): string => (string) ($finding['code'] ?? 'DCV_NARRATIVE_CONFLICT') . ': ' . (string) ($finding['message'] ?? 'Narrative conflict detected.'),
+      array_filter($narrative_analysis['findings'], static fn(array $finding): bool => ($finding['severity'] ?? '') === 'error')
+    ));
+    $narrative_warnings = array_values(array_map(
+      static fn(array $finding): string => (string) ($finding['code'] ?? 'DCV_NARRATIVE_WARNING') . ': ' . (string) ($finding['message'] ?? 'Narrative analysis warning.'),
+      array_filter($narrative_analysis['findings'], static fn(array $finding): bool => ($finding['severity'] ?? '') === 'warning')
+    ));
+    $stages['narrative_analysis'] = [
+      'valid' => $narrative_errors === [],
+      'errors' => $narrative_errors,
+      'warnings' => $narrative_warnings,
+      'findings' => $narrative_analysis['findings'],
     ];
 
     $navigation_progression_errors = $this->validateNavigationProgressionFlow($storyline_data, $normalized_payload_type);
@@ -612,15 +652,586 @@ class StorylineManagerService {
     ];
 
     $errors = [];
+    $warnings = [];
     foreach ($stages as $stage) {
       $errors = array_merge($errors, $stage['errors']);
+      $warnings = array_merge($warnings, is_array($stage['warnings'] ?? NULL) ? $stage['warnings'] : []);
     }
 
     return [
       'valid' => $errors === [],
       'errors' => array_values(array_unique($errors)),
+      'warnings' => array_values(array_unique($warnings)),
       'stages' => $stages,
       'payload_type' => $normalized_payload_type,
+      'analysis' => $narrative_analysis,
+    ];
+  }
+
+  /**
+   * Require a publishable identity and at least one authored scene.
+   */
+  protected function validateStorylineDefinitionCompleteness(array $storyline_data, string $payload_type): array {
+    if ($payload_type !== 'definition') {
+      return [];
+    }
+
+    $errors = [];
+    foreach ([
+      'template_id' => 'Storyline ID',
+      'name' => 'Storyline title',
+      'synopsis' => 'Storyline synopsis',
+      'level_range' => 'Storyline level range',
+      'source' => 'Storyline source',
+    ] as $field => $label) {
+      if (trim((string) ($storyline_data[$field] ?? '')) === '') {
+        $errors[] = "{$label} is required.";
+      }
+    }
+    if (trim((string) ($storyline_data['metadata']['goal'] ?? '')) === '') {
+      $errors[] = 'Storyline goal is required.';
+    }
+
+    $chapters = array_values(array_filter((array) ($storyline_data['chapters'] ?? []), 'is_array'));
+    if ($chapters === []) {
+      $errors[] = 'At least one storyline chapter is required.';
+      return $errors;
+    }
+    $scene_count = 0;
+    foreach ($chapters as $chapter) {
+      $scene_count += count(array_filter((array) ($chapter['scenes'] ?? []), 'is_array'));
+    }
+    if ($scene_count === 0) {
+      $errors[] = 'At least one storyline scene is required.';
+    }
+
+    return $errors;
+  }
+
+  /**
+   * Build the canonical storyline timeline/relationship graph and findings.
+   *
+   * Narrative annotations are optional metadata. When supplied, every
+   * reference and conflict transition is validated against canonical nodes.
+   */
+  public function analyzeStorylineNarrative(array $storyline_data): array {
+    $nodes = [];
+    $edges = [];
+    $timeline = [];
+    $findings = [];
+    $chapter_orders = [];
+    $scene_ids = [];
+    $scene_positions = [];
+    $contact_ids = [];
+
+    foreach (array_values(array_filter((array) ($storyline_data['contacts'] ?? []), 'is_array')) as $contact) {
+      $actor_id = trim((string) ($contact['entity_id'] ?? ''));
+      if ($actor_id === '') {
+        continue;
+      }
+      $contact_ids[$actor_id] = TRUE;
+      $nodes[] = [
+        'id' => 'actor:' . $actor_id,
+        'type' => 'actor',
+        'label' => trim((string) ($contact['display_name'] ?? $actor_id)) ?: $actor_id,
+      ];
+    }
+
+    $chapters = array_values(array_filter((array) ($storyline_data['chapters'] ?? []), 'is_array'));
+    usort($chapters, static fn(array $left, array $right): int => ((int) ($left['order'] ?? 0)) <=> ((int) ($right['order'] ?? 0)));
+    $previous_scene_node = NULL;
+    $position = 0;
+    foreach ($chapters as $chapter_index => $chapter) {
+      $chapter_id = trim((string) ($chapter['chapter_id'] ?? ''));
+      $chapter_order = (int) ($chapter['order'] ?? $chapter_index);
+      if (isset($chapter_orders[$chapter_order])) {
+        $findings[] = $this->buildNarrativeFinding(
+          'error',
+          'DCV_NARRATIVE_DUPLICATE_CHAPTER_ORDER',
+          "Chapters '{$chapter_orders[$chapter_order]}' and '{$chapter_id}' both use order {$chapter_order}.",
+          'chapters',
+          $chapter_id
+        );
+      }
+      $chapter_orders[$chapter_order] = $chapter_id;
+      $chapter_node = 'chapter:' . $chapter_id;
+      $nodes[] = [
+        'id' => $chapter_node,
+        'type' => 'chapter',
+        'label' => trim((string) ($chapter['name'] ?? $chapter_id)) ?: $chapter_id,
+        'order' => $chapter_order,
+      ];
+
+      $scene_orders = [];
+      $scenes = array_values(array_filter((array) ($chapter['scenes'] ?? []), 'is_array'));
+      usort($scenes, static fn(array $left, array $right): int => ((int) ($left['order'] ?? 0)) <=> ((int) ($right['order'] ?? 0)));
+      if ($scenes === []) {
+        $findings[] = $this->buildNarrativeFinding(
+          'warning',
+          'DCV_NARRATIVE_EMPTY_CHAPTER',
+          "Chapter '{$chapter_id}' contains no scenes.",
+          'chapters',
+          $chapter_id
+        );
+      }
+      foreach ($scenes as $scene_index => $scene) {
+        $scene_id = trim((string) ($scene['scene_id'] ?? ''));
+        $scene_order = (int) ($scene['order'] ?? $scene_index);
+        if (isset($scene_orders[$scene_order])) {
+          $findings[] = $this->buildNarrativeFinding(
+            'error',
+            'DCV_NARRATIVE_DUPLICATE_SCENE_ORDER',
+            "Scenes '{$scene_orders[$scene_order]}' and '{$scene_id}' in chapter '{$chapter_id}' both use order {$scene_order}.",
+            'chapters.' . $chapter_id . '.scenes',
+            $scene_id
+          );
+        }
+        $scene_orders[$scene_order] = $scene_id;
+        $scene_ids[$scene_id] = TRUE;
+        $scene_positions[$scene_id] = $position++;
+        $scene_node = 'scene:' . $scene_id;
+        $nodes[] = [
+          'id' => $scene_node,
+          'type' => 'scene',
+          'label' => trim((string) ($scene['name'] ?? $scene_id)) ?: $scene_id,
+          'chapter_id' => $chapter_id,
+          'order' => $scene_order,
+        ];
+        $timeline[] = [
+          'chapter_id' => $chapter_id,
+          'scene_id' => $scene_id,
+          'chapter_order' => $chapter_order,
+          'scene_order' => $scene_order,
+          'title' => trim((string) ($scene['name'] ?? $scene_id)) ?: $scene_id,
+        ];
+        $edges[] = [
+          'source' => $chapter_node,
+          'target' => $scene_node,
+          'type' => 'contains',
+        ];
+        if ($previous_scene_node !== NULL) {
+          $edges[] = [
+            'source' => $previous_scene_node,
+            'target' => $scene_node,
+            'type' => 'authored_order',
+          ];
+        }
+        $previous_scene_node = $scene_node;
+        foreach (array_values(array_filter((array) ($scene['quest_ids'] ?? []), 'is_string')) as $quest_id) {
+          $quest_id = trim($quest_id);
+          if ($quest_id === '') {
+            continue;
+          }
+          $quest_node = 'quest:' . $quest_id;
+          $nodes[$quest_node] = ['id' => $quest_node, 'type' => 'quest', 'label' => $quest_id];
+          $edges[] = ['source' => $scene_node, 'target' => $quest_node, 'type' => 'advances'];
+        }
+      }
+    }
+
+    $branch_decisions = [];
+    $branch_choice_count = 0;
+    $terminal_choice_count = 0;
+    foreach (array_values(array_filter((array) ($storyline_data['questline']['quest_nodes'] ?? []), 'is_array')) as $quest) {
+      $source_quest_id = trim((string) ($quest['quest_id'] ?? ''));
+      foreach (array_values(array_filter((array) ($quest['choices'] ?? []), 'is_array')) as $choice) {
+        $decision_id = trim((string) ($choice['decision_id'] ?? ''));
+        $choice_id = trim((string) ($choice['choice_id'] ?? ''));
+        if ($source_quest_id === '' || $decision_id === '' || $choice_id === '') {
+          continue;
+        }
+        $branch_decisions[$source_quest_id . ':' . $decision_id] = TRUE;
+        $branch_choice_count++;
+        $decision_node = 'decision:' . $source_quest_id . ':' . $decision_id;
+        $choice_node = 'choice:' . $source_quest_id . ':' . $decision_id . ':' . $choice_id;
+        $nodes[] = [
+          'id' => $decision_node,
+          'type' => 'decision',
+          'label' => $decision_id,
+          'source_quest_id' => $source_quest_id,
+        ];
+        $nodes[] = [
+          'id' => $choice_node,
+          'type' => 'choice',
+          'label' => trim((string) ($choice['label'] ?? $choice_id)) ?: $choice_id,
+          'trigger' => $choice['trigger'] ?? [],
+          'effects' => $choice['effects'] ?? [],
+        ];
+        $edges[] = ['source' => 'quest:' . $source_quest_id, 'target' => $decision_node, 'type' => 'presents_decision'];
+        $edges[] = ['source' => $decision_node, 'target' => $choice_node, 'type' => 'offers_choice'];
+        if (($choice['terminal'] ?? FALSE) === TRUE) {
+          $terminal_choice_count++;
+          $outcome_node = 'outcome:' . $source_quest_id . ':' . $decision_id . ':' . $choice_id;
+          $nodes[] = [
+            'id' => $outcome_node,
+            'type' => 'terminal_outcome',
+            'label' => trim((string) ($choice['effects']['summary'] ?? 'Storyline ending')) ?: 'Storyline ending',
+          ];
+          $edges[] = ['source' => $choice_node, 'target' => $outcome_node, 'type' => 'terminal_transition'];
+        }
+        else {
+          $edges[] = [
+            'source' => $choice_node,
+            'target' => 'quest:' . trim((string) ($choice['target_quest_id'] ?? '')),
+            'type' => 'conditional_transition',
+            'target_scene_id' => trim((string) ($choice['target_scene_id'] ?? '')),
+          ];
+        }
+        foreach (array_values(array_filter((array) ($choice['effects']['actors'] ?? []), 'is_array')) as $effect) {
+          $edges[] = [
+            'source' => $choice_node,
+            'target' => 'actor:' . trim((string) ($effect['actor_id'] ?? '')),
+            'type' => 'affects_actor',
+            'effect' => trim((string) ($effect['effect'] ?? '')),
+          ];
+        }
+        foreach (array_values(array_filter((array) ($choice['effects']['environment'] ?? []), 'is_array')) as $effect) {
+          $target = 'environment:' . trim((string) ($effect['target_type'] ?? '')) . ':' . trim((string) ($effect['target_id'] ?? ''));
+          $nodes[] = ['id' => $target, 'type' => 'environment', 'label' => trim((string) ($effect['target_id'] ?? ''))];
+          $edges[] = [
+            'source' => $choice_node,
+            'target' => $target,
+            'type' => 'affects_environment',
+            'effect' => trim((string) ($effect['effect'] ?? '')),
+          ];
+        }
+        foreach (array_values(array_filter((array) ($choice['effects']['storyline'] ?? []), 'is_array')) as $effect) {
+          $target = 'storyline_effect:' . trim((string) ($effect['target_type'] ?? '')) . ':' . trim((string) ($effect['target_id'] ?? ''));
+          $nodes[] = ['id' => $target, 'type' => 'storyline_implication', 'label' => trim((string) ($effect['effect'] ?? ''))];
+          $edges[] = [
+            'source' => $choice_node,
+            'target' => $target,
+            'type' => 'causes_storyline_implication',
+            'operation' => trim((string) ($effect['operation'] ?? '')),
+            'follow_up_required' => ($effect['follow_up_required'] ?? FALSE) === TRUE,
+          ];
+        }
+      }
+    }
+
+    $annotations = is_array($storyline_data['metadata']['storyline_analysis']['scene_annotations'] ?? NULL)
+      ? $storyline_data['metadata']['storyline_analysis']['scene_annotations']
+      : [];
+    $annotated_conflict_scenes = [];
+    $relationship_state = [];
+    foreach ($annotations as $scene_id => $annotation) {
+      if (!is_array($annotation)) {
+        continue;
+      }
+      $scene_id = trim((string) $scene_id);
+      if (!isset($scene_ids[$scene_id])) {
+        $findings[] = $this->buildNarrativeFinding(
+          'error',
+          'DCV_NARRATIVE_ANNOTATION_UNKNOWN_SCENE',
+          "Narrative annotation references unknown scene '{$scene_id}'.",
+          'metadata.storyline_analysis.scene_annotations',
+          $scene_id
+        );
+        continue;
+      }
+      if (trim((string) ($annotation['central_conflict'] ?? '')) !== '') {
+        $annotated_conflict_scenes[$scene_id] = TRUE;
+      }
+      foreach (array_values(array_filter((array) ($annotation['character_ids'] ?? []), 'is_string')) as $actor_id) {
+        $actor_id = trim($actor_id);
+        if (!isset($contact_ids[$actor_id])) {
+          $findings[] = $this->buildNarrativeFinding(
+            'error',
+            'DCV_NARRATIVE_UNKNOWN_ACTOR',
+            "Scene '{$scene_id}' references actor '{$actor_id}', which is not a storyline contact.",
+            'metadata.storyline_analysis.scene_annotations.' . $scene_id . '.character_ids',
+            $actor_id
+          );
+          continue;
+        }
+        $edges[] = ['source' => 'actor:' . $actor_id, 'target' => 'scene:' . $scene_id, 'type' => 'appears_in'];
+      }
+      foreach (array_values(array_filter((array) ($annotation['foreshadowing'] ?? []), 'is_array')) as $foreshadowing) {
+        $target_scene_id = trim((string) ($foreshadowing['target_scene_id'] ?? ''));
+        if ($target_scene_id === '' || !isset($scene_ids[$target_scene_id])) {
+          $findings[] = $this->buildNarrativeFinding(
+            'error',
+            'DCV_NARRATIVE_FORESHADOW_TARGET_UNKNOWN',
+            "Scene '{$scene_id}' foreshadows unknown scene '{$target_scene_id}'.",
+            'metadata.storyline_analysis.scene_annotations.' . $scene_id . '.foreshadowing',
+            $target_scene_id
+          );
+          continue;
+        }
+        if ($scene_positions[$target_scene_id] <= $scene_positions[$scene_id]) {
+          $findings[] = $this->buildNarrativeFinding(
+            'error',
+            'DCV_NARRATIVE_FORESHADOW_TARGET_NOT_LATER',
+            "Scene '{$scene_id}' foreshadows '{$target_scene_id}', but the target is not later in the timeline.",
+            'metadata.storyline_analysis.scene_annotations.' . $scene_id . '.foreshadowing',
+            $target_scene_id
+          );
+        }
+        $edges[] = ['source' => 'scene:' . $scene_id, 'target' => 'scene:' . $target_scene_id, 'type' => 'foreshadows'];
+      }
+      foreach (array_values(array_filter((array) ($annotation['relationship_changes'] ?? []), 'is_array')) as $change_index => $change) {
+        $source_actor_id = trim((string) ($change['source_actor_id'] ?? ''));
+        $target_actor_id = trim((string) ($change['target_actor_id'] ?? ''));
+        $relationship_key = $source_actor_id . '::' . $target_actor_id;
+        foreach ([$source_actor_id, $target_actor_id] as $actor_id) {
+          if ($actor_id === '' || !isset($contact_ids[$actor_id])) {
+            $findings[] = $this->buildNarrativeFinding(
+              'error',
+              'DCV_NARRATIVE_RELATIONSHIP_UNKNOWN_ACTOR',
+              "Relationship change in scene '{$scene_id}' references unknown actor '{$actor_id}'.",
+              'metadata.storyline_analysis.scene_annotations.' . $scene_id . '.relationship_changes.' . $change_index,
+              $actor_id
+            );
+          }
+        }
+        $before = filter_var($change['before'] ?? NULL, FILTER_VALIDATE_INT);
+        $after = filter_var($change['after'] ?? NULL, FILTER_VALIDATE_INT);
+        if ($before === FALSE || $after === FALSE || $before < -100 || $before > 100 || $after < -100 || $after > 100) {
+          $findings[] = $this->buildNarrativeFinding(
+            'error',
+            'DCV_NARRATIVE_RELATIONSHIP_SCORE_INVALID',
+            "Relationship change in scene '{$scene_id}' must use integer before/after scores from -100 to 100.",
+            'metadata.storyline_analysis.scene_annotations.' . $scene_id . '.relationship_changes.' . $change_index,
+            $relationship_key
+          );
+          continue;
+        }
+        if (isset($relationship_state[$relationship_key]) && $relationship_state[$relationship_key] !== $before) {
+          $findings[] = $this->buildNarrativeFinding(
+            'error',
+            'DCV_NARRATIVE_RELATIONSHIP_DISCONTINUITY',
+            "Relationship '{$relationship_key}' starts scene '{$scene_id}' at {$before}, but its prior value is {$relationship_state[$relationship_key]}.",
+            'metadata.storyline_analysis.scene_annotations.' . $scene_id . '.relationship_changes.' . $change_index,
+            $relationship_key
+          );
+        }
+        $relationship_state[$relationship_key] = $after;
+        $edges[] = [
+          'source' => 'actor:' . $source_actor_id,
+          'target' => 'actor:' . $target_actor_id,
+          'type' => 'relationship',
+          'scene_id' => $scene_id,
+          'before' => $before,
+          'after' => $after,
+        ];
+      }
+    }
+
+    $conflicts = array_values(array_filter((array) ($storyline_data['metadata']['storyline_analysis']['conflicts'] ?? []), 'is_array'));
+    $conflict_ids = [];
+    foreach ($conflicts as $conflict_index => $conflict) {
+      $conflict_id = trim((string) ($conflict['conflict_id'] ?? ''));
+      if ($conflict_id === '' || isset($conflict_ids[$conflict_id])) {
+        $findings[] = $this->buildNarrativeFinding(
+          'error',
+          'DCV_NARRATIVE_CONFLICT_ID_INVALID',
+          $conflict_id === '' ? 'Narrative conflict_id is required.' : "Narrative conflict_id '{$conflict_id}' is duplicated.",
+          'metadata.storyline_analysis.conflicts.' . $conflict_index,
+          $conflict_id
+        );
+        continue;
+      }
+      $conflict_ids[$conflict_id] = TRUE;
+      $conflict_node = 'conflict:' . $conflict_id;
+      $status = trim((string) ($conflict['status'] ?? 'active')) ?: 'active';
+      if (!in_array($status, ['active', 'resolved', 'intentional_open_thread'], TRUE)) {
+        $findings[] = $this->buildNarrativeFinding(
+          'error',
+          'DCV_NARRATIVE_CONFLICT_STATUS_INVALID',
+          "Conflict '{$conflict_id}' has unsupported status '{$status}'.",
+          'metadata.storyline_analysis.conflicts.' . $conflict_index . '.status',
+          $conflict_id
+        );
+      }
+      $introduced_scene_id = trim((string) ($conflict['introduced_scene_id'] ?? ''));
+      $resolved_scene_id = trim((string) ($conflict['resolved_scene_id'] ?? ''));
+      $conflict_actor_ids = array_values(array_filter((array) ($conflict['actor_ids'] ?? []), 'is_string'));
+      if ($conflict_actor_ids === []) {
+        $findings[] = $this->buildNarrativeFinding(
+          'warning',
+          'DCV_NARRATIVE_CONFLICT_ACTORS_MISSING',
+          "Conflict '{$conflict_id}' has no actor participants.",
+          'metadata.storyline_analysis.conflicts.' . $conflict_index . '.actor_ids',
+          $conflict_id
+        );
+      }
+      foreach ($conflict_actor_ids as $actor_id) {
+        $actor_id = trim($actor_id);
+        if (!isset($contact_ids[$actor_id])) {
+          $findings[] = $this->buildNarrativeFinding(
+            'error',
+            'DCV_NARRATIVE_CONFLICT_UNKNOWN_ACTOR',
+            "Conflict '{$conflict_id}' references unknown actor '{$actor_id}'.",
+            'metadata.storyline_analysis.conflicts.' . $conflict_index . '.actor_ids',
+            $actor_id
+          );
+        }
+      }
+      if (!isset($scene_ids[$introduced_scene_id])) {
+        $findings[] = $this->buildNarrativeFinding(
+          'error',
+          'DCV_NARRATIVE_CONFLICT_INTRODUCTION_UNKNOWN',
+          "Conflict '{$conflict_id}' has unknown introduction scene '{$introduced_scene_id}'.",
+          'metadata.storyline_analysis.conflicts.' . $conflict_index . '.introduced_scene_id',
+          $introduced_scene_id
+        );
+      }
+      else {
+        unset($annotated_conflict_scenes[$introduced_scene_id]);
+      }
+      $previous_conflict_position = $scene_positions[$introduced_scene_id] ?? NULL;
+      $has_escalations = FALSE;
+      foreach (array_values(array_filter((array) ($conflict['escalation_scene_ids'] ?? []), 'is_string')) as $escalation_index => $escalation_scene_id) {
+        $escalation_scene_id = trim($escalation_scene_id);
+        if (!isset($scene_positions[$escalation_scene_id])) {
+          $findings[] = $this->buildNarrativeFinding(
+            'error',
+            'DCV_NARRATIVE_CONFLICT_ESCALATION_UNKNOWN',
+            "Conflict '{$conflict_id}' has unknown escalation scene '{$escalation_scene_id}'.",
+            'metadata.storyline_analysis.conflicts.' . $conflict_index . '.escalation_scene_ids.' . $escalation_index,
+            $escalation_scene_id
+          );
+          continue;
+        }
+        $has_escalations = TRUE;
+        if ($previous_conflict_position !== NULL && $scene_positions[$escalation_scene_id] <= $previous_conflict_position) {
+          $findings[] = $this->buildNarrativeFinding(
+            'error',
+            'DCV_NARRATIVE_CONFLICT_ESCALATION_OUT_OF_ORDER',
+            "Conflict '{$conflict_id}' escalation scene '{$escalation_scene_id}' is not later than the prior conflict beat.",
+            'metadata.storyline_analysis.conflicts.' . $conflict_index . '.escalation_scene_ids.' . $escalation_index,
+            $escalation_scene_id
+          );
+        }
+        $previous_conflict_position = $scene_positions[$escalation_scene_id];
+        unset($annotated_conflict_scenes[$escalation_scene_id]);
+        $edges[] = ['source' => $conflict_node, 'target' => 'scene:' . $escalation_scene_id, 'type' => 'escalates_at'];
+      }
+      if ($resolved_scene_id !== '' && !isset($scene_ids[$resolved_scene_id])) {
+        $findings[] = $this->buildNarrativeFinding(
+          'error',
+          'DCV_NARRATIVE_CONFLICT_RESOLUTION_UNKNOWN',
+          "Conflict '{$conflict_id}' has unknown resolution scene '{$resolved_scene_id}'.",
+          'metadata.storyline_analysis.conflicts.' . $conflict_index . '.resolved_scene_id',
+          $resolved_scene_id
+        );
+      }
+      elseif ($resolved_scene_id !== '') {
+        unset($annotated_conflict_scenes[$resolved_scene_id]);
+      }
+      if (
+        isset($scene_positions[$introduced_scene_id], $scene_positions[$resolved_scene_id])
+        && $scene_positions[$resolved_scene_id] < $scene_positions[$introduced_scene_id]
+      ) {
+        $findings[] = $this->buildNarrativeFinding(
+          'error',
+          'DCV_NARRATIVE_CONFLICT_RESOLVED_BEFORE_INTRODUCTION',
+          "Conflict '{$conflict_id}' resolves before it is introduced.",
+          'metadata.storyline_analysis.conflicts.' . $conflict_index,
+          $conflict_id
+        );
+      }
+      if (
+        $has_escalations
+        && $resolved_scene_id !== ''
+        && $previous_conflict_position !== NULL
+        && isset($scene_positions[$resolved_scene_id])
+        && $scene_positions[$resolved_scene_id] <= $previous_conflict_position
+      ) {
+        $findings[] = $this->buildNarrativeFinding(
+          'error',
+          'DCV_NARRATIVE_CONFLICT_RESOLUTION_OUT_OF_ORDER',
+          "Conflict '{$conflict_id}' resolution scene '{$resolved_scene_id}' is not later than its final escalation.",
+          'metadata.storyline_analysis.conflicts.' . $conflict_index . '.resolved_scene_id',
+          $resolved_scene_id
+        );
+      }
+      if ($status === 'resolved' && $resolved_scene_id === '') {
+        $findings[] = $this->buildNarrativeFinding(
+          'error',
+          'DCV_NARRATIVE_CONFLICT_RESOLUTION_REQUIRED',
+          "Resolved conflict '{$conflict_id}' requires resolved_scene_id.",
+          'metadata.storyline_analysis.conflicts.' . $conflict_index . '.resolved_scene_id',
+          $conflict_id
+        );
+      }
+      if (!in_array($status, ['resolved', 'intentional_open_thread'], TRUE) && $resolved_scene_id === '') {
+        $findings[] = $this->buildNarrativeFinding(
+          'warning',
+          'DCV_NARRATIVE_CONFLICT_UNRESOLVED',
+          "Conflict '{$conflict_id}' remains unresolved at the end of the authored timeline.",
+          'metadata.storyline_analysis.conflicts.' . $conflict_index,
+          $conflict_id
+        );
+      }
+      $nodes[] = [
+        'id' => $conflict_node,
+        'type' => 'conflict',
+        'label' => trim((string) ($conflict['title'] ?? $conflict_id)) ?: $conflict_id,
+        'status' => $status,
+      ];
+      if (isset($scene_ids[$introduced_scene_id])) {
+        $edges[] = ['source' => 'scene:' . $introduced_scene_id, 'target' => $conflict_node, 'type' => 'introduces_conflict'];
+      }
+      if ($resolved_scene_id !== '' && isset($scene_ids[$resolved_scene_id])) {
+        $edges[] = ['source' => $conflict_node, 'target' => 'scene:' . $resolved_scene_id, 'type' => 'resolved_by'];
+      }
+    }
+    foreach (array_keys($annotated_conflict_scenes) as $scene_id) {
+      $findings[] = $this->buildNarrativeFinding(
+        'warning',
+        'DCV_NARRATIVE_CONFLICT_ARC_MISSING',
+        "Scene '{$scene_id}' declares a central conflict but no conflict arc is introduced there.",
+        'metadata.storyline_analysis.scene_annotations.' . $scene_id . '.central_conflict',
+        $scene_id
+      );
+    }
+
+    $nodes = array_values(array_reduce($nodes, static function (array $carry, array $node): array {
+      $carry[(string) ($node['id'] ?? count($carry))] = $node;
+      return $carry;
+    }, []));
+    return [
+      'schema_version' => 'storyline-narrative-analysis-v1',
+      'timeline' => $timeline,
+      'graph' => [
+        'nodes' => $nodes,
+        'edges' => $edges,
+      ],
+      'conflicts' => $conflicts,
+      'relationship_state' => $relationship_state,
+      'findings' => $findings,
+      'metrics' => [
+        'chapter_count' => count($chapters),
+        'scene_count' => count($scene_ids),
+        'actor_count' => count($contact_ids),
+        'conflict_count' => count($conflicts),
+        'branch_decision_count' => count($branch_decisions),
+        'branch_choice_count' => $branch_choice_count,
+        'terminal_choice_count' => $terminal_choice_count,
+        'unresolved_conflict_count' => count(array_filter($conflicts, static fn(array $conflict): bool => ($conflict['status'] ?? '') !== 'resolved')),
+        'graph_node_count' => count($nodes),
+        'graph_edge_count' => count($edges),
+      ],
+    ];
+  }
+
+  /**
+   * Create one structured, field-linked narrative finding.
+   */
+  protected function buildNarrativeFinding(
+    string $severity,
+    string $code,
+    string $message,
+    string $path,
+    string $entity_id
+  ): array {
+    return [
+      'severity' => $severity,
+      'code' => $code,
+      'message' => $message,
+      'path' => $path,
+      'entity_id' => $entity_id,
     ];
   }
 
@@ -1237,6 +1848,7 @@ class StorylineManagerService {
     }
 
     $errors = [];
+    $dungeon_room_ids = [];
     foreach ($this->extractReferencedDungeonIds($storyline_data) as $dungeon_id) {
       $dungeon_row = $this->loadCanonicalDungeonEntity($dungeon_id);
       if (!is_array($dungeon_row)) {
@@ -1250,21 +1862,19 @@ class StorylineManagerService {
         continue;
       }
 
-      $entry_room = trim((string) ($dungeon_data['entry_room'] ?? ''));
-      $room_ids = array_values(array_filter(array_map(
-        'strval',
-        is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : []
-      ), static fn(string $id): bool => trim($id) !== ''));
-      $room_ids = array_values(array_unique($room_ids));
+      $room_contract = $this->resolveCanonicalDungeonRoomContract($dungeon_data);
+      $entry_room = $room_contract['entry_room_id'];
+      $room_ids = $room_contract['room_ids'];
+      $dungeon_room_ids[$dungeon_id] = array_fill_keys($room_ids, TRUE);
 
       if ($room_ids === []) {
-        $errors[] = "dungeon '{$dungeon_id}': dungeon_data.rooms must define at least one room.";
+        $errors[] = "dungeon '{$dungeon_id}': dungeon_data must define at least one room.";
       }
       if ($entry_room === '') {
-        $errors[] = "dungeon '{$dungeon_id}': dungeon_data.entry_room is required.";
+        $errors[] = "dungeon '{$dungeon_id}': dungeon_data must define an entry room.";
       }
       elseif ($room_ids !== [] && !in_array($entry_room, $room_ids, TRUE)) {
-        $errors[] = "dungeon '{$dungeon_id}': dungeon_data.entry_room '{$entry_room}' must be listed in dungeon_data.rooms.";
+        $errors[] = "dungeon '{$dungeon_id}': entry room '{$entry_room}' must be included in its rooms.";
       }
 
       foreach ($room_ids as $room_id) {
@@ -1284,6 +1894,75 @@ class StorylineManagerService {
       }
     }
 
+    foreach ((array) ($storyline_data['asset_references'] ?? []) as $index => $reference) {
+      if (
+        !is_array($reference)
+        || strtolower(trim((string) ($reference['asset_type'] ?? ''))) !== 'room'
+      ) {
+        continue;
+      }
+      $room_id = trim((string) ($reference['asset_id'] ?? ''));
+      $dungeon_id = trim((string) ($reference['link_data']['dungeon_id'] ?? ''));
+      $path = "asset_references[{$index}]";
+      if ($room_id === '' || $dungeon_id === '') {
+        continue;
+      }
+      if (!isset($dungeon_room_ids[$dungeon_id])) {
+        $errors[] = "{$path}: room '{$room_id}' references dungeon '{$dungeon_id}' without a valid canonical dungeon-room contract.";
+        continue;
+      }
+      if (!isset($dungeon_room_ids[$dungeon_id][$room_id])) {
+        $errors[] = "{$path}: room '{$room_id}' is not placed in its declared dungeon '{$dungeon_id}'. Separate sites must use separate dungeons connected through the shared travel hub.";
+      }
+    }
+
+    return array_values(array_unique($errors));
+  }
+
+  /**
+   * Validate every authored Storyline Builder room against its declared site.
+   *
+   * @param array<int, mixed> $rooms
+   *   Raw objects.rooms.generation_specs rows.
+   *
+   * @return array<int, string>
+   *   Blocking room-to-dungeon binding errors.
+   */
+  public function validateAuthoredRoomDungeonBindings(array $rooms): array {
+    $errors = [];
+    $dungeon_contracts = [];
+    foreach ($rooms as $index => $room) {
+      if (!is_array($room)) {
+        continue;
+      }
+      $room_id = trim((string) ($room['room_id'] ?? ''));
+      $dungeon_id = trim((string) ($room['dungeon_id'] ?? ''));
+      $path = "objects.rooms.generation_specs[{$index}]";
+      if ($room_id === '' || $dungeon_id === '') {
+        $errors[] = "{$path}: room_id and dungeon_id are required for site validation.";
+        continue;
+      }
+      if (!array_key_exists($dungeon_id, $dungeon_contracts)) {
+        $dungeon_row = $this->loadCanonicalDungeonEntity($dungeon_id);
+        if (!is_array($dungeon_row)) {
+          $dungeon_contracts[$dungeon_id] = NULL;
+        }
+        else {
+          $dungeon_data = $this->decodeJsonArrayValue($dungeon_row['dungeon_data'] ?? NULL);
+          $contract = $dungeon_data === []
+            ? ['room_ids' => []]
+            : $this->resolveCanonicalDungeonRoomContract($dungeon_data);
+          $dungeon_contracts[$dungeon_id] = array_fill_keys($contract['room_ids'], TRUE);
+        }
+      }
+      if ($dungeon_contracts[$dungeon_id] === NULL) {
+        $errors[] = "{$path}: declared dungeon '{$dungeon_id}' does not have a canonical dungeon contract.";
+        continue;
+      }
+      if (!isset($dungeon_contracts[$dungeon_id][$room_id])) {
+        $errors[] = "{$path}: room '{$room_id}' is not placed in declared dungeon '{$dungeon_id}'. Use separate dungeons for non-contiguous sites and connect them through the shared travel hub.";
+      }
+    }
     return array_values(array_unique($errors));
   }
 
@@ -1387,6 +2066,36 @@ class StorylineManagerService {
      */
     protected function validateReferencedNpcLikeEntityContractStub(string $entity_type, string $entity_id, array $context): array {
       $errors = [];
+      if ($this->canonicalDefinitions !== NULL) {
+        $families = $entity_type === 'creature' ? ['creature'] : ['actor'];
+        foreach ($families as $family) {
+          if ($this->canonicalDefinitions->catalogEntry($family, $entity_id) === NULL) {
+            continue;
+          }
+
+          $entry = $this->canonicalDefinitions->loadCanonicalEntry($family, $entity_id);
+          $definition = $entry['schema_data'];
+          if ($family === 'actor') {
+            $definition = [
+              'actor_id' => $entry['definition_id'],
+              'version' => $entry['version'],
+              'actor_type' => $entry['category'],
+              'display_name' => $entry['name'],
+              'source_module' => $entry['source_module'],
+              'state_data' => $entry['schema_data'],
+            ];
+            if (is_array($entry['metadata'] ?? NULL)) {
+              $definition['metadata'] = $entry['metadata'];
+            }
+          }
+          foreach ($this->canonicalDefinitions->validateDefinition($family, $definition) as $finding) {
+            $message = trim((string) ($finding['message'] ?? $finding['code'] ?? "Canonical {$family} definition is invalid."));
+            $errors[] = $this->formatEntityTypeContractError($entity_type, $entity_id, $context, $message);
+          }
+          return $errors;
+        }
+      }
+
       $character_row = $this->loadCanonicalCharacterEntityByInstanceId($entity_id);
       $registry_types = $this->resolveNpcLikeRegistryTypes($entity_type);
       $registry_row = $this->loadCanonicalRegistryEntityByTypes($registry_types, $entity_id);
@@ -1444,9 +2153,9 @@ class StorylineManagerService {
      */
     protected function resolveNpcLikeRegistryTypes(string $entity_type): array {
       return match ($entity_type) {
-        'creature' => ['creature', 'npc'],
-        'character', 'character_group', 'campaign_npc', 'npc' => ['npc', 'creature'],
-        default => ['npc', 'creature'],
+        'creature' => ['creature'],
+        'character', 'character_group', 'campaign_npc', 'npc' => ['npc'],
+        default => ['npc'],
       };
     }
 
@@ -1489,6 +2198,9 @@ class StorylineManagerService {
      *   Validation errors.
      */
     protected function validateReferencedItemEntityContractStub(string $entity_type, string $entity_id, array $context): array {
+      if ($this->canonicalDefinitions === NULL) {
+        return [$this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'CanonicalDefinitionService dependency is missing; cannot validate the item definition.')];
+      }
       $row = $this->loadCanonicalRegistryEntity('item', $entity_id);
       if ($row === NULL) {
         return [$this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'referenced item is missing from canonical registry.')];
@@ -1500,20 +2212,10 @@ class StorylineManagerService {
       }
 
       $errors = [];
-      $validation = $this->stateValidationService->validateItemDefinition($schema_data);
-      if (empty($validation['valid'])) {
-        foreach (array_values(array_filter(array_map('strval', (array) ($validation['errors'] ?? [])))) as $error) {
-          $errors[] = $this->formatEntityTypeContractError($entity_type, $entity_id, $context, $error);
-        }
+      foreach ($this->canonicalDefinitions->validateDefinition('item', $schema_data) as $finding) {
+        $message = trim((string) ($finding['message'] ?? $finding['code'] ?? 'Canonical item definition is invalid.'));
+        $errors[] = $this->formatEntityTypeContractError($entity_type, $entity_id, $context, $message);
       }
-
-      $errors = array_merge($errors, $this->validateRegistryContractWithExistingValidator(
-        'item',
-        $schema_data,
-        $entity_type,
-        $entity_id,
-        $context
-      ));
 
       return $errors;
     }
@@ -1577,30 +2279,31 @@ class StorylineManagerService {
         return [$this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'dungeon_data contract is required.')];
       }
 
-      $rooms = array_values(array_filter(array_map('strval', is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : []), static fn(string $id): bool => trim($id) !== ''));
-      $entry_room = trim((string) ($dungeon_data['entry_room'] ?? ''));
+      $room_contract = $this->resolveCanonicalDungeonRoomContract($dungeon_data);
+      $rooms = $room_contract['room_ids'];
+      $entry_room = $room_contract['entry_room_id'];
       $errors = [];
       if ($rooms === []) {
-        $errors[] = $this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'dungeon_data.rooms must define at least one room.');
+        $errors[] = $this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'dungeon_data must define at least one room.');
       }
       if ($entry_room === '') {
-        $errors[] = $this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'dungeon_data.entry_room is required.');
+        $errors[] = $this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'dungeon_data must define an entry room.');
       }
       elseif ($rooms !== [] && !in_array($entry_room, $rooms, TRUE)) {
-        $errors[] = $this->formatEntityTypeContractError($entity_type, $entity_id, $context, "dungeon_data.entry_room '{$entry_room}' must be listed in dungeon_data.rooms.");
+        $errors[] = $this->formatEntityTypeContractError($entity_type, $entity_id, $context, "entry room '{$entry_room}' must be included in its rooms.");
       }
 
       $room_contract_refs = [];
       if ($entry_room !== '') {
         $room_contract_refs[] = [
           'room_id' => $entry_room,
-          'path' => 'dungeon_data.entry_room',
+          'path' => $room_contract['entry_room_path'],
         ];
       }
       foreach ($rooms as $index => $room_id) {
         $room_contract_refs[] = [
           'room_id' => $room_id,
-          'path' => "dungeon_data.rooms[{$index}]",
+          'path' => $room_contract['room_paths'][$room_id] ?? "dungeon_data.rooms[{$index}]",
         ];
       }
 
@@ -2013,6 +2716,197 @@ class StorylineManagerService {
   }
 
   /**
+     * Build the canonical runtime branch context used by gameplay GM and actors.
+     *
+     * Actor-scoped calls expose only resolved effects involving that actor. GM
+     * calls expose current pending decisions and all resolved outcomes.
+     *
+     * @param array<int, string> $actor_refs
+     *   Canonical or runtime actor identifiers. Empty means GM scope.
+     *
+     * @return array<int, array<string, mixed>>
+     *   Runtime branch summaries grouped by storyline.
+     */
+    public function getCampaignStorylineBranchContext(
+      int $campaign_id,
+      string $storyline_id = '',
+      array $actor_refs = [],
+    ): array {
+      $this->assertStorylineStorageReady();
+      $actor_refs = array_values(array_unique(array_filter(array_map(
+        static fn(mixed $value): string => strtolower(trim((string) $value)),
+        $actor_refs,
+      ))));
+      $actor_scoped = $actor_refs !== [];
+
+      $query = $this->database->select('dc_campaign_storylines', 's')
+        ->fields('s', [
+          'storyline_id',
+          'name',
+          'status',
+          'current_chapter_id',
+          'current_scene_id',
+          'storyline_data',
+          'variables',
+        ])
+        ->condition('campaign_id', $campaign_id)
+        ->condition('status', ['bootstrapping', 'available', 'active', 'completed'], 'IN')
+        ->orderBy('is_primary', 'DESC')
+        ->orderBy('priority', 'DESC');
+      if ($storyline_id !== '') {
+        $query->condition('storyline_id', $storyline_id);
+      }
+      $rows = $query->execute()->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+      $quest_statuses = [];
+      if ($this->database->schema()->tableExists('dc_campaign_quests')) {
+        $quest_rows = $this->database->select('dc_campaign_quests', 'q')
+          ->fields('q', ['storyline_id', 'quest_id', 'status'])
+          ->condition('campaign_id', $campaign_id)
+          ->execute()
+          ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+        foreach ($quest_rows as $quest_row) {
+          $quest_statuses[(string) ($quest_row['storyline_id'] ?? '')][(string) ($quest_row['quest_id'] ?? '')]
+            = strtolower(trim((string) ($quest_row['status'] ?? '')));
+        }
+      }
+
+      $contexts = [];
+      foreach ($rows as $row) {
+        $data = $this->decodeJsonColumn($row['storyline_data'] ?? NULL);
+        $variables = $this->decodeJsonColumn($row['variables'] ?? NULL);
+        $selections = is_array($variables['branch_choices'] ?? NULL)
+          ? $variables['branch_choices']
+          : [];
+        $pending = [];
+        $resolved = [];
+        foreach (array_values(array_filter((array) ($data['questline']['quest_nodes'] ?? []), 'is_array')) as $node) {
+          $source_quest_id = trim((string) ($node['quest_id'] ?? ''));
+          $node_is_current = $this->isCurrentBranchNode(
+            $node,
+            (string) ($row['current_chapter_id'] ?? ''),
+            (string) ($row['current_scene_id'] ?? ''),
+            (string) ($quest_statuses[(string) ($row['storyline_id'] ?? '')][$source_quest_id] ?? ''),
+          );
+          foreach (array_values(array_filter((array) ($node['choices'] ?? []), 'is_array')) as $choice) {
+            $decision_id = trim((string) ($choice['decision_id'] ?? ''));
+            $choice_id = trim((string) ($choice['choice_id'] ?? ''));
+            if ($decision_id === '' || $choice_id === '') {
+              continue;
+            }
+            $selected_choice_id = trim((string) ($selections[$decision_id] ?? ''));
+            $summary = [
+              'decision_id' => $decision_id,
+              'choice_id' => $choice_id,
+              'label' => trim((string) ($choice['label'] ?? '')),
+              'source_quest_id' => $source_quest_id,
+              'trigger' => is_array($choice['trigger'] ?? NULL) ? $choice['trigger'] : [],
+              'effects' => is_array($choice['effects'] ?? NULL) ? $choice['effects'] : [],
+              'target_quest_id' => trim((string) ($choice['target_quest_id'] ?? '')),
+              'target_scene_id' => trim((string) ($choice['target_scene_id'] ?? '')),
+              'terminal' => ($choice['terminal'] ?? FALSE) === TRUE,
+            ];
+            if ($selected_choice_id === $choice_id) {
+              if (!$actor_scoped || $this->branchChoiceAffectsActor($summary, $actor_refs)) {
+                if ($actor_scoped) {
+                  $summary['effects'] = [
+                    'summary' => '',
+                    'actors' => array_values(array_filter(
+                      (array) ($summary['effects']['actors'] ?? []),
+                      fn(mixed $effect): bool => is_array($effect)
+                        && $this->branchActorIdMatches((string) ($effect['actor_id'] ?? ''), $actor_refs),
+                    )),
+                    'environment' => [],
+                    'storyline' => [],
+                  ];
+                }
+                $resolved[] = $summary;
+              }
+            }
+            elseif (!$actor_scoped && $selected_choice_id === '' && $node_is_current) {
+              $pending[] = $summary;
+            }
+          }
+        }
+
+        $actor_state = [];
+        if ($actor_scoped && is_array($variables['actors'] ?? NULL)) {
+          foreach ($variables['actors'] as $actor_id => $state) {
+            if ($this->branchActorIdMatches((string) $actor_id, $actor_refs)) {
+              $actor_state[(string) $actor_id] = is_array($state) ? $state : [];
+            }
+          }
+        }
+        if ($pending === [] && $resolved === [] && $actor_state === []) {
+          continue;
+        }
+        $contexts[] = [
+          'storyline_id' => (string) ($row['storyline_id'] ?? ''),
+          'name' => (string) ($row['name'] ?? ''),
+          'status' => (string) ($row['status'] ?? ''),
+          'current_chapter_id' => (string) ($row['current_chapter_id'] ?? ''),
+          'current_scene_id' => (string) ($row['current_scene_id'] ?? ''),
+          'pending_choices' => $pending,
+          'resolved_choices' => $resolved,
+          'actor_state' => $actor_state,
+        ];
+      }
+
+      return $contexts;
+    }
+
+    /**
+     * Whether a branch-bearing quest node is currently actionable.
+     */
+    protected function isCurrentBranchNode(
+      array $node,
+      string $current_chapter_id,
+      string $current_scene_id,
+      string $quest_status,
+    ): bool {
+      if (in_array($quest_status, ['active', 'lead', 'offered', 'available'], TRUE)) {
+        return TRUE;
+      }
+      $scene_id = trim((string) ($node['scene_id'] ?? ''));
+      if ($scene_id !== '' && $scene_id === $current_scene_id) {
+        return TRUE;
+      }
+      $chapter_id = trim((string) ($node['chapter_id'] ?? ''));
+      return $chapter_id !== '' && $chapter_id === $current_chapter_id;
+    }
+
+    /**
+     * Whether one selected choice has an effect scoped to the actor.
+     */
+    protected function branchChoiceAffectsActor(array $choice, array $actor_refs): bool {
+      foreach (array_values(array_filter((array) ($choice['effects']['actors'] ?? []), 'is_array')) as $effect) {
+        if ($this->branchActorIdMatches((string) ($effect['actor_id'] ?? ''), $actor_refs)) {
+          return TRUE;
+        }
+      }
+      return FALSE;
+    }
+
+    /**
+     * Match canonical/runtime actor identifiers without fuzzy substring leaks.
+     */
+    protected function branchActorIdMatches(string $actor_id, array $actor_refs): bool {
+      $actor_id = strtolower(trim($actor_id));
+      if ($actor_id === '') {
+        return FALSE;
+      }
+      $forms = [$actor_id];
+      if (str_starts_with($actor_id, 'npc_') || str_starts_with($actor_id, 'npc-')) {
+        $forms[] = substr($actor_id, 4);
+      }
+      else {
+        $forms[] = 'npc_' . $actor_id;
+        $forms[] = 'npc-' . $actor_id;
+      }
+      return array_intersect(array_values(array_unique($forms)), $actor_refs) !== [];
+    }
+
+  /**
    * Returns storyline journal entries for a campaign instance.
    */
   public function getCampaignStorylineLog(int $campaign_id, string $storyline_id): array {
@@ -2071,6 +2965,14 @@ class StorylineManagerService {
       return NULL;
     }
 
+    if ($primary) {
+      $this->database->update('dc_campaign_storylines')
+        ->fields(['is_primary' => 0, 'updated_at' => time()])
+        ->condition('campaign_id', $campaign_id)
+        ->condition('storyline_id', $storyline_id, '<>')
+        ->execute();
+    }
+
     $this->database->update('dc_campaign_storylines')
       ->fields([
         'status' => 'active',
@@ -2092,6 +2994,55 @@ class StorylineManagerService {
     );
 
     return $this->finalizePersistedCampaignStoryline($campaign_id, $storyline_id);
+  }
+
+  /**
+   * Persist the immutable attachment manifest on a campaign storyline.
+   */
+  public function recordCampaignAttachment(
+    int $campaign_id,
+    string $storyline_id,
+    array $attachment
+  ): array {
+    $storyline = $this->getCampaignStoryline($campaign_id, $storyline_id, FALSE);
+    if (!is_array($storyline)) {
+      throw new \InvalidArgumentException('Campaign storyline not found.', 404);
+    }
+    $storyline_data = is_array($storyline['storyline_data'] ?? NULL)
+      ? $storyline['storyline_data']
+      : [];
+    $storyline_data['metadata'] = is_array($storyline_data['metadata'] ?? NULL)
+      ? $storyline_data['metadata']
+      : [];
+    $storyline_data['metadata']['campaign_attachment'] = $attachment;
+    $encoded = json_encode($storyline_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if (!is_string($encoded)) {
+      throw new \RuntimeException('Campaign storyline attachment metadata could not be encoded.');
+    }
+    $now = time();
+    $this->database->update('dc_campaign_storylines')
+      ->fields([
+        'storyline_data' => $encoded,
+        'contract_hash' => hash('sha256', $encoded),
+        'updated_at' => $now,
+      ])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('storyline_id', $storyline_id)
+      ->execute();
+    $this->synchronizeCampaignValidationIndexes($campaign_id, $storyline_id);
+    $this->logStorylineEvent(
+      $campaign_id,
+      $storyline_id,
+      'storyline_attached_to_campaign',
+      $attachment,
+      'Storyline attachment applied.'
+    );
+
+    $updated = $this->getCampaignStoryline($campaign_id, $storyline_id, FALSE);
+    if (!is_array($updated)) {
+      throw new \RuntimeException('Campaign storyline attachment persistence could not be reloaded.');
+    }
+    return $updated;
   }
 
   /**
@@ -2119,10 +3070,17 @@ class StorylineManagerService {
     $runtime_context = $this->loadRuntimeCampaignContext($campaign_id);
     $runtime_dungeon_id = $runtime_context['runtime_dungeon_id'];
     $active_room_id = $runtime_context['runtime_active_room_id'];
+    $storyline_dungeon_ids = $this->collectActiveStorylineDungeonIds($storyline);
+    $requires_active_room_bridge = $storyline_dungeon_ids === []
+      || in_array($runtime_dungeon_id, $storyline_dungeon_ids, TRUE);
     $connector_definition = $this->resolveConnectorDefinitionService();
     $has_active_room_bridge = FALSE;
     foreach ($room_ids as $storyline_room_id) {
-      $canonical_connectors = $connector_definition->loadCanonicalConnectorsForRoom($storyline_room_id, $runtime_dungeon_id);
+      $canonical_connectors = $this->loadCanonicalConnectorsForAvailabilityCheck(
+        $connector_definition,
+        $storyline_room_id,
+        $runtime_dungeon_id
+      );
       foreach ($canonical_connectors as $connector_row) {
         if (!is_array($connector_row)) {
           continue;
@@ -2141,7 +3099,7 @@ class StorylineManagerService {
         }
       }
     }
-    if (!$has_active_room_bridge) {
+    if ($requires_active_room_bridge && !$has_active_room_bridge) {
       throw new \RuntimeException(sprintf(
         'Active storyline availability contract violation: campaign %d storyline %s has no canonical connector bridge from active room %s to storyline rooms.',
         $campaign_id,
@@ -2164,7 +3122,11 @@ class StorylineManagerService {
 
     $bridged_connection_count = 0;
     foreach ($room_ids as $storyline_room_id) {
-      $canonical_connectors = $connector_definition->loadCanonicalConnectorsForRoom($storyline_room_id, $runtime_dungeon_id);
+      $canonical_connectors = $this->loadCanonicalConnectorsForAvailabilityCheck(
+        $connector_definition,
+        $storyline_room_id,
+        $runtime_dungeon_id
+      );
       foreach ($canonical_connectors as $connector_row) {
         if (!is_array($connector_row)) {
           continue;
@@ -2210,7 +3172,7 @@ class StorylineManagerService {
       }
     }
 
-    if ($bridged_connection_count <= 0) {
+    if ($requires_active_room_bridge && $bridged_connection_count <= 0) {
       throw new \RuntimeException(sprintf(
         'Active storyline availability contract violation: campaign %d storyline %s has no connector bridge from active room %s to storyline rooms.',
         $campaign_id,
@@ -2317,7 +3279,70 @@ class StorylineManagerService {
       }
     }
 
+    $room_mappings = is_array($storyline_data['metadata']['campaign_attachment']['room_mappings'] ?? NULL)
+      ? $storyline_data['metadata']['campaign_attachment']['room_mappings']
+      : [];
+    foreach ($room_mappings as $source_room_id => $runtime_room_id) {
+      $source_room_id = trim((string) $source_room_id);
+      $runtime_room_id = trim((string) $runtime_room_id);
+      if ($source_room_id !== '' && $runtime_room_id !== '' && isset($room_ids[$source_room_id])) {
+        unset($room_ids[$source_room_id]);
+        $room_ids[$runtime_room_id] = TRUE;
+      }
+    }
+
     return array_values(array_keys($room_ids));
+  }
+
+  /**
+   * Collect unique storyline dungeon asset identifiers.
+   *
+   * @return array<int, string>
+   *   Unique dungeon IDs.
+   */
+  protected function collectActiveStorylineDungeonIds(array $storyline): array {
+    $dungeon_ids = [];
+    $asset_links = is_array($storyline['asset_links'] ?? NULL) ? $storyline['asset_links'] : [];
+    foreach ($asset_links as $link) {
+      if (!is_array($link)) {
+        continue;
+      }
+      if (strtolower(trim((string) ($link['asset_type'] ?? ''))) !== 'dungeon') {
+        continue;
+      }
+      $dungeon_id = trim((string) ($link['asset_id'] ?? ''));
+      if ($dungeon_id !== '') {
+        $dungeon_ids[$dungeon_id] = TRUE;
+      }
+    }
+
+    $storyline_data = is_array($storyline['storyline_data'] ?? NULL) ? $storyline['storyline_data'] : [];
+    foreach ((array) ($storyline_data['asset_references'] ?? []) as $reference) {
+      if (!is_array($reference)) {
+        continue;
+      }
+      if (strtolower(trim((string) ($reference['asset_type'] ?? ''))) !== 'dungeon') {
+        continue;
+      }
+      $dungeon_id = trim((string) ($reference['asset_id'] ?? ''));
+      if ($dungeon_id !== '') {
+        $dungeon_ids[$dungeon_id] = TRUE;
+      }
+    }
+
+    foreach ((array) ($storyline_data['metadata']['campaign_attachment']['dungeons'] ?? []) as $mapping) {
+      if (!is_array($mapping)) {
+        continue;
+      }
+      $source_dungeon_id = trim((string) ($mapping['source_dungeon_id'] ?? ''));
+      $runtime_dungeon_id = trim((string) ($mapping['runtime_dungeon_id'] ?? ''));
+      if ($source_dungeon_id !== '' && $runtime_dungeon_id !== '' && isset($dungeon_ids[$source_dungeon_id])) {
+        unset($dungeon_ids[$source_dungeon_id]);
+        $dungeon_ids[$runtime_dungeon_id] = TRUE;
+      }
+    }
+
+    return array_values(array_keys($dungeon_ids));
   }
 
   /**
@@ -2410,6 +3435,7 @@ class StorylineManagerService {
         $room_id
       ));
     }
+    $now = time();
 
     $this->database->merge('dc_campaign_room_states')
       ->keys([
@@ -2436,6 +3462,34 @@ class StorylineManagerService {
       }
     }
     throw new \RuntimeException('Active storyline availability contract violation: ExitConnectorAuthorityService is required.');
+  }
+
+  /**
+   * Load canonical connectors for storyline availability checks.
+   *
+   * Runtime dungeons may use instance UUIDs that do not match canonical
+   * connector dungeon IDs. If strict dungeon-scoped lookup is empty, fall back
+   * to room-scoped canonical lookup.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Canonical connector rows.
+   */
+  protected function loadCanonicalConnectorsForAvailabilityCheck(
+    ExitConnectorAuthorityService $connector_definition,
+    string $room_id,
+    string $runtime_dungeon_id
+  ): array {
+    $room_id = trim($room_id);
+    if ($room_id === '') {
+      return [];
+    }
+
+    $scoped = $connector_definition->loadCanonicalConnectorsForRoom($room_id, $runtime_dungeon_id);
+    if ($scoped !== []) {
+      return $scoped;
+    }
+
+    return $connector_definition->loadCanonicalConnectorsForRoom($room_id);
   }
 
   /**
@@ -2476,6 +3530,27 @@ class StorylineManagerService {
     $current_scene_id = (string) ($changes['scene_id'] ?? ($row['current_scene_id'] ?? ''));
     $status = (string) ($changes['status'] ?? ($row['status'] ?? 'active'));
     $variables = array_replace($variables, is_array($changes['variables'] ?? NULL) ? $changes['variables'] : []);
+    $branch_result = [];
+    if (is_array($changes['branch_choice'] ?? NULL)) {
+      $branch_result = $this->applyStorylineBranchChoice(
+        $storyline_data,
+        $variables,
+        $changes['branch_choice'],
+      );
+      $variables = $branch_result['variables'];
+      if ($branch_result['target_scene_id'] !== '') {
+        $current_scene_id = $branch_result['target_scene_id'];
+      }
+      if ($branch_result['target_chapter_id'] !== '') {
+        $current_chapter_id = $branch_result['target_chapter_id'];
+      }
+      if ($branch_result['terminal']) {
+        $status = 'completed';
+      }
+      if (!empty($branch_result['already_resolved'])) {
+        return $this->getCampaignStoryline($campaign_id, $storyline_id, FALSE);
+      }
+    }
 
     $storyline_data['current_chapter_id'] = $current_chapter_id;
     $storyline_data['current_scene_id'] = $current_scene_id;
@@ -2516,8 +3591,13 @@ class StorylineManagerService {
         'scene_id' => $current_scene_id,
         'status' => $status,
         'variables' => $changes['variables'] ?? [],
+        'branch_choice' => $branch_result === []
+          ? []
+          : array_diff_key($branch_result, ['variables' => TRUE]),
       ],
-      isset($changes['narrative_text']) ? (string) $changes['narrative_text'] : 'Storyline advanced.'
+      isset($changes['narrative_text'])
+        ? (string) $changes['narrative_text']
+        : ($branch_result !== [] ? (string) $branch_result['effects']['summary'] : 'Storyline advanced.')
     );
 
     if ($status === 'active' || !empty($changes['is_primary'])) {
@@ -2525,6 +3605,143 @@ class StorylineManagerService {
     }
 
     return $this->getCampaignStoryline($campaign_id, $storyline_id, FALSE);
+  }
+
+  /**
+   * Resolve one authored branch choice and apply all declared effects.
+   */
+  protected function applyStorylineBranchChoice(
+    array $storyline_data,
+    array $variables,
+    array $selection,
+  ): array {
+    $decision_id = trim((string) ($selection['decision_id'] ?? ''));
+    $choice_id = trim((string) ($selection['choice_id'] ?? ''));
+    if ($decision_id === '' || $choice_id === '') {
+      throw new \InvalidArgumentException('storyline_branch_selection_invalid', 400);
+    }
+    $selected = NULL;
+    $source_quest_id = '';
+    foreach (array_values(array_filter((array) ($storyline_data['questline']['quest_nodes'] ?? []), 'is_array')) as $node) {
+      foreach (array_values(array_filter((array) ($node['choices'] ?? []), 'is_array')) as $choice) {
+        if (
+          trim((string) ($choice['decision_id'] ?? '')) === $decision_id
+          && trim((string) ($choice['choice_id'] ?? '')) === $choice_id
+        ) {
+          if ($selected !== NULL) {
+            throw new \LogicException("storyline_branch_choice_duplicate:{$decision_id}:{$choice_id}");
+          }
+          $selected = $choice;
+          $source_quest_id = trim((string) ($node['quest_id'] ?? ''));
+        }
+      }
+    }
+    if ($selected === NULL) {
+      throw new \OutOfBoundsException("storyline_branch_choice_not_found:{$decision_id}:{$choice_id}");
+    }
+    $existing_choice = trim((string) ($variables['branch_choices'][$decision_id] ?? ''));
+    if ($existing_choice !== '' && $existing_choice !== $choice_id) {
+      throw new \DomainException("storyline_branch_decision_already_resolved:{$decision_id}:{$existing_choice}");
+    }
+    $already_resolved = $existing_choice === $choice_id;
+    $variables['branch_choices'] = is_array($variables['branch_choices'] ?? NULL)
+      ? $variables['branch_choices']
+      : [];
+    $variables['branch_choices'][$decision_id] = $choice_id;
+    $effects = is_array($selected['effects'] ?? NULL) ? $selected['effects'] : [];
+    if (!$already_resolved) {
+      foreach (array_values(array_filter((array) ($effects['actors'] ?? []), 'is_array')) as $effect) {
+        $actor_id = trim((string) ($effect['actor_id'] ?? ''));
+        $variables['actors'][$actor_id] = $this->applyStorylineBranchStateChanges(
+          is_array($variables['actors'][$actor_id] ?? NULL) ? $variables['actors'][$actor_id] : [],
+          $effect['state_changes'] ?? [],
+        );
+      }
+      foreach (array_values(array_filter((array) ($effects['environment'] ?? []), 'is_array')) as $effect) {
+        $target_type = trim((string) ($effect['target_type'] ?? ''));
+        $target_id = trim((string) ($effect['target_id'] ?? ''));
+        $variables['environment'][$target_type][$target_id] = $this->applyStorylineBranchStateChanges(
+          is_array($variables['environment'][$target_type][$target_id] ?? NULL)
+            ? $variables['environment'][$target_type][$target_id]
+            : [],
+          $effect['state_changes'] ?? [],
+        );
+      }
+      foreach (array_values(array_filter((array) ($effects['storyline'] ?? []), 'is_array')) as $effect) {
+        $target_type = trim((string) ($effect['target_type'] ?? ''));
+        $target_id = trim((string) ($effect['target_id'] ?? ''));
+        $variables['storyline'][$target_type][$target_id] = $this->applyStorylineBranchStateChanges(
+          is_array($variables['storyline'][$target_type][$target_id] ?? NULL)
+            ? $variables['storyline'][$target_type][$target_id]
+            : [],
+          $effect['state_changes'] ?? [],
+        );
+      }
+    }
+    $target_scene_id = trim((string) ($selected['target_scene_id'] ?? ''));
+    $target_chapter_id = '';
+    if ($target_scene_id !== '') {
+      foreach (array_values(array_filter((array) ($storyline_data['chapters'] ?? []), 'is_array')) as $chapter) {
+        foreach (array_values(array_filter((array) ($chapter['scenes'] ?? []), 'is_array')) as $scene) {
+          if (trim((string) ($scene['scene_id'] ?? '')) === $target_scene_id) {
+            $target_chapter_id = trim((string) ($chapter['chapter_id'] ?? ''));
+            break 2;
+          }
+        }
+      }
+    }
+    return [
+      'decision_id' => $decision_id,
+      'choice_id' => $choice_id,
+      'source_quest_id' => $source_quest_id,
+      'target_quest_id' => trim((string) ($selected['target_quest_id'] ?? '')),
+      'target_scene_id' => $target_scene_id,
+      'target_chapter_id' => $target_chapter_id,
+      'terminal' => ($selected['terminal'] ?? FALSE) === TRUE,
+      'already_resolved' => $already_resolved,
+      'trigger' => is_array($selected['trigger'] ?? NULL) ? $selected['trigger'] : [],
+      'effects' => $effects,
+      'variables' => $variables,
+    ];
+  }
+
+  /**
+   * Apply deterministic state-change operations for one branch effect.
+   */
+  protected function applyStorylineBranchStateChanges(array $state, mixed $changes): array {
+    foreach (array_values(array_filter((array) $changes, 'is_array')) as $change) {
+      $key = trim((string) ($change['key'] ?? ''));
+      $operation = trim((string) ($change['operation'] ?? ''));
+      $value = $change['value'] ?? NULL;
+      if ($key === '' || !in_array($operation, ['set', 'increment', 'decrement', 'add', 'remove'], TRUE)) {
+        throw new \LogicException('storyline_branch_state_change_contract_invalid');
+      }
+      if ($operation === 'set') {
+        $state[$key] = $value;
+      }
+      elseif ($operation === 'increment' || $operation === 'decrement') {
+        if (!is_numeric($value) || (isset($state[$key]) && !is_numeric($state[$key]))) {
+          throw new \DomainException("storyline_branch_state_change_numeric_required:{$key}");
+        }
+        $delta = (float) $value * ($operation === 'decrement' ? -1 : 1);
+        $state[$key] = (float) ($state[$key] ?? 0) + $delta;
+      }
+      elseif ($operation === 'add') {
+        $values = is_array($state[$key] ?? NULL) ? $state[$key] : [];
+        if (!in_array($value, $values, TRUE)) {
+          $values[] = $value;
+        }
+        $state[$key] = $values;
+      }
+      else {
+        $values = is_array($state[$key] ?? NULL) ? $state[$key] : [];
+        $state[$key] = array_values(array_filter(
+          $values,
+          static fn(mixed $existing): bool => $existing !== $value,
+        ));
+      }
+    }
+    return $state;
   }
 
   /**
@@ -2630,7 +3847,7 @@ class StorylineManagerService {
 
     $chapters = $this->normalizeChapterDefinitions($definition['chapters'] ?? []);
     $linked_quests = $this->buildLinkedQuestMap($chapters);
-    $questline = $this->buildQuestlineDefinition($chapters, $linked_quests);
+    $questline = $this->normalizeAuthoredQuestlineDefinition($definition['questline'] ?? NULL, $chapters, $linked_quests);
     $asset_references = $this->buildAssetReferenceMap($definition, $chapters, $linked_quests);
     $contacts = $this->normalizeContactDefinitions($definition['contacts'] ?? [], $asset_references);
     $this->backfillQuestGiverLocationAnchors($contacts, $asset_references, $chapters);
@@ -2689,24 +3906,20 @@ class StorylineManagerService {
 
     if ($generation_phase === 'bootstrap') {
       $first_chapter = is_array($chapters[0] ?? NULL) ? $chapters[0] : [];
-      $first_scene = is_array($first_chapter['scenes'][0] ?? NULL) ? $first_chapter['scenes'][0] : [];
       $lead_location_id = $this->resolveStorylineLeadLocationId($definition, $asset_references);
       $speaker_contact = $this->resolvePrimaryQuestGiverContact($contacts);
 
-      if (!is_array($outline['entry_dungeon'] ?? NULL) && $first_chapter !== []) {
+      $entry_dungeon_id = trim((string) ($outline['entry_point']['primary_dungeon_id'] ?? ''));
+      if (!is_array($outline['entry_dungeon'] ?? NULL) && $first_chapter !== [] && $entry_dungeon_id !== '') {
         $chapter_name = trim((string) ($first_chapter['name'] ?? $first_chapter['chapter_id'] ?? 'First Lead'));
-        $chapter_id = trim((string) ($first_chapter['chapter_id'] ?? 'first-lead'));
-        $scene_id = trim((string) ($first_scene['scene_id'] ?? 'first-scene'));
         $entry_point_room_id = trim((string) ($outline['entry_point']['primary_location_id'] ?? ''));
         $style = trim((string) ($tags[0] ?? 'generated lead'));
         $outline['entry_dungeon'] = [
-          'dungeon_id' => $chapter_id !== '' ? $chapter_id : 'generated-entry-dungeon',
+          'dungeon_id' => $entry_dungeon_id,
           'name' => $chapter_name !== '' ? $chapter_name : 'First Lead',
           'style' => $style !== '' ? $style : 'generated lead',
           // Hard contract: entry_dungeon.entrance_room_id must be a room/location id, never a scene id.
-          'entrance_room_id' => $entry_point_room_id !== ''
-            ? $entry_point_room_id
-            : ($scene_id !== '' ? $scene_id : 'generated-entry-room'),
+          'entrance_room_id' => $entry_point_room_id,
           'lead_location_id' => $lead_location_id,
           'lead_location_hint' => 'Start at ' . str_replace('_', ' ', $lead_location_id) . ' and follow the first lead.',
         ];
@@ -2870,10 +4083,6 @@ class StorylineManagerService {
     if ($primary_dungeon_id === '') {
       $primary_dungeon_id = $this->resolveEntryPointPrimaryDungeonId($asset_references, $primary_chapter_id, $primary_scene_id);
     }
-    if ($primary_dungeon_id === '') {
-      $primary_dungeon_id = $primary_chapter_id;
-    }
-
     $broker_contact = $this->resolveBrokerContactForQuestGiver($contacts, $primary_quest_giver_id);
     $broker_id = trim((string) ($entry_point['broker_id'] ?? $broker_contact['entity_id'] ?? ''));
     $broker_name = trim((string) ($entry_point['broker_name'] ?? $broker_contact['display_name'] ?? ''));
@@ -3237,6 +4446,8 @@ class StorylineManagerService {
         'unlocks_after' => $previous ? [$previous] : [],
         'unlocks_to' => $next ? [$next] : [],
         'unlock_condition' => $previous ? 'complete_previous_quest' : 'initially_available',
+        'prerequisite_mode' => 'all',
+        'choices' => [],
       ];
     }
 
@@ -3244,6 +4455,58 @@ class StorylineManagerService {
       'primary_quest_id' => $ordered_quest_ids[0] ?? '',
       'ordered_quest_ids' => $ordered_quest_ids,
       'quest_nodes' => $quest_nodes,
+    ];
+  }
+
+  /**
+   * Preserve an explicitly authored quest graph or derive the linear default.
+   */
+  protected function normalizeAuthoredQuestlineDefinition(mixed $questline, array $chapters, array $linked_quests): array {
+    if (!is_array($questline) || !is_array($questline['quest_nodes'] ?? NULL)) {
+      return $this->buildQuestlineDefinition($chapters, $linked_quests);
+    }
+
+    $nodes = [];
+    foreach (array_values(array_filter($questline['quest_nodes'], 'is_array')) as $node) {
+      $quest_id = trim((string) ($node['quest_id'] ?? ''));
+      if ($quest_id === '') {
+        throw new \InvalidArgumentException('storyline_questline_node_id_required');
+      }
+      $link = is_array($linked_quests[$quest_id] ?? NULL) ? $linked_quests[$quest_id] : [];
+      $nodes[] = [
+        'quest_id' => $quest_id,
+        'chapter_id' => trim((string) ($node['chapter_id'] ?? $link['chapter_id'] ?? '')),
+        'scene_id' => trim((string) ($node['scene_id'] ?? $link['scene_id'] ?? '')),
+        'status' => trim((string) ($node['status'] ?? $link['status'] ?? 'available')) ?: 'available',
+        'unlocks_after' => array_values(array_unique(array_filter(array_map(
+          static fn(mixed $value): string => trim((string) $value),
+          is_array($node['unlocks_after'] ?? NULL) ? $node['unlocks_after'] : []
+        )))),
+        'unlocks_to' => array_values(array_unique(array_filter(array_map(
+          static fn(mixed $value): string => trim((string) $value),
+          is_array($node['unlocks_to'] ?? NULL) ? $node['unlocks_to'] : []
+        )))),
+        'unlock_condition' => trim((string) ($node['unlock_condition'] ?? '')),
+        'prerequisite_mode' => trim((string) ($node['prerequisite_mode'] ?? 'all')) ?: 'all',
+        'choices' => array_values(array_filter(
+          is_array($node['choices'] ?? NULL) ? $node['choices'] : [],
+          'is_array',
+        )),
+      ];
+    }
+
+    $ordered_ids = array_values(array_unique(array_filter(array_map(
+      static fn(mixed $value): string => trim((string) $value),
+      is_array($questline['ordered_quest_ids'] ?? NULL) ? $questline['ordered_quest_ids'] : []
+    ))));
+    if ($ordered_ids === []) {
+      $ordered_ids = array_column($nodes, 'quest_id');
+    }
+
+    return [
+      'primary_quest_id' => trim((string) ($questline['primary_quest_id'] ?? $ordered_ids[0] ?? '')),
+      'ordered_quest_ids' => $ordered_ids,
+      'quest_nodes' => $nodes,
     ];
   }
 
@@ -3599,22 +4862,25 @@ class StorylineManagerService {
     $first_chapter_id = (string) ($first_chapter['chapter_id'] ?? '');
     $first_scene_id = (string) (($first_chapter['scenes'][0]['scene_id'] ?? ''));
     $variables = is_array($options['variables'] ?? NULL) ? $options['variables'] : [];
+    $variables['branch_choices'] = is_array($variables['branch_choices'] ?? NULL)
+      ? $variables['branch_choices']
+      : [];
+    $runtime_metadata = is_array($normalized['metadata'] ?? NULL) ? $normalized['metadata'] : [];
+    $runtime_metadata['template_id'] = (string) ($normalized['template_id'] ?? '');
+    $runtime_metadata['name'] = (string) ($normalized['name'] ?? '');
+    $runtime_metadata['synopsis'] = (string) ($normalized['synopsis'] ?? '');
+    $runtime_metadata['level_range'] = (string) ($normalized['level_range'] ?? '');
+    $runtime_metadata['source'] = (string) ($normalized['source'] ?? '');
+    $runtime_metadata['tags'] = $normalized['tags'] ?? [];
+    $runtime_metadata['goal'] = (string) ($normalized['metadata']['goal'] ?? '');
+    $runtime_metadata['generated_outline'] = is_array($normalized['metadata']['generated_outline'] ?? NULL)
+      ? $normalized['metadata']['generated_outline']
+      : [];
 
     $storyline_data = [
       'schema_version' => self::STORYLINE_RUNTIME_SCHEMA_VERSION,
       'storyline_type' => 'questline',
-      'metadata' => [
-        'template_id' => (string) ($normalized['template_id'] ?? ''),
-        'name' => (string) ($normalized['name'] ?? ''),
-        'synopsis' => (string) ($normalized['synopsis'] ?? ''),
-        'level_range' => (string) ($normalized['level_range'] ?? ''),
-        'source' => (string) ($normalized['source'] ?? ''),
-        'tags' => $normalized['tags'] ?? [],
-        'goal' => (string) ($normalized['metadata']['goal'] ?? ''),
-        'generated_outline' => is_array($normalized['metadata']['generated_outline'] ?? NULL)
-          ? $normalized['metadata']['generated_outline']
-          : [],
-      ],
+      'metadata' => $runtime_metadata,
       'chapters' => $normalized['chapters'] ?? [],
       'linked_quests' => $normalized['linked_quests'] ?? [],
       'questline' => $normalized['questline'] ?? ['primary_quest_id' => '', 'ordered_quest_ids' => [], 'quest_nodes' => []],
@@ -3691,11 +4957,14 @@ class StorylineManagerService {
    * @return array<int, string>
    *   Validation errors for this stage.
    */
-  protected function validateQuestlineProgressionFlow(array $storyline_data): array {
+  protected function validateQuestlineProgressionFlow(array $storyline_data, string $payload_type = 'definition'): array {
     $errors = [];
     $questline = is_array($storyline_data['questline'] ?? NULL) ? $storyline_data['questline'] : [];
     $nodes = array_values(array_filter(is_array($questline['quest_nodes'] ?? NULL) ? $questline['quest_nodes'] : [], 'is_array'));
     if ($nodes === []) {
+      if ($payload_type === 'definition') {
+        $errors[] = 'Questline progression requires at least one quest/task node from hook to storyline completion.';
+      }
       return $errors;
     }
 
@@ -3707,7 +4976,14 @@ class StorylineManagerService {
 
     $node_ids = [];
     $adjacency = [];
+    $prerequisites = [];
     $terminal_nodes = [];
+    $choice_targets = [];
+    $choice_destinations = [];
+    $node_scene_ids = [];
+    $node_chapter_ids = [];
+    $decision_sources = [];
+    $global_choice_ids = [];
     foreach ($nodes as $node) {
       $quest_id = trim((string) ($node['quest_id'] ?? ''));
       if ($quest_id === '') {
@@ -3720,11 +4996,92 @@ class StorylineManagerService {
       }
 
       $node_ids[$quest_id] = TRUE;
+      $node_scene_ids[$quest_id] = trim((string) ($node['scene_id'] ?? $node['required_scene_id'] ?? ''));
+      $node_chapter_ids[$quest_id] = trim((string) ($node['chapter_id'] ?? $node['required_chapter_id'] ?? ''));
       $unlocks_to = array_values(array_filter(array_map('strval', is_array($node['unlocks_to'] ?? NULL) ? $node['unlocks_to'] : []), static fn(string $id): bool => trim($id) !== ''));
       $unlocks_after = array_values(array_filter(array_map('strval', is_array($node['unlocks_after'] ?? NULL) ? $node['unlocks_after'] : []), static fn(string $id): bool => trim($id) !== ''));
       $adjacency[$quest_id] = $unlocks_to;
+      $prerequisites[$quest_id] = $unlocks_after;
+      $prerequisite_mode = trim((string) ($node['prerequisite_mode'] ?? 'all')) ?: 'all';
+      if (!in_array($prerequisite_mode, ['all', 'any'], TRUE)) {
+        $errors[] = "Questline node '{$quest_id}' has invalid prerequisite_mode '{$prerequisite_mode}'.";
+      }
       if ($unlocks_to === []) {
         $terminal_nodes[$quest_id] = TRUE;
+      }
+      $choices = array_values(array_filter(is_array($node['choices'] ?? NULL) ? $node['choices'] : [], 'is_array'));
+      if ($choices !== []) {
+        $decision_choices = [];
+        $seen_choices = [];
+        foreach ($choices as $choice) {
+          $decision_id = trim((string) ($choice['decision_id'] ?? ''));
+          $choice_id = trim((string) ($choice['choice_id'] ?? ''));
+          $choice_key = $decision_id . ':' . $choice_id;
+          if ($decision_id === '' || $choice_id === '') {
+            $errors[] = "Questline node '{$quest_id}' contains a choice without decision_id or choice_id.";
+            continue;
+          }
+          if (isset($global_choice_ids[$choice_id])) {
+            $errors[] = "Branch choice_id '{$choice_id}' must be unique across the storyline.";
+          }
+          $global_choice_ids[$choice_id] = TRUE;
+          if (isset($seen_choices[$choice_key])) {
+            $errors[] = "Questline node '{$quest_id}' duplicates branch choice '{$choice_key}'.";
+          }
+          $seen_choices[$choice_key] = TRUE;
+          $decision_choices[$decision_id][] = $choice_id;
+          if (isset($decision_sources[$decision_id]) && $decision_sources[$decision_id] !== $quest_id) {
+            $errors[] = "Branch decision '{$decision_id}' is declared on multiple source quests.";
+          }
+          $decision_sources[$decision_id] = $quest_id;
+          $label = trim((string) ($choice['label'] ?? ''));
+          $trigger = is_array($choice['trigger'] ?? NULL) ? $choice['trigger'] : [];
+          $effects = is_array($choice['effects'] ?? NULL) ? $choice['effects'] : [];
+          $terminal = ($choice['terminal'] ?? FALSE) === TRUE;
+          $target_quest_id = trim((string) ($choice['target_quest_id'] ?? ''));
+          $target_scene_id = trim((string) ($choice['target_scene_id'] ?? ''));
+          if ($terminal) {
+            $terminal_nodes[$quest_id] = TRUE;
+          }
+          if ($label === '') {
+            $errors[] = "Branch choice '{$choice_key}' on quest '{$quest_id}' is missing its player-facing label.";
+          }
+          $errors = array_merge($errors, $this->validateStorylineBranchTrigger($trigger, $choice_key, $quest_id));
+          $errors = array_merge($errors, $this->validateStorylineBranchEffects($effects, $trigger, $choice_key, $quest_id, $storyline_data));
+          if ($terminal && $target_quest_id !== '') {
+            $errors[] = "Terminal branch choice '{$choice_key}' on quest '{$quest_id}' cannot target another quest.";
+          }
+          if ($terminal && $target_scene_id !== '') {
+            $errors[] = "Terminal branch choice '{$choice_key}' on quest '{$quest_id}' cannot target another scene.";
+          }
+          if (!$terminal && $target_quest_id === '') {
+            $errors[] = "Non-terminal branch choice '{$choice_key}' on quest '{$quest_id}' must target a quest.";
+          }
+          if (!$terminal && $target_scene_id === '') {
+            $errors[] = "Non-terminal branch choice '{$choice_key}' on quest '{$quest_id}' must target a scene.";
+          }
+          if ($target_quest_id !== '') {
+            $choice_targets[$quest_id][] = $target_quest_id;
+            $choice_destinations[] = [
+              'choice_key' => $choice_key,
+              'source_quest_id' => $quest_id,
+              'target_quest_id' => $target_quest_id,
+              'target_scene_id' => $target_scene_id,
+            ];
+          }
+        }
+        foreach ($decision_choices as $decision_id => $choice_ids) {
+          if (count(array_unique($choice_ids)) < 2) {
+            $errors[] = "Branch decision '{$decision_id}' on quest '{$quest_id}' must provide at least two choices.";
+          }
+        }
+        $authored_targets = array_values(array_unique($choice_targets[$quest_id] ?? []));
+        sort($authored_targets);
+        $graph_targets = array_values(array_unique($unlocks_to));
+        sort($graph_targets);
+        if ($authored_targets !== $graph_targets) {
+          $errors[] = "Questline node '{$quest_id}' unlocks_to must exactly match its non-terminal branch choice targets.";
+        }
       }
 
       foreach ($unlocks_after as $prerequisite_id) {
@@ -3734,15 +5091,80 @@ class StorylineManagerService {
       }
     }
 
+    $scene_ids = [];
+    foreach (array_values(array_filter(is_array($storyline_data['chapters'] ?? NULL) ? $storyline_data['chapters'] : [], 'is_array')) as $chapter) {
+      foreach (array_values(array_filter(is_array($chapter['scenes'] ?? NULL) ? $chapter['scenes'] : [], 'is_array')) as $scene) {
+        $scene_id = trim((string) ($scene['scene_id'] ?? ''));
+        if ($scene_id !== '') {
+          $scene_ids[$scene_id] = TRUE;
+          $scene_quest_ids = array_values(array_filter(array_map('strval', is_array($scene['quest_ids'] ?? NULL) ? $scene['quest_ids'] : []), static fn(string $id): bool => trim($id) !== ''));
+          if ($scene_quest_ids === []) {
+            $errors[] = "Scene '{$scene_id}' is missing a quest/task progression gate in quest_ids.";
+          }
+          foreach ($scene_quest_ids as $scene_quest_id) {
+            if (!isset($node_ids[$scene_quest_id])) {
+              $errors[] = "Scene '{$scene_id}' references quest '{$scene_quest_id}' that is not in questline.quest_nodes.";
+            }
+          }
+        }
+      }
+    }
+
     if (!isset($node_ids[$primary_quest_id])) {
       $errors[] = "Questline primary_quest_id '{$primary_quest_id}' is not present in quest_nodes.";
       return $errors;
+    }
+
+    foreach ($node_scene_ids as $quest_id => $node_scene_id) {
+      if ($node_scene_id === '' && $scene_ids !== []) {
+        $errors[] = "Questline node '{$quest_id}' is not anchored to any journal scene.";
+      }
+      elseif ($node_scene_id !== '' && $scene_ids !== [] && !isset($scene_ids[$node_scene_id])) {
+        $errors[] = "Questline node '{$quest_id}' references unknown journal scene '{$node_scene_id}'.";
+      }
     }
 
     foreach ($adjacency as $quest_id => $targets) {
       foreach ($targets as $target_id) {
         if (!isset($node_ids[$target_id])) {
           $errors[] = "Questline node '{$quest_id}' unlocks unknown quest '{$target_id}'.";
+          continue;
+        }
+        foreach ($choice_targets as $quest_id => $targets) {
+          foreach (array_unique($targets) as $target_id) {
+            if (!isset($node_ids[$target_id])) {
+              $errors[] = "Branch choice on quest '{$quest_id}' targets unknown quest '{$target_id}'.";
+            }
+          }
+          foreach ($choice_destinations as $destination) {
+            $target_quest_id = $destination['target_quest_id'];
+            if (
+              isset($node_scene_ids[$target_quest_id])
+              && $destination['target_scene_id'] !== $node_scene_ids[$target_quest_id]
+            ) {
+              $errors[] = sprintf(
+                "Branch choice '%s' targets scene '%s', but destination quest '%s' belongs to scene '%s'.",
+                $destination['choice_key'],
+                $destination['target_scene_id'],
+                $target_quest_id,
+                $node_scene_ids[$target_quest_id],
+              );
+            }
+          }
+        }
+        if (!in_array($quest_id, $prerequisites[$target_id] ?? [], TRUE)) {
+          $errors[] = "Questline edge '{$quest_id}' -> '{$target_id}' is missing the reciprocal unlocks_after reference.";
+        }
+      }
+    }
+    foreach ($prerequisites as $quest_id => $required_ids) {
+      foreach ($required_ids as $required_id) {
+        if (!isset($node_ids[$required_id])) {
+          $errors[] = "Questline node '{$quest_id}' depends on unknown quest '{$required_id}'.";
+          continue;
+        }
+        if (!in_array($quest_id, $adjacency[$required_id] ?? [], TRUE)) {
+          $errors[] = "Questline dependency '{$required_id}' -> '{$quest_id}' is missing the reciprocal unlocks_to reference.";
         }
       }
     }
@@ -3778,8 +5200,284 @@ class StorylineManagerService {
     if ($terminal_nodes === []) {
       $errors[] = 'Questline progression has no terminal quest node; define at least one end-of-storyline quest.';
     }
+    else {
+      $reverse_adjacency = [];
+      foreach ($adjacency as $source_id => $targets) {
+        foreach ($targets as $target_id) {
+          if (isset($node_ids[$target_id])) {
+            $reverse_adjacency[$target_id][] = $source_id;
+          }
+        }
+      }
+      $reaches_terminal = [];
+      $reverse_stack = array_keys($terminal_nodes);
+      while ($reverse_stack !== []) {
+        $current = array_pop($reverse_stack);
+        if (!is_string($current) || $current === '' || isset($reaches_terminal[$current])) {
+          continue;
+        }
+        $reaches_terminal[$current] = TRUE;
+        foreach ($reverse_adjacency[$current] ?? [] as $predecessor) {
+          if (!isset($reaches_terminal[$predecessor])) {
+            $reverse_stack[] = $predecessor;
+          }
+        }
+      }
+      foreach (array_keys($node_ids) as $quest_id) {
+        if (!isset($reaches_terminal[$quest_id])) {
+          $errors[] = "Questline node '{$quest_id}' has no progression path to storyline completion (dead-end or cycle).";
+        }
+      }
+    }
+
+    $cycle_state = [];
+    $detect_cycle = function (string $quest_id, array $trail = []) use (&$detect_cycle, &$cycle_state, &$adjacency, &$node_ids, &$errors): void {
+      $state = $cycle_state[$quest_id] ?? 0;
+      if ($state === 2) {
+        return;
+      }
+      if ($state === 1) {
+        $cycle_path = implode(' -> ', array_merge($trail, [$quest_id]));
+        $errors[] = "Questline progression cycle detected ({$cycle_path}).";
+        return;
+      }
+      $cycle_state[$quest_id] = 1;
+      $next_trail = array_merge($trail, [$quest_id]);
+      foreach ($adjacency[$quest_id] ?? [] as $target_id) {
+        if (isset($node_ids[$target_id])) {
+          $detect_cycle($target_id, $next_trail);
+        }
+      }
+      $cycle_state[$quest_id] = 2;
+    };
+    foreach (array_keys($node_ids) as $quest_id) {
+      if (($cycle_state[$quest_id] ?? 0) === 0) {
+        $detect_cycle($quest_id);
+      }
+    }
+
+    if (($prerequisites[$primary_quest_id] ?? []) !== []) {
+      $errors[] = "Questline primary_quest_id '{$primary_quest_id}' cannot have unlocks_after prerequisites.";
+    }
+
+    $entry_point = is_array($storyline_data['metadata']['generated_outline']['entry_point'] ?? NULL)
+      ? $storyline_data['metadata']['generated_outline']['entry_point']
+      : [];
+    $entry_scene_id = trim((string) ($entry_point['primary_scene_id'] ?? ''));
+    $entry_chapter_id = trim((string) ($entry_point['primary_chapter_id'] ?? ''));
+    $primary_node_scene_id = $node_scene_ids[$primary_quest_id] ?? '';
+    $primary_node_chapter_id = $node_chapter_ids[$primary_quest_id] ?? '';
+    if (
+      $entry_scene_id !== ''
+      && $primary_node_scene_id !== ''
+      && $entry_scene_id !== $primary_node_scene_id
+    ) {
+      $errors[] = "Questline primary quest '{$primary_quest_id}' is anchored to scene '{$primary_node_scene_id}', which does not match entry_point.primary_scene_id '{$entry_scene_id}'.";
+    }
+    if (
+      $entry_chapter_id !== ''
+      && $primary_node_chapter_id !== ''
+      && $entry_chapter_id !== $primary_node_chapter_id
+    ) {
+      $errors[] = "Questline primary quest '{$primary_quest_id}' is anchored to chapter '{$primary_node_chapter_id}', which does not match entry_point.primary_chapter_id '{$entry_chapter_id}'.";
+    }
 
     return array_values(array_unique($errors));
+  }
+
+  /**
+   * Validate one branch trigger contract.
+   */
+  protected function validateStorylineBranchTrigger(array $trigger, string $choice_key, string $quest_id): array {
+    $errors = [];
+    $type = trim((string) ($trigger['type'] ?? ''));
+    $allowed = [
+      'player_choice',
+      'action',
+      'objective_result',
+      'skill_result',
+      'actor_state',
+      'environment_state',
+      'item_state',
+      'timer',
+      'gm_decision',
+    ];
+    if (!in_array($type, $allowed, TRUE)) {
+      $errors[] = "Branch choice '{$choice_key}' on quest '{$quest_id}' has invalid trigger type '{$type}'.";
+    }
+    if (trim((string) ($trigger['condition'] ?? '')) === '') {
+      $errors[] = "Branch choice '{$choice_key}' on quest '{$quest_id}' is missing its trigger condition.";
+    }
+    if (trim((string) ($trigger['source_id'] ?? '')) === '') {
+      $errors[] = "Branch choice '{$choice_key}' on quest '{$quest_id}' is missing its trigger source_id.";
+    }
+    $interaction = trim((string) ($trigger['interaction'] ?? ''));
+    if ($type === 'action' && !in_array($interaction, ['other', 'attacked', 'killed'], TRUE)) {
+      $errors[] = "Branch choice '{$choice_key}' on quest '{$quest_id}' action trigger must classify interaction as other, attacked, or killed.";
+    }
+    return $errors;
+  }
+
+  /**
+   * Validate explicit actor, environment, and storyline implications.
+   */
+  protected function validateStorylineBranchEffects(
+    array $effects,
+    array $trigger,
+    string $choice_key,
+    string $quest_id,
+    array $storyline_data,
+  ): array {
+    $errors = [];
+    $actor_ids = [];
+    foreach (array_values(array_filter((array) ($storyline_data['contacts'] ?? []), 'is_array')) as $contact) {
+      $actor_ids[] = trim((string) ($contact['contact_id'] ?? ''));
+      $actor_ids[] = trim((string) ($contact['entity_id'] ?? ''));
+    }
+    $asset_ids = [];
+    foreach (array_values(array_filter((array) ($storyline_data['asset_references'] ?? []), 'is_array')) as $reference) {
+      $asset_ids[] = trim((string) ($reference['asset_id'] ?? ''));
+    }
+    $chapter_ids = [];
+    $scene_ids = [];
+    foreach (array_values(array_filter((array) ($storyline_data['chapters'] ?? []), 'is_array')) as $chapter) {
+      $chapter_ids[] = trim((string) ($chapter['chapter_id'] ?? ''));
+      foreach (array_values(array_filter((array) ($chapter['scenes'] ?? []), 'is_array')) as $scene) {
+        $scene_ids[] = trim((string) ($scene['scene_id'] ?? ''));
+      }
+    }
+    $task_ids = array_values(array_filter(array_map(
+      static fn(array $node): string => trim((string) ($node['quest_id'] ?? '')),
+      array_values(array_filter((array) ($storyline_data['questline']['quest_nodes'] ?? []), 'is_array')),
+    )));
+    $conflict_ids = array_values(array_filter(array_map(
+      static fn(array $conflict): string => trim((string) ($conflict['conflict_id'] ?? '')),
+      array_values(array_filter((array) ($storyline_data['metadata']['storyline_analysis']['conflicts'] ?? []), 'is_array')),
+    )));
+    if (trim((string) ($effects['summary'] ?? '')) === '') {
+      $errors[] = "Branch choice '{$choice_key}' on quest '{$quest_id}' is missing its effect summary.";
+    }
+    $actor_effects = array_values(array_filter((array) ($effects['actors'] ?? []), 'is_array'));
+    $environment_effects = array_values(array_filter((array) ($effects['environment'] ?? []), 'is_array'));
+    $storyline_effects = array_values(array_filter((array) ($effects['storyline'] ?? []), 'is_array'));
+    foreach ($actor_effects as $index => $effect) {
+      $actor_id = trim((string) ($effect['actor_id'] ?? ''));
+      $interaction = trim((string) ($effect['interaction'] ?? ''));
+      if (trim((string) ($effect['actor_id'] ?? '')) === '' || trim((string) ($effect['effect'] ?? '')) === '') {
+        $errors[] = "Branch choice '{$choice_key}' actor effect {$index} must identify the actor and effect.";
+      }
+      elseif (!in_array($actor_id, $actor_ids, TRUE)) {
+        $errors[] = "Branch choice '{$choice_key}' actor effect {$index} references unknown actor '{$effect['actor_id']}'.";
+      }
+      if (!in_array($interaction, ['other', 'attacked', 'killed'], TRUE)) {
+        $errors[] = "Branch choice '{$choice_key}' actor effect {$index} must classify interaction as other, attacked, or killed.";
+      }
+      if (in_array($interaction, ['attacked', 'killed'], TRUE) && trim((string) ($effect['reaction'] ?? '')) === '') {
+        $errors[] = "Branch choice '{$choice_key}' actor effect {$index} must spell out how '{$actor_id}' reacts when {$interaction}.";
+      }
+      $errors = array_merge($errors, $this->validateStorylineBranchStateChanges($effect['state_changes'] ?? [], "{$choice_key} actor effect {$index}"));
+    }
+    foreach ($environment_effects as $index => $effect) {
+      $target_type = trim((string) ($effect['target_type'] ?? ''));
+      if (!in_array($target_type, ['room', 'dungeon', 'location', 'world'], TRUE)) {
+        $errors[] = "Branch choice '{$choice_key}' environment effect {$index} has invalid target_type '{$target_type}'.";
+      }
+      if (trim((string) ($effect['target_id'] ?? '')) === '' || trim((string) ($effect['effect'] ?? '')) === '') {
+        $errors[] = "Branch choice '{$choice_key}' environment effect {$index} must identify the target and effect.";
+      }
+      elseif ($target_type !== 'world' && !in_array(trim((string) $effect['target_id']), $asset_ids, TRUE)) {
+        $errors[] = "Branch choice '{$choice_key}' environment effect {$index} references unknown {$target_type} '{$effect['target_id']}'.";
+      }
+      $errors = array_merge($errors, $this->validateStorylineBranchStateChanges($effect['state_changes'] ?? [], "{$choice_key} environment effect {$index}"));
+    }
+    foreach ($storyline_effects as $index => $effect) {
+      $target_type = trim((string) ($effect['target_type'] ?? ''));
+      $operation = trim((string) ($effect['operation'] ?? ''));
+      $source_actor_id = trim((string) ($effect['source_actor_id'] ?? ''));
+      if (!in_array($target_type, ['task', 'scene', 'conflict', 'chapter', 'storyline'], TRUE)) {
+        $errors[] = "Branch choice '{$choice_key}' storyline effect {$index} has invalid target_type '{$target_type}'.";
+      }
+      if (!in_array($operation, ['unlock', 'lock', 'reveal', 'conceal', 'redirect', 'escalate', 'resolve', 'set'], TRUE)) {
+        $errors[] = "Branch choice '{$choice_key}' storyline effect {$index} has invalid operation '{$operation}'.";
+      }
+      if (trim((string) ($effect['target_id'] ?? '')) === '' || trim((string) ($effect['effect'] ?? '')) === '') {
+        $errors[] = "Branch choice '{$choice_key}' storyline effect {$index} must identify the target and implication.";
+      }
+      else {
+        $target_id = trim((string) $effect['target_id']);
+        $known_targets = match ($target_type) {
+          'task' => $task_ids,
+          'scene' => $scene_ids,
+          'conflict' => $conflict_ids,
+          'chapter' => $chapter_ids,
+          'storyline' => array_values(array_filter([
+            trim((string) ($storyline_data['template_id'] ?? '')),
+            'storyline',
+          ])),
+          default => [],
+        };
+        if (!in_array($target_id, $known_targets, TRUE)) {
+          $errors[] = "Branch choice '{$choice_key}' storyline effect {$index} references unknown {$target_type} '{$target_id}'.";
+        }
+      }
+      if (!is_bool($effect['follow_up_required'] ?? NULL)) {
+        $errors[] = "Branch choice '{$choice_key}' storyline effect {$index} must declare follow_up_required.";
+      }
+      if ($source_actor_id !== '' && !in_array($source_actor_id, $actor_ids, TRUE)) {
+        $errors[] = "Branch choice '{$choice_key}' storyline effect {$index} references unknown source actor '{$source_actor_id}'.";
+      }
+      $errors = array_merge($errors, $this->validateStorylineBranchStateChanges($effect['state_changes'] ?? [], "{$choice_key} storyline effect {$index}"));
+    }
+    if (($actor_effects !== [] || $environment_effects !== []) && $storyline_effects === []) {
+      $errors[] = "Branch choice '{$choice_key}' affects actors or environment but does not call out any storyline implication.";
+    }
+    $trigger_interaction = trim((string) ($trigger['interaction'] ?? ''));
+    $trigger_actor_id = trim((string) ($trigger['source_id'] ?? ''));
+    if (($trigger['type'] ?? '') === 'action' && in_array($trigger_interaction, ['attacked', 'killed'], TRUE)) {
+      $matching_actor_effects = array_filter(
+        $actor_effects,
+        static fn(array $effect): bool => trim((string) ($effect['actor_id'] ?? '')) === $trigger_actor_id
+          && trim((string) ($effect['interaction'] ?? '')) === $trigger_interaction,
+      );
+      if ($matching_actor_effects === []) {
+        $errors[] = "Branch choice '{$choice_key}' {$trigger_interaction} action must define the reaction and effect for actor '{$trigger_actor_id}'.";
+      }
+    }
+    foreach ($actor_effects as $index => $effect) {
+      $actor_id = trim((string) ($effect['actor_id'] ?? ''));
+      if (trim((string) ($effect['interaction'] ?? '')) !== 'killed' || $actor_id === '') {
+        continue;
+      }
+      $has_linked_implication = array_filter(
+        $storyline_effects,
+        static fn(array $storyline_effect): bool => trim((string) ($storyline_effect['source_actor_id'] ?? '')) === $actor_id
+          && trim((string) ($storyline_effect['effect'] ?? '')) !== '',
+      ) !== [];
+      if (!$has_linked_implication) {
+        $errors[] = "Branch choice '{$choice_key}' actor effect {$index} kills '{$actor_id}' but does not spell out a storyline implication linked to that actor.";
+      }
+    }
+    return $errors;
+  }
+
+  /**
+   * Validate deterministic state mutations attached to one effect.
+   */
+  protected function validateStorylineBranchStateChanges(mixed $changes, string $context): array {
+    $errors = [];
+    foreach (array_values(array_filter((array) $changes, 'is_array')) as $index => $change) {
+      $operation = trim((string) ($change['operation'] ?? ''));
+      if (trim((string) ($change['key'] ?? '')) === '') {
+        $errors[] = "Branch {$context} state change {$index} is missing its key.";
+      }
+      if (!in_array($operation, ['set', 'increment', 'decrement', 'add', 'remove'], TRUE)) {
+        $errors[] = "Branch {$context} state change {$index} has invalid operation '{$operation}'.";
+      }
+      if (!array_key_exists('value', $change)) {
+        $errors[] = "Branch {$context} state change {$index} is missing its value.";
+      }
+    }
+    return $errors;
   }
 
   /**
@@ -3972,11 +5670,33 @@ class StorylineManagerService {
 
     $errors = [];
     $quest_ids = $this->collectStorylineQuestIdsForObjectiveValidation($storyline_data);
+    $builder_objectives_by_id = [];
+    $builder_criteria_rows = array_values(array_filter(
+      (array) ($storyline_data['metadata']['storyline_builder']['objective_completion_criteria'] ?? []),
+      'is_array'
+    ));
+    foreach ($builder_criteria_rows as $criteria_index => $criteria_row) {
+      $objective_id = trim((string) ($criteria_row['objective_id'] ?? ''));
+      if ($objective_id === '') {
+        $errors[] = "metadata.storyline_builder.objective_completion_criteria[{$criteria_index}]: missing objective_id.";
+        continue;
+      }
+      if (isset($builder_objectives_by_id[$objective_id])) {
+        $errors[] = "metadata.storyline_builder.objective_completion_criteria[{$criteria_index}]: duplicate objective_id '{$objective_id}'.";
+        continue;
+      }
+      $builder_objectives_by_id[$objective_id] = $criteria_row;
+    }
+
     if ($quest_ids === []) {
-      return [];
+      if ($payload_type === 'definition') {
+        $errors[] = 'Objective control-chain validation requires at least one quest/task objective.';
+      }
+      return array_values(array_unique($errors));
     }
 
     $anchors = $this->collectObjectiveReferenceAnchors($storyline_data);
+
     foreach ($quest_ids as $quest_id) {
       if ($payload_type === 'runtime') {
         try {
@@ -4036,6 +5756,13 @@ class StorylineManagerService {
       }
 
       if ($template_objectives === NULL) {
+        if (isset($builder_objectives_by_id[$quest_id])) {
+          $errors = array_merge(
+            $errors,
+            $this->validateStorylineBuilderObjectiveRow($builder_objectives_by_id[$quest_id], $quest_id)
+          );
+          continue;
+        }
         $errors[] = "Quest '{$quest_id}' is missing canonical quest template objectives for objective control-chain validation.";
         continue;
       }
@@ -4049,9 +5776,55 @@ class StorylineManagerService {
         $anchors,
         "quest template '{$quest_id}' objectives_schema"
       ));
+      if (isset($builder_objectives_by_id[$quest_id])) {
+        $errors = array_merge(
+          $errors,
+          $this->validateStorylineBuilderObjectiveRow($builder_objectives_by_id[$quest_id], $quest_id)
+        );
+      }
+    }
+
+    if ($builder_criteria_rows !== []) {
+      $known_quest_ids = array_fill_keys($quest_ids, TRUE);
+      foreach ($builder_objectives_by_id as $objective_id => $criteria_row) {
+        if (!isset($known_quest_ids[$objective_id])) {
+          $errors[] = "Storyline builder objective '{$objective_id}' is not linked to any quest/task in the storyline progression graph.";
+        }
+      }
     }
 
     return array_values(array_unique($errors));
+  }
+
+  /**
+   * Validate one authored Storyline Builder objective completion criteria row.
+   *
+   * @param array<string, mixed> $row
+   *   Authored objective criteria row.
+   * @param string $quest_id
+   *   Quest/task identifier.
+   *
+   * @return array<int, string>
+   *   Validation errors.
+   */
+  protected function validateStorylineBuilderObjectiveRow(array $row, string $quest_id): array {
+    $path = "storyline_builder.objective_completion_criteria[{$quest_id}]";
+    $kind = strtolower(trim((string) ($row['kind'] ?? 'flag'))) ?: 'flag';
+    $metric = trim((string) ($row['metric'] ?? ''));
+    $description = trim((string) ($row['description'] ?? ''));
+    $synthetic = [
+      'objective_id' => $quest_id,
+      'description' => $description,
+      'completion_criteria' => [
+        'kind' => $kind,
+        'metric' => $metric,
+        'description' => $description,
+      ],
+    ];
+    if (isset($row['target_count'])) {
+      $synthetic['completion_criteria']['target_count'] = $row['target_count'];
+    }
+    return $this->validateObjectiveCompletionCriteriaContract($synthetic, $path);
   }
 
   /**
@@ -4230,6 +6003,7 @@ class StorylineManagerService {
     if ($nodes !== []) {
       $errors = array_merge($errors, $this->validateObjectiveDependencyAcyclic($depends_on, $nodes, $path));
       $errors = array_merge($errors, $this->validateObjectiveDependencyReachability($depends_on, $unlocks_to, $nodes, $path));
+      $errors = array_merge($errors, $this->validateObjectiveTerminalReachability($depends_on, $unlocks_to, $nodes, $path));
     }
 
     return [
@@ -4433,6 +6207,59 @@ class StorylineManagerService {
       if (!isset($visited[$objective_id])) {
         $node_path = (string) ($nodes[$objective_id]['path'] ?? $path);
         $errors[] = "{$node_path}: objective is disconnected from the control chain roots.";
+      }
+    }
+
+    return array_values(array_unique($errors));
+  }
+
+  /**
+   * Validate objective graph has a completion path from every node to a leaf.
+   *
+   * @param array<string, array<int, string>> $depends_on
+   *   Objective dependency graph.
+   * @param array<string, array<int, string>> $unlocks_to
+   *   Objective unlock graph.
+   * @param array<string, array<string, mixed>> $nodes
+   *   Objective node metadata.
+   * @param string $path
+   *   Human-readable context path.
+   *
+   * @return array<int, string>
+   *   Validation errors.
+   */
+  protected function validateObjectiveTerminalReachability(array $depends_on, array $unlocks_to, array $nodes, string $path): array {
+    $terminals = [];
+    foreach (array_keys($nodes) as $objective_id) {
+      if (($unlocks_to[$objective_id] ?? []) === []) {
+        $terminals[] = $objective_id;
+      }
+    }
+
+    if ($terminals === []) {
+      return ["{$path}: objective dependency graph has no terminal completion objective."];
+    }
+
+    $reaches_terminal = [];
+    $stack = array_values($terminals);
+    while ($stack !== []) {
+      $current = array_pop($stack);
+      if (!is_string($current) || $current === '' || isset($reaches_terminal[$current])) {
+        continue;
+      }
+      $reaches_terminal[$current] = TRUE;
+      foreach ($depends_on[$current] ?? [] as $predecessor_id) {
+        if (!isset($reaches_terminal[$predecessor_id])) {
+          $stack[] = $predecessor_id;
+        }
+      }
+    }
+
+    $errors = [];
+    foreach (array_keys($nodes) as $objective_id) {
+      if (!isset($reaches_terminal[$objective_id])) {
+        $node_path = (string) ($nodes[$objective_id]['path'] ?? $path);
+        $errors[] = "{$node_path}: objective has no path to quest completion.";
       }
     }
 
@@ -5064,9 +6891,21 @@ class StorylineManagerService {
     $declared_asset_npc_ids = [];
     $location_asset_anchors = [];
     $asset_references = array_values(array_filter(is_array($definition['asset_references'] ?? NULL) ? $definition['asset_references'] : [], 'is_array'));
+    $asset_ids_by_type = [];
     foreach ($asset_references as $reference) {
       $asset_type = trim((string) ($reference['asset_type'] ?? ''));
       $asset_id = trim((string) ($reference['asset_id'] ?? ''));
+      if ($asset_type !== '' && $asset_id !== '') {
+        $asset_ids_by_type[$asset_type][$asset_id] = TRUE;
+      }
+    }
+    foreach ($asset_references as $reference) {
+      $asset_type = trim((string) ($reference['asset_type'] ?? ''));
+      $asset_id = trim((string) ($reference['asset_id'] ?? ''));
+      $asset_role = trim((string) ($reference['asset_role'] ?? ''));
+      if (mb_strlen($asset_role) > 128) {
+        $errors[] = "Asset reference '{$asset_id}' asset_role exceeds the 128-character storage contract.";
+      }
       if ($asset_type === 'npc' && $asset_id !== '') {
         $declared_asset_npc_ids[$asset_id] = TRUE;
       }
@@ -5090,6 +6929,28 @@ class StorylineManagerService {
       if ((string) ($reference['asset_role'] ?? '') === 'quest-giver') {
         if ($asset_id !== '') {
           $contact_anchors[$asset_id] = TRUE;
+        }
+      }
+      $link_data = is_array($reference['link_data'] ?? NULL) ? $reference['link_data'] : [];
+      if ($asset_type === 'room') {
+        $dungeon_id = trim((string) ($link_data['dungeon_id'] ?? ''));
+        if ($dungeon_id !== '' && !isset($asset_ids_by_type['dungeon'][$dungeon_id])) {
+          $errors[] = "Room asset '{$asset_id}' references unknown dungeon '{$dungeon_id}'.";
+        }
+      }
+      if ($asset_type === 'item') {
+        $quest_id = trim((string) ($link_data['quest_id'] ?? ''));
+        if ($quest_id !== '' && !isset($definition['linked_quests'][$quest_id])) {
+          $errors[] = "Item asset '{$asset_id}' references unknown quest '{$quest_id}'.";
+        }
+        $actor_id = trim((string) ($link_data['actor_id'] ?? ''));
+        if ($actor_id !== '' && !isset($contact_entity_ids[$actor_id])) {
+          $errors[] = "Item asset '{$asset_id}' references unknown actor '{$actor_id}'.";
+        }
+        foreach (array_values(array_filter(array_map('strval', (array) ($link_data['prerequisite_ids'] ?? [])))) as $required_item_id) {
+          if (!isset($asset_ids_by_type['item'][$required_item_id])) {
+            $errors[] = "Item asset '{$asset_id}' references unknown prerequisite item '{$required_item_id}'.";
+          }
         }
       }
     }
@@ -5118,9 +6979,14 @@ class StorylineManagerService {
         $errors[] = "Linked quest '{$quest_id}' points to unknown scene '{$scene_id}'.";
       }
     }
+    $source_storyline_template_id = trim((string) ($definition['metadata']['source_template_id'] ?? ''));
     $errors = array_merge(
       $errors,
-      $this->validateCanonicalLinkedQuestStorylineOwnership($storyline_template_id, $definition['linked_quests'] ?? [])
+      $this->validateCanonicalLinkedQuestStorylineOwnership(
+        $storyline_template_id,
+        $definition['linked_quests'] ?? [],
+        $source_storyline_template_id,
+      )
     );
 
     $questline = is_array($definition['questline'] ?? NULL) ? $definition['questline'] : [];
@@ -5378,10 +7244,22 @@ class StorylineManagerService {
    * @return array<int, string>
    *   Validation errors.
    */
-  protected function validateCanonicalLinkedQuestStorylineOwnership(string $storyline_template_id, array $linked_quests): array {
+  protected function validateCanonicalLinkedQuestStorylineOwnership(
+    string $storyline_template_id,
+    array $linked_quests,
+    string $source_storyline_template_id = '',
+  ): array {
     $storyline_template_id = trim($storyline_template_id);
     if ($storyline_template_id === '') {
       return [];
+    }
+    $allowed_storyline_ids = [$storyline_template_id => TRUE];
+    $source_storyline_template_id = trim($source_storyline_template_id);
+    if ($source_storyline_template_id !== '') {
+      $allowed_storyline_ids[$source_storyline_template_id] = TRUE;
+    }
+    if (preg_match('/^(.+)-u\d+-[a-f0-9]{8}$/', $storyline_template_id, $matches) === 1 && trim($matches[1]) !== '') {
+      $allowed_storyline_ids[trim($matches[1])] = TRUE;
     }
 
     $quest_template_ids = [];
@@ -5441,13 +7319,13 @@ class StorylineManagerService {
       if ($canonical_storyline_template_id === '') {
         $errors[] = "Linked quest '{$quest_template_id}' is missing canonical storyline_template_id.";
       }
-      elseif ($canonical_storyline_template_id !== $storyline_template_id) {
+      elseif (!isset($allowed_storyline_ids[$canonical_storyline_template_id])) {
         $errors[] = "Linked quest '{$quest_template_id}' has canonical storyline_template_id '{$canonical_storyline_template_id}' but storyline template is '{$storyline_template_id}'.";
       }
 
       $story_impact = $this->decodeJsonArrayValue($row['story_impact'] ?? NULL);
       $story_impact_storyline_id = trim((string) ($story_impact['storyline_id'] ?? ''));
-      if ($story_impact_storyline_id !== '' && $story_impact_storyline_id !== $storyline_template_id) {
+      if ($story_impact_storyline_id !== '' && !isset($allowed_storyline_ids[$story_impact_storyline_id])) {
         $errors[] = "Linked quest '{$quest_template_id}' has story_impact.storyline_id '{$story_impact_storyline_id}' but storyline template is '{$storyline_template_id}'.";
       }
     }
@@ -6660,11 +8538,12 @@ class StorylineManagerService {
         $index['dungeon_ids'][$dungeon_id] = TRUE;
 
         $dungeon_data = $this->decodeJsonArrayValue($row['dungeon_data'] ?? []);
-        $entry_room_id = trim((string) ($dungeon_data['entry_room'] ?? ''));
+        $room_contract = $this->resolveCanonicalDungeonRoomContract($dungeon_data);
+        $entry_room_id = $room_contract['entry_room_id'];
         if ($entry_room_id !== '') {
           $index['dungeon_room_ids'][$dungeon_id][$entry_room_id] = TRUE;
         }
-        foreach (array_values(array_filter(array_map('strval', is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : []), static fn(string $id): bool => trim($id) !== '')) as $room_id) {
+        foreach ($room_contract['room_ids'] as $room_id) {
           $index['dungeon_room_ids'][$dungeon_id][$room_id] = TRUE;
         }
       }
@@ -6702,6 +8581,60 @@ class StorylineManagerService {
 
     $this->canonicalLocationTemplateIndex = $index;
     return $this->canonicalLocationTemplateIndex;
+  }
+
+  /**
+   * Resolve room membership from the canonical dungeon schema.
+   *
+   * @return array{
+   *   room_ids: array<int, string>,
+   *   entry_room_id: string,
+   *   entry_room_path: string,
+   *   room_paths: array<string, string>
+   * }
+   */
+  public function resolveCanonicalDungeonRoomContract(array $dungeon_data): array {
+    $room_ids = [];
+    $room_paths = [];
+    $entry_room_id = '';
+    $entry_room_path = '';
+
+    if (array_key_exists('room_placements', $dungeon_data)) {
+      foreach ((array) $dungeon_data['room_placements'] as $index => $placement) {
+        if (!is_array($placement)) {
+          continue;
+        }
+        $room_id = trim((string) ($placement['room_id'] ?? ''));
+        if ($room_id === '') {
+          continue;
+        }
+        $room_ids[$room_id] = TRUE;
+        $room_paths[$room_id] = "dungeon_data.room_placements[{$index}].room_id";
+        if (!empty($placement['is_level_entrance'])) {
+          $entry_room_id = $room_id;
+          $entry_room_path = "dungeon_data.room_placements[{$index}].room_id";
+        }
+      }
+    }
+    else {
+      foreach ((array) ($dungeon_data['rooms'] ?? []) as $index => $room_id) {
+        $room_id = trim((string) $room_id);
+        if ($room_id === '') {
+          continue;
+        }
+        $room_ids[$room_id] = TRUE;
+        $room_paths[$room_id] = "dungeon_data.rooms[{$index}]";
+      }
+      $entry_room_id = trim((string) ($dungeon_data['entry_room'] ?? ''));
+      $entry_room_path = 'dungeon_data.entry_room';
+    }
+
+    return [
+      'room_ids' => array_keys($room_ids),
+      'entry_room_id' => $entry_room_id,
+      'entry_room_path' => $entry_room_path,
+      'room_paths' => $room_paths,
+    ];
   }
 
   /**

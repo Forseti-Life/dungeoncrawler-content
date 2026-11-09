@@ -675,10 +675,7 @@ class DungeonEditorShellContractTest extends TestCase {
     }
     foreach ($matches as $match) {
       $this->assertStringContainsString("_user_is_logged_in: 'TRUE'", $match[2], $match[1]);
-      $expected_permission = $match[1] === 'dungeon_editor_draft_publish'
-        ? "_permission: 'publish canonical dungeoncrawler dungeons'"
-        : "_permission: 'edit canonical dungeoncrawler dungeons'";
-      $this->assertStringContainsString($expected_permission, $match[2], $match[1]);
+      $this->assertStringNotContainsString("_permission:", $match[2], $match[1]);
       if (str_contains($match[1], '_gm_')) {
         $this->assertStringContainsString('EditorGmController::', $match[2], $match[1]);
         $this->assertStringContainsString('_surface: dungeon_editor', $match[2], $match[1] . ' must bind the dungeon_editor surface.');

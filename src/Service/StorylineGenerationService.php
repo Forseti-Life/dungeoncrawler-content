@@ -132,7 +132,7 @@ class StorylineGenerationService {
         $package['storyline_definition'] ?? [],
         $request + [
           'status' => 'bootstrapping',
-          'realize_storyline_assets' => TRUE,
+          'realize_storyline_assets' => FALSE,
         ]
       );
     }

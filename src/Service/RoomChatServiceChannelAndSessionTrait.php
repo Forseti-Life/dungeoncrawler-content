@@ -16,14 +16,35 @@ trait RoomChatServiceChannelAndSessionTrait {
     string $channel_key,
     array $channel_def
   ): ?array {
-    // Only respond if the channel allows NPC responses.
-    if (empty($channel_def['npc_responds'])) {
+    // Only respond if the channel allows NPC responses (or is party channel with a targetable companion/familiar).
+    if (empty($channel_def['npc_responds']) && $channel_key !== 'party') {
       return NULL;
     }
 
     $target_name = $channel_def['target_name'] ?? 'Unknown NPC';
     $target_entity = $channel_def['target_entity'] ?? '';
-    $source_ability = $channel_def['source_ability'] ?? 'whisper';
+    $source_ability = $channel_def['source_ability'] ?? ($channel_key === 'party' ? 'party' : 'whisper');
+    if ($channel_key === 'party' && $target_entity === '') {
+      $room_npcs = $this->gatherRoomNpcsWithProfiles($campaign_id, $room_id, $dungeon_data);
+      $all_chat_for_party = $dungeon_data['rooms'][$room_index]['chat'] ?? [];
+      $party_tail = end($all_chat_for_party);
+      $party_msg = is_array($party_tail) ? (string) ($party_tail['message'] ?? '') : '';
+      $addressed_party_npc = $this->resolveDirectlyAddressedNpc($room_npcs, $party_msg, FALSE);
+      if ($addressed_party_npc === NULL) {
+        foreach ($room_npcs as $candidate_npc) {
+          $role = strtolower((string) ($candidate_npc['profile']['role'] ?? $candidate_npc['entity']['role'] ?? ''));
+          if (in_array($role, ['familiar', 'companion', 'party', 'ally'], TRUE)) {
+            $addressed_party_npc = $candidate_npc;
+            break;
+          }
+        }
+      }
+      if ($addressed_party_npc === NULL) {
+        return NULL;
+      }
+      $target_entity = (string) ($addressed_party_npc['entity_ref'] ?? '');
+      $target_name = (string) ($addressed_party_npc['profile']['display_name'] ?? $target_entity);
+    }
 
     // Gather channel-specific chat history (only messages on this channel).
     $all_chat = $dungeon_data['rooms'][$room_index]['chat'] ?? [];
@@ -1209,7 +1230,7 @@ trait RoomChatServiceChannelAndSessionTrait {
       $normalized_room_index = (int) $room_index_for_attention;
       if (isset($dungeon_data['rooms'][$normalized_room_index]['conversation_state'])
         && is_array($dungeon_data['rooms'][$normalized_room_index]['conversation_state'])) {
-        $conversation_state_ref = $dungeon_data['rooms'][$normalized_room_index]['conversation_state'];
+        $conversation_state_ref = &$dungeon_data['rooms'][$normalized_room_index]['conversation_state'];
       }
     }
 
@@ -1725,11 +1746,15 @@ trait RoomChatServiceChannelAndSessionTrait {
         $continued_conversation = TRUE;
       }
     }
-    if ($directly_addressed_npc === NULL) {
-      $directly_addressed_npc = $this->selectHighestCharismaNpc($room_npcs);
-    }
     $ordered_npcs = $this->buildRoomNpcInitiativeOrder($room_npcs, $dungeon_data, $room_id, $turn_seed);
-    $max_engaged_responders = 1;
+    $combined_ref_text = $this->normalizeNpcNameForMatch($player_message);
+    $explicitly_referenced_npcs = [];
+    foreach ($ordered_npcs as $ordered_npc) {
+      if ($this->isNpcDirectlyReferencedForAmbientInterjection($ordered_npc, $combined_ref_text)) {
+        $explicitly_referenced_npcs[] = $ordered_npc;
+      }
+    }
+    $max_engaged_responders = max(1, min(3, count($explicitly_referenced_npcs)));
     $candidate_npcs = [];
     $engaged_npcs = [];
     if ($gm_addressed) {
@@ -1739,6 +1764,12 @@ trait RoomChatServiceChannelAndSessionTrait {
     }
     else {
       $candidate_npcs = $this->filterAmbientNpcInterjectionOrder($ordered_npcs, $player_message, $gm_narrative, $dungeon_data, $room_id, $turn_seed, $conversation_state_ref);
+      if ($directly_addressed_npc === NULL && $candidate_npcs === []) {
+        $charisma_fallback = $this->selectHighestCharismaNpc($room_npcs);
+        if ($charisma_fallback !== NULL && $this->looksLikeQuestOrLeadRequest($combined_ref_text)) {
+          $directly_addressed_npc = $charisma_fallback;
+        }
+      }
       $plan_source = $directly_addressed_npc !== NULL
         ? ($continued_conversation ? 'active_conversation' : 'direct_plus_room')
         : 'room_wide';

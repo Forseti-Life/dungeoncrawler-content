@@ -2,6 +2,18 @@
  * GM panel controller for schema-driven canonical definition pages.
  */
 
+import {
+  appendEditorGmMessage,
+  buildEditorGmRequest,
+  describeEditorGmToolCall,
+  parseEditorGmMessage,
+  renderEditorGmClarification,
+  renderEditorGmToolCalls,
+  renderEditorGmToolset,
+  selectEditorGmTool,
+  shouldSubmitEditorGmKey,
+} from './EditorGmChatClient.js?v=20261024-tool-calls-1';
+
 function makeEl(tag, className = null, text = null) {
   const el = document.createElement(tag);
   if (className) el.className = className;
@@ -29,6 +41,10 @@ export class DefinitionEditorShell {
   async init() {
     this._cacheDom();
     this._bindEvents();
+    this._appendGmMessage(
+      'assistant',
+      'Welcome to the Definition Editor GM. Creating consistent game definitions is hard; describe what you want to build, edit, inspect, or validate, and I will help you use the same definition-authoring capabilities available in this interface.',
+    );
     this._renderGenerationForm();
     await this._refreshGmContext();
   }
@@ -89,54 +105,11 @@ export class DefinitionEditorShell {
   }
 
   _renderGmToolset() {
-    clearElement(this._dom.gmTools);
-    const manifest = this._gm.manifest;
-    if (!manifest) {
-      this._dom.gmTools.appendChild(makeEl('p', 'room-editor__hint', 'Toolset unavailable.'));
-      return;
-    }
-    Object.keys(manifest.families || {}).forEach((family) => {
-      this._dom.gmTools.appendChild(makeEl('p', 'room-editor__gm-tool-family', family));
-      const list = makeEl('ul', 'room-editor__gm-tool-list');
-      (manifest.families[family] || []).forEach((tool) => {
-        const item = makeEl('li');
-        const button = makeEl('button', `room-editor__gm-tool${tool.mutating ? ' room-editor__gm-tool--mutating' : ''}`, tool.name);
-        button.type = 'button';
-        button.title = `${tool.summary}\n${tool.authority}`;
-        button.setAttribute('data-gm-tool', tool.name);
-        const template = {};
-        (tool.arguments || []).filter((arg) => arg.required).forEach((arg) => {
-          template[arg.name] = arg.type === 'integer' ? 0 : (arg.type === 'array' ? [] : (arg.type === 'boolean' ? false : (arg.type === 'object' ? {} : '')));
-        });
-        button.setAttribute('data-gm-template', JSON.stringify(template));
-        item.appendChild(button);
-        list.appendChild(item);
-      });
-      this._dom.gmTools.appendChild(list);
-    });
+    renderEditorGmToolset(this._dom.gmTools, this._gm.manifest);
   }
 
   _parseGmMessage(raw) {
-    const text = String(raw || '').trim();
-    if (!text) throw new Error('Enter a request, or a tool name to run directly.');
-    const match = text.match(/^([a-z][a-z0-9_]*)\s*([\s\S]*)$/);
-    if (!match || !this._isKnownGmTool(match[1])) {
-      return { kind: 'natural_language', utterance: text };
-    }
-    const rest = match[2].trim();
-    let args = {};
-    if (rest) {
-      args = JSON.parse(rest);
-      if (!args || typeof args !== 'object' || Array.isArray(args)) {
-        throw new Error('Tool arguments must be a JSON object.');
-      }
-    }
-    return { kind: 'tool_call', toolName: match[1], args };
-  }
-
-  _isKnownGmTool(name) {
-    return !!this._gm.manifest
-      && Object.values(this._gm.manifest.families || {}).some((tools) => tools.some((t) => t.name === name));
+    return parseEditorGmMessage(raw, this._gm.manifest);
   }
 
   async _submitGmMessage() {
@@ -165,12 +138,18 @@ export class DefinitionEditorShell {
       this._appendGmMessage('error', 'Another request is still running.');
       return null;
     }
-    const body = {
-      schema_version: 'editor-gm-request-v1',
-      tool_context: { tool_id: 'definition_editor', validation_profile: 'editing', scope: scopeOverride || this.scope },
+    const body = buildEditorGmRequest({
+      toolId: 'definition_editor',
+      scope: scopeOverride || this.scope,
       intent,
-      options: { dry_run: !!dryRun },
-    };
+      dryRun,
+    });
+    const skipToolMessages = new Set();
+    if (intent?.type === 'tool_call' && intent.tool_name) {
+      const initialToolMessage = describeEditorGmToolCall(intent.tool_name, intent.arguments || {});
+      this._appendGmMessage('tool', initialToolMessage);
+      skipToolMessages.add(initialToolMessage);
+    }
     this._busy = true;
     this._setGmState(`Running ${label}...`);
     this._renderBusyState();
@@ -181,10 +160,25 @@ export class DefinitionEditorShell {
       this._gm.manifest = this._gm.context?.tools || this._gm.manifest;
       this._renderGmContext();
       this._renderGmToolset();
-      this._appendGmMessage('success', `${label} → ${envelope.route_family}`, envelope.tool_result);
+      renderEditorGmToolCalls(
+        this._dom.gmTranscript,
+        envelope.tool_calls || envelope.tool_result?.tool_calls || [],
+        { skipMessages: skipToolMessages },
+      );
+      if (envelope.tool_result?.intent === 'clarification') {
+        renderEditorGmClarification(this._dom.gmTranscript, envelope.tool_result, {
+          onSelectOption: (selectionText) => this._submitNaturalLanguageMessage?.(selectionText),
+        });
+      } else if (typeof envelope.tool_result?.assistant_response === 'string' && envelope.tool_result.assistant_response.trim() !== '') {
+        this._appendGmMessage('assistant', envelope.tool_result.assistant_response.trim(), envelope.tool_result);
+      } else {
+        this._appendGmMessage('success', `${label} → ${envelope.route_family}`, envelope.tool_result);
+      }
       this._renderProposal(envelope.tool_result);
       this._renderBlastRadius(envelope.tool_result);
-      (envelope.messages || []).forEach((message) => this._appendGmMessage(message.level === 'error' ? 'error' : 'info', message.text));
+      if (!envelope.tool_result?.assistant_response && envelope.tool_result?.intent !== 'clarification') {
+        (envelope.messages || []).forEach((message) => this._appendGmMessage(message.level === 'error' ? 'error' : 'info', message.text));
+      }
       this._setGmState(`Grounded on ${this._gm.context?.scope?.family || this.scope.family}.`, 'success');
       return envelope;
     } catch (err) {
@@ -264,7 +258,7 @@ export class DefinitionEditorShell {
   }
 
   _renderGenerationForm() {
-    const supportedFamilies = ['item', 'creature', 'actor'];
+    const supportedFamilies = ['item', 'creature', 'actor', 'obstacle', 'hazard', 'trap'];
     const scopeFamily = this.scope.family || 'creature';
     const family = supportedFamilies.includes(this._dom.generateFamily.value)
       ? this._dom.generateFamily.value
@@ -273,9 +267,12 @@ export class DefinitionEditorShell {
     this._dom.generateUnavailable.hidden = true;
     this._dom.generateFamily.value = family;
     this._dom.generateFamily.disabled = false;
-    this._dom.generateRarityField.hidden = family === 'actor';
+    this._dom.generateRarityField.hidden = family === 'actor' || family === 'obstacle';
     this._dom.generateRoleField.hidden = family === 'item';
     this._dom.generateAttitudeField.hidden = family !== 'actor';
+    if (this._dom.generateLevelField) {
+      this._dom.generateLevelField.hidden = family === 'obstacle';
+    }
     this._dom.generateLevel.min = family === 'item' ? '0' : '-1';
     this._dom.generateLevel.max = family === 'actor' ? '30' : '25';
     this._renderBusyState();
@@ -298,23 +295,49 @@ export class DefinitionEditorShell {
       this._appendGmMessage('error', err.message);
       return;
     }
-    if (level !== null) args.level = level;
+    if (level !== null && family !== 'obstacle') args.level = level;
     if (seed !== null) args.seed = seed;
-    if (family === 'item') {
-      args.rarity = this._dom.generateRarity.value || 'common';
-    } else if (family === 'creature') {
-      const role = String(this._dom.generateRole.value || '').trim();
-      if (role) args.role = role;
-      args.rarity = ['common', 'uncommon', 'rare', 'unique'].includes(this._dom.generateRarity.value) ? this._dom.generateRarity.value : 'common';
-    } else if (family === 'actor') {
-      const role = String(this._dom.generateRole.value || '').trim();
-      if (role) args.role = role;
-      if (this._dom.generateAttitude.value) args.attitude = this._dom.generateAttitude.value;
-    } else {
-      this._appendGmMessage('error', 'Generation is available only for item, creature, and actor/NPC scopes.');
+    const roleOrSubtype = String(this._dom.generateRole.value || '').trim();
+    const rarity = this._dom.generateRarity.value || 'common';
+    const commonUniqueRarities = ['common', 'uncommon', 'rare', 'unique'];
+    const toolByFamily = {
+      item: 'generate_item_definition',
+      creature: 'generate_creature_definition',
+      actor: 'generate_npc_definition',
+      obstacle: 'generate_obstacle_definition',
+      hazard: 'generate_hazard_definition',
+      trap: 'generate_trap_definition',
+    };
+    const tool = toolByFamily[family];
+    if (!tool) {
+      this._appendGmMessage('error', 'Unsupported definition family for generation.');
       return;
     }
-    const tool = family === 'item' ? 'generate_item_definition' : (family === 'creature' ? 'generate_creature_definition' : 'generate_npc_definition');
+    if (family === 'item') {
+      args.rarity = ['common', 'uncommon', 'rare', 'epic', 'legendary'].includes(rarity) ? rarity : 'common';
+    } else if (family === 'creature') {
+      if (roleOrSubtype) args.role = roleOrSubtype;
+      args.rarity = commonUniqueRarities.includes(rarity) ? rarity : 'common';
+    } else if (family === 'actor') {
+      if (roleOrSubtype) args.role = roleOrSubtype;
+      if (this._dom.generateAttitude.value) args.attitude = this._dom.generateAttitude.value;
+    } else if (family === 'obstacle') {
+      if (['bar', 'table', 'stool', 'crate', 'door', 'decor', 'wall', 'custom'].includes(roleOrSubtype)) {
+        args.category = roleOrSubtype;
+      }
+    } else if (family === 'hazard') {
+      if (['simple', 'complex'].includes(roleOrSubtype)) {
+        args.complexity = roleOrSubtype;
+      }
+      args.rarity = commonUniqueRarities.includes(rarity) ? rarity : 'common';
+    } else if (family === 'trap') {
+      if (['mechanical', 'magical', 'haunt', 'environmental'].includes(roleOrSubtype)) {
+        args.type = roleOrSubtype;
+      } else if (['simple', 'complex'].includes(roleOrSubtype)) {
+        args.complexity = roleOrSubtype;
+      }
+      args.rarity = commonUniqueRarities.includes(rarity) ? rarity : 'common';
+    }
     this._waitingOnGenerator = true;
     await this._sendGmRequest({ type: 'tool_call', tool_name: tool, arguments: args }, false, tool, { family });
   }
@@ -337,12 +360,7 @@ export class DefinitionEditorShell {
   }
 
   _appendGmMessage(kind, text, detail = null) {
-    const item = makeEl('li', `room-editor__gm-message room-editor__gm-message--${kind}`, text);
-    if (detail !== null && detail !== undefined) {
-      item.appendChild(makeEl('pre', null, typeof detail === 'string' ? detail : JSON.stringify(detail, null, 2)));
-    }
-    this._dom.gmTranscript.appendChild(item);
-    this._dom.gmTranscript.scrollTop = this._dom.gmTranscript.scrollHeight;
+    return appendEditorGmMessage(this._dom.gmTranscript, kind, text, detail);
   }
 
   _setGmState(text, level = 'info') {
@@ -360,6 +378,7 @@ export class DefinitionEditorShell {
       generateFamily: q('[data-definition-editor-generation-family]'),
       generatePrompt: q('[data-definition-editor-generation-prompt]'),
       generateLevel: q('[data-definition-editor-generation-level]'),
+      generateLevelField: q('[data-definition-editor-generation-level-field]'),
       generateRarity: q('[data-definition-editor-generation-rarity]'),
       generateRarityField: q('[data-definition-editor-generation-rarity-field]'),
       generateRole: q('[data-definition-editor-generation-role]'),
@@ -389,10 +408,7 @@ export class DefinitionEditorShell {
       this._submitGmMessage();
     });
     this._on(this.root, 'click', (event) => {
-      const tool = event.target.closest('[data-gm-tool]');
-      if (tool) {
-        this._dom.gmInput.value = `${tool.getAttribute('data-gm-tool')} ${tool.getAttribute('data-gm-template') || '{}'}`;
-        this._dom.gmInput.focus();
+      if (selectEditorGmTool(event, this._dom.gmInput)) {
         return;
       }
       const action = event.target.closest('[data-definition-editor-action]')?.getAttribute('data-definition-editor-action');
@@ -409,7 +425,7 @@ export class DefinitionEditorShell {
     });
     this._on(this._dom.generateFamily, 'change', () => this._renderGenerationForm());
     this._on(this._dom.gmInput, 'keydown', (event) => {
-      if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+      if (shouldSubmitEditorGmKey(event)) {
         event.preventDefault();
         this._submitGmMessage();
       }

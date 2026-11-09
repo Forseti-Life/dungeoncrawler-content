@@ -44,6 +44,16 @@ publish canonical dungeoncrawler dungeons:
   description: 'Publish immutable canonical dungeon versions and project connector rows consumed by live navigation.'
   restrict access: true
 
+edit canonical dungeoncrawler storylines:
+  title: 'Edit Canonical Dungeon Crawler Storylines'
+  description: 'Create, resume, validate, and edit owner-scoped storyline authoring drafts.'
+  restrict access: true
+
+publish canonical dungeoncrawler storylines:
+  title: 'Publish Canonical Dungeon Crawler Storylines'
+  description: 'Publish a validated storyline authoring draft into the canonical storyline library.'
+  restrict access: true
+
 edit canonical dungeoncrawler definitions:
   title: 'Edit Canonical Dungeon Crawler Object Definitions'
   description: 'Create and edit canonical item, actor, obstacle, creature, trap, and hazard definitions.'
@@ -52,6 +62,11 @@ edit canonical dungeoncrawler definitions:
 access dungeoncrawler editor suite:
   title: 'Access the Dungeon Crawler Editor Suite'
   description: 'View the editor suite home page. Grants no authoring rights on its own; every tile is independently filtered by the permission of the surface it links to.'
+  restrict access: true
+
+access dungeoncrawler module manager:
+  title: 'Access the Dungeon Crawler Module Manager'
+  description: 'Use read-only module catalog and intake inspection surfaces for module conversion planning.'
   restrict access: true
 
 edit any dungeoncrawler characters:

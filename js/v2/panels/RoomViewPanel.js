@@ -108,19 +108,29 @@ export class RoomViewPanel {
     const image = fragment.querySelector('.room-view-card__image');
 
     if (eyebrow) {
-      eyebrow.textContent = entry?.message_window?.label || 'Scene snapshot';
+      eyebrow.textContent = entry?.mode === 'original_map' ? 'Original illustration' : (entry?.mode === 'source_map' ? 'Source map art' : (entry?.message_window?.label || 'Scene snapshot'));
     }
     if (title) {
       title.textContent = entry?.title || room?.name || 'Generated Scene';
     }
     if (status) {
-      status.textContent = entry?.mode === 'cache' ? 'Cached' : 'Generated';
+      status.textContent = entry?.mode === 'original_map' ? 'Illustrative, not tactical terrain' : (entry?.mode === 'source_map' ? 'Source asset' : (entry?.mode === 'cache' ? 'Cached' : 'Generated'));
     }
     if (image) {
       image.src = imageSrc;
-      image.alt = entry?.title
+      image.alt = entry?.mode === 'source_map' ? `${entry.title} (not canonical terrain)` : (entry?.title
         ? `${entry.title} for ${room?.name || 'current room'}`
-        : 'Generated room scene';
+        : 'Generated room scene');
+    }
+    if (entry?.mode === 'source_map' && entry.license_notice_url) {
+      const notice = new URL(entry.license_notice_url, window.location.href);
+      if (notice.origin === window.location.origin && ['http:', 'https:'].includes(notice.protocol)) {
+        const link = document.createElement('a');
+        link.href = notice.href;
+        link.textContent = `Source and license notice (${entry.author || 'unknown author'})`;
+        link.rel = 'noopener noreferrer';
+        article?.appendChild(link);
+      }
     }
 
     return article;

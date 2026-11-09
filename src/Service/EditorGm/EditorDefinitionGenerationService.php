@@ -36,6 +36,18 @@ final class EditorDefinitionGenerationService {
     return $this->core->generateNpcDefinition($arguments, $this->scope($context));
   }
 
+  public function generateObstacleDefinition(array $arguments, DefinitionEditorGmToolContext $context): array {
+    return $this->core->generateObstacleDefinition($arguments, $this->scope($context));
+  }
+
+  public function generateHazardDefinition(array $arguments, DefinitionEditorGmToolContext $context): array {
+    return $this->core->generateHazardDefinition($arguments, $this->scope($context));
+  }
+
+  public function generateTrapDefinition(array $arguments, DefinitionEditorGmToolContext $context): array {
+    return $this->core->generateTrapDefinition($arguments, $this->scope($context));
+  }
+
   private function scope(DefinitionEditorGmToolContext $context): array {
     return [
       'family' => $context->family,

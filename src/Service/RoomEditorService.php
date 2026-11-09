@@ -1339,8 +1339,26 @@ class RoomEditorService {
       'default_state' => (string) $port['default_state'],
       'target_room_id' => $port['destination_hint'],
     ], $room['exit_ports']);
+    $room_id = (string) ($room['room_id'] ?? 'room');
+    $hexes = [];
+    foreach ($room['hexes'] as $hex) {
+      if (is_array($hex) && is_numeric($hex['q'] ?? NULL) && is_numeric($hex['r'] ?? NULL)) {
+        $existing_h3 = trim((string) ($hex['h3_index_res14'] ?? $hex['h3_index'] ?? ''));
+        if ($existing_h3 === '') {
+          $latlng = \Drupal\dungeoncrawler_content\Utility\H3SpatialHelper::projectAxialHexToLatLng($room_id, (int) $hex['q'], (int) $hex['r']);
+          $existing_h3 = strtolower(\Drupal\dungeoncrawler_content\Utility\H3SpatialHelper::latLngToH3Index(
+            (float) $latlng['latitude'],
+            (float) $latlng['longitude'],
+            14
+          ));
+        }
+        $hex['h3_index'] = strtolower($existing_h3);
+        $hex['h3_index_res14'] = strtolower($existing_h3);
+      }
+      $hexes[] = $hex;
+    }
     $layout = [
-      'hexes' => $room['hexes'],
+      'hexes' => $hexes,
       'entry_points' => $entry_points,
       'exit_points' => $exit_points,
       'exits' => $exit_points,
@@ -1368,9 +1386,10 @@ class RoomEditorService {
         'trap' => 'traps',
         'hazard' => 'hazards',
       };
-      $contents[$bucket][] = [
+      $definition_id = (string) ($placement['definition_ref']['definition_id'] ?? '');
+      $entry = [
         'instance_id' => $placement['instance_id'],
-        'content_id' => $placement['definition_ref']['definition_id'],
+        'content_id' => $definition_id,
         'version' => $placement['definition_ref']['version'],
         'position' => $placement['anchor_hex'],
         'orientation' => $placement['facing'],
@@ -1378,8 +1397,90 @@ class RoomEditorService {
         'state_defaults' => $placement['state_defaults'],
         'overrides' => $placement['overrides'],
       ];
+      if ($family === 'item' && $definition_id !== '') {
+        $entry = $this->hydrateProjectedItemPlacement($entry, $definition_id);
+      }
+      elseif ($family === 'actor' && $definition_id !== '') {
+        $entry = $this->hydrateProjectedActorPlacement($entry, $definition_id);
+      }
+      $contents[$bucket][] = $entry;
     }
     return [$layout, $contents];
+  }
+
+  /**
+   * Hydrate projected item placements from canonical registry metadata.
+   */
+  private function hydrateProjectedItemPlacement(array $entry, string $definition_id): array {
+    $row = $this->database->select('dungeoncrawler_content_registry', 'r')
+      ->fields('r', ['name', 'tags', 'schema_data'])
+      ->condition('content_type', 'item')
+      ->condition('content_id', $definition_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!is_array($row)) {
+      return $entry;
+    }
+    $schema_data = json_decode((string) ($row['schema_data'] ?? '{}'), TRUE);
+    if (!is_array($schema_data)) {
+      $schema_data = [];
+    }
+    $tags = json_decode((string) ($row['tags'] ?? '[]'), TRUE);
+    if (!is_array($tags)) {
+      $tags = is_array($schema_data['tags'] ?? NULL) ? $schema_data['tags'] : [];
+    }
+    $quest_association = trim((string) ($schema_data['quest_association'] ?? ''));
+    if ($quest_association !== '' && !in_array($quest_association, $tags, TRUE)) {
+      $tags[] = $quest_association;
+    }
+    $item_type = trim((string) ($schema_data['item_type'] ?? $schema_data['type'] ?? ''));
+    if ($item_type === 'collectible_item' && !in_array('collectible', $tags, TRUE)) {
+      $tags[] = 'collectible';
+    }
+    $entry['name'] = trim((string) ($row['name'] ?? $schema_data['name'] ?? $definition_id));
+    if ($item_type !== '') {
+      $entry['type'] = $item_type;
+    }
+    if (trim((string) ($schema_data['description'] ?? '')) !== '') {
+      $entry['description'] = trim((string) $schema_data['description']);
+    }
+    if ($quest_association !== '') {
+      $entry['quest_association'] = $quest_association;
+    }
+    if ($tags !== []) {
+      $entry['tags'] = array_values(array_unique(array_filter(array_map('strval', $tags))));
+    }
+    return $entry;
+  }
+
+  /**
+   * Hydrate projected actor placements with canonical room quests.
+   */
+  private function hydrateProjectedActorPlacement(array $entry, string $definition_id): array {
+    if (!empty($entry['quests']) && is_array($entry['quests'])) {
+      return $entry;
+    }
+    $default_quests = match ($definition_id) {
+      'tavern_keeper' => [
+        ['quest_id' => 'gather_wine', 'title' => 'Collect Wine Bottles', 'description' => 'Eldric needs wine bottles for the evening service'],
+        ['quest_id' => 'gather_torch_components', 'title' => 'Gather Torch Materials', 'description' => 'Help brighten the tavern by collecting torch components'],
+        ['quest_id' => 'tavern_storyline_leads', 'title' => 'Ask About Storyline Leads', 'description' => 'Get Eldric\'s latest actionable leads and choose which thread to pursue.'],
+      ],
+      'scholar_npc' => [
+        ['quest_id' => 'collect_spellbooks', 'title' => 'Recover Lost Spellbook', 'description' => 'Marta seeks a missing spellbook in the tavern'],
+        ['quest_id' => 'stabilize_arcane_resonance', 'title' => 'Stabilize Arcane Resonance', 'description' => 'Help Marta collect resonance samples and stabilize the codex\'s ambient magical feedback.'],
+      ],
+      'gribbles_rindsworth' => [
+        ['quest_id' => 'follow_the_whispers', 'title' => 'Follow the Whispers', 'description' => 'Track suspicious tavern rumors to identify who is moving contraband arcana through town.'],
+        ['quest_id' => 'recover_blackmail_ledger', 'title' => 'Recover Blackmail Ledger', 'description' => 'Retrieve Gribbles\' stolen ledger before rival brokers weaponize its secrets.'],
+      ],
+      default => [],
+    };
+    if ($default_quests !== []) {
+      $entry['quests'] = $default_quests;
+    }
+    return $entry;
   }
 
   private function encode(mixed $value): string {

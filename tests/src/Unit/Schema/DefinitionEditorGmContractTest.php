@@ -33,6 +33,9 @@ final class DefinitionEditorGmContractTest extends TestCase {
     'generate_item_definition',
     'generate_creature_definition',
     'generate_npc_definition',
+    'generate_obstacle_definition',
+    'generate_hazard_definition',
+    'generate_trap_definition',
     'plan_definition_patch',
     'update_definition',
     'create_definition',
@@ -121,7 +124,7 @@ final class DefinitionEditorGmContractTest extends TestCase {
   public function testDefinitionGmToolsetMatchesApiParity(): void {
     $harness = $this->harness();
     $manifest = $harness->manifest('definition_editor');
-    $this->assertSame(10, $manifest['tool_count']);
+    $this->assertSame(13, $manifest['tool_count']);
     $this->assertSame([], $manifest['supported_command_types']);
     $this->assertSame([], $manifest['command_payload_contracts']);
 
@@ -204,7 +207,15 @@ final class DefinitionEditorGmContractTest extends TestCase {
    * GM definition errors map to the same stable codes as the JSON API routes.
    */
   public function testDefinitionErrorCodeParity(): void {
-    $controller = new EditorGmController($this->harness(), $this->createMock(CsrfTokenGenerator::class));
+    $controller = new EditorGmController(
+      $this->harness(),
+      $this->createMock(CsrfTokenGenerator::class),
+      $this->createMock(\Drupal\dungeoncrawler_content\Service\ChatSessionManager::class),
+      $this->createMock(\Drupal\Core\Session\AccountProxyInterface::class)
+    );
+    $logger_factory = $this->createMock(\Drupal\Core\Logger\LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($this->createMock(\Psr\Log\LoggerInterface::class));
+    $controller->setLoggerFactory($logger_factory);
     $method = new \ReflectionMethod($controller, 'errorResponse');
     $method->setAccessible(TRUE);
 
@@ -238,7 +249,7 @@ final class DefinitionEditorGmContractTest extends TestCase {
       $this->assertSame([$method], $route['methods']);
       $this->assertSame('definition_editor', $route['defaults']['_surface']);
       $this->assertSame('TRUE', $route['requirements']['_user_is_logged_in']);
-      $this->assertSame('edit canonical dungeoncrawler definitions', $route['requirements']['_permission']);
+      $this->assertArrayNotHasKey('_permission', $route['requirements']);
     }
 
     $services = Yaml::parseFile($this->root() . '/dungeoncrawler_content.services.yml')['services'];
@@ -251,9 +262,10 @@ final class DefinitionEditorGmContractTest extends TestCase {
 
     $controller = $this->source('src/Controller/DefinitionEditorController.php');
     $form = $this->source('src/Form/SchemaDrivenDefinitionForm.php');
+    $panel = $this->source('src/Render/DefinitionEditorGmPanel.php');
     $shell = $this->source('js/v2/editor/DefinitionEditorShell.js');
     foreach (['data-definition-editor', 'data-definition-editor-gm-panel', 'data-definition-editor-gm-plan', 'describe_definition_schema'] as $token) {
-      $this->assertStringContainsString($token, $controller . $form . $shell);
+      $this->assertStringContainsString($token, $controller . $form . $panel . $shell);
     }
     $this->assertStringContainsString('definition-editor:', $this->source('dungeoncrawler_content.libraries.yml'));
   }

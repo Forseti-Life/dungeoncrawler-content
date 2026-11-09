@@ -17,9 +17,9 @@ final class ValidateDraftTool implements EditorGmToolInterface {
     return new EditorGmToolDefinition(
       'validate_draft',
       EditorGmToolDefinition::FAMILY_VALIDATION,
-      'Run a deterministic Room Editor validation profile against the active draft.',
+      'Run the active editor authority\'s deterministic validation profile against the draft.',
       FALSE,
-      'RoomEditorService::validateDraft()',
+      'EditorGmToolContext::validation()',
       [
         EditorGmToolDefinition::argument('profile', 'string', FALSE, 'One of editing, preview, publication.'),
       ],

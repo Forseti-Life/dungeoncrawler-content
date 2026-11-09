@@ -12,7 +12,7 @@
     "actor_type": {"enum": ["pc", "npc", "party", "trap", "obstacle"]},
     "display_name": {"type": "string", "minLength": 1, "maxLength": 255},
     "source_module": {"type": ["string", "null"], "maxLength": 128},
-    "metadata": {"type": "object", "additionalProperties": false, "required": ["generated_by"], "properties": {"generated_by": {"type": "object", "additionalProperties": false, "required": ["tool", "model", "prompt_hash", "seed", "generated_at"], "properties": {"tool": {"type": "string", "enum": ["generate_item_definition", "generate_creature_definition", "generate_npc_definition"]}, "model": {"type": "string", "minLength": 1, "maxLength": 200}, "provider": {"type": "string", "minLength": 1, "maxLength": 100}, "prompt_hash": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}, "seed": {"type": "integer", "minimum": 0, "maximum": 2147483647}, "generated_at": {"type": "string", "format": "date-time"}}}}},
+    "metadata": {"type": "object", "additionalProperties": false, "required": ["generated_by"], "properties": {"generated_by": {"type": "object", "additionalProperties": false, "required": ["tool", "model", "prompt_hash", "seed", "generated_at"], "properties": {"tool": {"type": "string", "enum": ["generate_item_definition", "generate_creature_definition", "generate_npc_definition", "generate_obstacle_definition", "generate_hazard_definition", "generate_trap_definition", "generate_canonical_definition"]}, "model": {"type": "string", "minLength": 1, "maxLength": 200}, "provider": {"type": "string", "minLength": 1, "maxLength": 100}, "prompt_hash": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}, "seed": {"type": "integer", "minimum": 0, "maximum": 2147483647}, "generated_at": {"type": "string", "format": "date-time"}}}}},
     "state_data": {"$ref": "#/definitions/state_data"}
   },
   "definitions": {
@@ -28,10 +28,51 @@
         "max_hp": {"type": "integer", "minimum": 0},
         "ac": {"type": "integer", "minimum": 0},
         "species": {"type": "string", "minLength": 1, "maxLength": 64},
+        "ancestry": {"type": "string", "minLength": 1, "maxLength": 100},
+        "heritage": {"type": "string", "minLength": 1, "maxLength": 100},
+        "background": {"type": "string", "minLength": 1, "maxLength": 100},
+        "occupation": {"type": "string", "minLength": 1, "maxLength": 150},
+        "role": {"type": "string", "minLength": 1, "maxLength": 64},
+        "alignment": {"enum": ["LG", "NG", "CG", "LN", "N", "CN", "LE", "NE", "CE"]},
+        "size": {"enum": ["Tiny", "Small", "Medium", "Large", "Huge", "Gargantuan"]},
+        "speed": {"type": "integer", "minimum": 0, "maximum": 120},
+        "perception": {"type": "integer", "minimum": -10, "maximum": 60},
         "attitude": {"enum": ["hostile", "unfriendly", "indifferent", "friendly", "helpful"]},
         "party_size": {"type": "integer", "minimum": 1, "maximum": 12},
         "source_module": {"type": "string", "maxLength": 128},
         "description": {"type": "string", "maxLength": 4000},
+        "appearance": {"type": "string", "maxLength": 2000},
+        "personality": {"type": "string", "maxLength": 2000},
+        "backstory": {"type": "string", "maxLength": 5000},
+        "motivations": {"type": "string", "maxLength": 1000},
+        "fears": {"type": "string", "maxLength": 1000},
+        "bonds": {"type": "string", "maxLength": 1000},
+        "personality_traits": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1, "maxLength": 120}
+        },
+        "abilities": {"$ref": "#/definitions/abilities"},
+        "saves": {"$ref": "#/definitions/saves"},
+        "skills": {"$ref": "#/definitions/skills"},
+        "attacks": {"$ref": "#/definitions/attacks"},
+        "equipment": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1, "maxLength": 200}
+        },
+        "languages": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1, "maxLength": 100}
+        },
+        "senses": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1, "maxLength": 100}
+        },
+        "spells": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1, "maxLength": 120}
+        },
+        "psychology": {"$ref": "#/definitions/psychology"},
+        "storyline_binding": {"$ref": "#/definitions/storyline_binding"},
         "conditions": {"$ref": "#/definitions/conditions"}
       },
       "allOf": [
@@ -40,6 +81,93 @@
           "then": {"required": ["party_size"]}
         }
       ]
+    },
+    "abilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["strength", "dexterity", "constitution", "intelligence", "wisdom", "charisma"],
+      "properties": {
+        "strength": {"type": "integer", "minimum": 1, "maximum": 30},
+        "dexterity": {"type": "integer", "minimum": 1, "maximum": 30},
+        "constitution": {"type": "integer", "minimum": 1, "maximum": 30},
+        "intelligence": {"type": "integer", "minimum": 1, "maximum": 30},
+        "wisdom": {"type": "integer", "minimum": 1, "maximum": 30},
+        "charisma": {"type": "integer", "minimum": 1, "maximum": 30}
+      }
+    },
+    "saves": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fortitude", "reflex", "will"],
+      "properties": {
+        "fortitude": {"type": "integer", "minimum": -10, "maximum": 60},
+        "reflex": {"type": "integer", "minimum": -10, "maximum": 60},
+        "will": {"type": "integer", "minimum": -10, "maximum": 60}
+      }
+    },
+    "skills": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "modifier"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1, "maxLength": 100},
+          "modifier": {"type": "integer", "minimum": -10, "maximum": 60}
+        }
+      }
+    },
+    "attacks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "bonus", "damage"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1, "maxLength": 120},
+          "bonus": {"type": "integer", "minimum": -10, "maximum": 60},
+          "damage": {"type": "string", "minLength": 1, "maxLength": 120}
+        }
+      }
+    },
+    "psychology": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inner_conflict",
+        "coping_mechanism",
+        "stress_response",
+        "insecurity",
+        "secret",
+        "desire",
+        "need",
+        "trigger",
+        "anchor"
+      ],
+      "properties": {
+        "inner_conflict": {"type": "string", "minLength": 1, "maxLength": 500},
+        "coping_mechanism": {"type": "string", "minLength": 1, "maxLength": 500},
+        "stress_response": {"type": "string", "minLength": 1, "maxLength": 500},
+        "insecurity": {"type": "string", "minLength": 1, "maxLength": 500},
+        "secret": {"type": "string", "minLength": 1, "maxLength": 500},
+        "desire": {"type": "string", "minLength": 1, "maxLength": 500},
+        "need": {"type": "string", "minLength": 1, "maxLength": 500},
+        "trigger": {"type": "string", "minLength": 1, "maxLength": 500},
+        "anchor": {"type": "string", "minLength": 1, "maxLength": 500}
+      }
+    },
+    "storyline_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "contact_id": {"type": "string", "maxLength": 128},
+        "availability": {"type": "string", "maxLength": 64},
+        "chapter_id": {"type": "string", "maxLength": 128},
+        "scene_id": {"type": "string", "maxLength": 128},
+        "location_id": {"type": "string", "maxLength": 128},
+        "dialogue": {"type": "string", "maxLength": 2000},
+        "knowledge": {"type": "string", "maxLength": 2000}
+      }
     },
     "conditions": {
       "type": "array",

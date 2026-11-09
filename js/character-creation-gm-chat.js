@@ -1,3 +1,5 @@
+import { shouldSubmitEditorGmKey } from './v2/editor/EditorGmChatClient.js?v=20261023-gm-chat-2';
+
 (function (Drupal, once, drupalSettings) {
   'use strict';
 
@@ -12,7 +14,10 @@
 
   function renderMessages(historyContainer, messages) {
     if (!messages.length) {
-      historyContainer.innerHTML = '<div class="character-creation-gm-chat__empty">Ask the GM to build your character, recommend options, or directly change the draft while you stay in the wizard.</div>';
+      historyContainer.innerHTML = '<div class="character-creation-gm-chat__message character-creation-gm-chat__message--assistant">' +
+        '<div class="character-creation-gm-chat__message-role">GM</div>' +
+        '<div class="character-creation-gm-chat__message-body">Welcome to Character Creation. Building a complete character is hard; describe the character you want, ask for recommendations, or ask me to update the draft while you remain in control of every choice.</div>' +
+      '</div>';
       return;
     }
 
@@ -144,7 +149,7 @@
 
         sendButton.addEventListener('click', send);
         input.addEventListener('keydown', (event) => {
-          if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+          if (shouldSubmitEditorGmKey(event)) {
             event.preventDefault();
             send();
           }

@@ -6,6 +6,7 @@ namespace Drupal\dungeoncrawler_content\Service\Generation;
 
 use Drupal\Core\Database\Connection;
 use Drupal\dungeoncrawler_content\Service\DungeonEditorService;
+use Drupal\dungeoncrawler_content\Service\ModuleConversion\ModuleConversionReleaseService;
 
 /**
  * Selects published canonical content for runtime projection.
@@ -19,6 +20,7 @@ class RuntimeCanonicalContentResolver {
   public function __construct(
     private readonly Connection $database,
     private readonly ?DungeonEditorService $dungeonEditor = NULL,
+    private readonly ?ModuleConversionReleaseService $moduleReleases = NULL,
   ) {}
 
   /**
@@ -189,6 +191,20 @@ class RuntimeCanonicalContentResolver {
       throw new RuntimeGenerationException('dungeon_aggregate_invalid', [
         $this->finding('dungeon_aggregate_invalid', '/dungeon_payload', 'Published dungeon payload is not an object.'),
       ]);
+    }
+    if (($aggregate['metadata']['module_conversion']['execution_mode'] ?? NULL) === 'original_scene_generation') {
+      $release_id = trim((string) ($source['module_release_id'] ?? ''));
+      if ($release_id === '' || $this->moduleReleases === NULL) {
+        throw new RuntimeGenerationException('campaign_source_module_release_required', [
+          $this->finding('campaign_source_module_release_required', '/source', 'Module-conversion dungeons must launch through a verified module release, not as generic published dungeons.'),
+        ]);
+      }
+      $release_source = $this->moduleReleases->resolveCampaignSource($release_id);
+      if ($release_source['dungeon_id'] !== $dungeon_id || $release_source['version_id'] !== $version_id) {
+        throw new RuntimeGenerationException('campaign_source_module_release_mismatch', [
+          $this->finding('campaign_source_module_release_mismatch', '/source', 'The verified module release does not pin this dungeon version.'),
+        ]);
+      }
     }
     try {
       $this->dungeonEditor->assertAggregateConforms($aggregate, 'publication');

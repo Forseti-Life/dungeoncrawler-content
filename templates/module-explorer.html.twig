@@ -1,0 +1,40 @@
+{#
+/**
+ * @file
+ * Private raw module archive browser.
+ */
+#}
+<div class="dc-character-list dc-character-list--storylines room-editor module-manager module-explorer" data-module-explorer>
+  <div class="game-shell">
+    <header class="room-editor__header">
+      <p class="room-editor__eyebrow">{{ 'DungeonCrawler'|t }}</p>
+      <h1 class="room-editor__title">{{ 'Module Explorer'|t }}</h1>
+      <p class="room-editor__helper">{{ 'Review original module files and map dimensions before converting scenes into rooms. This page does not change source archives or published releases.'|t }}</p>
+      <p><a href="{{ path('dungeoncrawler_content.module_manager') }}">{{ 'Back to Module Manager'|t }}</a></p>
+    </header>
+
+    <p data-module-explorer-status role="status" aria-live="polite">{{ 'Loading private archives…'|t }}</p>
+    <section class="module-manager__section" aria-labelledby="module-explorer-archives-heading">
+      <h2 id="module-explorer-archives-heading" class="room-editor__eyebrow">{{ 'Downloaded modules'|t }}</h2>
+      <div data-module-explorer-archives class="module-explorer__archives"></div>
+    </section>
+
+    <section class="module-manager__section" aria-labelledby="module-explorer-files-heading">
+      <h2 id="module-explorer-files-heading" class="room-editor__eyebrow">{{ 'Archive structure and files'|t }}</h2>
+      <p data-module-explorer-summary class="module-manager__item-meta"></p>
+      <div class="module-explorer__filters">
+        <label for="module-explorer-folder">{{ 'Folder'|t }}</label>
+        <select id="module-explorer-folder" data-module-explorer-folder><option value="">{{ 'All folders'|t }}</option></select>
+        <label for="module-explorer-search">{{ 'Search files'|t }}</label>
+        <input id="module-explorer-search" type="search" data-module-explorer-search placeholder="{{ 'map, scene, actor, module.json…'|t }}">
+      </div>
+      <ul class="module-manager__list module-explorer__files" data-module-explorer-files></ul>
+      <button type="button" data-module-explorer-more hidden>{{ 'Show more files'|t }}</button>
+    </section>
+
+    <section class="module-manager__section" aria-labelledby="module-explorer-preview-heading">
+      <h2 id="module-explorer-preview-heading" class="room-editor__eyebrow">{{ 'File preview'|t }}</h2>
+      <div data-module-explorer-preview>{{ 'Select a file to inspect it.'|t }}</div>
+    </section>
+  </div>
+</div>

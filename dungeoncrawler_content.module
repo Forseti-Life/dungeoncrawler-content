@@ -12,6 +12,7 @@
 use Drupal\Core\Entity\Display\EntityViewDisplayInterface;
 use Drupal\Core\Entity\EntityInterface;
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\Routing\RouteMatchInterface;
 use Drupal\Core\Url;
 use Drupal\node\NodeInterface;
 
@@ -31,6 +32,54 @@ function dungeoncrawler_content_user_login_form_submit_redirect_campaigns(array 
   }
 
   $form_state->setRedirectUrl(Url::fromUserInput('/campaigns'));
+}
+
+/**
+ * Implements hook_preprocess_html().
+ *
+ * Ensures every Storylines-menu surface carries the shared Storylines styling
+ * baseline so pages remain visually coherent with /storylines.
+ */
+function dungeoncrawler_content_preprocess_html(array &$variables): void {
+  $route_match = \Drupal::routeMatch();
+  if (!$route_match instanceof RouteMatchInterface) {
+    return;
+  }
+  $route_name = (string) $route_match->getRouteName();
+  if (!in_array($route_name, dungeoncrawler_content_storylines_route_names(), TRUE)) {
+    return;
+  }
+  $variables['#attached']['library'][] = 'dungeoncrawler_content/storyline-management';
+  $variables['attributes']['class'][] = 'dc-storylines-shell';
+}
+
+/**
+ * Route names represented under the Storylines navigation subtree.
+ *
+ * @return string[]
+ *   Route names that should inherit Storylines shell styling.
+ */
+function dungeoncrawler_content_storylines_route_names(): array {
+  return [
+    'dungeoncrawler_content.storyline_management',
+    'dungeoncrawler_content.analysis_explorer_home',
+    'dungeoncrawler_content.storyline_explorer',
+    'dungeoncrawler_content.gm_storyline_builder',
+    'dungeoncrawler_content.dungeon_analysis',
+    'dungeoncrawler_content.analysis_explorer_rooms',
+    'dungeoncrawler_content.analysis_explorer_items',
+    'dungeoncrawler_content.analysis_explorer_spells',
+    'dungeoncrawler_content.analysis_explorer_feats',
+    'dungeoncrawler_content.analysis_explorer_actors',
+    'dungeoncrawler_content.module_explorer',
+    'dungeoncrawler_content.module_manager',
+    'dungeoncrawler_content.definition_index',
+    'dungeoncrawler_content.definition_family',
+    'dungeoncrawler_content.definition_create',
+    'dungeoncrawler_content.definition_edit',
+    'dungeoncrawler_content.room_editor',
+    'dungeoncrawler_content.dungeon_editor',
+  ];
 }
 
 /**
@@ -123,6 +172,23 @@ function dungeoncrawler_content_theme(array $existing, string $type, string $the
         'delete_all_url' => NULL,
       ],
       'template' => 'campaign-archived-list',
+      'path' => $path . '/templates',
+    ],
+    'storyline_management_list' => [
+      'variables' => [
+        'my_storylines' => [],
+        'other_storylines' => [],
+        'my_drafts' => [],
+        'shared_drafts' => [],
+        'metrics' => [],
+        'campaigns' => [],
+        'selected_campaign_id' => 0,
+        'selected_template_id' => '',
+        'builder_url' => NULL,
+        'storyline_explorer_url' => NULL,
+        'campaigns_url' => NULL,
+      ],
+      'template' => 'storyline-management-list',
       'path' => $path . '/templates',
     ],
 
@@ -299,6 +365,16 @@ function dungeoncrawler_content_theme(array $existing, string $type, string $the
     'editor_suite' => [
       'variables' => [],
       'template' => 'editor-suite',
+      'path' => $path . '/templates',
+    ],
+    'module_manager' => [
+      'variables' => [],
+      'template' => 'module-manager',
+      'path' => $path . '/templates',
+    ],
+    'module_explorer' => [
+      'variables' => [],
+      'template' => 'module-explorer',
       'path' => $path . '/templates',
     ],
 

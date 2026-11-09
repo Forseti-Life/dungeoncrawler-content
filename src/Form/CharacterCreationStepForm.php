@@ -400,8 +400,11 @@ class CharacterCreationStepForm extends FormBase {
     }
 
     if ($history_markup === '') {
-      $history_markup = '<div class="character-creation-gm-chat__empty">'
-        . Html::escape((string) $this->t('Ask the GM to build your character, recommend options, or directly change the draft while you stay in the wizard.'))
+      $history_markup = '<div class="character-creation-gm-chat__message character-creation-gm-chat__message--assistant">'
+        . '<div class="character-creation-gm-chat__message-role">' . Html::escape((string) $this->t('GM')) . '</div>'
+        . '<div class="character-creation-gm-chat__message-body">'
+        . Html::escape((string) $this->t('Welcome to Character Creation. Building a complete character is hard; describe the character you want, ask for recommendations, or ask me to update the draft while you remain in control of every choice.'))
+        . '</div>'
         . '</div>';
     }
 
@@ -433,6 +436,7 @@ class CharacterCreationStepForm extends FormBase {
       . '<textarea id="characterCreationGmInput" class="character-creation-gm-chat__input" rows="3" placeholder="' . Html::escape((string) $this->t('Example: build me a sturdy dwarf fighter with a simple backstory and heavy armor.')) . '"></textarea>'
       . '<div class="character-creation-gm-chat__actions">'
       . '<div class="character-creation-gm-chat__status" data-gm-chat-status></div>'
+      . '<span class="character-creation-gm-chat__hint">' . Html::escape((string) $this->t('Enter to send · Shift + Enter for a new line')) . '</span>'
       . '<button type="button" class="btn btn-primary character-creation-gm-chat__send" data-gm-chat-send>' . Html::escape((string) $this->t('Send to GM')) . '</button>'
       . '</div>'
       . '</div>'
@@ -1524,11 +1528,16 @@ class CharacterCreationStepForm extends FormBase {
       }
     }
     elseif (array_key_exists($selected_class, CharacterManager::CLASS_TRADITIONS) && !$tradition) {
-      // Caster class but tradition not yet resolved (sorcerer/witch without subclass)
+      $tradition_source = match ($selected_class) {
+        'sorcerer' => 'bloodline',
+        'witch' => 'patron',
+        'summoner' => 'eidolon type',
+        default => 'class option',
+      };
       $form['class_dynamic']['spells_pending'] = [
         '#markup' => '<div class="section-instructions spells-pending">'
           . '<p><em>' . $this->t('Select your @thing above to unlock spell selection.', [
-            '@thing' => $selected_class === 'sorcerer' ? 'bloodline' : 'patron',
+            '@thing' => $tradition_source,
           ]) . '</em></p>'
           . '</div>',
       ];

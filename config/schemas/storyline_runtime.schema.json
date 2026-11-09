@@ -118,7 +118,26 @@
               "status": {"type": "string"},
               "unlocks_after": {"type": "array", "items": {"type": "string"}},
               "unlocks_to": {"type": "array", "items": {"type": "string"}},
-              "unlock_condition": {"type": "string"}
+              "unlock_condition": {"type": "string"},
+              "prerequisite_mode": {"enum": ["all", "any"]},
+              "choices": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["decision_id", "choice_id", "label", "trigger", "effects", "target_quest_id", "target_scene_id", "terminal"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "decision_id": {"type": "string"},
+                    "choice_id": {"type": "string"},
+                    "label": {"type": "string"},
+                    "trigger": {"type": "object", "additionalProperties": true},
+                    "effects": {"type": "object", "additionalProperties": true},
+                    "target_quest_id": {"type": "string"},
+                    "target_scene_id": {"type": "string"},
+                    "terminal": {"type": "boolean"}
+                  }
+                }
+              }
             }
           }
         }

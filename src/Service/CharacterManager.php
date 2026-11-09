@@ -1850,6 +1850,8 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
     'sorcerer' => NULL,   // Sorcerer picks a tradition via bloodline.
     'oracle'   => 'divine',
     'witch'    => NULL,   // Witch picks via patron; default occult.
+    'magus'    => 'arcane',
+    'summoner' => NULL,   // Summoner picks via eidolon type.
   ];
 
   /**
@@ -7900,6 +7902,543 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
   }
 
   /**
+   * Load or materialize a unified actor/character record by numeric ID or slug.
+   */
+  public function loadActorBySlugOrId(string|int $identifier, int $campaign_id = 0): ?object {
+    $raw = trim((string) $identifier);
+    if ($raw === '') {
+      return NULL;
+    }
+
+    foreach (['campaign-character:', 'character:', 'runtime:', 'content:', 'actor:'] as $prefix) {
+      if (str_starts_with(strtolower($raw), $prefix)) {
+        $raw = trim(substr($raw, strlen($prefix)));
+        break;
+      }
+    }
+    if ($raw === '') {
+      return NULL;
+    }
+
+    if (ctype_digit($raw)) {
+      $numeric_id = (int) $raw;
+      $direct = $this->loadCharacter($numeric_id);
+      if ($direct) {
+        return $direct;
+      }
+      if ($campaign_id > 0) {
+        $by_source = $this->database->select('dc_campaign_characters', 'c')
+          ->fields('c')
+          ->condition('c.campaign_id', $campaign_id)
+          ->condition(
+            $this->database->condition('OR')
+              ->condition('c.character_id', $numeric_id)
+              ->condition('c.source_character_id', $numeric_id)
+          )
+          ->orderBy('c.updated', 'DESC')
+          ->range(0, 1)
+          ->execute()
+          ->fetchObject();
+        if ($by_source) {
+          return $by_source;
+        }
+      }
+      return NULL;
+    }
+
+    $candidates = [$raw];
+    if (str_starts_with($raw, 'npc_')) {
+      $unprefixed = substr($raw, 4);
+      if ($unprefixed !== '') {
+        $candidates[] = $unprefixed;
+      }
+    }
+    else {
+      $candidates[] = 'npc_' . $raw;
+    }
+    $candidates = array_values(array_unique(array_filter($candidates, static fn(string $v): bool => $v !== '')));
+
+    if ($campaign_id > 0) {
+      $campaign_row = $this->database->select('dc_campaign_characters', 'c')
+        ->fields('c')
+        ->condition('c.campaign_id', $campaign_id)
+        ->condition('c.instance_id', $candidates, 'IN')
+        ->orderBy('c.updated', 'DESC')
+        ->range(0, 1)
+        ->execute()
+        ->fetchObject();
+      if ($campaign_row) {
+        return $campaign_row;
+      }
+
+      if ($this->database->schema()->tableExists('dc_campaign_dungeons')) {
+        $dungeon_row = $this->database->select('dc_campaign_dungeons', 'd')
+          ->fields('d', ['dungeon_data'])
+          ->condition('campaign_id', $campaign_id)
+          ->orderBy('updated', 'DESC')
+          ->orderBy('id', 'DESC')
+          ->range(0, 1)
+          ->execute()
+          ->fetchAssoc();
+        $dungeon_data = is_array($dungeon_row)
+          ? json_decode((string) ($dungeon_row['dungeon_data'] ?? '{}'), TRUE)
+          : [];
+        foreach ((array) ($dungeon_data['entities'] ?? []) as $entity) {
+          if (!is_array($entity)) {
+            continue;
+          }
+          $metadata = is_array($entity['state']['metadata'] ?? NULL) ? $entity['state']['metadata'] : [];
+          $runtime_id = trim((string) ($entity['entity_instance_id'] ?? $entity['instance_id'] ?? $entity['id'] ?? ''));
+          $content_id = trim((string) ($entity['entity_ref']['content_id'] ?? ''));
+          if (!in_array($runtime_id, $candidates, TRUE) && !in_array($content_id, $candidates, TRUE)) {
+            continue;
+          }
+          $cc_id = (int) ($metadata['campaign_character_id'] ?? $metadata['character_id'] ?? $entity['character_id'] ?? 0);
+          if ($cc_id > 0) {
+            $linked = $this->loadCharacter($cc_id);
+            if ($linked) {
+              return $linked;
+            }
+          }
+        }
+      }
+    }
+
+    $library_row = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c')
+      ->condition('c.campaign_id', 0)
+      ->condition('c.instance_id', $candidates, 'IN')
+      ->orderBy('c.changed', 'DESC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchObject();
+    if ($library_row) {
+      return $library_row;
+    }
+
+    $canonical_slug = str_starts_with($raw, 'npc_') ? substr($raw, 4) : $raw;
+    return $this->materializeCanonicalActorToCharacterRecord($canonical_slug, $campaign_id);
+  }
+
+  /**
+   * Synchronize a canonical actor or template row into dc_campaign_characters.
+   */
+  public function materializeCanonicalActorToCharacterRecord(string $actor_id, int $campaign_id = 0): ?object {
+    $actor_id = trim($actor_id);
+    if ($actor_id === '') {
+      return NULL;
+    }
+
+    $canonical_row = NULL;
+    if ($this->database->schema()->tableExists('dc_canonical_actors')) {
+      $canonical_row = $this->database->select('dc_canonical_actors', 'a')
+        ->fields('a')
+        ->condition('a.actor_id', $actor_id)
+        ->orderBy('a.updated_at', 'DESC')
+        ->range(0, 1)
+        ->execute()
+        ->fetchAssoc();
+    }
+
+    $template_row = NULL;
+    if (!$canonical_row && $this->database->schema()->tableExists('dungeoncrawler_content_characters')) {
+      $template_row = $this->database->select('dungeoncrawler_content_characters', 't')
+        ->fields('t')
+        ->condition('t.instance_id', [$actor_id, 'npc_' . $actor_id], 'IN')
+        ->range(0, 1)
+        ->execute()
+        ->fetchAssoc();
+    }
+
+    $storyline_spec = $this->findStorylineDraftActorSpec($actor_id);
+    if (!is_array($canonical_row) && !is_array($template_row) && !is_array($storyline_spec)) {
+      return NULL;
+    }
+
+    $state_data = is_array($canonical_row)
+      ? (json_decode((string) ($canonical_row['state_data'] ?? '{}'), TRUE) ?: [])
+      : (is_array($template_row) ? (json_decode((string) ($template_row['state_data'] ?? '{}'), TRUE) ?: []) : []);
+    $metadata = is_array($canonical_row)
+      ? (json_decode((string) ($canonical_row['metadata'] ?? '{}'), TRUE) ?: [])
+      : [];
+
+    if (is_array($storyline_spec)) {
+      $state_data['role'] = $state_data['role'] ?? ($storyline_spec['role'] ?? 'contact');
+      $state_data['attitude'] = $state_data['attitude'] ?? ($storyline_spec['attitude'] ?? 'indifferent');
+      $state_data['motivations'] = $state_data['motivations'] ?? ($storyline_spec['motivation'] ?? '');
+      $state_data['storyline_binding'] = array_filter([
+        'contact_id' => (string) ($storyline_spec['contact_id'] ?? ''),
+        'availability' => (string) ($storyline_spec['availability'] ?? ''),
+        'chapter_id' => (string) ($storyline_spec['chapter_id'] ?? ''),
+        'scene_id' => (string) ($storyline_spec['scene_id'] ?? ''),
+        'location_id' => (string) ($storyline_spec['location_id'] ?? ''),
+        'dialogue' => (string) ($storyline_spec['dialogue'] ?? ''),
+        'knowledge' => (string) ($storyline_spec['knowledge'] ?? ''),
+      ], static fn($v): bool => $v !== '');
+    }
+
+    $actor_payload = [
+      'actor_id' => $actor_id,
+      'actor_type' => (string) ($canonical_row['actor_type'] ?? $template_row['type'] ?? 'npc'),
+      'display_name' => (string) ($canonical_row['display_name'] ?? $storyline_spec['display_name'] ?? $state_data['name'] ?? $actor_id),
+      'source_module' => (string) ($canonical_row['source_module'] ?? $state_data['source_module'] ?? 'canonical_library'),
+      'version' => (string) ($canonical_row['version'] ?? '1.0.0'),
+      'state_data' => $state_data,
+      'metadata' => $metadata,
+    ];
+
+    $library_record = $this->saveCanonicalActorTemplate($actor_id, $actor_payload, $actor_payload['source_module']);
+    if ($campaign_id > 0) {
+      return $this->instantiateCampaignActorFromTemplate($campaign_id, $actor_id);
+    }
+
+    return $library_record;
+  }
+
+  /**
+   * Look up storyline draft actor generation_spec context when available.
+   */
+  protected function findStorylineDraftActorSpec(string $actor_id): ?array {
+    if (!$this->database->schema()->tableExists('dungeoncrawler_content_storyline_authoring_drafts')) {
+      return NULL;
+    }
+    $rows = $this->database->select('dungeoncrawler_content_storyline_authoring_drafts', 'd')
+      ->fields('d', ['draft_payload'])
+      ->orderBy('updated_at', 'DESC')
+      ->range(0, 25)
+      ->execute()
+      ->fetchCol();
+    foreach ($rows as $payload_json) {
+      $payload = json_decode((string) $payload_json, TRUE);
+      $specs = $payload['objects']['actors']['generation_specs'] ?? [];
+      if (!is_array($specs)) {
+        continue;
+      }
+      foreach ($specs as $spec) {
+        if (is_array($spec) && trim((string) ($spec['actor_id'] ?? '')) === $actor_id) {
+          return $spec;
+        }
+      }
+    }
+    return NULL;
+  }
+
+  /**
+   * Save or update a canonical actor template as a full character sheet row.
+   */
+  public function saveCanonicalActorTemplate(string $actor_id, array $actor_payload, ?string $source_module = NULL): object {
+    $actor_id = trim($actor_id);
+    if ($actor_id === '') {
+      throw new \InvalidArgumentException('Actor id is required to save canonical actor template.');
+    }
+
+    $state = is_array($actor_payload['state_data'] ?? NULL) ? $actor_payload['state_data'] : $actor_payload;
+    $name = trim((string) ($actor_payload['display_name'] ?? $state['name'] ?? $actor_payload['name'] ?? $actor_id));
+    if ($name === '') {
+      $name = $actor_id;
+    }
+    $level = max(1, (int) ($state['level'] ?? $actor_payload['level'] ?? 1));
+    $actor_type_raw = strtolower(trim((string) ($actor_payload['actor_type'] ?? $state['actor_type'] ?? $actor_payload['type'] ?? 'npc')));
+    $actor_type = $actor_type_raw === 'pc' ? 'pc' : 'npc';
+    $role = trim((string) ($state['role'] ?? $state['class'] ?? $actor_payload['role'] ?? ($actor_type === 'pc' ? 'player' : 'npc')));
+    $ancestry = trim((string) ($state['ancestry'] ?? $state['species'] ?? $actor_payload['ancestry'] ?? 'Human'));
+    $class_name = trim((string) ($state['class'] ?? $actor_payload['class'] ?? 'Fighter'));
+
+    $default_hp = 12 + ($level * 8);
+    $max_hp = max(1, (int) ($state['max_hp'] ?? $state['hp_current'] ?? $state['hit_points']['max'] ?? $default_hp));
+    $hp_current = max(0, (int) ($state['hp_current'] ?? $state['hit_points']['current'] ?? $max_hp));
+    $ac = max(10, (int) ($state['ac'] ?? $state['armor_class'] ?? (13 + $level)));
+    $prof_mod = $level + 2;
+
+    $abilities = is_array($state['abilities'] ?? NULL) ? $state['abilities'] : [
+      'strength' => 12,
+      'dexterity' => 12,
+      'constitution' => 12,
+      'intelligence' => 12,
+      'wisdom' => 12,
+      'charisma' => 12,
+    ];
+    $saves = is_array($state['saves'] ?? NULL) ? $state['saves'] : [
+      'fortitude' => $prof_mod + 1,
+      'reflex' => $prof_mod + 1,
+      'will' => $prof_mod + 1,
+    ];
+    $perception = (int) ($state['perception'] ?? ($prof_mod + 1));
+    $description = trim((string) ($state['description'] ?? $actor_payload['description'] ?? ''));
+    $appearance = trim((string) ($state['appearance'] ?? $description));
+    $attitude = trim((string) ($state['attitude'] ?? $actor_payload['attitude'] ?? 'indifferent'));
+    $motivations = trim((string) ($state['motivations'] ?? $actor_payload['motivations'] ?? ''));
+    $psychology = is_array($state['psychology'] ?? NULL) ? $state['psychology'] : (is_array($actor_payload['psychology'] ?? NULL) ? $actor_payload['psychology'] : []);
+    $storyline_binding = is_array($state['storyline_binding'] ?? NULL) ? $state['storyline_binding'] : (is_array($actor_payload['storyline_binding'] ?? NULL) ? $actor_payload['storyline_binding'] : []);
+
+    $flat = [
+      'actor_id' => $actor_id,
+      'actor_type' => $actor_type,
+      'type' => $actor_type,
+      'step' => 8,
+      'wizard_complete' => TRUE,
+      'name' => $name,
+      'level' => $level,
+      'ancestry' => $ancestry,
+      'class' => $class_name,
+      'occupation' => (string) ($state['occupation'] ?? $role),
+      'role' => $role,
+      'alignment' => (string) ($state['alignment'] ?? 'N'),
+      'attitude' => $attitude,
+      'appearance' => $appearance,
+      'description' => $description,
+      'personality' => (string) ($state['personality'] ?? (is_array($state['personality_traits'] ?? NULL) ? implode(', ', $state['personality_traits']) : '')),
+      'backstory' => (string) ($state['backstory'] ?? $description),
+      'motivations' => $motivations,
+      'fears' => (string) ($state['fears'] ?? ''),
+      'bonds' => (string) ($state['bonds'] ?? ''),
+      'personality_traits' => is_array($state['personality_traits'] ?? NULL) ? array_values($state['personality_traits']) : [],
+      'psychology' => $psychology,
+      'storyline_binding' => $storyline_binding,
+      'abilities' => $abilities,
+      'hit_points' => [
+        'max' => $max_hp,
+        'current' => $hp_current,
+        'temp' => 0,
+      ],
+      'armor_class' => $ac,
+      'saves' => $saves,
+      'perception' => $perception,
+      'skills' => is_array($state['skills'] ?? NULL) ? $state['skills'] : [],
+      'attacks' => is_array($state['attacks'] ?? NULL) ? $state['attacks'] : [],
+      'languages' => is_array($state['languages'] ?? NULL) && $state['languages'] !== [] ? $state['languages'] : ['Common'],
+      'senses' => is_array($state['senses'] ?? NULL) ? $state['senses'] : [],
+      'conditions' => is_array($state['conditions'] ?? NULL) ? $state['conditions'] : [],
+      'source_module' => $source_module ?? ($actor_payload['source_module'] ?? $state['source_module'] ?? NULL),
+      'profile' => [
+        'display_name' => $name,
+        'role' => $role,
+        'attitude' => $attitude,
+        'appearance' => $appearance,
+        'motivations' => $motivations,
+        'fears' => (string) ($state['fears'] ?? ''),
+        'bonds' => (string) ($state['bonds'] ?? ''),
+        'personality_traits' => is_array($state['personality_traits'] ?? NULL) ? array_values($state['personality_traits']) : [],
+        'psychology' => $psychology,
+      ],
+    ];
+    if (is_array($actor_payload['metadata'] ?? NULL)) {
+      $flat['metadata'] = $actor_payload['metadata'];
+    }
+
+    $canonical_data = $this->canonicalizeCharacterData($flat);
+    $encoded = json_encode($canonical_data, JSON_UNESCAPED_UNICODE);
+    $now = time();
+
+    $existing = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c', ['id', 'version', 'portrait'])
+      ->condition('c.campaign_id', 0)
+      ->condition('c.instance_id', $actor_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+
+    $portrait = trim((string) (
+      $actor_payload['portrait']
+      ?? $state['portrait']
+      ?? ($existing['portrait'] ?? '')
+    ));
+    if ($portrait === '') {
+      $portrait = $this->resolveCanonicalActorPortraitUrl($actor_id);
+    }
+
+    $fields = [
+      'campaign_id' => 0,
+      'character_id' => 0,
+      'uid' => 0,
+      'role' => substr($role !== '' ? $role : 'npc', 0, 32),
+      'is_active' => 1,
+      'instance_id' => $actor_id,
+      'type' => $actor_type,
+      'state_data' => $encoded,
+      'location_type' => !empty($storyline_binding['location_id']) ? 'room' : 'global',
+      'location_ref' => substr((string) ($storyline_binding['location_id'] ?? ''), 0, 100),
+      'updated' => $now,
+      'name' => $name,
+      'level' => $level,
+      'ancestry' => substr($ancestry, 0, 64),
+      'class' => substr($class_name, 0, 64),
+      'character_data' => $encoded,
+      'default_character_data' => $encoded,
+      'status' => 1,
+      'changed' => $now,
+      'hp_current' => $hp_current,
+      'hp_max' => $max_hp,
+      'armor_class' => $ac,
+      'lifecycle_state' => 'canonical_template',
+    ];
+    if ($portrait !== '') {
+      $fields['portrait'] = $portrait;
+    }
+
+    if (is_array($existing) && !empty($existing['id'])) {
+      $row_id = (int) $existing['id'];
+      $fields['version'] = ((int) ($existing['version'] ?? 0)) + 1;
+      $this->database->update('dc_campaign_characters')
+        ->fields($fields)
+        ->condition('id', $row_id)
+        ->execute();
+    }
+    else {
+      $fields['uuid'] = $this->uuid->generate();
+      $fields['joined'] = $now;
+      $fields['created'] = $now;
+      $fields['version'] = 1;
+      $row_id = (int) $this->database->insert('dc_campaign_characters')
+        ->fields($fields)
+        ->execute();
+    }
+
+    return $this->loadCharacter($row_id);
+  }
+
+  /**
+   * Resolve a canonical actor portrait URL from templates or campaign rows.
+   */
+  protected function resolveCanonicalActorPortraitUrl(string $actor_id): string {
+    $raw_slug = trim($actor_id);
+    if ($raw_slug === '') {
+      return '';
+    }
+    $base_slug = str_starts_with($raw_slug, 'npc_') ? substr($raw_slug, 4) : $raw_slug;
+    $candidates = array_values(array_unique(array_filter([
+      $raw_slug,
+      $base_slug,
+      $base_slug !== '' ? 'npc_' . $base_slug : '',
+      $base_slug !== '' ? 'tpl_char_npc_' . $base_slug . '_001' : '',
+    ])));
+    if ($candidates === []) {
+      return '';
+    }
+
+    if (
+      $this->database->schema()->tableExists('dungeoncrawler_content_characters')
+      && $this->database->schema()->tableExists('dc_generated_image_links')
+      && $this->database->schema()->tableExists('dc_generated_images')
+    ) {
+      $tpl_ids = $this->database->select('dungeoncrawler_content_characters', 't')
+        ->fields('t', ['id'])
+        ->condition('t.instance_id', $candidates, 'IN')
+        ->execute()
+        ->fetchCol();
+      if ($tpl_ids !== []) {
+        $q = $this->database->select('dc_generated_image_links', 'l');
+        $q->innerJoin('dc_generated_images', 'i', 'i.id = l.image_id');
+        $url = $q->fields('i', ['public_url'])
+          ->condition('l.table_name', 'dungeoncrawler_content_characters')
+          ->condition('l.object_id', array_map('strval', $tpl_ids), 'IN')
+          ->condition('l.slot', 'portrait')
+          ->orderBy('l.is_primary', 'DESC')
+          ->orderBy('l.updated', 'DESC')
+          ->range(0, 1)
+          ->execute()
+          ->fetchField();
+        if (is_string($url) && trim($url) !== '') {
+          return trim($url);
+        }
+      }
+    }
+
+    if ($this->database->schema()->tableExists('dc_campaign_characters')) {
+      $fallback = $this->database->select('dc_campaign_characters', 'c')
+        ->fields('c', ['portrait'])
+        ->condition('c.instance_id', $candidates, 'IN')
+        ->isNotNull('c.portrait')
+        ->condition('c.portrait', '', '<>')
+        ->orderBy('c.updated', 'DESC')
+        ->orderBy('c.id', 'DESC')
+        ->range(0, 1)
+        ->execute()
+        ->fetchField();
+      if (is_string($fallback) && trim($fallback) !== '') {
+        return trim($fallback);
+      }
+    }
+
+    return '';
+  }
+
+  /**
+   * Instantiate or update a campaign-scoped actor row from its canonical template.
+   */
+  public function instantiateCampaignActorFromTemplate(int $campaign_id, string $actor_id, array $overrides = []): object {
+    if ($campaign_id <= 0) {
+      throw new \InvalidArgumentException('Campaign id must be > 0 to instantiate a campaign actor.');
+    }
+    $template = $this->loadActorBySlugOrId($actor_id, 0);
+    if (!$template) {
+      $template = $this->saveCanonicalActorTemplate($actor_id, $overrides + ['actor_id' => $actor_id]);
+    }
+
+    $template_data = $this->getCharacterData($template);
+    $merged_data = $this->canonicalizeCharacterData(array_replace_recursive($template_data, $overrides));
+    $hot = $this->extractHotColumnsFromData($merged_data);
+    $instance_id = trim((string) ($overrides['instance_id'] ?? $template->instance_id ?? $actor_id));
+    $role = substr(trim((string) ($overrides['role'] ?? $merged_data['role'] ?? $template->role ?? 'npc')), 0, 32);
+    $now = time();
+
+    $existing = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c', ['id', 'version'])
+      ->condition('c.campaign_id', $campaign_id)
+      ->condition('c.instance_id', $instance_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+
+    $fields = [
+      'campaign_id' => $campaign_id,
+      'character_id' => (int) $template->id,
+      'source_character_id' => (int) $template->id,
+      'uid' => 0,
+      'role' => $role !== '' ? $role : 'npc',
+      'is_active' => 1,
+      'instance_id' => $instance_id,
+      'type' => (string) ($merged_data['actor_type'] ?? $template->type ?? 'npc'),
+      'state_data' => json_encode($merged_data, JSON_UNESCAPED_UNICODE),
+      'location_type' => (string) ($overrides['location_type'] ?? $template->location_type ?? 'global'),
+      'location_ref' => (string) ($overrides['location_ref'] ?? $template->location_ref ?? ''),
+      'updated' => $now,
+      'name' => (string) ($merged_data['name'] ?? $template->name),
+      'level' => max(1, (int) ($merged_data['level'] ?? $template->level ?? 1)),
+      'ancestry' => substr((string) ($merged_data['ancestry'] ?? $template->ancestry ?? ''), 0, 64),
+      'class' => substr((string) ($merged_data['class'] ?? $template->class ?? ''), 0, 64),
+      'character_data' => json_encode($merged_data, JSON_UNESCAPED_UNICODE),
+      'default_character_data' => (string) ($template->character_data ?? ''),
+      'status' => 1,
+      'changed' => $now,
+      'hp_current' => $hot['hp_current'],
+      'hp_max' => $hot['hp_max'],
+      'armor_class' => $hot['armor_class'],
+      'experience_points' => $hot['experience_points'],
+      'lifecycle_state' => $role === 'merchant' ? 'campaign_merchant' : 'campaign_npc',
+    ];
+
+    if (is_array($existing) && !empty($existing['id'])) {
+      $row_id = (int) $existing['id'];
+      $fields['version'] = ((int) ($existing['version'] ?? 0)) + 1;
+      $this->database->update('dc_campaign_characters')
+        ->fields($fields)
+        ->condition('id', $row_id)
+        ->execute();
+    }
+    else {
+      $fields['joined'] = $now;
+      $fields['created'] = $now;
+      $fields['version'] = 1;
+      $row_id = (int) $this->database->insert('dc_campaign_characters')
+        ->fields($fields)
+        ->execute();
+    }
+
+    return $this->loadCharacter($row_id);
+  }
+
+  /**
    * Create a new character with full PF2e JSON.
    */
   public function createCharacter(string $name, string $ancestry, string $class, array $options = []): int {
@@ -9656,6 +10195,29 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
       $characterData['goals'] ?? ($canonical['goals'] ?? []),
       (string) ($characterData['motivations'] ?? ($canonical['motivations'] ?? ''))
     );
+    foreach ([
+      'actor_id',
+      'actor_type',
+      'occupation',
+      'role',
+      'attitude',
+      'description',
+      'motivations',
+      'fears',
+      'bonds',
+      'personality_traits',
+      'psychology',
+      'storyline_binding',
+      'attacks',
+      'senses',
+      'profile',
+      'source_module',
+      'metadata',
+    ] as $unified_field) {
+      if (array_key_exists($unified_field, $characterData) && !array_key_exists($unified_field, $canonical)) {
+        $canonical[$unified_field] = $characterData[$unified_field];
+      }
+    }
     $canonical = $this->preserveStructuredAffiliationFields($canonical, $characterData, $wizard);
 
     return $this->synchronizeLegacyCharacterMirrors($canonical);
@@ -10294,17 +10856,17 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
     $dex_mod = (int) floor(($abilities['dexterity'] - 10) / 2);
     $wis_mod = (int) floor(($abilities['wisdom'] - 10) / 2);
     $ancestry_hp = (int) ($ancestry['hp'] ?? 0);
-    $max_hp = (int) ($data['resources']['hitPoints']['max'] ?? $data['hit_points']['max'] ?? 0);
+    $max_hp = (int) ($data['resources']['hitPoints']['max'] ?? $data['hit_points']['max'] ?? $data['max_hp'] ?? $data['stats']['maxHp'] ?? 0);
     if ($max_hp <= 0) {
       $max_hp = $ancestry_hp + $class_hp + $con_mod + (($level - 1) * ($class_hp + $con_mod));
     }
-    $current_hp = (int) ($data['resources']['hitPoints']['current'] ?? $data['hit_points']['current'] ?? $max_hp);
+    $current_hp = (int) ($data['resources']['hitPoints']['current'] ?? $data['hit_points']['current'] ?? $data['hp_current'] ?? $data['stats']['currentHp'] ?? $max_hp);
     $temp_hp = (int) ($data['resources']['hitPoints']['temporary'] ?? $data['hit_points']['temp'] ?? 0);
-    $armor_class = (int) ($data['defenses']['armorClass'] ?? $data['armor_class'] ?? (10 + $dex_mod));
-    $fortitude = (int) ($data['defenses']['fortitude'] ?? $data['saves']['fortitude'] ?? ($level + 2 + $con_mod));
-    $reflex = (int) ($data['defenses']['reflex'] ?? $data['saves']['reflex'] ?? ($level + 2 + $dex_mod));
-    $will = (int) ($data['defenses']['will'] ?? $data['saves']['will'] ?? ($level + 2 + $wis_mod));
-    $perception = $data['perception'] ?? ($level + 2 + $wis_mod);
+    $armor_class = (int) ($data['defenses']['armorClass'] ?? $data['armor_class'] ?? $data['ac'] ?? $data['stats']['ac'] ?? (10 + $dex_mod));
+    $fortitude = (int) ($data['defenses']['fortitude'] ?? $data['saves']['fortitude'] ?? $data['stats']['fortitude'] ?? ($level + 2 + $con_mod));
+    $reflex = (int) ($data['defenses']['reflex'] ?? $data['saves']['reflex'] ?? $data['stats']['reflex'] ?? ($level + 2 + $dex_mod));
+    $will = (int) ($data['defenses']['will'] ?? $data['saves']['will'] ?? $data['stats']['will'] ?? ($level + 2 + $wis_mod));
+    $perception = $data['perception'] ?? $data['stats']['perception'] ?? ($level + 2 + $wis_mod);
     if (is_array($perception)) {
       $perception = $perception['modifier'] ?? 0;
     }
@@ -11872,6 +12434,15 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
       $patron = $character_data['subclass'] ?? $character_data['patron'] ?? '';
       $patron_data = self::WITCH_PATRONS[$patron] ?? NULL;
       return $patron_data['tradition'] ?? 'occult';
+    }
+
+    // Summoner: resolve via eidolon type.
+    if ($class === 'summoner') {
+      $eidolon_type = $character_data['eidolon_type']
+        ?? $character_data['subclass']
+        ?? $character_data['eidolon']['type']
+        ?? '';
+      return self::EIDOLONS['types'][$eidolon_type]['tradition'] ?? NULL;
     }
 
     return NULL;

@@ -838,6 +838,9 @@ trait EncounterPhaseHandlerRouteExecutionCorePartCTrait {
     array $game_state,
     array $dungeon_data
   ): ?array {
+    if (isset($dungeon_data['source_dungeon_id'])) {
+      return NULL;
+    }
     if (
       $campaign_id <= 0
       || !$character_id
@@ -1054,6 +1057,7 @@ trait EncounterPhaseHandlerRouteExecutionCorePartCTrait {
     // chosen target. Merge fresh DB fields (hp/is_defeated/status/etc.)
     // into the existing in-memory order/positions instead, so any pending
     // delay reorder and its flags survive the refresh.
+    $participant_mutations = [];
     if ($encounter_id) {
       $encounter_for_turn_refresh = $this->encounterStore->loadEncounter((int) $encounter_id);
       if ($encounter_for_turn_refresh && is_array($encounter_for_turn_refresh['participants'] ?? NULL)) {
@@ -1066,7 +1070,13 @@ trait EncounterPhaseHandlerRouteExecutionCorePartCTrait {
         // indicator and hover tooltip stay in sync after every action, not
         // only after the narrow shove/forced-movement path that previously
         // called this projection directly.
-        $this->applyEncounterParticipantsToDungeonData($encounter_for_turn_refresh['participants'], $dungeon_data);
+        foreach ($this->applyEncounterParticipantsToDungeonData($encounter_for_turn_refresh['participants'], $dungeon_data) as $entity_id) {
+          $participant_mutations[] = [
+            'entity_id' => $entity_id,
+            'field' => 'state.encounter_participant',
+            'to' => 'synchronized',
+          ];
+        }
       }
     }
 
@@ -1080,14 +1090,14 @@ trait EncounterPhaseHandlerRouteExecutionCorePartCTrait {
         'new_round' => NULL,
         'round_advances' => 0,
         'npc_events' => [],
-        'mutations' => [],
+        'mutations' => $participant_mutations,
         'actions_remaining_before_end' => $game_state['turn']['actions_remaining'] ?? NULL,
       ];
     }
     $current_index = $game_state['turn']['index'] ?? 0;
     $actions_remaining_before_end = $game_state['turn']['actions_remaining'] ?? NULL;
     $npc_events = [];
-    $npc_mutations = [];
+    $npc_mutations = $participant_mutations;
     $new_round = NULL;
     $round_advances = 0;
     $narration = NULL;
@@ -1118,7 +1128,7 @@ trait EncounterPhaseHandlerRouteExecutionCorePartCTrait {
         'new_round' => NULL,
         'round_advances' => 0,
         'npc_events' => $conclusion_events,
-        'mutations' => [],
+        'mutations' => $participant_mutations,
         'actions_remaining_before_end' => $actions_remaining_before_end,
         'narration' => $narration,
         // Concluding the encounter must also move the campaign out of

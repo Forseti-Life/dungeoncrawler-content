@@ -2,6 +2,7 @@
 
 namespace Drupal\dungeoncrawler_content\Service;
 
+use Drupal\dungeoncrawler_content\Service\ModuleConversion\ReviewedOriginalArt;
 /**
  * Projects the legacy hexmap payload into the canonical visual-only map state.
  *
@@ -68,22 +69,26 @@ class MapVisualStateProjector {
 
       $room_hexes = (is_array($room['hexes'] ?? NULL) ? $room['hexes'] : []);
 
-      // Entry hex rules:
-      // 1) If the room authors an entry hex (is_entry/entry), use ONLY that.
-      // 2) Else default to (0,0) if it's inside the derived room bounds.
-      // 3) Else default to the lexicographically-first authored hex coordinate.
       $authored_entry_q = NULL;
       $authored_entry_r = NULL;
       $min_coord_q = NULL;
       $min_coord_r = NULL;
+      $authored_hex_keys = [];
 
       foreach ($room_hexes as $hex) {
         if (!is_array($hex)) {
           continue;
         }
 
-        $hex_q = (int) ($hex['q'] ?? 0);
-        $hex_r = (int) ($hex['r'] ?? 0);
+        if (!is_int($hex['q'] ?? NULL) || !is_int($hex['r'] ?? NULL)) {
+          throw new \DomainException(sprintf('Room %s has a hex without integer coordinates.', $room_id));
+        }
+        $hex_q = $hex['q'];
+        $hex_r = $hex['r'];
+        if (isset($authored_hex_keys["$hex_q:$hex_r"])) {
+          throw new \DomainException(sprintf('Room %s has duplicate hex coordinates %d:%d.', $room_id, $hex_q, $hex_r));
+        }
+        $authored_hex_keys["$hex_q:$hex_r"] = TRUE;
         $min_q = $min_q === NULL ? $hex_q : min($min_q, $hex_q);
         $max_q = $max_q === NULL ? $hex_q : max($max_q, $hex_q);
         $min_r = $min_r === NULL ? $hex_r : min($min_r, $hex_r);
@@ -104,12 +109,30 @@ class MapVisualStateProjector {
 
       $entry_q = NULL;
       $entry_r = NULL;
-      if ($authored_entry_q !== NULL && $authored_entry_r !== NULL) {
+      $entry_points = $room['entry_points'] ?? [];
+      if (!is_array($entry_points)) {
+        throw new \DomainException(sprintf('Room %s entry_points must be an array.', $room_id));
+      }
+      if ($entry_points !== []) {
+        $default_entries = array_values(array_filter($entry_points, static fn(mixed $port): bool =>
+          is_array($port) && ($port['is_default'] ?? FALSE) === TRUE));
+        if (count($default_entries) > 1 || ($default_entries === [] && count($entry_points) !== 1)) {
+          throw new \DomainException(sprintf('Room %s has ambiguous authored entry ports.', $room_id));
+        }
+        $entry_port = $default_entries[0] ?? $entry_points[0];
+        if (!is_array($entry_port) || !is_int($entry_port['q'] ?? NULL)
+          || !is_int($entry_port['r'] ?? NULL)
+          || !isset($authored_hex_keys[$entry_port['q'] . ':' . $entry_port['r']])) {
+          throw new \DomainException(sprintf('Room %s authored entry is outside its hex footprint.', $room_id));
+        }
+        $entry_q = $entry_port['q'];
+        $entry_r = $entry_port['r'];
+      }
+      elseif ($authored_entry_q !== NULL && $authored_entry_r !== NULL) {
         $entry_q = (int) $authored_entry_q;
         $entry_r = (int) $authored_entry_r;
       }
-      elseif ($min_q !== NULL && $max_q !== NULL && $min_r !== NULL && $max_r !== NULL
-        && 0 >= (int) $min_q && 0 <= (int) $max_q && 0 >= (int) $min_r && 0 <= (int) $max_r) {
+      elseif (isset($authored_hex_keys['0:0'])) {
         $entry_q = 0;
         $entry_r = 0;
       }
@@ -154,38 +177,6 @@ class MapVisualStateProjector {
         ];
       }
 
-      if ($min_q !== NULL && $max_q !== NULL && $min_r !== NULL && $max_r !== NULL) {
-        for ($q = (int) $min_q; $q <= (int) $max_q; $q++) {
-          for ($r = (int) $min_r; $r <= (int) $max_r; $r++) {
-            $key = "{$q}:{$r}";
-            if (isset($hex_index[$key])) {
-              continue;
-            }
-
-            $hex_id = $this->deriveHexId($room_id, $q, $r);
-            $is_visible = $visible_hex_ids === []
-              ? $room_id === $active_room_id
-              : in_array($hex_id, $visible_hex_ids, TRUE);
-            $is_discovered = $room_state['explored'] || $is_visible || $room_id === $active_room_id;
-
-            $derived_objects = $entity_hex_objects[$room_id]["{$q}:{$r}"] ?? [];
-
-            $hex_index[$key] = [
-              'hex_id' => $hex_id,
-              'q' => $q,
-              'r' => $r,
-              'terrain_type' => 'floor',
-              'lighting' => $room_lighting,
-              'elevation_ft' => 0.0,
-              'is_entry' => $entry_q !== NULL && $entry_r !== NULL && $q === $entry_q && $r === $entry_r,
-              'is_visible' => $is_visible,
-              'is_discovered' => $is_discovered,
-              'objects' => $this->mergeHexObjectLists([], $derived_objects),
-            ];
-          }
-        }
-      }
-
       $topology_hexes = array_values($hex_index);
       usort($topology_hexes, static function (array $a, array $b): int {
         $qa = (int) ($a['q'] ?? 0);
@@ -205,6 +196,7 @@ class MapVisualStateProjector {
         'size_category' => (string) ($room['size_category'] ?? 'medium'),
         'lighting' => $room_lighting,
         'terrain' => is_array($room['terrain'] ?? NULL) ? $room['terrain'] : [],
+        'source_map' => $this->sourceMapForRoom($room),
         'hexes' => $topology_hexes,
         'hex_bounds' => [
           'has_hexes' => $topology_hexes !== [],
@@ -1971,6 +1963,116 @@ class MapVisualStateProjector {
       'occupant_types' => $occupant_types,
       'connection_types' => $connection_types,
       'terrain_types' => $terrain_types,
+    ];
+  }
+
+  /**
+   * Project staged source art without treating it as gameplay geometry.
+   */
+  private function sourceMapForRoom(array $room): ?array {
+    $metadata = $room['metadata'] ?? $room['layout_data']['metadata'] ?? [];
+    $scene = is_array($metadata) ? ($metadata['module_conversion']['source_scene'] ?? NULL) : NULL;
+    if (!is_array($scene) || !in_array($scene['conversion_state'] ?? NULL, ['original_gameplay_generated_map_staged', 'playable_validated'], TRUE)) {
+      return NULL;
+    }
+    $original_art = ReviewedOriginalArt::fromScene($scene);
+    if ($original_art !== NULL) {
+      return [
+        'display_mode' => 'illustrative_background',
+        'background_url' => $original_art['url'],
+        'width_px' => $original_art['width'],
+        'height_px' => $original_art['height'],
+        'tiles' => [],
+      ];
+    }
+    $review = $scene['map_review'] ?? NULL;
+    if ($review !== NULL && (!is_array($review)
+      || !in_array($review['role'] ?? NULL, ['interpretive_gallery', 'overland_overview'], TRUE)
+      || ($review['terrain_basis'] ?? NULL) !== 'original_canonical'
+      || isset($scene['map_alignment']))) {
+      throw new \DomainException('source_map_review_invalid');
+    }
+    if ($review === NULL && !isset($scene['map_alignment'])
+      && ($scene['conversion_state'] ?? NULL) === 'playable_validated') {
+      throw new \DomainException('playable_source_map_review_missing');
+    }
+    $maps = $scene['map_assets'] ?? NULL;
+    $width = $scene['width_px'] ?? NULL;
+    $height = $scene['height_px'] ?? NULL;
+    if ((!is_int($width) && !is_float($width)) || !is_finite((float) $width) || $width <= 0
+      || (!is_int($height) && !is_float($height)) || !is_finite((float) $height) || $height <= 0
+      || !is_array($maps) || !is_array($maps['background'] ?? NULL)
+      || !is_string($maps['background']['url'] ?? NULL) || $maps['background']['url'] === ''
+      || !is_string($maps['background']['license_notice_url'] ?? NULL) || $maps['background']['license_notice_url'] === ''
+      || !is_array($maps['tiles'] ?? NULL) || !array_is_list($maps['tiles'])) {
+      throw new \DomainException('source_map_projection_invalid');
+    }
+    $tiles = [];
+    foreach ($maps['tiles'] as $tile) {
+      $placement = is_array($tile) ? ($tile['placement'] ?? NULL) : NULL;
+      if (!is_array($placement) || !is_string($tile['url'] ?? NULL) || $tile['url'] === ''
+        || !is_string($tile['license_notice_url'] ?? NULL) || $tile['license_notice_url'] === '') {
+        throw new \DomainException('source_map_projection_invalid');
+      }
+      foreach (['x', 'y', 'width', 'height'] as $field) {
+        if ((!is_int($placement[$field] ?? NULL) && !is_float($placement[$field] ?? NULL))
+          || !is_finite((float) $placement[$field])
+          || (in_array($field, ['width', 'height'], TRUE) && $placement[$field] <= 0)) {
+          throw new \DomainException('source_map_projection_invalid');
+        }
+      }
+      foreach (['rotation', 'alpha'] as $field) {
+        $value = $placement[$field] ?? NULL;
+        if ($value !== NULL && ((!is_int($value) && !is_float($value)) || !is_finite((float) $value)
+          || ($field === 'alpha' && ($value < 0 || $value > 1)))) {
+          throw new \DomainException('source_map_projection_invalid');
+        }
+      }
+      $tiles[] = [
+        'url' => $tile['url'],
+        'license_notice_url' => $tile['license_notice_url'],
+        'x' => $placement['x'],
+        'y' => $placement['y'],
+        'width' => $placement['width'],
+        'height' => $placement['height'],
+        'rotation' => $placement['rotation'] ?? 0,
+        'alpha' => $placement['alpha'] ?? 1,
+      ];
+    }
+    $alignment = $scene['map_alignment'] ?? NULL;
+    if ($alignment !== NULL) {
+      $image_width = $maps['background']['width'] ?? NULL;
+      $image_height = $maps['background']['height'] ?? NULL;
+      if (!is_array($alignment) || ($alignment['status'] ?? NULL) !== 'reviewed'
+        || !is_int($image_width) || $image_width <= 0
+        || !is_int($image_height) || $image_height <= 0
+        || abs($width * $image_height - $height * $image_width) > 0.000001 * $width * $image_height
+        || array_diff(array_keys($alignment), ['status', 'origin_x_px', 'origin_y_px', 'source_hex_radius_px', 'rotation_degrees']) !== []
+        || array_diff(['status', 'origin_x_px', 'origin_y_px', 'source_hex_radius_px', 'rotation_degrees'], array_keys($alignment)) !== []) {
+        throw new \DomainException('source_map_alignment_invalid');
+      }
+      foreach (['origin_x_px', 'origin_y_px', 'source_hex_radius_px', 'rotation_degrees'] as $field) {
+        if ((!is_int($alignment[$field]) && !is_float($alignment[$field])) || !is_finite((float) $alignment[$field])) {
+          throw new \DomainException('source_map_alignment_invalid');
+        }
+      }
+      if ($alignment['origin_x_px'] < 0 || $alignment['origin_x_px'] > $width
+        || $alignment['origin_y_px'] < 0 || $alignment['origin_y_px'] > $height
+        || $alignment['source_hex_radius_px'] <= 0
+        || abs($alignment['rotation_degrees']) > 360) {
+        throw new \DomainException('source_map_alignment_invalid');
+      }
+    }
+    return [
+      'display_mode' => isset($scene['map_review']) ? 'illustrative_background' : NULL,
+      'width_px' => $width,
+      'height_px' => $height,
+      'background_url' => $maps['background']['url'],
+      'background_width_px' => $maps['background']['width'] ?? NULL,
+      'background_height_px' => $maps['background']['height'] ?? NULL,
+      'background_license_notice_url' => $maps['background']['license_notice_url'],
+      'tiles' => $tiles,
+      'alignment' => $alignment,
     ];
   }
 

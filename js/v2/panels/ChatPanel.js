@@ -939,10 +939,35 @@ export class ChatPanel {
 
     // Prefer actor-scoped projection surfaces while preserving any additional
     // top-level compatibility data for transition-mode consumers.
+    const runtimeSnapshot = actorResponse.runtime_snapshot || data.runtime_snapshot || null;
     return {
       ...data,
       ...actorResponse,
-      runtime_snapshot: actorResponse.runtime_snapshot || data.runtime_snapshot || null,
+      runtime_snapshot: runtimeSnapshot,
+      snapshot_id: actorResponse.snapshot_id
+        ?? data.snapshot_id
+        ?? runtimeSnapshot?.snapshot_id
+        ?? runtimeSnapshot?.game_state?.snapshot_id
+        ?? null,
+      state_version: actorResponse.state_version
+        ?? data.state_version
+        ?? runtimeSnapshot?.state_version
+        ?? runtimeSnapshot?.game_state?.state_version
+        ?? null,
+      event_cursor: actorResponse.event_cursor
+        ?? data.event_cursor
+        ?? actorResponse.event_log_cursor
+        ?? data.event_log_cursor
+        ?? runtimeSnapshot?.event_cursor
+        ?? runtimeSnapshot?.event_log_cursor
+        ?? runtimeSnapshot?.game_state?.event_cursor
+        ?? runtimeSnapshot?.game_state?.event_log_cursor
+        ?? null,
+      event_log_cursor: actorResponse.event_log_cursor
+        ?? data.event_log_cursor
+        ?? runtimeSnapshot?.event_log_cursor
+        ?? runtimeSnapshot?.game_state?.event_log_cursor
+        ?? null,
       available_actions: actorResponse.available_actions ?? data.available_actions ?? null,
       action_contract: actorResponse.action_contract ?? data.action_contract ?? null,
       action_option_families: actorResponse.action_option_families ?? data.action_option_families ?? null,
@@ -3243,7 +3268,12 @@ export class ChatPanel {
     }
 
     const lineType = (type === 'round_start' || type === 'turn_start') ? 'system' : 'gm';
-    const speaker = (lineType === 'system' || actorName === 'Narrator') ? 'Narrator' : actorName;
+    const isNarratorEvent = lineType === 'system'
+      || actorName === 'Narrator'
+      || type === 'search'
+      || type === 'room_entered'
+      || /^You\s+(?:notice|find|spot|search)\b/i.test(message);
+    const speaker = isNarratorEvent ? 'Narrator' : actorName;
 
     return {
       speaker,

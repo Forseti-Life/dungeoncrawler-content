@@ -158,6 +158,23 @@ class ContentRegistry {
   protected function importPreparedRecord(string $content_type, array $record, ?string $source_filter, string $source_label): bool {
     $logger = $this->loggerFactory->get('dungeoncrawler_content');
 
+    if ($content_type === 'spell') {
+      $canonical_id = strtolower(trim((string) ($record['content_id'] ?? '')));
+      $canonical_id = str_replace('_', '-', $canonical_id);
+      $canonical_id = preg_replace('/-+/', '-', $canonical_id) ?? $canonical_id;
+      $canonical_id = trim($canonical_id, '-');
+      if ($canonical_id !== '') {
+        $record['content_id'] = $canonical_id;
+        if (is_array($record['schema_data'] ?? NULL)) {
+          foreach (['id', 'spell_id', 'content_id'] as $id_field) {
+            if (array_key_exists($id_field, $record['schema_data'])) {
+              $record['schema_data'][$id_field] = $canonical_id;
+            }
+          }
+        }
+      }
+    }
+
     if (empty($record['content_id']) || empty($record['name'])) {
       $logger->error('Invalid content in @source: missing id or name', ['@source' => $source_label]);
       return FALSE;
@@ -177,6 +194,41 @@ class ContentRegistry {
         '@errors' => implode(', ', $validation['errors']),
       ]);
       return FALSE;
+    }
+
+    $record['schema_data'] = ValidationProfileResolverService::canonicalizePayload(
+      $record['schema_data'],
+      $content_type
+    );
+    if ($content_type === 'spell') {
+      $canonical_validation = $this->stateValidationService->validateSpellDefinition($record['schema_data']);
+      if (empty($canonical_validation['valid'])) {
+        $logger->error('Canonical spell validation failed for @source: @errors', [
+          '@source' => $source_label,
+          '@errors' => implode(', ', (array) ($canonical_validation['errors'] ?? [])),
+        ]);
+        return FALSE;
+      }
+    }
+    elseif ($content_type === 'feat') {
+      $canonical_validation = $this->stateValidationService->validateFeatDefinition($record['schema_data']);
+      if (empty($canonical_validation['valid'])) {
+        $logger->error('Canonical feat validation failed for @source: @errors', [
+          '@source' => $source_label,
+          '@errors' => implode(', ', (array) ($canonical_validation['errors'] ?? [])),
+        ]);
+        return FALSE;
+      }
+    }
+
+    if ($content_type === 'spell') {
+      $underscore_alias = str_replace('-', '_', (string) $record['content_id']);
+      if ($underscore_alias !== $record['content_id']) {
+        $this->database->delete('dungeoncrawler_content_registry')
+          ->condition('content_type', 'spell')
+          ->condition('content_id', $underscore_alias)
+          ->execute();
+      }
     }
 
     $this->upsertRegistryRecord($content_type, $record);
@@ -516,7 +568,7 @@ class ContentRegistry {
     $errors = [];
     
     // Basic validation - check canonical required fields.
-    if (empty($content_data['content_id'])) {
+    if (empty($content_data['content_id']) && ($content_type !== 'hazard' || empty($content_data['hazard_id']))) {
       $errors[] = 'Missing required field: content_id';
     }
     
@@ -528,9 +580,15 @@ class ContentRegistry {
       'creature' => 'creature_type',
       'item' => 'item_type',
       'spell' => 'spell_type',
+      'hazard' => 'complexity',
       default => 'type',
     };
-    if (empty($content_data[$type_field])) {
+    if ($content_type === 'hazard') {
+      if (empty($content_data['complexity']) && empty($content_data['type'])) {
+        $errors[] = 'Missing required field: complexity';
+      }
+    }
+    elseif (empty($content_data[$type_field])) {
       $errors[] = 'Missing required field: ' . $type_field;
     }
     
@@ -567,10 +625,20 @@ class ContentRegistry {
 
       case 'spell':
         $errors = array_merge($errors, $this->validateSpell($content_data));
+        $validation = $this->stateValidationService->validateSpellDefinition(
+          $content_data,
+          ValidationProfileResolverService::PROFILE_INTERMEDIARY_INGEST
+        );
+        $errors = array_merge($errors, array_values(array_filter(array_map('strval', (array) ($validation['errors'] ?? [])))));
         break;
 
       case 'feat':
         $errors = array_merge($errors, $this->validateFeat($content_data));
+        $validation = $this->stateValidationService->validateFeatDefinition(
+          $content_data,
+          ValidationProfileResolverService::PROFILE_INTERMEDIARY_INGEST
+        );
+        $errors = array_merge($errors, array_values(array_filter(array_map('strval', (array) ($validation['errors'] ?? [])))));
         break;
     }
     

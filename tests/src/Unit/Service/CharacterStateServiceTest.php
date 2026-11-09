@@ -623,6 +623,91 @@ class CharacterStateServiceTest extends UnitTestCase {
   }
 
   /**
+   * Verifies NPC actors hydrate the unified CharacterState sheet contract.
+   *
+   * @covers ::getState
+   */
+  public function testGetStateHydratesFullSheetForNpcActor(): void {
+    $database = $this->createMock(Connection::class);
+    $current_user = $this->createMock(AccountProxyInterface::class);
+    $feat_effect_manager = $this->createMock(FeatEffectManager::class);
+    $image_repository = $this->createMock(GeneratedImageRepository::class);
+    $number_generation = $this->createMock(NumberGenerationService::class);
+    $impact_contract = $this->createMock(ImpactContractService::class);
+    $active_effect_store = $this->createMock(ActiveEffectStoreService::class);
+
+    $library_record = (object) [
+      'id' => 9001,
+      'uid' => 0,
+      'name' => 'Mission Handler',
+      'level' => 3,
+      'ancestry' => 'Human',
+      'class' => 'Rogue',
+      'type' => 'npc',
+      'instance_id' => 'tal-mission-handler',
+      'hp_current' => 36,
+      'hp_max' => 36,
+      'armor_class' => 19,
+      'created' => 1700000000,
+      'changed' => 1700000100,
+      'character_data' => json_encode([
+        'actor_id' => 'tal-mission-handler',
+        'actor_type' => 'npc',
+        'name' => 'Mission Handler',
+        'level' => 3,
+        'ancestry' => 'Human',
+        'class' => 'Rogue',
+        'abilities' => [
+          'strength' => 10,
+          'dexterity' => 16,
+          'constitution' => 12,
+          'intelligence' => 14,
+          'wisdom' => 14,
+          'charisma' => 16,
+        ],
+        'saves' => ['fortitude' => 7, 'reflex' => 10, 'will' => 9],
+        'perception' => 9,
+        'attacks' => [['name' => 'Shortsword', 'bonus' => 10, 'damage' => '1d6+3 piercing']],
+        'psychology' => ['desire' => 'Secure the contract'],
+        'storyline_binding' => ['scene_id' => 'scene-briefing'],
+      ]),
+      'default_character_data' => '{}',
+    ];
+
+    $database->expects($this->exactly(2))
+      ->method('select')
+      ->willReturnOnConsecutiveCalls(
+        $this->buildLibrarySelectQueryMock($library_record),
+        $this->buildCampaignLookupQueryMock(NULL),
+      );
+
+    $service = new CharacterStateService(
+      $database,
+      $current_user,
+      $feat_effect_manager,
+      $image_repository,
+      $number_generation,
+      $impact_contract,
+      $active_effect_store,
+    );
+
+    $state = $service->getState('9001');
+
+    $this->assertSame('npc', $state['type']);
+    $this->assertSame('Mission Handler', $state['basicInfo']['name']);
+    $this->assertSame(3, $state['basicInfo']['level']);
+    $this->assertSame(16, $state['abilities']['dexterity']);
+    $this->assertSame(36, $state['resources']['hitPoints']['max']);
+    $this->assertSame(13, $state['defenses']['armorClass']['total'] ?? $state['defenses']['armorClass']);
+    $this->assertSame(10, $state['saves']['reflex']);
+    $this->assertSame(9, $state['perception']);
+    $this->assertSame('Shortsword', $state['attacks'][0]['name']);
+    $this->assertSame('Secure the contract', $state['psychology']['desire']);
+    $this->assertSame('scene-briefing', $state['storylineBinding']['scene_id']);
+    $this->assertIsArray($state['npcDefinition']);
+  }
+
+  /**
    * Build the initial library-row select query mock.
    */
   private function buildLibrarySelectQueryMock(?object $record): object {

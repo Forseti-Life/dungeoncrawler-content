@@ -302,10 +302,81 @@ The module has two separate validation subsystems with different responsibilitie
 | Subsystem | Scope | Core entry points | What it validates | What it must NOT do |
 |---|---|---|---|---|
 | Campaign Runtime Quest-State Validation | Live campaign progression in `dc_campaign_*` | `POST /api/campaign/{campaign_id}/quest-touchpoints` → `QuestTrackerController::ingestTouchpoint()` → `QuestTouchpointService` / `QuestTrackerService` | Touchpoint-to-objective mapping, ambiguity confirmation flow, objective progress mutation, runtime quest state transitions | Validate canonical template/storyline structure |
-| Canonical Library Validator | Canonical storyline/quest library structure and contracts | `StorylineManagerService::validateStorylineEndToEndContract()` and Storyline Explorer diagnostics | Storyline schema/cross-reference integrity, objective control-chain contract, canonical entity linkage contracts | Mutate or advance live campaign quest state |
+| Canonical Library Validator | Canonical storyline/quest library structure and contracts | `StorylineManagerService::validateStorylineEndToEndContract()` and Storyline Explorer diagnostics | Storyline schema/cross-reference integrity, objective control-chain contract, canonical entity linkage contracts, narrative chronology, conflict lifecycles, foreshadowing targets, and relationship continuity | Mutate or advance live campaign quest state |
 
 Rule: runtime campaign issues are diagnosed in the runtime touchpoint/tracker path; canonical template integrity issues are diagnosed in the storyline/canonical validator path.
 Runtime quest lifecycle contract: touchpoints never auto-start offered quests; explicit `/api/campaign/{campaign_id}/quests/{quest_id}/start` is required before objective progress can mutate that quest.
+
+### Storyline narrative analysis
+
+`StorylineManagerService::analyzeStorylineNarrative()` is the single analysis
+core. The end-to-end validator always invokes it as the `narrative_analysis`
+stage; the Storyline Builder and GM context consume that returned result rather
+than reimplementing graph or conflict rules in the browser. Optional authored
+annotations live in `metadata.storyline_analysis` using
+`storyline-narrative-authoring-v1`:
+
+- `scene_annotations[scene_id]` stores central conflict, dramatic function,
+  themes, actor appearances, forward foreshadowing, and ordered relationship
+  score changes.
+- `conflicts[]` stores stable conflict IDs, actors, introduction/escalation/
+  resolution scene references, and active/resolved/intentional-open status.
+- Analysis returns `storyline-narrative-analysis-v1` timeline, graph, metrics,
+  relationship state, and field-linked findings. Errors block canonical
+  publication; warnings expose unresolved or incomplete dramatic structure.
+- Draft create/read/save/validate and GM-assistant routes require
+  `edit canonical dungeoncrawler storylines`; publication separately requires
+  `publish canonical dungeoncrawler storylines`.
+- Draft saves use expected-revision CAS. Publication validates the exact saved
+  revision, rejects repeated publication, server-stamps authorship, and stores
+  a receipt containing draft/canonical hashes and canonical template identity.
+- Natural-language GM assistant requests may read immediately, but saved-state
+  changes are rendered as explicit proposals that the author must approve or
+  reject before the registered mutation tool can run.
+- `storyline_authoring_draft.schema.json` is the shared UI/GM authoring
+  contract. The GM uses revision-bound `set`, `append`, `replace`, `remove`,
+  and `move` operations; approved batches are idempotent through durable
+  operation receipts and still persist only through
+  `StorylineAuthoringDraftService::saveDraft()`.
+- The Storyline GM directly reuses the canonical catalog, room/dungeon
+  discovery, editor-routing, draft-validation, and finding-explanation tools.
+  Linked actors, items, rooms, and dungeons remain owned by their existing
+  editors; the storyline surface discovers and routes to those authorities
+  rather than duplicating their creation or publication functions.
+
+The authoring draft produces one `storyline-definition-v1` object before any
+canonical write:
+
+- chapter and scene IDs are authored independently from dungeon and room IDs;
+  room bindings are explicit scene references, never positional matches;
+- quest rows produce the canonical ordered quest list and explicit
+  `unlocks_after`/`unlocks_to` graph (a linear graph is derived only when no
+  graph edges were authored);
+- actors become canonical contacts plus NPC asset references with explicit
+  chapter, scene, location, dialogue, and knowledge metadata;
+- dungeon, room, and item references retain their own canonical IDs and
+  explicit chapter/scene/quest/actor/prerequisite associations;
+- `prepareStorylineDefinition()` performs canonical normalization for preview
+  and validation, while `saveTemplate()` remains the sole creation/update
+  authority.
+
+The Storyline Builder presents the grounded Game Master Agent as its primary
+interface. Draft controls and the seven structured authoring, validation,
+analysis, and canonical-object review stages remain directly below the GM
+conversation for inspection and precise manual edits. Clear Storyline requests
+apply immediately through the revision-safe draft authority; stage completion
+is advisory and all stages remain editable.
+
+The immediate authoring workflow, three-option clarification rule, revision
+safety, and object ownership are defined in
+[`STORYLINE_AUTHORING_PROCESS.md`](STORYLINE_AUTHORING_PROCESS.md).
+
+Editor-embedded GM assistants share `EditorGmChatClient.js` for tool parsing
+and rendering, request envelopes, transcripts, approval controls, and
+Enter-to-send behavior. Their server requests still resolve through the
+existing Editor GM harness and each surface's registered domain tools.
+Character Creation reuses only the shared composer behavior because its
+existing character-draft service remains the sole mutation authority.
 
 ## 4. API Surface (Grouped from Routing)
 
@@ -436,10 +507,48 @@ python3 scripts/langgraph-actor-harness-run.py --character-name Burasco --uid 1 
 
 `--uid` (or `HARNESS_OWNER_UID`) is required when bootstrapping a new campaign.
 
+### Raw module explorer
+
+Open `/admin/content/dungeoncrawler/module-explorer` (requires **access
+dungeoncrawler module manager**) to browse downloaded ZIPs in
+`private://module-archives`. Select a ZIP to inspect its full file listing,
+filter by folder or name, preview text and raster maps with native pixel
+dimensions, or download an individual file or the original ZIP. This is a
+read-only source review surface; it does not convert, alter, or publish maps.
+Only server-staged archives in that private directory appear; they are not
+served from the public files directory. Entry listing uses the conversion
+inspector's ZIP size, path, symlink, and compression safety checks.
+
+### Island Burasco scenario
+
+Use the same actor-harness bootstrap, snapshot, and action commands to test a
+fresh campaign pinned to a published Island original-story release:
+
+```bash
+python3 scripts/langgraph-actor-harness-run.py --scenario island \
+  --uid 1 --module-release-id=<published-island-release-uuid> --max-turns 80
+```
+
+The scenario starts `island-original-story-v1`, walks a valid hex in each
+room, traverses all ten journal locations through canonical exits, talks
+to placed non-companion NPCs, interacts with each waymark instance, and
+requires the full quest journal to finish. It writes a trace under
+`tmp/langgraph-actor-harness/traces/` and exits nonzero with explicit
+failures if actors, waymarks, traversal, or journal completion are missing.
+It creates a **persistent test campaign**, not a rollback-only audit. The
+actor-runtime secret boundary still applies; remove forbidden credentials
+from the runner environment before invoking it.
+
+To exercise a known test campaign after a blocked run, supply its
+`--campaign-id`, `--character-id`, `--actor-id` and `--room-id` together with
+the same `--module-release-id`. A fresh campaign is needed for a clean
+end-to-end pass after quest completion.
+
 ### Contract test
 
 ```bash
 node tests/langgraph_actor_harness_contract_test.js
+python3 -m unittest -q tests/test_island_burasco_scenario.py
 ```
 
 ---

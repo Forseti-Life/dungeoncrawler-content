@@ -38,6 +38,8 @@ class GmToolExecutionService {
     'modify_campaign_quest_artifacts' => 'Modify campaign quest artifact rows (log/reward/confirmation).',
     'modify_campaign_encounter_instances' => 'Modify campaign encounter instance/template rows.',
     'query_campaign_database' => 'Query campaign-instance tables for grounded lore, geography, and history context.',
+    'inspect_storyline_branches' => 'List current pending and resolved storyline decisions using canonical runtime state.',
+    'resolve_storyline_branch' => 'Resolve an authored storyline decision through the canonical Storyline Manager authority.',
   ];
 
   protected Connection $database;
@@ -45,19 +47,22 @@ class GmToolExecutionService {
   protected AccountProxyInterface $currentUser;
   protected H3ProjectionQueueService $h3ProjectionQueue;
   protected CampaignAuthorizationService $campaignAuthorization;
+  protected ?StorylineManagerService $storylineManager;
 
   public function __construct(
     Connection $database,
     GameCoordinatorService $coordinator,
     AccountProxyInterface $current_user,
     H3ProjectionQueueService $h3_projection_queue,
-    CampaignAuthorizationService $campaign_authorization
+    CampaignAuthorizationService $campaign_authorization,
+    ?StorylineManagerService $storyline_manager = NULL,
   ) {
     $this->database = $database;
     $this->coordinator = $coordinator;
     $this->currentUser = $current_user;
     $this->h3ProjectionQueue = $h3_projection_queue;
     $this->campaignAuthorization = $campaign_authorization;
+    $this->storylineManager = $storyline_manager;
   }
 
   /**
@@ -94,6 +99,80 @@ class GmToolExecutionService {
 
     try {
       switch ($tool) {
+      case 'inspect_storyline_branches':
+        if (!$this->storylineManager) {
+          throw new \RuntimeException('inspect_storyline_branches requires StorylineManagerService.');
+        }
+        return [
+          'success' => TRUE,
+          'contract_version' => self::TOOL_CONTRACT_VERSION,
+          'tool' => $tool,
+          'campaign_id' => $campaign_id,
+          'storyline_id' => trim((string) ($payload['storyline_id'] ?? '')),
+          'branch_context' => $this->storylineManager->getCampaignStorylineBranchContext(
+            $campaign_id,
+            trim((string) ($payload['storyline_id'] ?? '')),
+          ),
+        ];
+
+      case 'resolve_storyline_branch':
+        if (!$this->storylineManager) {
+          throw new \RuntimeException('resolve_storyline_branch requires StorylineManagerService.');
+        }
+        $storyline_id = $this->requireNonEmptyStringPayload($tool, $payload, 'storyline_id');
+        $decision_id = $this->requireNonEmptyStringPayload($tool, $payload, 'decision_id');
+        $choice_id = $this->requireNonEmptyStringPayload($tool, $payload, 'choice_id');
+        $before = $this->storylineManager->getCampaignStoryline($campaign_id, $storyline_id, FALSE);
+        if ($before === NULL) {
+          throw new \OutOfBoundsException("storyline_not_found:{$storyline_id}", 404);
+        }
+        $changes = [
+          'branch_choice' => [
+            'decision_id' => $decision_id,
+            'choice_id' => $choice_id,
+          ],
+        ];
+        $narrative_text = trim((string) ($payload['narrative_text'] ?? ''));
+        if ($narrative_text !== '') {
+          $changes['narrative_text'] = $narrative_text;
+        }
+        $after = $this->storylineManager->advanceCampaignStoryline(
+          $campaign_id,
+          $storyline_id,
+          $changes,
+        );
+        if ($after === NULL) {
+          throw new \RuntimeException("storyline_branch_resolution_failed:{$storyline_id}");
+        }
+        return $this->finalizeToolExecution(
+          [
+            'success' => TRUE,
+            'contract_version' => self::TOOL_CONTRACT_VERSION,
+            'tool' => $tool,
+            'campaign_id' => $campaign_id,
+            'storyline_id' => $storyline_id,
+            'decision_id' => $decision_id,
+            'choice_id' => $choice_id,
+            'storyline' => $after,
+            'branch_context' => $this->storylineManager->getCampaignStorylineBranchContext(
+              $campaign_id,
+              $storyline_id,
+            ),
+          ],
+          $tool,
+          $campaign_id,
+          $principal,
+          $ownership_domain,
+          $correlation_id,
+          $payload_hash,
+          [
+            'operation' => 'resolve_branch',
+            'target_table' => 'dc_campaign_storylines',
+            'before_hash' => $this->hashState($before),
+            'after_hash' => $this->hashState($after),
+          ],
+        );
+
       case 'modify_campaign_character_instance':
         $mutation = $this->applyCampaignTablePatch('dc_campaign_characters', $campaign_id, $payload);
         return $this->finalizeToolExecution(
@@ -871,6 +950,8 @@ class GmToolExecutionService {
       'modify_campaign_quest_artifacts',
       'modify_campaign_encounter_instances',
       'query_campaign_database',
+      'inspect_storyline_branches',
+      'resolve_storyline_branch',
     ];
     $dungeon_tools = [
       'modify_dungeon_state',

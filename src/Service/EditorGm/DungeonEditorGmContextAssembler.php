@@ -37,6 +37,18 @@ final class DungeonEditorGmContextAssembler implements EditorGmContextAssemblerI
       static fn(array $p): string => (string) $p['placement_id'],
       array_filter($placements, static fn(array $p): bool => !empty($p['is_level_entrance'])),
     ));
+    $placement_summaries = array_values(array_map(
+      static fn(array $p): array => [
+        'placement_id' => (string) ($p['placement_id'] ?? ''),
+        'room_id' => (string) ($p['room_id'] ?? ''),
+        'version_id' => (string) ($p['version_id'] ?? ''),
+        'label' => (string) ($p['label'] ?? ''),
+        'origin' => $p['origin'] ?? ['q' => 0, 'r' => 0],
+        'rotation_steps' => (int) ($p['rotation_steps'] ?? 0),
+        'is_level_entrance' => (bool) ($p['is_level_entrance'] ?? FALSE),
+      ],
+      $placements,
+    ));
 
     return [
       'tool_id' => DungeonEditorGmSurface::ID,
@@ -51,14 +63,18 @@ final class DungeonEditorGmContextAssembler implements EditorGmContextAssemblerI
       ],
       'dungeon' => [
         'name' => (string) ($dungeon['name'] ?? ''),
+        'description' => (string) ($dungeon['description'] ?? ''),
         'theme' => $dungeon['theme'] ?? NULL,
         'depth' => $dungeon['depth'] ?? NULL,
         'placement_count' => count($placements),
         'placement_ids' => array_values(array_map(static fn(array $p): string => (string) $p['placement_id'], $placements)),
+        'placements' => $placement_summaries,
         'level_entrances' => $entrances,
         'port_link_count' => count((array) ($dungeon['port_links'] ?? [])),
+        'port_links' => array_values((array) ($dungeon['port_links'] ?? [])),
         'region_count' => count((array) ($dungeon['regions'] ?? [])),
         'region_ids' => array_values(array_map(static fn(array $r): string => (string) $r['region_id'], (array) ($dungeon['regions'] ?? []))),
+        'regions' => array_values((array) ($dungeon['regions'] ?? [])),
       ],
       'validation_summary' => [
         'profile' => (string) ($validation['profile'] ?? $context->validationProfile),
@@ -66,12 +82,14 @@ final class DungeonEditorGmContextAssembler implements EditorGmContextAssemblerI
         'error_count' => (int) ($validation['counts']['error'] ?? 0),
         'warning_count' => (int) ($validation['counts']['warning'] ?? 0),
         'info_count' => (int) ($validation['counts']['info'] ?? 0),
+        'findings' => array_values((array) ($validation['findings'] ?? [])),
       ],
       'publication' => [
         'has_published_version' => ($draft['base_version_id'] ?? NULL) !== NULL,
         'base_version_id' => $draft['base_version_id'] ?? NULL,
         'publication_available' => FALSE,
       ],
+      'site_topology_contract' => CanonicalSiteTopologyContract::describe(),
       'authority_boundary' => self::AUTHORITY_BOUNDARY,
       'assistant' => [
         'natural_language_available' => $this->intentParser->isAvailable(),

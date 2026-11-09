@@ -107,7 +107,7 @@ export class GameShellFetchBridge {
     console.log('[GameShell] _loadChatHistory', { campaignId, roomId, requestToken });
 
     const request = (async () => {
-      shell.bus.emit('game:backend-request-start', {
+      shell.bus?.emit?.('game:backend-request-start', {
         requestId: backendRequestId,
         label: 'Hydrating room transcript...',
         source: 'chat-history',
@@ -159,7 +159,7 @@ export class GameShellFetchBridge {
         shell._chatHistoryLoaded = true;
         shell._chatHistoryLastLoadedAt.set(requestKey, Date.now());
         console.log('[GameShell] _loadChatHistory: loaded', { lineCount: result.data.messages.length });
-        shell.bus.emit('chat:history-loaded', {
+        shell.bus?.emit?.('chat:history-loaded', {
           ...result,
           roomId: payloadRoomId || requestRoomId,
           campaignId: Number(campaignId) || null,
@@ -177,7 +177,7 @@ export class GameShellFetchBridge {
         if (shell._chatHistoryInflight.get(requestKey) === request) {
           shell._chatHistoryInflight.delete(requestKey);
         }
-        shell.bus.emit('game:backend-request-end', { requestId: backendRequestId, source: 'chat-history' });
+        shell.bus?.emit?.('game:backend-request-end', { requestId: backendRequestId, source: 'chat-history' });
       }
     })();
 
@@ -215,14 +215,14 @@ export class GameShellFetchBridge {
     console.log('[GameShell] _loadRoomView', { campaignId, roomId, force, preserveExisting });
 
     if (!preserveExisting || !shell._roomViewHasContent) {
-      shell.bus.emit('room:view-loaded', {
+      shell.bus?.emit?.('room:view-loaded', {
         room: payloadRoomBase,
         viewState: { statusLabel: 'Generating', placeholderText: 'Loading room scene...', entries: [] },
       });
     }
 
     const request = (async () => {
-      shell.bus.emit('game:backend-request-start', {
+      shell.bus?.emit?.('game:backend-request-start', {
         requestId: backendRequestId,
         label: 'Waiting for room view generation...',
         source: 'room-view',
@@ -236,7 +236,7 @@ export class GameShellFetchBridge {
       );
       if (token !== shell._roomViewRequestToken) return;
       if (!resp.ok) {
-        shell.bus.emit('game:server-unavailable', { message: `Room view unavailable (${resp.status})` });
+        shell.bus?.emit?.('game:server-unavailable', { message: `Room view unavailable (${resp.status})` });
         return;
       }
       const result = await resp.json().catch(() => ({}));
@@ -282,7 +282,7 @@ export class GameShellFetchBridge {
         payloadRoomName: payloadRoom?.name ?? null,
       });
 
-      shell.bus.emit('room:view-loaded', { room: payloadRoom, viewState: { statusLabel, placeholderText, entries } });
+      shell.bus?.emit?.('room:view-loaded', { room: payloadRoom, viewState: { statusLabel, placeholderText, entries } });
       if (entries.length > 0) {
         this.clearRoomViewRetryWindow(viewKey);
         this.clearRoomViewRetry();
@@ -427,12 +427,12 @@ export class GameShellFetchBridge {
       activeTab: shell.activeGameShellTab,
       stockedMerchantCount: updatedOccupants.filter((o) => o?.presentation?.stock).length,
     });
-    shell.bus.emit('room:occupants-decoration-changed', {
+    shell.bus?.emit?.('room:occupants-decoration-changed', {
       roomId,
       roomName: room?.name ?? roomId,
       source: 'merchant-stock',
     });
-    shell.bus.emit('merchant:stock-loaded', {
+    shell.bus?.emit?.('merchant:stock-loaded', {
       roomId,
       roomName: room?.name ?? roomId,
       merchantCount: updatedOccupants.filter((entry) => entry?.presentation?.is_merchant).length,

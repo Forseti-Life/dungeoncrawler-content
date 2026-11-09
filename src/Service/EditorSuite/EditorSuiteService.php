@@ -4,6 +4,7 @@ namespace Drupal\dungeoncrawler_content\Service\EditorSuite;
 
 use Drupal\Core\Routing\UrlGeneratorInterface;
 use Drupal\Core\Session\AccountInterface;
+use Drupal\dungeoncrawler_content\Service\ModuleConversion\ModuleConversionReleaseService;
 use Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService;
 use Drupal\dungeoncrawler_content\Service\DungeonEditorService;
 use Drupal\dungeoncrawler_content\Service\RoomEditorService;
@@ -21,6 +22,7 @@ class EditorSuiteService {
   public const SURFACE_ROOM = 'room_editor';
   public const SURFACE_DUNGEON = 'dungeon_editor';
   public const SURFACE_DEFINITIONS = 'definition_editor';
+  public const SURFACE_MODULE_MANAGER = 'module_manager';
 
   public const RECENT_LIMIT = 10;
 
@@ -30,24 +32,28 @@ class EditorSuiteService {
   private const SURFACES = [
     self::SURFACE_ROOM => [
       'label' => 'Room Editor',
-      'permission' => 'edit canonical dungeoncrawler rooms',
       'route' => 'dungeoncrawler_content.room_editor',
       'edit_route' => 'dungeoncrawler_content.room_editor_edit',
       'edit_parameter' => 'room_id',
     ],
     self::SURFACE_DUNGEON => [
       'label' => 'Dungeon Editor',
-      'permission' => 'edit canonical dungeoncrawler dungeons',
       'route' => 'dungeoncrawler_content.dungeon_editor',
       'edit_route' => 'dungeoncrawler_content.dungeon_editor_edit',
       'edit_parameter' => 'dungeon_id',
     ],
     self::SURFACE_DEFINITIONS => [
       'label' => 'Canonical Library',
-      'permission' => 'edit canonical dungeoncrawler definitions',
       'route' => 'dungeoncrawler_content.definition_index',
       'edit_route' => 'dungeoncrawler_content.definition_family',
       'edit_parameter' => 'family',
+    ],
+    self::SURFACE_MODULE_MANAGER => [
+      'label' => 'Module Manager',
+      'permission' => 'access dungeoncrawler module manager',
+      'route' => 'dungeoncrawler_content.module_manager',
+      'edit_route' => 'dungeoncrawler_content.module_manager',
+      'edit_parameter' => '',
     ],
   ];
 
@@ -55,6 +61,7 @@ class EditorSuiteService {
     private readonly RoomEditorService $roomEditor,
     private readonly DungeonEditorService $dungeonEditor,
     private readonly CanonicalDefinitionService $definitions,
+    private readonly ModuleConversionReleaseService $moduleReleases,
     private readonly EditorReviewFlagService $reviewFlags,
     private readonly UrlGeneratorInterface $urlGenerator,
     private readonly AccountInterface $currentUser,
@@ -91,7 +98,7 @@ class EditorSuiteService {
 
     $surfaces = [];
     foreach (self::SURFACES as $id => $surface) {
-      if (!$this->currentUser->hasPermission($surface['permission'])) {
+      if (isset($surface['permission']) && !$this->currentUser->hasPermission($surface['permission'])) {
         continue;
       }
       $surfaces[] = [
@@ -217,6 +224,20 @@ class EditorSuiteService {
       ];
     }
 
+    $module_releases = $this->moduleReleases->listCampaignSourceSummaries(500);
+    $requires_authoring = array_values(array_filter($module_releases, static fn(array $release): bool => (string) ($release['publication_status'] ?? '') === 'requires_authoring'));
+    if ($requires_authoring !== []) {
+      $rows[] = [
+        'code' => 'module_release_requires_authoring',
+        'severity' => 'warning',
+        'surface_id' => self::SURFACE_MODULE_MANAGER,
+        'count' => count($requires_authoring),
+        'message' => sprintf('%d module release(s) still require authoring decisions before campaign launch publication.', count($requires_authoring)),
+        'action_route' => $this->route(self::SURFACES[self::SURFACE_MODULE_MANAGER]['route']),
+        'action_label' => 'Open module manager',
+      ];
+    }
+
     return $rows;
   }
 
@@ -236,24 +257,26 @@ class EditorSuiteService {
     }
     $published = $found['published_version_id'];
 
-    $usage = [];
-    foreach ($this->dungeonEditor->listDrafts() as $draft) {
-      $pins = array_values(array_filter($draft['placement_pins'], static fn(array $pin): bool => $pin['room_id'] === $room_id));
-      if ($pins === []) {
-        continue;
+    $usage = $this->dungeonEditor->roomUsage($room_id);
+    foreach (['published_dungeons', 'active_dungeon_drafts'] as $membership_type) {
+      foreach ($usage[$membership_type] as &$dungeon) {
+        $dungeon['placements'] = array_map(
+          static fn(array $pin): array => $pin + [
+            'superseded' => $published !== NULL && $pin['version_id'] !== $published,
+          ],
+          $dungeon['placements'],
+        );
+        $dungeon['route'] = $this->editorUrl('dungeon', (string) $dungeon['dungeon_id']);
       }
-      $usage[] = [
-        'draft_id' => $draft['draft_id'],
-        'dungeon_id' => $draft['dungeon_id'],
-        'name' => $draft['name'],
-        'placements' => array_map(static fn(array $pin): array => $pin + ['superseded' => $published !== NULL && $pin['version_id'] !== $published], $pins),
-        'route' => $this->editorUrl('dungeon', (string) $draft['dungeon_id']),
-      ];
+      unset($dungeon);
     }
     return [
       'room_id' => $room_id,
+      'name' => $found['name'],
+      'publication_status' => $found['publication_status'],
       'published_version_id' => $published,
-      'dungeon_drafts' => $usage,
+      'published_dungeons' => $usage['published_dungeons'],
+      'active_dungeon_drafts' => $usage['active_dungeon_drafts'],
     ];
   }
 
@@ -327,6 +350,16 @@ class EditorSuiteService {
           'family_count' => count($families),
           'definition_count' => $total,
           'definitions_by_family' => $per_family,
+        ];
+
+      case self::SURFACE_MODULE_MANAGER:
+        $releases = $this->moduleReleases->listCampaignSourceSummaries(500);
+        $published = count(array_filter($releases, static fn(array $release): bool => (string) ($release['publication_status'] ?? '') === 'published'));
+        $requires_authoring = count(array_filter($releases, static fn(array $release): bool => (string) ($release['publication_status'] ?? '') === 'requires_authoring'));
+        return [
+          'published_count' => $published,
+          'total_count' => count($releases),
+          'requires_authoring_count' => $requires_authoring,
         ];
     }
     throw new \LogicException(sprintf('editor_suite_surface_unknown:%s', $surface_id));

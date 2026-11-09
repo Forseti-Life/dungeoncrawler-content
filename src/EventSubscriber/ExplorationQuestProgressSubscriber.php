@@ -180,44 +180,42 @@ class ExplorationQuestProgressSubscriber implements EventSubscriberInterface {
     int $character_id,
     RoomDiscoveredEvent $event
   ): void {
-    try {
-      $progress = $this->database->select('dc_campaign_quest_progress', 'p')
-        ->fields('p', ['objective_states', 'current_phase'])
-        ->condition('p.campaign_id', $campaign_id)
-        ->condition('p.quest_id', $quest_id)
-        ->condition('p.character_id', $character_id)
-        ->range(0, 1)
-        ->execute()
-        ->fetchAssoc();
-      $objective_states = json_decode((string) ($progress['objective_states'] ?? '[]'), TRUE) ?? [];
-      $current_phase = max(1, (int) ($progress['current_phase'] ?? 1));
-      $matches = $this->findMatchingDiscoveryObjectiveIds($objective_states, $current_phase, $event);
-
-      foreach ($matches as $objective_id) {
-        $result = $this->questTracker->updateObjectiveProgress(
-          $campaign_id,
-          $quest_id,
-          $objective_id,
-          1,
-          $character_id
-        );
-
-        if ($result['success'] ?? FALSE) {
-          $this->logger->info(
-            'Updated discovery objective @objective for quest @quest: discovered @room',
-            [
-              '@objective' => $objective_id,
-              '@quest' => $quest_id,
-              '@room' => $room_name,
-            ]
-          );
-        }
-      }
+    $progress = $this->database->select('dc_campaign_quest_progress', 'p')
+      ->fields('p', ['objective_states', 'current_phase'])
+      ->condition('p.campaign_id', $campaign_id)
+      ->condition('p.quest_id', $quest_id)
+      ->condition('p.character_id', $character_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!is_array($progress)) {
+      throw new \RuntimeException("Discovery progress missing for campaign {$campaign_id} quest {$quest_id} character {$character_id}.");
     }
-    catch (\Exception $e) {
-      $this->logger->error(
-        'Failed to update quest progress on room discovery: @error',
-        ['@error' => $e->getMessage()]
+    $objective_states = json_decode((string) $progress['objective_states'], TRUE, 512, JSON_THROW_ON_ERROR);
+    if (!is_array($objective_states)) {
+      throw new \UnexpectedValueException("Discovery progress must be an array for quest {$quest_id}.");
+    }
+    $current_phase = max(1, (int) ($progress['current_phase'] ?? 1));
+    $matches = $this->findMatchingDiscoveryObjectiveIds($objective_states, $current_phase, $event);
+
+    foreach ($matches as $objective_id) {
+      $result = $this->questTracker->updateObjectiveProgress(
+        $campaign_id,
+        $quest_id,
+        $objective_id,
+        1,
+        $character_id
+      );
+
+      if (empty($result['success'])) {
+        throw new \RuntimeException(sprintf(
+          'Discovery progress failed for campaign %d quest %s objective %s character %d: %s',
+          $campaign_id, $quest_id, $objective_id, $character_id, (string) ($result['error'] ?? 'unknown error')
+        ));
+      }
+      $this->logger->info(
+        'Updated discovery objective @objective for quest @quest: discovered @room',
+        ['@objective' => $objective_id, '@quest' => $quest_id, '@room' => $room_name]
       );
     }
   }

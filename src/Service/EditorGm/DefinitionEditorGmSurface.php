@@ -6,8 +6,11 @@ use Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Definition\CreateDefinitionTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Definition\DescribeDefinitionSchemaTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Definition\GenerateCreatureDefinitionTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Definition\GenerateHazardDefinitionTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Definition\GenerateItemDefinitionTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Definition\GenerateNpcDefinitionTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Definition\GenerateObstacleDefinitionTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Definition\GenerateTrapDefinitionTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Definition\ListDefinitionsTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Definition\LoadDefinitionTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Definition\PlanDefinitionPatchTool;
@@ -44,6 +47,9 @@ final class DefinitionEditorGmSurface implements EditorGmSurfaceInterface {
         new GenerateItemDefinitionTool($generation),
         new GenerateCreatureDefinitionTool($generation),
         new GenerateNpcDefinitionTool($generation),
+        new GenerateObstacleDefinitionTool($generation),
+        new GenerateHazardDefinitionTool($generation),
+        new GenerateTrapDefinitionTool($generation),
       ]);
     }
     $this->registry = new EditorGmToolRegistry($tools, [], NULL);

@@ -42,6 +42,8 @@ class ActorHarnessLangGraphCommands extends DrushCommands {
    * @option campaign-name New campaign display name.
    * @option theme Campaign theme.
    * @option difficulty Campaign difficulty.
+   * @option module-release-id Published module release to launch instead of a theme.
+   * @option quest-template-id Required starter quest template for module runs.
    * @option uid Owner user ID for campaign + character lookup.
    * @aliases dc:actor-harness-bootstrap
    */
@@ -50,6 +52,8 @@ class ActorHarnessLangGraphCommands extends DrushCommands {
     'campaign-name' => 'Burasco LangGraph Harness Campaign',
     'theme' => 'classic_dungeon',
     'difficulty' => 'normal',
+    'module-release-id' => NULL,
+    'quest-template-id' => NULL,
     'uid' => NULL,
   ]): int {
     $uid = (int) ($options['uid'] ?? $this->currentUser->id());
@@ -73,6 +77,12 @@ class ActorHarnessLangGraphCommands extends DrushCommands {
     $campaign_name = trim((string) ($options['campaign-name'] ?? ''));
     $theme = trim((string) ($options['theme'] ?? 'classic_dungeon'));
     $difficulty = trim((string) ($options['difficulty'] ?? 'normal'));
+    $module_release_id = trim((string) ($options['module-release-id'] ?? ''));
+    $quest_template_id = trim((string) ($options['quest-template-id'] ?? ''));
+    if ($module_release_id === '' && $quest_template_id !== '') {
+      $this->io()->error('--quest-template-id requires --module-release-id.');
+      return self::EXIT_FAILURE;
+    }
     if ($campaign_name === '') {
       $this->io()->error('The --campaign-name option cannot be empty.');
       return self::EXIT_FAILURE;
@@ -83,7 +93,9 @@ class ActorHarnessLangGraphCommands extends DrushCommands {
       $campaign_name,
       $theme,
       $difficulty,
-      ['kind' => 'theme', 'theme' => $theme]
+      $module_release_id === ''
+        ? ['kind' => 'theme', 'theme' => $theme]
+        : ['kind' => 'module_release', 'release_id' => $module_release_id]
     );
     if ($campaign_id <= 0) {
       $this->io()->error('Campaign initialization failed.');
@@ -118,7 +130,7 @@ class ActorHarnessLangGraphCommands extends DrushCommands {
       return self::EXIT_FAILURE;
     }
 
-    $started_quest_id = $this->startStarterQuest($campaign_id, $runtime_character_id);
+    $started_quest_id = $this->startStarterQuest($campaign_id, $runtime_character_id, $quest_template_id);
     if ($started_quest_id === '') {
       $this->io()->error('No offered or available starter quest could be started for this campaign.');
       return self::EXIT_FAILURE;
@@ -147,6 +159,7 @@ class ActorHarnessLangGraphCommands extends DrushCommands {
       'actor_id' => $instance_id,
       'room_id' => $room_id,
       'started_quest_id' => $started_quest_id,
+      'module_release_id' => $module_release_id,
       'status' => 'ready',
     ];
 
@@ -264,6 +277,54 @@ class ActorHarnessLangGraphCommands extends DrushCommands {
         (string) ($snapshot['active_room_id'] ?? ''),
         is_array($snapshot['active_quests'] ?? NULL) ? $snapshot['active_quests'] : []
       );
+    }
+
+    $campaign_data_json = $this->database->select('dc_campaigns', 'c')
+      ->fields('c', ['campaign_data'])
+      ->condition('c.id', $campaign_id)
+      ->range(0, 1)->execute()->fetchField();
+    if (!is_string($campaign_data_json)) {
+      throw new \RuntimeException('actor_harness_snapshot_campaign_missing: ' . $campaign_id);
+    }
+    $campaign_data = json_decode($campaign_data_json, TRUE, 512, JSON_THROW_ON_ERROR);
+    if (!is_array($campaign_data)) {
+      throw new \RuntimeException('actor_harness_snapshot_campaign_invalid: ' . $campaign_id);
+    }
+    $snapshot['module_release_id'] = trim((string) ($campaign_data['init']['context']['module_release_id'] ?? ''));
+
+    if ($snapshot['module_release_id'] !== '') {
+      $room_id = trim((string) ($snapshot['active_room_id'] ?? ''));
+      if ($room_id === '') {
+        throw new \RuntimeException('actor_harness_snapshot_active_room_missing');
+      }
+      $contents_json = $this->database->select('dc_campaign_rooms', 'r')
+        ->fields('r', ['contents_data'])
+        ->condition('r.campaign_id', $campaign_id)
+        ->condition('r.room_id', $room_id)
+        ->range(0, 1)->execute()->fetchField();
+      if (!is_string($contents_json)) {
+        throw new \RuntimeException('actor_harness_snapshot_room_contents_missing: ' . $room_id);
+      }
+      $contents = json_decode($contents_json, TRUE, 512, JSON_THROW_ON_ERROR);
+      if (!is_array($contents) || !is_array($contents['entities'] ?? NULL)) {
+        throw new \RuntimeException('actor_harness_snapshot_room_contents_invalid: ' . $room_id);
+      }
+      $snapshot['room_item_instances'] = [];
+      foreach ($contents['entities'] as $entity) {
+        if (!is_array($entity) || ($entity['definition_ref']['family'] ?? NULL) !== 'item') {
+          continue;
+        }
+        $instance_id = trim((string) ($entity['instance_id'] ?? ''));
+        $definition_id = trim((string) ($entity['definition_ref']['definition_id'] ?? ''));
+        if ($instance_id === '' || $definition_id === '') {
+          throw new \RuntimeException('actor_harness_snapshot_room_item_invalid: ' . $room_id);
+        }
+        $snapshot['room_item_instances'][] = [
+          'instance_id' => $instance_id,
+          'definition_id' => $definition_id,
+          'room_id' => $room_id,
+        ];
+      }
     }
 
     $snapshot = $this->appendDeterministicActorPlannerContext(
@@ -444,8 +505,8 @@ class ActorHarnessLangGraphCommands extends DrushCommands {
   /**
    * Start the preferred starter quest and return its quest_id.
    */
-  protected function startStarterQuest(int $campaign_id, int $character_id): string {
-    $preferred_templates = ['tavern_storyline_leads'];
+  protected function startStarterQuest(int $campaign_id, int $character_id, string $required_template_id = ''): string {
+    $preferred_templates = $required_template_id !== '' ? [$required_template_id] : ['tavern_storyline_leads'];
     $available = $this->database->select('dc_campaign_quests', 'q')
       ->fields('q', ['quest_id', 'source_template_id'])
       ->condition('campaign_id', $campaign_id)
@@ -465,6 +526,9 @@ class ActorHarnessLangGraphCommands extends DrushCommands {
           break 2;
         }
       }
+    }
+    if ($quest_id === '' && $required_template_id !== '') {
+      return '';
     }
     if ($quest_id === '') {
       $quest_id = (string) ($available[0]['quest_id'] ?? '');

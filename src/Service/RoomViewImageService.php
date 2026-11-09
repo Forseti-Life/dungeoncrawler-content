@@ -2,6 +2,7 @@
 
 namespace Drupal\dungeoncrawler_content\Service;
 
+use Drupal\dungeoncrawler_content\Service\ModuleConversion\ReviewedOriginalArt;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\File\FileSystemInterface;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
@@ -111,6 +112,7 @@ class RoomViewImageService {
       $campaign_room_cache_key !== '' ? $campaign_room_cache_key : $room_id,
       $room
     );
+    $source_maps = $this->sourceMapEntries($room);
     $dungeon_id = (string) ($record['dungeon_id'] ?? '');
     $room_meta = $this->buildRoomMeta($room, $room_id);
     $room_session = $this->chatSessionManager->ensureRoomSession(
@@ -130,25 +132,6 @@ class RoomViewImageService {
       $portrait_references
     );
 
-    if (
-      $establishing_entry !== NULL &&
-      (string) ($establishing_entry['mode'] ?? '') === 'cache'
-    ) {
-      return [
-        'success' => TRUE,
-        'available' => TRUE,
-        'status' => (string) ($establishing_entry['status'] ?? 'ready'),
-        'provider' => (string) ($establishing_entry['provider'] ?? ($provider ?? 'vertex')),
-        'mode' => 'establishing',
-        'message' => 'Loaded cached room view image.',
-        'room' => $room_meta,
-        'message_batch_size' => 0,
-        'generated_entry_count' => 0,
-        'character_reference_count' => count($portrait_references),
-        'entries' => [$establishing_entry],
-      ];
-    }
-
     $gallery_entries = $this->buildTransitionGalleryEntries(
       $campaign_id,
       $dungeon_id,
@@ -158,10 +141,11 @@ class RoomViewImageService {
       $portrait_references
     );
 
-    $entries = $gallery_entries;
+    $entries = $source_maps;
     if ($establishing_entry !== NULL) {
-      array_unshift($entries, $establishing_entry);
+      $entries[] = $establishing_entry;
     }
+    array_push($entries, ...$gallery_entries);
 
     $generation_available = $provider !== NULL;
     $message = empty($gallery_entries)
@@ -171,6 +155,14 @@ class RoomViewImageService {
         count($gallery_entries),
         count($gallery_entries) === 1 ? '' : 's'
       );
+    if ($source_maps !== []) {
+      $message = $source_maps[0]['mode'] === 'original_map'
+        ? 'Original room art is available separately from the canonical hex terrain.'
+        : 'Source map art is available alongside the canonical hex terrain.';
+    }
+    elseif ($gallery_entries === [] && $establishing_entry !== NULL && ($establishing_entry['mode'] ?? NULL) === 'cache') {
+      $message = 'Loaded cached room view image.';
+    }
 
     if (!$generation_available && empty($entries)) {
       $message = 'Room view images are unavailable until Vertex image generation is configured.';
@@ -178,7 +170,7 @@ class RoomViewImageService {
 
     return [
       'success' => !empty($entries),
-      'available' => $generation_available,
+      'available' => $generation_available || $entries !== [],
       'status' => !empty($entries) ? 'ready' : ($generation_available ? 'pending' : 'unavailable'),
       'provider' => $provider ?? 'unavailable',
       'mode' => !empty($gallery_entries) ? 'transition_gallery' : 'establishing',
@@ -188,6 +180,63 @@ class RoomViewImageService {
       'generated_entry_count' => count($gallery_entries),
       'character_reference_count' => count($portrait_references),
       'entries' => $entries,
+    ];
+  }
+
+  /**
+   * Keep imported map evidence distinct from generated room-view snapshots.
+   */
+  protected function sourceMapEntries(array $room): array {
+    $metadata = $room['metadata'] ?? $room['layout_data']['metadata'] ?? [];
+    $scene = is_array($metadata) ? ($metadata['module_conversion']['source_scene'] ?? NULL) : NULL;
+    if (!is_array($scene) || !in_array($scene['conversion_state'] ?? NULL, ['original_gameplay_generated_map_staged', 'playable_validated'], TRUE)) {
+      return [];
+    }
+    $maps = $scene['map_assets'] ?? NULL;
+    if (!is_array($maps) || !is_array($maps['background'] ?? NULL) || !is_array($maps['tiles'] ?? NULL)) {
+      throw new \RuntimeException('Staged source map metadata is incomplete.', 500);
+    }
+    $original_art = ReviewedOriginalArt::fromScene($scene);
+    if ($original_art !== NULL) {
+      return [[
+        'mode' => 'original_map',
+        'title' => 'Original room art (not tactical terrain)',
+        'image' => ['url' => $original_art['url'], 'mime_type' => NULL],
+      ]];
+    }
+    $role = $scene['map_review']['role'] ?? NULL;
+    $background_title = match ($role) {
+      'interpretive_gallery' => 'Illustrative source art (not tactical terrain)',
+      'overland_overview' => 'Island overview (not a tactical room map)',
+      default => 'Source map background',
+    };
+    $entries = [$this->sourceMapEntry($maps['background'], $background_title)];
+    foreach ($maps['tiles'] as $index => $tile) {
+      if (!is_array($tile)) {
+        throw new \RuntimeException('Staged source map tile metadata is invalid.', 500);
+      }
+      $title = in_array($role, ['interpretive_gallery', 'overland_overview'], TRUE)
+        ? 'Illustrative source art tile ' . ($index + 1) . ' (not tactical terrain)'
+        : 'Source map tile ' . ($index + 1);
+      $entries[] = $this->sourceMapEntry($tile, $title);
+    }
+    return $entries;
+  }
+
+  private function sourceMapEntry(array $image, string $title): array {
+    $url = $image['url'] ?? NULL;
+    $notice_url = $image['license_notice_url'] ?? NULL;
+    if (!is_string($url) || !preg_match('~^(?:https?://|/)[^\s]+$~D', $url)
+      || !is_string($notice_url) || !preg_match('~^(?:https?://|/)[^\s]+$~D', $notice_url)
+      || !is_string($image['author'] ?? NULL) || trim($image['author']) === '') {
+      throw new \RuntimeException('Staged source map asset is invalid.', 500);
+    }
+    return [
+      'mode' => 'source_map',
+      'title' => $title,
+      'author' => $image['author'],
+      'license_notice_url' => $notice_url,
+      'image' => ['url' => $url, 'mime_type' => NULL],
     ];
   }
 

@@ -2064,20 +2064,17 @@ class StorylineExplorerPageController extends ControllerBase {
           $errors[] = 'dungeon_data contract is required.';
         }
         else {
-          $entry_room = trim((string) ($dungeon_data['entry_room'] ?? ''));
-          $room_ids = array_values(array_filter(array_map(
-            'strval',
-            is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : []
-          ), static fn(string $id): bool => trim($id) !== ''));
-          $room_ids = array_values(array_unique($room_ids));
+          $room_contract = $this->storylineManager->resolveCanonicalDungeonRoomContract($dungeon_data);
+          $entry_room = $room_contract['entry_room_id'];
+          $room_ids = $room_contract['room_ids'];
           if ($room_ids === []) {
-            $errors[] = 'dungeon_data.rooms must define at least one room.';
+            $errors[] = 'dungeon_data must define at least one room.';
           }
           if ($entry_room === '') {
-            $errors[] = 'dungeon_data.entry_room is required.';
+            $errors[] = 'dungeon_data must define an entry room.';
           }
           elseif ($room_ids !== [] && !in_array($entry_room, $room_ids, TRUE)) {
-            $errors[] = "dungeon_data.entry_room '{$entry_room}' must be listed in dungeon_data.rooms.";
+            $errors[] = "entry room '{$entry_room}' must be included in its rooms.";
           }
 
           foreach ($room_ids as $room_id) {

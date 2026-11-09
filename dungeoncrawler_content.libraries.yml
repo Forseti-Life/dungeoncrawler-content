@@ -33,6 +33,17 @@ character-sheet:
     - core/drupal
     - core/once
 
+storyline-management:
+  version: 20261024-storyline-completeness-1
+  css:
+    theme:
+      css/storyline-management.css: {}
+  js:
+    js/storyline-management.js: {}
+  dependencies:
+    - core/drupal
+    - core/once
+
 # Base library for character creation steps with shared dependencies
 character-step-base:
   css:
@@ -63,11 +74,12 @@ character-creation-style:
     - dungeoncrawler_content/character-step-base
 
 character-creation-gm-chat:
+  version: 20261023-gm-chat-2
   css:
     theme:
       css/character-creation-gm-chat.css: {}
   js:
-    js/character-creation-gm-chat.js: {}
+    js/character-creation-gm-chat.js: { attributes: { type: module } }
   dependencies:
     - dungeoncrawler_content/character-step-base
     - core/drupal
@@ -82,6 +94,18 @@ character-setup-tabs:
     js/character-setup-tabs.js: {}
   dependencies:
     - dungeoncrawler_content/character-step-base
+    - core/drupal
+    - core/once
+    - core/drupalSettings
+
+gm-storyline-builder:
+  version: 20261024-object-editor-links-2
+  css:
+    theme:
+      css/gm-storyline-builder.css: {}
+  js:
+    js/gm-storyline-builder.js: { attributes: { type: module } }
+  dependencies:
     - core/drupal
     - core/once
     - core/drupalSettings
@@ -197,7 +221,7 @@ hexmap:
 # All js/v2/** modules are imported inside hexmap-v2.js (ES module imports);
 # only the entry point is listed here.
 hexmap-v2:
-  version: 20260909-tab-runtime-consistency-1
+  version: 20261025-search-narrator-1
   js:
     # PixiJS CDN (version locked — same as hexmap library)
     https://cdn.jsdelivr.net/npm/pixi.js@7.3.2/dist/pixi.min.js: { type: external, minified: true }
@@ -215,7 +239,7 @@ hexmap-v2:
     - core/once
 
 room-editor:
-  version: 20260908-g1-generation
+  version: 20261026-canonical-def-tools-1
   js:
     https://cdn.jsdelivr.net/npm/pixi.js@7.3.2/dist/pixi.min.js: { type: external, minified: true }
     js/room-editor.js: { attributes: { type: module } }
@@ -229,7 +253,7 @@ room-editor:
     - core/once
 
 editor-suite:
-  version: 20260908-show-me-walkthrough
+  version: 20261023-gm-chat-2
   js:
     js/editor-suite.js: { attributes: { type: module } }
   css:
@@ -241,8 +265,35 @@ editor-suite:
     - core/drupalSettings
     - core/once
 
+module-manager:
+  version: 20261006-module-gaps-2
+  js:
+    js/module-manager.js: { attributes: { type: module } }
+  css:
+    theme:
+      css/room-editor.css: {}
+      css/module-manager.css: {}
+  dependencies:
+    - core/drupal
+    - core/drupalSettings
+    - core/once
+
+module-explorer:
+  version: 20261007-raw-module-explorer-1
+  js:
+    js/module-explorer.js: {}
+  css:
+    theme:
+      css/room-editor.css: {}
+      css/module-manager.css: {}
+      css/module-explorer.css: {}
+  dependencies:
+    - core/drupal
+    - core/drupalSettings
+    - core/once
+
 dungeon-editor:
-  version: 20260908-g1-generation
+  version: 20261023-gm-chat-3
   js:
     https://cdn.jsdelivr.net/npm/pixi.js@7.3.2/dist/pixi.min.js: { type: external, minified: true }
     js/dungeon-editor.js: { attributes: { type: module } }
@@ -257,7 +308,7 @@ dungeon-editor:
     - core/once
 
 definition-editor:
-  version: 20260908-g2g3-generation
+  version: 20261026-canonical-def-tools-1
   js:
     js/definition-editor.js: { attributes: { type: module } }
   css:

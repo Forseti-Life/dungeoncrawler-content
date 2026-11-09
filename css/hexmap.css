@@ -1107,6 +1107,41 @@
   font-size: 0.85rem;
 }
 
+.campaign-storyline-settings__plan {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-xl);
+}
+
+.campaign-storyline-settings__findings {
+  margin: 0;
+  padding-left: var(--space-5);
+}
+
+.campaign-storyline-settings__finding--error {
+  color: var(--danger, #a32020);
+}
+
+.campaign-storyline-settings__finding--warning {
+  color: var(--warning, #8a5a00);
+}
+
+.campaign-storyline-settings__actor {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-lg);
+}
+
+.campaign-storyline-settings__attached {
+  display: grid;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
+
 .room-view-panel__header {
   display: flex;
   justify-content: space-between;

@@ -110,6 +110,7 @@ export class HexCanvas {
     this._hoverHexTooltipBg = null;
     this._hoverHexTooltipText = null;
     this._movementBandOverlay = null;
+    this._sourceMapSerial = 0;
   }
 
   // ---------------------------------------------------------------------------
@@ -189,6 +190,7 @@ export class HexCanvas {
   }
 
   destroy() {
+    this._sourceMapSerial += 1;
     this._unsubs.forEach((fn) => fn());
     this._unsubs = [];
 
@@ -305,6 +307,8 @@ export class HexCanvas {
   generateHexGrid() {
     if (!this.hexContainer) return;
 
+    const mapSerial = ++this._sourceMapSerial;
+    this.backgroundContainer?.removeChildren().forEach((child) => child.destroy({ children: true }));
     this.hexContainer.removeChildren();
     this.gridContainer.removeChildren();
     this.propsContainer?.removeChildren();
@@ -318,17 +322,35 @@ export class HexCanvas {
     }
 
     const roomHexes = _getRoomHexes(this.currentRoom);
+    const sourceMap = this.currentRoom?.source_map;
+    const aligned = Boolean(sourceMap?.alignment && roomHexes.length);
+    const illustrated = Boolean(sourceMap?.display_mode === 'illustrative_background' && roomHexes.length);
 
     if (roomHexes.length) {
       roomHexes.forEach((roomHex) => {
+        const style = _resolveHexStyleForCanvas(_resolveRoomHexStyle(roomHex), this.config);
+        const terrain = String(roomHex.terrain_type || '').toLowerCase();
+        if (illustrated && roomHex.is_visible !== false && roomHex.is_discovered !== false) {
+          style.fillAlpha = Math.min(style.fillAlpha, 0.22);
+        } else if (aligned && (terrain === 'floor' || terrain.endsWith('_floor'))
+          && style.fillColor === DEFAULT_HEX_STYLE.fillColor
+          && style.fillAlpha === DEFAULT_HEX_STYLE.fillAlpha
+          && roomHex.is_visible !== false && roomHex.is_discovered !== false) {
+          style.fillAlpha = 0.15;
+        }
         this._createHex(
           Number(roomHex.q),
           Number(roomHex.r),
           hexSize,
-          _resolveHexStyleForCanvas(_resolveRoomHexStyle(roomHex), this.config),
+          style,
           roomHex,
         );
       });
+      if (aligned) {
+        this._renderSourceMap(sourceMap, roomHexes, mapSerial);
+      } else if (illustrated) {
+        this._renderOriginalBackground(sourceMap, roomHexes, mapSerial);
+      }
       return;
     }
 
@@ -337,6 +359,111 @@ export class HexCanvas {
         this._createHex(q, r, hexSize, _resolveHexStyleForCanvas(DEFAULT_HEX_STYLE, this.config), null);
       }
     }
+  }
+
+  async _renderOriginalBackground(map, roomHexes, serial) {
+    let textures;
+    try {
+      textures = await Promise.all(
+        [map.background_url, ...map.tiles.map((tile) => tile.url)].map((url) => PIXI.Assets.load(url)),
+      );
+    } catch (error) {
+      if (serial !== this._sourceMapSerial) return;
+      console.error('[HexCanvas] Original background image failed to load', error);
+      this.bus.emit('canvas:source-map-error', { error });
+      return;
+    }
+    if (serial !== this._sourceMapSerial || !this.backgroundContainer) return;
+    if (!textures[0].width || !textures[0].height
+      || !Number.isFinite(map.width_px) || map.width_px <= 0
+      || !Number.isFinite(map.height_px) || map.height_px <= 0) {
+      throw new Error('Original background bitmap has invalid dimensions');
+    }
+    const centers = roomHexes.map((hex) => this.axialToPixel(Number(hex.q), Number(hex.r)));
+    const x0 = Math.min(...centers.map((center) => center.x)) - this.config.hexSize;
+    const x1 = Math.max(...centers.map((center) => center.x)) + this.config.hexSize;
+    const y0 = Math.min(...centers.map((center) => center.y)) - this.config.hexSize;
+    const y1 = Math.max(...centers.map((center) => center.y)) + this.config.hexSize;
+    const art = new PIXI.Container();
+    const sprite = new PIXI.Sprite(textures[0]);
+    sprite.width = map.width_px;
+    sprite.height = map.height_px;
+    art.addChild(sprite);
+    map.tiles.forEach((tile, index) => {
+      const overlay = new PIXI.Sprite(textures[index + 1]);
+      overlay.width = tile.width;
+      overlay.height = tile.height;
+      overlay.anchor.set(0.5);
+      overlay.position.set(tile.x + tile.width / 2, tile.y + tile.height / 2);
+      overlay.rotation = tile.rotation * Math.PI / 180;
+      overlay.alpha = tile.alpha;
+      art.addChild(overlay);
+    });
+    art.pivot.set(map.width_px / 2, map.height_px / 2);
+    art.position.set((x0 + x1) / 2, (y0 + y1) / 2);
+    art.scale.set(Math.max((x1 - x0) / map.width_px, (y1 - y0) / map.height_px));
+    const mask = new PIXI.Graphics();
+    roomHexes.filter((hex) => hex.is_visible !== false && hex.is_discovered !== false).forEach((hex) => {
+      const center = this.axialToPixel(Number(hex.q), Number(hex.r));
+      mask.beginFill(0xffffff);
+      mask.drawPolygon(this._createHexPolygonPoints(center.x, center.y, this.config.hexSize));
+      mask.endFill();
+    });
+    this.backgroundContainer.addChild(art, mask);
+    art.mask = mask;
+  }
+
+  async _renderSourceMap(map, roomHexes, serial) {
+    let textures;
+    try {
+      textures = await Promise.all(
+        [map.background_url, ...map.tiles.map((tile) => tile.url)].map((url) => PIXI.Assets.load(url)),
+      );
+    } catch (error) {
+      if (serial !== this._sourceMapSerial) return;
+      this.hexContainer.removeChildren().forEach((child) => child.destroy({ children: true }));
+      roomHexes.forEach((hex) => this._createHex(
+        Number(hex.q), Number(hex.r), this.config.hexSize,
+        _resolveHexStyleForCanvas(_resolveRoomHexStyle(hex), this.config), hex,
+      ));
+      console.error('[HexCanvas] Source map image failed to load', error);
+      this.bus.emit('canvas:source-map-error', { error });
+      return;
+    }
+    if (serial !== this._sourceMapSerial || !this.backgroundContainer) return;
+    if (textures[0].width !== map.background_width_px || textures[0].height !== map.background_height_px) {
+      throw new Error('Source map bitmap dimensions do not match the staged asset');
+    }
+
+    const art = new PIXI.Container();
+    const alignment = map.alignment;
+    art.pivot.set(alignment.origin_x_px, alignment.origin_y_px);
+    art.scale.set(this.config.hexSize / alignment.source_hex_radius_px);
+    art.rotation = alignment.rotation_degrees * Math.PI / 180;
+
+    const background = new PIXI.Sprite(textures[0]);
+    background.scale.set(map.width_px / textures[0].width);
+    art.addChild(background);
+    map.tiles.forEach((tile, index) => {
+      const sprite = new PIXI.Sprite(textures[index + 1]);
+      sprite.width = tile.width;
+      sprite.height = tile.height;
+      sprite.anchor.set(0.5);
+      sprite.position.set(tile.x + tile.width / 2, tile.y + tile.height / 2);
+      sprite.rotation = tile.rotation * Math.PI / 180;
+      sprite.alpha = tile.alpha;
+      art.addChild(sprite);
+    });
+
+    const mask = new PIXI.Graphics();
+    roomHexes.filter((hex) => hex.is_visible !== false && hex.is_discovered !== false).forEach((hex) => {
+      const center = this.axialToPixel(Number(hex.q), Number(hex.r));
+      mask.beginFill(0xffffff);
+      mask.drawPolygon(this._createHexPolygonPoints(center.x, center.y, this.config.hexSize));
+      mask.endFill();
+    });
+    this.backgroundContainer.addChild(art, mask);
+    art.mask = mask;
   }
 
   /**

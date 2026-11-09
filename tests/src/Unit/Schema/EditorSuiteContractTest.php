@@ -114,22 +114,22 @@ class EditorSuiteContractTest extends TestCase {
   }
 
   /**
-   * AC 48: every editor route declares both authentication controls.
+   * AC 48: every editor route requires an authenticated session.
    */
-  public function testEveryEditorRouteDeclaresBothAuthenticationControls(): void {
+  public function testEveryEditorRouteRequiresAuthentication(): void {
     $routes = $this->editorRoutes();
     $this->assertGreaterThanOrEqual(30, count($routes));
     foreach ($routes as $name => $route) {
       $requirements = $route['requirements'] ?? [];
       $this->assertSame('TRUE', $requirements['_user_is_logged_in'] ?? NULL, $name . ' must require an authenticated session.');
-      $this->assertNotEmpty($requirements['_permission'] ?? '', $name . ' must require a permission.');
-      $this->assertContains($requirements['_permission'], self::EDITOR_PERMISSIONS, $name . ' must use an editor permission.');
-      $this->assertStringStartsWith('/a', $route['path'], $name . ' must live under /admin or /api.');
+      $this->assertTrue(
+        str_starts_with((string) $route['path'], '/dungeoncrawler') || str_starts_with((string) $route['path'], '/api'),
+        $name . ' must live under /dungeoncrawler or /api.'
+      );
     }
 
     $hub = $routes['dungeoncrawler_content.editor_suite'];
-    $this->assertSame('/admin/content/dungeoncrawler/editors', $hub['path']);
-    $this->assertSame('access dungeoncrawler editor suite', $hub['requirements']['_permission']);
+    $this->assertSame('/dungeoncrawler/editors', $hub['path']);
     $this->assertSame('/api/editor-suite/summary', $routes['dungeoncrawler_content.editor_suite_summary']['path']);
     foreach (['describe' => 'GET', 'execute' => 'POST'] as $suffix => $method) {
       $route = $routes['dungeoncrawler_content.editor_suite_gm_' . $suffix];
@@ -141,7 +141,7 @@ class EditorSuiteContractTest extends TestCase {
   }
 
   /**
-   * AC 45, 46, 52: admin hub plus permission-filtered editor links under Explorer Hub.
+   * AC 45, 46, 52: editor links live in storyline navigation without admin-only nesting.
    */
   public function testNavigationHasOneEntryPointAndNoCollisions(): void {
     $links = Yaml::parseFile($this->root() . '/dungeoncrawler_content.links.menu.yml');
@@ -160,9 +160,9 @@ class EditorSuiteContractTest extends TestCase {
       'dungeoncrawler_content.menu.explorer_hub_definition_obstacles',
       'dungeoncrawler_content.menu.explorer_hub_definition_traps',
       'dungeoncrawler_content.menu.explorer_hub_definition_hazards',
-    ], array_keys($to_editors), 'Editor navigation must be limited to the admin hub and Explorer Hub subtree.');
+    ], array_keys($to_editors), 'Editor navigation must stay within the storyline navigation subtree.');
     $this->assertSame('dungeoncrawler_content.editor_suite', $to_editors['dungeoncrawler_content.menu.editor_suite']['route_name']);
-    $this->assertSame('system.admin_content', $to_editors['dungeoncrawler_content.menu.editor_suite']['parent']);
+    $this->assertSame('dungeoncrawler_content.menu.storyline_explorer', $to_editors['dungeoncrawler_content.menu.editor_suite']['parent']);
     $this->assertArrayNotHasKey('menu_name', $to_editors['dungeoncrawler_content.menu.editor_suite']);
     $this->assertSame('dungeoncrawler_content.menu.storyline_explorer', $to_editors['dungeoncrawler_content.menu.explorer_hub_editor_suite']['parent']);
     $this->assertSame('dungeoncrawler_content.menu.storyline_explorer', $to_editors['dungeoncrawler_content.menu.explorer_hub_room_authoring']['parent']);
@@ -181,7 +181,7 @@ class EditorSuiteContractTest extends TestCase {
     }
 
     foreach ($links as $id => $link) {
-      if ((($link['menu_name'] ?? '') === 'main' && !str_contains($id, 'explorer_hub')) || str_contains((string) ($link['parent'] ?? ''), 'dc_administration')) {
+      if ((($link['menu_name'] ?? '') === 'main' && !str_contains($id, 'explorer_hub') && $id !== 'dungeoncrawler_content.menu.editor_suite') || str_contains((string) ($link['parent'] ?? ''), 'dc_administration')) {
         $this->assertNotContains($link['route_name'], $editor_routes, $id . ' must not advertise an authoring surface in public navigation.');
       }
       if (str_contains($id, 'dc_administration') || str_contains($id, 'editor_suite')) {
@@ -298,9 +298,10 @@ class EditorSuiteContractTest extends TestCase {
       $this->assertArrayNotHasKey('dismissible', $row);
     }
 
-    // AC 37: a surface the user may not open is omitted, not disabled.
-    $limited = $this->suiteService($rooms, $room_drafts, [], $dungeon_drafts, $flags, ['edit canonical dungeoncrawler rooms']);
-    $this->assertSame(['room_editor'], array_column($limited->summary()['surfaces'], 'id'));
+    // AC 37: module manager remains permission-gated; authoring surfaces stay
+    // available to authenticated users.
+    $limited = $this->suiteService($rooms, $room_drafts, [], $dungeon_drafts, $flags, []);
+    $this->assertSame(['room_editor', 'dungeon_editor', 'definition_editor'], array_column($limited->summary()['surfaces'], 'id'));
 
     // Section 8.1: a backing failure propagates.
     $room_editor = $this->createMock(RoomEditorService::class);

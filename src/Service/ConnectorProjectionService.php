@@ -4,6 +4,7 @@ namespace Drupal\dungeoncrawler_content\Service;
 
 use Drupal\Core\Database\Connection;
 use Drupal\dungeoncrawler_content\Geometry\RoomPlacementTransformer;
+use Drupal\dungeoncrawler_content\Support\H3SpatialHelper;
 
 /**
  * Projects published dungeon port links into canonical connector rows.
@@ -42,6 +43,7 @@ final class ConnectorProjectionService {
       $placements[$placement_id] = $placement;
       foreach ($this->roomPorts($room) as $port) {
         $level = RoomPlacementTransformer::toLevelPort(['q' => $port['q'], 'r' => $port['r']], $port['edge'], $placement);
+        $lat_lng = H3SpatialHelper::projectAxialHexToLatLng($dungeon_id, $level['q'], $level['r']);
         $ports[$placement_id . ':' . $port['port_id']] = [
           'placement_id' => $placement_id,
           'room_id' => (string) $placement['room_id'],
@@ -53,7 +55,11 @@ final class ConnectorProjectionService {
           'edge' => $level['edge'],
           'q' => $level['q'],
           'r' => $level['r'],
-          'h3_index_res14' => $this->lookupRoomHexH3IndexRes14((string) $placement['room_id'], (int) $port['q'], (int) $port['r']),
+          'h3_index_res14' => H3SpatialHelper::latLngToH3Index(
+            (float) $lat_lng['latitude'],
+            (float) $lat_lng['longitude'],
+            14
+          ),
         ];
       }
     }
@@ -138,21 +144,6 @@ final class ConnectorProjectionService {
       ->execute()
       ->fetchField();
     return $payload ? json_decode((string) $payload, TRUE, 512, JSON_THROW_ON_ERROR) : NULL;
-  }
-
-  private function lookupRoomHexH3IndexRes14(string $room_id, int $q, int $r): string {
-    $row = $this->database->select('dungeoncrawler_content_h3_room_cells', 'c')
-      ->fields('c', ['h3_index', 'h3_resolution'])
-      ->condition('room_id', $room_id)
-      ->condition('source_q', $q)
-      ->condition('source_r', $r)
-      ->condition('cell_role', ['room_hex', 'exit_gateway'], 'IN')
-      ->orderBy('h3_resolution', 'DESC')
-      ->orderBy('id', 'ASC')
-      ->range(0, 1)
-      ->execute()
-      ->fetchAssoc();
-    return is_array($row) ? strtolower(trim((string) ($row['h3_index'] ?? ''))) : '';
   }
 
   private function roomPorts(array $room): array {

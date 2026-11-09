@@ -5,6 +5,8 @@ namespace Drupal\dungeoncrawler_content\Controller;
 use Drupal\Core\Access\CsrfRequestHeaderAccessCheck;
 use Drupal\Core\Access\CsrfTokenGenerator;
 use Drupal\Core\Controller\ControllerBase;
+use Drupal\Core\Session\AccountProxyInterface;
+use Drupal\dungeoncrawler_content\Service\ChatSessionManager;
 use Drupal\dungeoncrawler_content\Service\DungeonEditorFindingsInterface;
 use Drupal\dungeoncrawler_content\Service\Definition\DefinitionValidationException;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmHarnessService;
@@ -28,6 +30,8 @@ class EditorGmController extends ControllerBase {
   public function __construct(
     protected EditorGmHarnessService $harness,
     protected CsrfTokenGenerator $csrfToken,
+    protected ChatSessionManager $chatSessions,
+    protected AccountProxyInterface $account,
   ) {}
 
   /**
@@ -37,6 +41,8 @@ class EditorGmController extends ControllerBase {
     return new static(
       $container->get('dungeoncrawler_content.editor_gm_harness'),
       $container->get('csrf_token'),
+      $container->get('dungeoncrawler_content.chat_session_manager'),
+      $container->get('current_user'),
     );
   }
 
@@ -46,7 +52,11 @@ class EditorGmController extends ControllerBase {
   public function describe(string $_surface, Request $request, ?string $draft_id = NULL): JsonResponse {
     try {
       $profile = trim((string) $request->query->get('profile', 'editing')) ?: 'editing';
-      return new JsonResponse(['data' => $this->harness->describe($_surface, $draft_id, $profile, $this->definitionScopeFromQuery($request))]);
+      $data = $this->harness->describe($_surface, $draft_id, $profile, $this->definitionScopeFromQuery($request));
+      if ($session = $this->conversationSession($_surface, $draft_id)) {
+        $data['conversation'] = $this->chatSessions->getRecentMessagesChronological((int) $session['id'], ChatSessionManager::MAX_QUERY_MESSAGES);
+      }
+      return new JsonResponse(['data' => $data]);
     }
     catch (\Throwable $exception) {
       return $this->errorResponse($exception);
@@ -61,11 +71,130 @@ class EditorGmController extends ControllerBase {
       return $csrf;
     }
     try {
-      return new JsonResponse(['data' => $this->harness->handle($_surface, $draft_id, $this->decodeBody($request))]);
+      $body = $this->decodeBody($request);
+      $session = $this->conversationSession($_surface, $draft_id, FALSE);
+      $scope = $session
+        ? ['conversation_context' => $this->chatSessions->buildSessionContext((int) $session['id'], 20)]
+        : [];
+      $data = $this->harness->handle($_surface, $draft_id, $body, $scope);
+      $session ??= $this->conversationSession($_surface, $draft_id);
+      if ($session) {
+        $this->persistConversationTurn($session, $body, $data);
+      }
+      return new JsonResponse(['data' => $data]);
     }
+
     catch (\Throwable $exception) {
       return $this->errorResponse($exception);
     }
+  }
+
+  /**
+   * Resolves persistent conversation storage for draft-scoped Editor GM surfaces.
+   */
+  private function conversationSession(string $surface, ?string $draft_id, bool $create = TRUE): ?array {
+    if (!in_array($surface, ['storyline_builder', 'dungeon_editor', 'room_editor'], TRUE) || $draft_id === NULL || trim($draft_id) === '') {
+      return NULL;
+    }
+    if (!$create) {
+      return $this->chatSessions->loadSession($this->chatSessions->editorGmSessionKey($surface, $draft_id));
+    }
+    $label = match ($surface) {
+      'storyline_builder' => 'Storyline Builder GM',
+      'dungeon_editor' => 'Dungeon Editor GM',
+      'room_editor' => 'Room Editor GM',
+      default => 'Editor GM',
+    };
+    return $this->chatSessions->ensureEditorGmSession($surface, $draft_id, $label);
+  }
+
+  /**
+   * Persists one author request and its structured GM response.
+   */
+  private function persistConversationTurn(array $session, array $request, array $response): void {
+    $intent = is_array($request['intent'] ?? NULL) ? $request['intent'] : [];
+    $author_message = trim((string) ($intent['author_message'] ?? $intent['utterance'] ?? ''));
+    if ($author_message !== '') {
+      $this->chatSessions->postMessage(
+        (int) $session['id'],
+        0,
+        $this->account->getDisplayName(),
+        'player',
+        (string) $this->account->id(),
+        $author_message,
+        'dialogue',
+        'private',
+        ['editor_gm_role' => 'author'],
+        FALSE,
+      );
+    }
+
+    $tool_result = is_array($response['tool_result'] ?? NULL) ? $response['tool_result'] : [];
+    if (($tool_result['schema_version'] ?? '') === 'storyline-definition-preview-v1') {
+      unset($tool_result['definition']);
+    }
+    $persisted_response = [
+      'route_family' => (string) ($response['route_family'] ?? ''),
+      'tool_result' => $tool_result,
+      'tool_calls' => array_values((array) ($response['tool_calls'] ?? $tool_result['tool_calls'] ?? [])),
+      'messages' => array_values((array) ($response['messages'] ?? [])),
+    ];
+    $this->chatSessions->postMessage(
+      (int) $session['id'],
+      0,
+      'Game Master Agent',
+      'gm',
+      '',
+      $this->conversationContinuityMessage($tool_result),
+      'dialogue',
+      'private',
+      [
+        'editor_gm_role' => 'assistant',
+        'editor_gm_response' => $persisted_response,
+      ],
+      FALSE,
+    );
+  }
+
+  /**
+   * Stores concise conversational continuity while metadata retains full data.
+   */
+  private function conversationContinuityMessage(array $tool_result): string {
+    if (($tool_result['intent'] ?? '') === 'clarification') {
+      $lines = ['QUESTION: ' . trim((string) ($tool_result['question'] ?? ''))];
+      foreach (array_values((array) ($tool_result['options'] ?? [])) as $index => $option) {
+        if (!is_array($option)) {
+          continue;
+        }
+        $lines[] = sprintf(
+          '%d. %s — %s',
+          $index + 1,
+          trim((string) ($option['label'] ?? '')),
+          trim((string) ($option['selection'] ?? $option['description'] ?? '')),
+        );
+      }
+      return implode("\n", $lines);
+    }
+
+    $lines = [];
+    $next_steps = array_values(array_filter(
+      (array) ($tool_result['next_steps'] ?? []),
+      static fn($step): bool => is_string($step) && trim($step) !== '',
+    ));
+    if ($next_steps !== []) {
+      $lines[] = 'NEXT STEPS:';
+      foreach ($next_steps as $index => $step) {
+        $lines[] = sprintf('%d. %s', $index + 1, trim($step));
+      }
+    }
+    $answer = trim((string) ($tool_result['assistant_response'] ?? ''));
+    if ($answer !== '') {
+      $lines[] = 'RESPONSE: ' . $answer;
+    }
+    if ($lines === []) {
+      $lines[] = 'RESULT: ' . trim((string) ($tool_result['tool'] ?? 'completed'));
+    }
+    return implode("\n", $lines);
   }
 
 
@@ -135,6 +264,11 @@ class EditorGmController extends ControllerBase {
         '@message' => $exception->getMessage(),
       ]);
       $code = 'editor_gm_internal_error';
+    }
+    elseif ($exception instanceof \DomainException) {
+      $this->getLogger('dungeoncrawler_content')->warning('Editor GM contract rejected request: @code', [
+        '@code' => $code,
+      ]);
     }
     $error = [
       'code' => $code,

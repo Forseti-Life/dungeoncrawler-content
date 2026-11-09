@@ -61,9 +61,19 @@ class AnalysisExplorerPageController extends ControllerBase {
         'route' => 'dungeoncrawler_content.analysis_explorer_rooms',
       ],
       [
-        'title' => (string) $this->t('Item Explorer (stub)'),
-        'summary' => (string) $this->t('Planned item-layer analysis and contract diagnostics.'),
+        'title' => (string) $this->t('Item Explorer'),
+        'summary' => (string) $this->t('Canonical item contract diagnostics.'),
         'route' => 'dungeoncrawler_content.analysis_explorer_items',
+      ],
+      [
+        'title' => (string) $this->t('Spell Explorer'),
+        'summary' => (string) $this->t('Canonical spell contract diagnostics.'),
+        'route' => 'dungeoncrawler_content.analysis_explorer_spells',
+      ],
+      [
+        'title' => (string) $this->t('Feat Explorer'),
+        'summary' => (string) $this->t('Canonical feat contract diagnostics.'),
+        'route' => 'dungeoncrawler_content.analysis_explorer_feats',
       ],
       [
         'title' => (string) $this->t('Actor Explorer'),
@@ -137,6 +147,269 @@ class AnalysisExplorerPageController extends ControllerBase {
     }
 
     return $build;
+  }
+
+  /**
+   * Render canonical spell contract diagnostics.
+   */
+  public function spells(Request $request): array {
+    return $this->rulesLibrary($request, 'spell');
+  }
+
+  /**
+   * Render canonical feat contract diagnostics.
+   */
+  public function feats(Request $request): array {
+    return $this->rulesLibrary($request, 'feat');
+  }
+
+  /**
+   * Render a canonical spell or feat library validation report.
+   */
+  private function rulesLibrary(Request $request, string $content_type): array {
+    $is_spell = $content_type === 'spell';
+    $label = $is_spell ? 'Spell' : 'Feat';
+    $route = $is_spell
+      ? 'dungeoncrawler_content.analysis_explorer_spells'
+      : 'dungeoncrawler_content.analysis_explorer_feats';
+    $report = $this->loadRulesLibraryValidationReport($content_type);
+    $query = trim((string) $request->query->get('q', ''));
+    $status = strtolower(trim((string) $request->query->get('status', 'all')));
+    $status = in_array($status, ['all', 'pass', 'fail'], TRUE) ? $status : 'all';
+    $rank = $is_spell ? trim((string) $request->query->get('rank', '1')) : '';
+    $selected = trim((string) $request->query->get('selected', ''));
+    $items = array_values(array_filter((array) ($report['items'] ?? []), static function ($item) use ($query, $status, $rank, $is_spell): bool {
+      if (!is_array($item)) {
+        return FALSE;
+      }
+      if ($status === 'pass' && empty($item['valid'])) {
+        return FALSE;
+      }
+      if ($status === 'fail' && !empty($item['valid'])) {
+        return FALSE;
+      }
+      $contract = is_array($item['contract'] ?? NULL) ? $item['contract'] : [];
+      if ($is_spell && $rank !== '') {
+        $item_rank = $contract['rank'] ?? $contract['level'] ?? $contract['spell_level'] ?? NULL;
+        if (!is_numeric($item_rank) || (int) $item_rank !== (int) $rank) {
+          return FALSE;
+        }
+      }
+      if ($query === '') {
+        return TRUE;
+      }
+      $haystack = strtolower(implode(' ', [
+        (string) ($item['content_id'] ?? ''),
+        (string) ($item['name'] ?? ''),
+        (string) ($item['source_file'] ?? ''),
+      ]));
+      return str_contains($haystack, strtolower($query));
+    }));
+
+    $valid_items = count(array_filter($items, static fn(array $item): bool => !empty($item['valid'])));
+    $invalid_items = count($items) - $valid_items;
+    $selected_item = NULL;
+    foreach ($items as $item) {
+      if ((string) ($item['content_id'] ?? '') === $selected) {
+        $selected_item = $item;
+        break;
+      }
+    }
+
+    $rows = [];
+    foreach ($items as $item) {
+      $content_id = trim((string) ($item['content_id'] ?? ''));
+      $contract = is_array($item['contract'] ?? NULL) ? $item['contract'] : [];
+      $item_rank = $contract['rank'] ?? $contract['level'] ?? $contract['spell_level'] ?? '';
+      $url_query = ['selected' => $content_id, 'status' => $status];
+      if ($query !== '') {
+        $url_query['q'] = $query;
+      }
+      if ($is_spell && $rank !== '') {
+        $url_query['rank'] = $rank;
+      }
+      $rows[] = [
+        trim((string) ($item['name'] ?? $content_id)),
+        $content_id,
+        (string) $item_rank,
+        !empty($item['valid']) ? 'PASS' : 'FAIL',
+        count((array) ($item['errors'] ?? [])),
+        [
+          'data' => [
+            '#type' => 'link',
+            '#title' => (string) $this->t('View'),
+            '#url' => Url::fromRoute($route, [], ['query' => $url_query]),
+            '#attributes' => ['class' => ['btn', 'btn-outline-primary', 'btn-sm']],
+          ],
+        ],
+      ];
+    }
+
+    $build = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['container', 'py-4', 'py-lg-5']],
+      '#cache' => ['max-age' => 0, 'contexts' => ['user', 'url.query_args']],
+      'hero' => [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['card', 'mb-4']],
+        'body' => [
+          '#type' => 'container',
+          '#attributes' => ['class' => ['card-body']],
+          'title' => [
+            '#type' => 'html_tag',
+            '#tag' => 'h1',
+            '#attributes' => ['class' => ['h3', 'mb-2']],
+            '#value' => $label . ' Explorer',
+          ],
+          'summary' => [
+            '#type' => 'html_tag',
+            '#tag' => 'p',
+            '#attributes' => ['class' => ['mb-0']],
+            '#value' => (string) $this->t(
+              'Canonical @type contract validation from dungeoncrawler_content_registry.',
+              ['@type' => strtolower($label)]
+            ),
+          ],
+        ],
+      ],
+      'filters' => [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['card', 'mb-4']],
+        'body' => [
+          '#type' => 'container',
+          '#attributes' => ['class' => ['card-body']],
+          'form' => [
+            '#type' => 'html_tag',
+            '#tag' => 'form',
+            '#attributes' => ['method' => 'get', 'class' => ['row', 'g-3', 'align-items-end']],
+            'search' => [
+              '#type' => 'textfield',
+              '#title' => (string) $this->t('Search'),
+              '#default_value' => $query,
+              '#attributes' => ['name' => 'q', 'class' => ['form-control']],
+              '#prefix' => '<div class="col-12 col-md-4">',
+              '#suffix' => '</div>',
+            ],
+            'status' => [
+              '#type' => 'select',
+              '#title' => (string) $this->t('Status'),
+              '#options' => ['all' => 'All', 'pass' => 'PASS', 'fail' => 'FAIL'],
+              '#default_value' => $status,
+              '#attributes' => ['name' => 'status', 'class' => ['form-select']],
+              '#prefix' => '<div class="col-12 col-md-3">',
+              '#suffix' => '</div>',
+            ],
+            'rank' => $is_spell ? [
+              '#type' => 'number',
+              '#title' => (string) $this->t('Rank'),
+              '#default_value' => $rank,
+              '#min' => 0,
+              '#max' => 10,
+              '#attributes' => ['name' => 'rank', 'class' => ['form-control']],
+              '#prefix' => '<div class="col-12 col-md-2">',
+              '#suffix' => '</div>',
+            ] : [],
+            'submit' => [
+              '#type' => 'html_tag',
+              '#tag' => 'button',
+              '#attributes' => ['type' => 'submit', 'class' => ['btn', 'btn-primary']],
+              '#value' => (string) $this->t('Apply'),
+              '#prefix' => '<div class="col-12 col-md-2">',
+              '#suffix' => '</div>',
+            ],
+          ],
+        ],
+      ],
+      'summary' => [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['card', 'mb-4']],
+        'body' => [
+          '#type' => 'container',
+          '#attributes' => ['class' => ['card-body']],
+          'metrics' => [
+            '#type' => 'html_tag',
+            '#tag' => 'p',
+            '#attributes' => ['class' => ['mb-0']],
+            '#value' => (string) $this->t(
+              'Filtered: @total | Valid: @valid | Invalid: @invalid',
+              ['@total' => count($items), '@valid' => $valid_items, '@invalid' => $invalid_items]
+            ),
+          ],
+        ],
+      ],
+      'table' => [
+        '#type' => 'table',
+        '#header' => [
+          (string) $this->t('Name'),
+          (string) $this->t('Content ID'),
+          (string) $this->t($is_spell ? 'Rank' : 'Level'),
+          (string) $this->t('Status'),
+          (string) $this->t('Errors'),
+          (string) $this->t('Select'),
+        ],
+        '#rows' => $rows,
+        '#empty' => (string) $this->t('No matching canonical records found.'),
+      ],
+      'actions' => [
+        '#type' => 'link',
+        '#title' => (string) $this->t('Back to Analysis Hub'),
+        '#url' => Url::fromRoute('dungeoncrawler_content.analysis_explorer_home'),
+        '#attributes' => ['class' => ['btn', 'btn-outline-secondary', 'btn-sm', 'mt-3']],
+      ],
+    ];
+
+    if ($selected_item !== NULL) {
+      $errors = array_values(array_map('strval', (array) ($selected_item['errors'] ?? [])));
+      $build['selected'] = [
+        '#type' => 'container',
+        '#weight' => -1,
+        '#attributes' => ['class' => ['card', 'mb-4']],
+        'body' => [
+          '#type' => 'container',
+          '#attributes' => ['class' => ['card-body']],
+          'title' => [
+            '#type' => 'html_tag',
+            '#tag' => 'h2',
+            '#attributes' => ['class' => ['h5']],
+            '#value' => trim((string) ($selected_item['name'] ?? $selected_item['content_id'] ?? '')),
+          ],
+          'errors' => [
+            '#theme' => 'item_list',
+            '#title' => (string) $this->t('Contract errors'),
+            '#items' => $errors !== [] ? $errors : [(string) $this->t('No contract errors.')],
+          ],
+          'contract' => [
+            '#type' => 'details',
+            '#title' => (string) $this->t('Canonical contract'),
+            'value' => [
+              '#type' => 'html_tag',
+              '#tag' => 'pre',
+              '#plain_text' => json_encode($selected_item['contract'] ?? [], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES),
+            ],
+          ],
+        ],
+      ];
+    }
+
+    return $build;
+  }
+
+  /**
+   * Load a canonical spell or feat library report from state validation.
+   */
+  protected function loadRulesLibraryValidationReport(string $content_type): array {
+    if ($this->stateValidationService === NULL) {
+      return [
+        'valid' => FALSE,
+        'errors' => ['State validation service is unavailable.'],
+        'summary' => ['total_items' => 0, 'valid_items' => 0, 'invalid_items' => 0],
+        'items' => [],
+      ];
+    }
+
+    return $content_type === 'spell'
+      ? $this->stateValidationService->validateCanonicalSpellLibraryContracts()
+      : $this->stateValidationService->validateCanonicalFeatLibraryContracts();
   }
 
   /**

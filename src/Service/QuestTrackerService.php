@@ -80,6 +80,7 @@ class QuestTrackerService {
    * Shared mutable-state persistence lane for dungeon snapshots.
    */
   protected DungeonPayloadStatePersistenceService $dungeonPayloadStatePersistence;
+  protected ?RoomStateService $roomStateService;
 
   /**
    * Constructs a QuestTrackerService object.
@@ -101,7 +102,8 @@ class QuestTrackerService {
     ?ChatSessionManager $chat_session_manager = NULL,
     ?CharacterStateService $character_state_service = NULL,
     ?InventoryManagementService $inventory_management_service = NULL,
-    ?QuestValidatorService $quest_validator_service = NULL
+    ?QuestValidatorService $quest_validator_service = NULL,
+    ?RoomStateService $room_state_service = NULL
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler_content');
@@ -113,6 +115,7 @@ class QuestTrackerService {
     $this->inventoryManagementService = $inventory_management_service;
     $this->questValidatorService = $quest_validator_service;
     $this->dungeonPayloadStatePersistence = $dungeon_payload_state_persistence;
+    $this->roomStateService = $room_state_service;
     if (
       $this->chatSessionManager === NULL
       && \Drupal::hasService('dungeoncrawler_content.chat_session_manager')
@@ -192,7 +195,21 @@ class QuestTrackerService {
       if ($has_active_progress) {
         $progress_record = $this->loadProgressByScope($campaign_id, $quest_id, $character_id, $party_id);
         $active_phase = max(1, (int) ($progress_record['current_phase'] ?? 1));
+        if ($quest_status === 'offered') {
+          $this->database->update('dc_campaign_quests')
+            ->fields(['status' => 'active'])
+            ->condition('campaign_id', $campaign_id)
+            ->condition('quest_id', $quest_id)
+            ->execute();
+          $this->notifyStorylineManager($campaign_id, $quest_id, 'quest_started', $character_id, [
+            'party_id' => $party_id,
+            'status' => 'active',
+          ]);
+        }
         $this->materializeCollectQuestItemsForActivePhase($campaign_id, $quest, $active_phase);
+        if ($character_id !== NULL && $character_id > 0) {
+          $this->reconcileCarriedCollectObjectivesForCharacter($campaign_id, $quest, $character_id);
+        }
         return TRUE;
       }
 
@@ -290,6 +307,14 @@ class QuestTrackerService {
         ]);
       }
 
+      if ($character_id !== NULL && $character_id > 0 && $this->roomStateService !== NULL) {
+        $this->reconcileDiscoveredExploreObjectives($campaign_id, $quest_id, $character_id, $objective_states, $progress_phase);
+      }
+
+      if ($character_id !== NULL && $character_id > 0) {
+        $this->reconcileCarriedCollectObjectivesForCharacter($campaign_id, $quest, $character_id);
+      }
+
       return TRUE;
     }
     catch (\Exception $e) {
@@ -301,6 +326,37 @@ class QuestTrackerService {
       }
       $this->logger->error('Failed to start quest: @error', ['@error' => $e->getMessage()]);
       return FALSE;
+    }
+  }
+
+  /**
+   * Apply exploration objectives already fulfilled before quest acceptance.
+   */
+  private function reconcileDiscoveredExploreObjectives(int $campaign_id, string $quest_id, int $character_id, array $phases, int $active_phase): void {
+    foreach ($phases as $phase) {
+      if ((int) ($phase['phase'] ?? 0) !== $active_phase) {
+        continue;
+      }
+      foreach ((array) ($phase['objectives'] ?? []) as $objective) {
+        if (!is_array($objective) || ($objective['type'] ?? NULL) !== 'explore'
+          || !empty($objective['completed'])
+          || (array_key_exists('revealed', $objective) && empty($objective['revealed']))
+          || !empty($objective['depends_on'])) {
+          continue;
+        }
+        $location = trim((string) ($objective['location_id'] ?? $objective['location'] ?? ''));
+        $objective_id = trim((string) ($objective['objective_id'] ?? ''));
+        if ($location === '' || $objective_id === '' || !$this->roomStateService->isDiscovered($campaign_id, $location)) {
+          continue;
+        }
+        $result = $this->updateObjectiveProgress($campaign_id, $quest_id, $objective_id, 1, $character_id);
+        if (empty($result['success'])) {
+          throw new \RuntimeException(sprintf(
+            'Quest discovery reconciliation failed for campaign %d quest %s objective %s: %s',
+            $campaign_id, $quest_id, $objective_id, (string) ($result['error'] ?? 'unknown error')
+          ));
+        }
+      }
     }
   }
 
@@ -372,11 +428,12 @@ class QuestTrackerService {
         continue;
       }
 
-      $item_name = trim((string) ($objective['item'] ?? 'Quest Item'));
-      if ($item_name === '') {
-        $item_name = 'Quest Item';
+      $raw_item_token = trim((string) ($objective['item'] ?? 'Quest Item'));
+      if ($raw_item_token === '') {
+        $raw_item_token = 'Quest Item';
       }
-      $item_id = $this->buildQuestCollectibleItemId($quest_source, $objective_id, $item_name);
+      $item_name = $this->humanizeQuestCollectibleItemLabel($raw_item_token);
+      $item_id = $this->buildQuestCollectibleItemId($quest_source, $objective_id, $raw_item_token);
 
       for ($slot = $existing + 1; $slot <= $target_count; $slot++) {
         $item_instance_id = sprintf(
@@ -387,7 +444,7 @@ class QuestTrackerService {
         );
         $item_state = [
           'id' => $item_id,
-          'content_id' => $item_id,
+          'content_id' => $raw_item_token,
           'name' => $item_name,
           'type' => 'quest_collectible_item',
           'description' => sprintf('Collectible for %s.', (string) ($quest['quest_name'] ?? $quest_id)),
@@ -458,28 +515,145 @@ class QuestTrackerService {
   }
 
   /**
-   * Count room collectibles already present for one quest objective.
+   * Count room or carried collectibles already present for one quest objective.
    */
   protected function countRoomQuestCollectiblesForObjective(int $campaign_id, string $room_id, string $quest_source, string $objective_id): int {
     $rows = $this->database->select('dc_campaign_item_instances', 'i')
-      ->fields('i', ['state_data', 'quantity'])
+      ->fields('i', ['state_data', 'quantity', 'location_type', 'location_ref'])
       ->condition('campaign_id', $campaign_id)
-      ->condition('location_type', 'room')
-      ->condition('location_ref', $room_id)
+      ->condition('location_type', ['room', 'carried', 'inventory', 'equipped', 'worn', 'stashed'], 'IN')
       ->execute()
       ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
 
     $count = 0;
     foreach ($rows as $row) {
+      $loc_type = (string) ($row['location_type'] ?? '');
+      $loc_ref = (string) ($row['location_ref'] ?? '');
+      if ($loc_type === 'room' && $loc_ref !== $room_id) {
+        continue;
+      }
       $state = json_decode((string) ($row['state_data'] ?? '{}'), TRUE);
       $state = is_array($state) ? $state : [];
-      $association = trim((string) ($state['quest_association'] ?? $state['_spawn']['quest_source'] ?? ''));
+      $association = trim((string) ($state['quest_association'] ?? $state['_spawn']['quest_source'] ?? $state['_spawn']['quest_association'] ?? ''));
       $state_objective_id = trim((string) ($state['objective_id'] ?? $state['_spawn']['objective_id'] ?? ''));
-      if ($association === $quest_source && $state_objective_id === $objective_id) {
+      if ($association === $quest_source && ($state_objective_id === '' || $state_objective_id === $objective_id)) {
         $count += max(1, (int) ($row['quantity'] ?? 1));
       }
     }
     return $count;
+  }
+
+  /**
+   * Humanize snake_case or kebab-case item tokens into readable display labels.
+   */
+  protected function humanizeQuestCollectibleItemLabel(string $label): string {
+    $label = trim($label);
+    if ($label === '') {
+      return 'Quest Item';
+    }
+    if (preg_match('/^[a-z0-9]+(?:[_-][a-z0-9]+)+$/', $label) === 1) {
+      return ucwords(str_replace(['_', '-'], ' ', $label));
+    }
+    return $label;
+  }
+
+  /**
+   * Reconcile active-phase collect objectives against items already carried by the character.
+   */
+  public function reconcileCarriedCollectObjectivesForCharacter(int $campaign_id, array $quest, int $character_id): void {
+    if (
+      $campaign_id <= 0
+      || $character_id <= 0
+      || !$this->database->schema()->tableExists('dc_campaign_item_instances')
+    ) {
+      return;
+    }
+
+    $quest_id = trim((string) ($quest['quest_id'] ?? ''));
+    if ($quest_id === '') {
+      return;
+    }
+    $quest_source = trim((string) ($quest['source_template_id'] ?? $quest_id));
+    $progress_record = $this->loadProgressByScope($campaign_id, $quest_id, $character_id, NULL);
+    if (!is_array($progress_record)) {
+      return;
+    }
+
+    $active_phase = max(1, (int) ($progress_record['current_phase'] ?? 1));
+    $objective_states = json_decode((string) ($progress_record['objective_states'] ?? '[]'), TRUE);
+    if (!is_array($objective_states) || $objective_states === []) {
+      return;
+    }
+
+    $collect_objectives = $this->collectQuestCollectObjectivesForPhase($objective_states, $active_phase);
+    if ($collect_objectives === []) {
+      return;
+    }
+
+    $carried_rows = $this->database->select('dc_campaign_item_instances', 'i')
+      ->fields('i', ['state_data', 'quantity', 'item_id'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('location_type', ['carried', 'inventory', 'equipped', 'worn', 'stashed'], 'IN')
+      ->condition('location_ref', (string) $character_id)
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    if ($carried_rows === []) {
+      return;
+    }
+
+    foreach ($collect_objectives as $objective) {
+      if (!is_array($objective) || !empty($objective['completed'])) {
+        continue;
+      }
+      $objective_id = trim((string) ($objective['objective_id'] ?? ''));
+      if ($objective_id === '') {
+        continue;
+      }
+      $target_count = max(1, (int) ($objective['target_count'] ?? $objective['completion_criteria']['target_count'] ?? 1));
+      $current_count = max(0, (int) ($objective['current'] ?? 0));
+      if ($current_count >= $target_count) {
+        continue;
+      }
+
+      $objective_item_token = strtolower(trim(preg_replace('/[^a-z0-9]+/i', '_', (string) ($objective['item'] ?? '')) ?? '', '_'));
+      $carried_count = 0;
+      foreach ($carried_rows as $row) {
+        $state = json_decode((string) ($row['state_data'] ?? '{}'), TRUE);
+        $state = is_array($state) ? $state : [];
+        $spawn = is_array($state['_spawn'] ?? NULL) ? $state['_spawn'] : [];
+        $state_objective_id = trim((string) ($state['objective_id'] ?? $spawn['objective_id'] ?? ''));
+        if ($state_objective_id !== '' && $state_objective_id !== $objective_id) {
+          continue;
+        }
+        $state_quest_id = trim((string) ($state['quest_id'] ?? $spawn['quest_id'] ?? ''));
+        $state_quest_source = trim((string) ($state['quest_association'] ?? $spawn['quest_source'] ?? $spawn['quest_association'] ?? $state['source_template_id'] ?? ''));
+        $matched = ($state_quest_id !== '' && $state_quest_id === $quest_id)
+          || ($quest_source !== '' && $state_quest_source === $quest_source);
+        if (!$matched && $objective_item_token !== '') {
+          foreach ([
+            (string) ($row['item_id'] ?? ''),
+            (string) ($state['item_id'] ?? ''),
+            (string) ($state['id'] ?? ''),
+            (string) ($state['content_id'] ?? ''),
+            (string) ($state['name'] ?? ''),
+          ] as $candidate) {
+            $norm = strtolower(trim(preg_replace('/[^a-z0-9]+/i', '_', $candidate) ?? '', '_'));
+            if ($norm !== '' && $norm === $objective_item_token) {
+              $matched = TRUE;
+              break;
+            }
+          }
+        }
+        if ($matched) {
+          $carried_count += max(1, (int) ($row['quantity'] ?? 1));
+        }
+      }
+
+      $delta = min($target_count, $carried_count) - $current_count;
+      if ($delta > 0) {
+        $this->updateObjectiveProgress($campaign_id, $quest_id, $objective_id, $delta, $character_id);
+      }
+    }
   }
 
   /**
@@ -2295,6 +2469,7 @@ class QuestTrackerService {
   protected function collectObjectiveActorReferences(array $objective, array &$actor_refs): void {
     $objective_type = strtolower(trim((string) ($objective['type'] ?? '')));
     if ($objective_type === 'interact') {
+      $item_ref = trim((string) ($objective['item'] ?? ''));
       foreach (['target', 'npc_ref', 'entity_ref', 'completion_criteria.target'] as $field) {
         $value = '';
         if ($field === 'completion_criteria.target') {
@@ -2303,7 +2478,8 @@ class QuestTrackerService {
         else {
           $value = trim((string) ($objective[$field] ?? ''));
         }
-        if ($value !== '') {
+        if ($value !== '' && !($item_ref !== '' && $value === $item_ref
+          && in_array($field, ['target', 'completion_criteria.target'], TRUE))) {
           $actor_refs[$value] = TRUE;
         }
       }
@@ -2596,16 +2772,6 @@ class QuestTrackerService {
       return;
     }
 
-    $target_character_id = $this->resolveTurnInTargetCharacterId($campaign_id, $quest, $completed_objective);
-    if ($target_character_id === NULL) {
-      throw new \RuntimeException(sprintf(
-        'Quest turn-in target not found for objective "%s" (campaign_id=%d, quest_id=%s).',
-        $completed_objective_id,
-        $campaign_id,
-        (string) ($quest['quest_id'] ?? '')
-      ));
-    }
-
     $depends_on = array_values(array_filter(
       array_map(
         static fn($value): string => trim((string) $value),
@@ -2615,6 +2781,15 @@ class QuestTrackerService {
     ));
     if ($depends_on === []) {
       return;
+    }
+    $target_character_id = $this->resolveTurnInTargetCharacterId($campaign_id, $quest, $completed_objective);
+    if ($target_character_id === NULL) {
+      throw new \RuntimeException(sprintf(
+        'Quest turn-in target not found for objective "%s" (campaign_id=%d, quest_id=%s).',
+        $completed_objective_id,
+        $campaign_id,
+        (string) ($quest['quest_id'] ?? '')
+      ));
     }
 
     $quest_source = trim((string) ($quest['source_template_id'] ?? $quest['quest_id'] ?? ''));

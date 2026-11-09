@@ -229,7 +229,7 @@ class HexMapController extends ControllerBase {
     $safe_details = Html::escape($details);
     $html = '<!doctype html><html><head><meta charset="utf-8"><title>Campaign Readiness Defect</title></head><body style="font-family:Arial,sans-serif;padding:24px;">'
       . '<h2>Campaign map is not launch-ready.</h2>'
-      . '<p>Starter frontier readiness certification is missing for this campaign and must be repaired at the provisioning layer before launch.</p>'
+      . '<p>H3 launch-slice readiness certification is missing for this campaign and must be repaired at the provisioning layer before launch.</p>'
       . '<p><small>' . $safe_details . '</small></p>'
       . '<p><small>campaign_id=' . $campaign_id . ' map_id=' . Html::escape($map_id) . '</small></p>'
       . '</body></html>';
@@ -3419,6 +3419,9 @@ class HexMapController extends ControllerBase {
         'lighting' => is_string($room['lighting'] ?? NULL) ? $room['lighting'] : (is_array($room['lighting'] ?? NULL) && isset($room['lighting']['level']) ? (string) $room['lighting']['level'] : 'normal'),
         'room_type' => (string) ($room['room_type'] ?? 'unknown'),
         'size_category' => (string) ($room['size_category'] ?? 'medium'),
+        'metadata' => is_array($room['metadata']['module_conversion']['source_scene'] ?? NULL)
+          ? ['module_conversion' => ['source_scene' => $room['metadata']['module_conversion']['source_scene']]]
+          : [],
         'gameplay_state' => is_array($room['gameplay_state'] ?? NULL) ? $room['gameplay_state'] : [],
       ];
     }

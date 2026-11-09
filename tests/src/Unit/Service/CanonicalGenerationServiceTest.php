@@ -268,6 +268,49 @@ final class CanonicalGenerationServiceTest extends TestCase {
     ], $this->roomContext($roomEditor, $definitions));
   }
 
+  public function testGeneratedRoomReplacesDefaultEntryBeforeExpandingHexes(): void {
+    $definitions = $this->definitions([
+      ['family' => 'item', 'definition_id' => 'broken-altar', 'version' => '1.0.0', 'label' => 'Broken altar'],
+    ]);
+    $editor = $this->createMock(RoomEditorService::class);
+    $editor->method('getDraft')->willReturn([
+      'draft_id' => 'draft-room',
+      'revision' => 0,
+      'status' => 'active',
+      'room' => [
+        'room_id' => 'new-room-original',
+        'name' => 'Untitled Room',
+        'hexes' => [],
+        'entry_ports' => [['port_id' => 'entry-1', 'is_default' => TRUE, 'hex' => ['q' => 0, 'r' => 0]]],
+        'exit_ports' => [],
+        'placements' => [],
+      ],
+    ]);
+    $editor->method('simulateCommands')->willReturnCallback(function (string $draft_id, array $commands): array {
+      $types = array_column($commands, 'type');
+      $this->assertSame(['set_room_metadata', 'update_entry_port', 'remove_entry_port'], array_slice($types, 0, 3));
+      $this->assertLessThan(array_search('add_hex', $types, TRUE), array_search('remove_entry_port', $types, TRUE));
+      $projected = ['hexes' => [], 'entry_ports' => [], 'exit_ports' => [], 'placements' => []];
+      foreach ($commands as $command) {
+        if ($command['type'] === 'add_hex') {
+          $projected['hexes'][] = $command['payload']['hex'];
+        }
+        if ($command['type'] === 'add_entry_port') {
+          $projected['entry_ports'][] = $command['payload']['port'];
+        }
+        if ($command['type'] === 'add_exit_port') {
+          $projected['exit_ports'][] = $command['payload']['port'];
+        }
+      }
+      return ['applies_cleanly' => TRUE, 'projected_room' => $projected, 'validation' => ['valid' => TRUE]];
+    });
+    $plan = $this->service($this->ai([$this->conformingRoom()]), $definitions, $editor)->generateRoomLayout([
+      'prompt' => 'original room',
+      'seed' => 9,
+    ], $this->roomContext($editor, $definitions));
+    $this->assertSame(1, $plan['preview_summary']['entry_ports']);
+  }
+
   public function testConformingDungeonResponseUsesPublishedRoomsAndPlacementIds(): void {
     $definitions = $this->definitions([]);
     $library = [
@@ -330,6 +373,154 @@ final class CanonicalGenerationServiceTest extends TestCase {
     $this->assertArrayHasKey('placement_id', $placeSteps[0]['payload']);
     $this->assertSame($placeSteps[0]['payload']['placement_id'], $linkSteps[0]['payload']['from']['placement_id']);
     $this->assertSame($placeSteps[1]['payload']['placement_id'], $linkSteps[0]['payload']['to']['placement_id']);
+  }
+
+  public function testRequiredRoomIdsRejectDuplicateSelection(): void {
+    $definitions = $this->definitions([]);
+    $library = [];
+    foreach (['room-a', 'room-b', 'room-c', 'unrelated-room'] as $id) {
+      $library[] = [
+        'room_id' => $id,
+        'version_id' => 'version-' . $id,
+        'version' => '1.0.0',
+        'name' => $id,
+        'room_type' => 'chamber',
+        'hex_count' => 1,
+        'entry_port_count' => 1,
+        'exit_port_count' => 1,
+        'footprint' => [['q' => 0, 'r' => 0]],
+        'ports' => [
+          ['kind' => 'entry', 'port_id' => 'entry-1', 'q' => 0, 'r' => 0, 'edge' => 3],
+          ['kind' => 'exit', 'port_id' => 'exit-1', 'q' => 0, 'r' => 0, 'edge' => 0],
+        ],
+      ];
+    }
+    $ai = $this->ai([[
+      'name' => 'Original path',
+      'rooms' => [
+        ['room_id' => 'room-a'],
+        ['room_id' => 'room-a'],
+        ['room_id' => 'room-a'],
+      ],
+    ]]);
+    $layout = new CanonicalDungeonLayoutPlanService(new CanonicalGenerationService($ai, $this->time(), $this->loggerFactory()));
+    try {
+      $layout->generateDungeonLayoutPlan([
+        'prompt' => 'Connect all required rooms.',
+        'room_count' => 3,
+        'required_room_ids' => ['room-a', 'room-b', 'room-c'],
+        'seed' => 7,
+      ], ['draft_id' => 'draft', 'revision' => 0], ['dungeon_id' => 'dungeon', 'room_placements' => []],
+        $library, static function (): never { throw new \RuntimeException('Duplicate selection must not reach simulation.'); });
+      $this->fail('Duplicate required room selection must fail.');
+    }
+    catch (CanonicalGenerationException $e) {
+      $this->assertSame('generation_nonconforming', $e->getMessage());
+    }
+    $this->assertSame(2, $ai->calls);
+    $this->assertStringNotContainsString('unrelated-room', $ai->prompts[0]);
+
+    $complete = $this->ai([[
+      'name' => 'Original path',
+      'rooms' => [
+        ['room_id' => 'room-a'],
+        ['room_id' => 'room-b'],
+        ['room_id' => 'room-c'],
+      ],
+    ]]);
+    $layout = new CanonicalDungeonLayoutPlanService(new CanonicalGenerationService($complete, $this->time(), $this->loggerFactory()));
+    $result = $layout->generateDungeonLayoutPlan([
+      'prompt' => 'Connect all required rooms.',
+      'room_count' => 3,
+      'required_room_ids' => ['room-a', 'room-b', 'room-c'],
+      'seed' => 7,
+    ], ['draft_id' => 'draft', 'revision' => 0], ['dungeon_id' => 'dungeon', 'room_placements' => []], $library,
+      static function (array $commands): array {
+        $placed = array_values(array_filter($commands, static fn(array $command): bool => $command['type'] === 'place_room'));
+        return [
+          'rejected' => NULL,
+          'validation' => ['is_valid' => TRUE, 'findings' => []],
+          'dungeon' => ['room_placements' => array_column($placed, 'payload'), 'port_links' => []],
+        ];
+      });
+    $this->assertSame(['room-a', 'room-b', 'room-c'], array_column($result['selected_rooms'], 'room_id'));
+    $this->assertSame(3, $result['preview_summary']['placement_count']);
+  }
+
+  public function testRequiredRoomsRecoverFromAnUnsealableModelOrder(): void {
+    $geometry = [
+      'room-a' => [
+        'footprint' => [['q' => 0, 'r' => 0], ['q' => 0, 'r' => 1], ['q' => 1, 'r' => 0]],
+        'ports' => [
+          ['kind' => 'entry', 'port_id' => 'entry', 'q' => 1, 'r' => 0, 'edge' => 5],
+          ['kind' => 'exit', 'port_id' => 'exit', 'q' => 0, 'r' => 1, 'edge' => 0],
+        ],
+      ],
+      'room-b' => [
+        'footprint' => [['q' => 0, 'r' => 0], ['q' => 0, 'r' => 1], ['q' => -1, 'r' => 1]],
+        'ports' => [
+          ['kind' => 'entry', 'port_id' => 'entry', 'q' => 0, 'r' => 1, 'edge' => 2],
+          ['kind' => 'exit', 'port_id' => 'exit', 'q' => -1, 'r' => 1, 'edge' => 4],
+        ],
+      ],
+      'room-c' => [
+        'footprint' => [['q' => 0, 'r' => 0], ['q' => 1, 'r' => 0], ['q' => 2, 'r' => 0]],
+        'ports' => [
+          ['kind' => 'entry', 'port_id' => 'entry', 'q' => 2, 'r' => 0, 'edge' => 4],
+        ],
+      ],
+    ];
+    $library = [];
+    foreach ($geometry as $id => $data) {
+      $library[] = [
+        'room_id' => $id,
+        'version_id' => 'version-' . $id,
+        'version' => '1.0.0',
+        'name' => $id,
+        'room_type' => 'chamber',
+        'hex_count' => count($data['footprint']),
+        'entry_port_count' => 1,
+        'exit_port_count' => $id === 'room-c' ? 0 : 1,
+      ] + $data;
+    }
+    $ai = $this->ai([[
+      'name' => 'Original sealed route',
+      'rooms' => [
+        ['room_id' => 'room-a'],
+        ['room_id' => 'room-b'],
+        ['room_id' => 'room-c'],
+      ],
+    ]]);
+    $layout = new CanonicalDungeonLayoutPlanService(new CanonicalGenerationService($ai, $this->time(), $this->loggerFactory()));
+    $result = $layout->generateDungeonLayoutPlan([
+      'prompt' => 'Connect every published room.',
+      'room_count' => 3,
+      'required_room_ids' => ['room-a', 'room-b', 'room-c'],
+      'publication_ready' => TRUE,
+      'seed' => 23,
+    ], ['draft_id' => 'draft', 'revision' => 0], ['dungeon_id' => 'dungeon', 'room_placements' => []], $library,
+      static function (array $commands): array {
+        $placements = array_values(array_filter($commands, static fn(array $command): bool => $command['type'] === 'place_room'));
+        $links = array_values(array_filter($commands, static fn(array $command): bool => $command['type'] === 'link_ports'));
+        return [
+          'rejected' => NULL,
+          'validation' => ['is_valid' => TRUE, 'findings' => []],
+          'dungeon' => ['room_placements' => array_column($placements, 'payload'), 'port_links' => array_column($links, 'payload')],
+        ];
+      });
+    $this->assertSame(['room-b', 'room-a', 'room-c'], array_column($result['selected_rooms'], 'room_id'));
+    $this->assertSame(2, $result['preview_summary']['port_link_count']);
+    $this->assertSame(1, $ai->calls);
+  }
+
+  public function testDungeonCommandIdsAreStableWithinADraftButDistinctAcrossDrafts(): void {
+    $layout = new CanonicalDungeonLayoutPlanService(new CanonicalGenerationService(NULL, $this->time(), $this->loggerFactory()));
+    $steps = [['command_type' => 'place_room', 'payload' => ['room_id' => 'room-a']]];
+    $first = $layout->envelopesFromSteps($steps, 0, 7, 'draft-one');
+    $same = $layout->envelopesFromSteps($steps, 0, 7, 'draft-one');
+    $other = $layout->envelopesFromSteps($steps, 0, 7, 'draft-two');
+    $this->assertSame($first[0]['command_id'], $same[0]['command_id']);
+    $this->assertNotSame($first[0]['command_id'], $other[0]['command_id']);
   }
 
 }

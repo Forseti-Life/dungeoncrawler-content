@@ -36,6 +36,18 @@ final class RoomEditorGmContextAssembler implements EditorGmContextAssemblerInte
     $validation = $context->validation();
     $published = $context->publishedRoom();
 
+    $placements = array_values(array_map(
+      static fn(array $p): array => [
+        'instance_id' => (string) ($p['instance_id'] ?? ''),
+        'definition_ref' => is_array($p['definition_ref'] ?? NULL) ? $p['definition_ref'] : [],
+        'anchor_hex' => $p['anchor_hex'] ?? ['q' => 0, 'r' => 0],
+        'facing' => (int) ($p['facing'] ?? 0),
+        'elevation_ft' => (int) ($p['elevation_ft'] ?? 0),
+        'overrides' => is_array($p['overrides'] ?? NULL) ? $p['overrides'] : [],
+      ],
+      array_filter((array) ($room['placements'] ?? []), 'is_array'),
+    ));
+
     return [
       'tool_id' => RoomEditorGmSurface::ID,
       'draft' => [
@@ -49,23 +61,30 @@ final class RoomEditorGmContextAssembler implements EditorGmContextAssemblerInte
       ],
       'room' => [
         'name' => (string) ($room['name'] ?? ''),
+        'description' => (string) ($room['description'] ?? ''),
         'room_type' => (string) ($room['room_type'] ?? ''),
         'size_category' => (string) ($room['size_category'] ?? ''),
         'hex_count' => count((array) ($room['hexes'] ?? [])),
-        'placement_count' => count((array) ($room['placements'] ?? [])),
+        'placement_count' => count($placements),
+        'placements' => $placements,
         'entry_port_count' => count((array) ($room['entry_ports'] ?? [])),
+        'entry_ports' => array_values((array) ($room['entry_ports'] ?? [])),
         'exit_port_count' => count((array) ($room['exit_ports'] ?? [])),
+        'exit_ports' => array_values((array) ($room['exit_ports'] ?? [])),
       ],
       'validation_summary' => [
         'profile' => (string) ($validation['profile'] ?? $context->validationProfile),
         'valid' => (bool) ($validation['valid'] ?? FALSE),
         'error_count' => count((array) ($validation['errors'] ?? [])),
         'warning_count' => count((array) ($validation['warnings'] ?? [])),
+        'errors' => array_values((array) ($validation['errors'] ?? [])),
+        'warnings' => array_values((array) ($validation['warnings'] ?? [])),
       ],
       'publication' => [
         'has_published_version' => $published !== NULL,
         'draft_published_version_id' => $draft['published_version_id'] ?? NULL,
       ],
+      'site_topology_contract' => CanonicalSiteTopologyContract::describe(),
       'authority_boundary' => self::AUTHORITY_BOUNDARY,
       'assistant' => [
         'natural_language_available' => $this->intentParser->isAvailable(),

@@ -25,30 +25,30 @@
  * @see systems/EncounterSystem
  */
 import { GameEventBus } from './GameEventBus.js';
-import { HexCanvas } from './canvas/HexCanvas.js';
+import { HexCanvas } from './canvas/HexCanvas.js?v=20261009-module-background-1';
 import { HexTokenRenderer } from './canvas/HexTokenRenderer.js';
 import { HexFogOfWar } from './canvas/HexFogOfWar.js';
 import { HexInputHandler } from './canvas/HexInputHandler.js';
 import { EncounterSystem } from './systems/EncounterSystem.js?v=20260909-tab-runtime-consistency-1';
-import { NavigationSystem } from './systems/NavigationSystem.js?v=20260909-tab-runtime-consistency-1';
+import { NavigationSystem } from './systems/NavigationSystem.js?v=20261024-campaign-storylines-1';
 import { PlayerAutomation } from './systems/PlayerAutomation.js?v=20260608-v2-chat-persistence-dev-1';
 import { QuestSystem } from './systems/QuestSystem.js?v=20260608-v2-quest-summary-merge-2';
 import { MerchantPanel } from './panels/MerchantPanel.js?v=20260909-tab-runtime-consistency-1';
 import { CombatPanel } from './panels/CombatPanel.js?v=20260827-v2-bootstrap-status-12';
-import { ActionRailPanel } from './panels/ActionRailPanel.js?v=20260828-v3-suggest-next-move-1';
-import { ChatPanel } from './panels/ChatPanel.js?v=20260909-tab-runtime-consistency-1';
+import { ActionRailPanel } from './panels/ActionRailPanel.js?v=20261024-campaign-storylines-1';
+import { ChatPanel } from './panels/ChatPanel.js?v=20261025-search-narrator-1';
 import { QuestPanel } from './panels/QuestPanel.js?v=20260723-v2-quest-storyline-grouping-2';
 import { InventoryPanel } from './panels/InventoryPanel.js?v=20260909-tab-runtime-consistency-1';
 import { CharacterPanel } from './panels/CharacterPanel.js?v=20260909-tab-runtime-consistency-1';
-import { RoomViewPanel } from './panels/RoomViewPanel.js';
+import { RoomViewPanel } from './panels/RoomViewPanel.js?v=20261009-module-background-1';
 import { StatusPanel } from './panels/StatusPanel.js?v=20260828-v4-chat-backend-wait-1';
 import { normalizeInventoryState } from './utils/inventory-utils.js';
 import { normalizeQuestSummaryPayload } from './utils/quest-utils.js?v=20260607-quest-summary-const-4';
 import { normalizeAuthoritativeStateActorRef } from './utils/authoritative-state-utils.js';
-import { GameShellFetchBridge } from './shell/GameShellFetchBridge.js';
-import { GameShellCampaignSettingsCoordinator } from './shell/GameShellCampaignSettingsCoordinator.js';
+import { GameShellFetchBridge } from './shell/GameShellFetchBridge.js?v=20261008-chat-history-bus-guard-1';
+import { GameShellCampaignSettingsCoordinator } from './shell/GameShellCampaignSettingsCoordinator.js?v=20261025-setting-placement-2';
 import { GameShellTargetPickController } from './shell/GameShellTargetPickController.js';
-import { GameShellQuestCoordinator } from './shell/GameShellQuestCoordinator.js';
+import { GameShellQuestCoordinator } from './shell/GameShellQuestCoordinator.js?v=20261024-campaign-storylines-1';
 import { GameShellRoomGenerationCoordinator } from './shell/GameShellRoomGenerationCoordinator.js';
 import { SpriteService } from '../SpriteService.js?v=20260828-v5-map-actor-portraits-1';
 import { GameCoordinator } from '../game-coordinator/GameCoordinator.js?v=20260909-tab-runtime-consistency-1';
@@ -103,7 +103,7 @@ import {
   _buildRenderableProjectionKey,
   _buildLogicalActorIdentityKey,
   _buildRuntimeBundleQueryForRoom,
-} from './shell/GameShellProjectionHelpers.js?v=20260828-v5-map-actor-portraits-1';
+} from './shell/GameShellProjectionHelpers.js?v=20261024-campaign-storylines-1';
 /** Canvas config defaults — matches old hexmap behavior.config */
 const DEFAULT_CANVAS_CONFIG = {
   hexSize: 30,

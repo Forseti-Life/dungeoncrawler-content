@@ -20,7 +20,7 @@ final class ExplainValidationFindingsTool implements EditorGmToolInterface {
       EditorGmToolDefinition::FAMILY_VALIDATION,
       'Group current validation findings by code and path for review.',
       FALSE,
-      'RoomEditorService::validateDraft()',
+      'EditorGmToolContext::validation()',
       [
         EditorGmToolDefinition::argument('profile', 'string', FALSE, 'One of editing, preview, publication.'),
       ],
@@ -38,17 +38,39 @@ final class ExplainValidationFindingsTool implements EditorGmToolInterface {
 
     $by_code = [];
     $by_path = [];
+    $findings = [];
     foreach (['errors', 'warnings'] as $bucket) {
       foreach ((array) ($validation[$bucket] ?? []) as $finding) {
-        $code = (string) ($finding['code'] ?? 'unknown');
-        $path = (string) ($finding['path'] ?? '');
-        $by_code[$code] ??= ['code' => $code, 'severity' => (string) ($finding['severity'] ?? 'error'), 'count' => 0, 'messages' => []];
+        if (is_string($finding)) {
+          $message = trim($finding);
+          preg_match('/^\[([^\]]+)\]\s+([^\s]+)\s+\(/', $message, $matches);
+          $code = (string) ($matches[1] ?? 'validation_error');
+          $path = (string) ($matches[2] ?? '');
+          $severity = $bucket === 'warnings' ? 'warning' : 'error';
+        }
+        elseif (is_array($finding)) {
+          $code = trim((string) ($finding['code'] ?? 'validation_error')) ?: 'validation_error';
+          $path = trim((string) ($finding['path'] ?? ''));
+          $message = trim((string) ($finding['message'] ?? $finding['code'] ?? ''));
+          $severity = trim((string) ($finding['severity'] ?? ($bucket === 'warnings' ? 'warning' : 'error')));
+        }
+        else {
+          continue;
+        }
+        $by_code[$code] ??= ['code' => $code, 'severity' => $severity, 'count' => 0, 'messages' => []];
         $by_code[$code]['count']++;
-        $message = (string) ($finding['message'] ?? '');
         if ($message !== '' && !in_array($message, $by_code[$code]['messages'], TRUE)) {
           $by_code[$code]['messages'][] = $message;
         }
-        $by_path[$path] = ($by_path[$path] ?? 0) + 1;
+        if ($path !== '') {
+          $by_path[$path] = ($by_path[$path] ?? 0) + 1;
+        }
+        $findings[] = [
+          'severity' => $severity,
+          'code' => $code,
+          'path' => $path,
+          'message' => $message,
+        ];
       }
     }
 
@@ -59,6 +81,7 @@ final class ExplainValidationFindingsTool implements EditorGmToolInterface {
       'warning_count' => count((array) ($validation['warnings'] ?? [])),
       'by_code' => array_values($by_code),
       'by_path' => $by_path,
+      'findings' => $findings,
     ];
   }
 

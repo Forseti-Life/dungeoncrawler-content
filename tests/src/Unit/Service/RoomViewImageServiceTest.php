@@ -154,6 +154,87 @@ class RoomViewImageServiceTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::sourceMapEntries
+   */
+  public function testPublishedSurveyArtIsNotLabeledAsTacticalTerrain(): void {
+    $sessions = $this->createMock(ChatSessionManager::class);
+    $sessions->method('ensureRoomSession')->willReturn(['id' => 456]);
+    $service = new TestRoomViewImageService(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      $this->createMock(ImageGenerationIntegrationService::class),
+      $sessions,
+      $this->createMock(GeneratedImageRepository::class),
+      $this->createMock(FileSystemInterface::class),
+    );
+    $service->latestDungeonRecord = [
+      'dungeon_id' => 'survey-dungeon',
+      'dungeon_data' => json_encode(['rooms' => ['room-1' => [
+        'room_id' => 'room-1',
+        'metadata' => ['module_conversion' => ['source_scene' => [
+          'conversion_state' => 'playable_validated',
+          'map_review' => ['role' => 'overland_overview'],
+          'map_assets' => [
+            'background' => [
+              'url' => '/sites/default/files/island.jpg',
+              'license_notice_url' => '/sites/default/files/island.jpg.LICENSE.txt',
+              'author' => 'Project author',
+            ],
+            'tiles' => [],
+          ],
+        ]]],
+      ]]]),
+    ];
+    $service->transitionEntries = [];
+    $service->establishingEntry = NULL;
+    $result = $service->getRoomViewImage(66, 'room-1');
+    $this->assertSame('Island overview (not a tactical room map)', $result['entries'][0]['title']);
+  }
+
+  /**
+   * @covers ::getRoomViewImage
+   * @covers ::sourceMapEntries
+   */
+  public function testStagedSourceMapIsShownSeparatelyFromGeneratedSnapshots(): void {
+    $sessions = $this->createMock(ChatSessionManager::class);
+    $sessions->method('ensureRoomSession')->willReturn(['id' => 455]);
+    $service = new TestRoomViewImageService(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      $this->createMock(ImageGenerationIntegrationService::class),
+      $sessions,
+      $this->createMock(GeneratedImageRepository::class),
+      $this->createMock(FileSystemInterface::class),
+    );
+    $service->latestDungeonRecord = [
+      'dungeon_id' => 'original-dungeon',
+      'dungeon_data' => json_encode(['rooms' => ['room-1' => [
+        'room_id' => 'room-1',
+        'name' => 'Original room',
+        'metadata' => ['module_conversion' => ['source_scene' => [
+          'conversion_state' => 'original_gameplay_generated_map_staged',
+          'map_assets' => [
+            'background' => [
+              'url' => '/sites/default/files/map.png',
+              'license_notice_url' => '/sites/default/files/map.png.LICENSE.txt',
+              'author' => 'Project author',
+            ],
+            'tiles' => [],
+          ],
+        ]]],
+      ]]]),
+    ];
+    $service->transitionEntries = [];
+    $service->establishingEntry = NULL;
+    $result = $service->getRoomViewImage(66, 'room-1');
+    $this->assertSame('source_map', $result['entries'][0]['mode']);
+    $this->assertSame('Source map background', $result['entries'][0]['title']);
+    $this->assertSame('/sites/default/files/map.png.LICENSE.txt', $result['entries'][0]['license_notice_url']);
+    $this->assertTrue($result['available']);
+    $this->assertSame(0, $result['generated_entry_count']);
+  }
+
+  /**
    * @covers ::getRoomViewImage
    */
   public function testGetRoomViewImageReturnsUnavailablePayloadWhenCampaignHasNoDungeon(): void {

@@ -125,6 +125,8 @@ class ExplorationPhaseHandler implements MutationContextPhaseHandlerInterface {
    * @var \Drupal\dungeoncrawler_content\Service\GameplayActionProcessor|null
    */
   protected ?GameplayActionProcessor $gameplayActionProcessor;
+
+  protected ?NavigationService $navigationService;
   protected CampaignClockService $campaignClockService;
   protected ?TextToSpeechIntegrationService $textToSpeechIntegration;
   protected ?FileUrlGeneratorInterface $fileUrlGenerator;
@@ -155,7 +157,8 @@ class ExplorationPhaseHandler implements MutationContextPhaseHandlerInterface {
     ?TextToSpeechIntegrationService $text_to_speech_integration = NULL,
     ?FileUrlGeneratorInterface $file_url_generator = NULL,
     ?QuestTrackerService $quest_tracker = NULL,
-    ?ActionTargetingService $action_targeting_service = NULL
+    ?ActionTargetingService $action_targeting_service = NULL,
+    ?NavigationService $navigation_service = NULL
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler');
@@ -181,6 +184,7 @@ class ExplorationPhaseHandler implements MutationContextPhaseHandlerInterface {
     $this->textToSpeechIntegration = $text_to_speech_integration;
     $this->fileUrlGenerator = $file_url_generator;
     $this->actionTargetingService = $action_targeting_service ?? new ActionTargetingService();
+    $this->navigationService = $navigation_service;
     $this->questTracker = $quest_tracker;
     $this->storylineQuestLifecycleService = $storyline_quest_lifecycle_service;
     if (
@@ -311,14 +315,54 @@ class ExplorationPhaseHandler implements MutationContextPhaseHandlerInterface {
       ];
     }
 
-    // Transition-specific: validate the connection exists and is discoverable.
+    if ($type === 'interact' && isset($dungeon_data['source_dungeon_id'])) {
+      $params = is_array($intent['params'] ?? NULL) ? $intent['params'] : [];
+      $target_id = $this->actionTargetingService->normalizeTargetRef(
+        is_string($intent['target'] ?? NULL) ? $intent['target'] : NULL,
+        $params
+      );
+      if (ActionTargetingService::findPlacedEntityInActiveRoom($this->database, $dungeon_data, $target_id) === NULL) {
+        return [
+          'valid' => FALSE,
+          'reason' => 'Interaction target is not placed in the active room.',
+        ];
+      }
+    }
+
+    // Published campaign transitions must use the same canonical capabilities
+    // that populate the player's navigation menu.
     if ($type === 'transition') {
       $target_room = $intent['params']['target_room_id'] ?? NULL;
-      if (!$target_room) {
+      if (!is_string($target_room) || trim($target_room) === '') {
         return [
           'valid' => FALSE,
           'reason' => 'Room transition requires params.target_room_id.',
         ];
+      }
+      if (isset($dungeon_data['source_dungeon_id'])) {
+        if ($this->navigationService === NULL) {
+          throw new \LogicException('Published campaign transition requires the navigation service.');
+        }
+        $target_room = trim($target_room);
+        $params = is_array($intent['params'] ?? NULL) ? $intent['params'] : [];
+        $from_room = trim((string) ($dungeon_data['active_room_id'] ?? ''));
+        $capability = $this->navigationService->resolveRequestedCapability(
+          $dungeon_data,
+          $from_room,
+          isset($params['connection_id']) && is_string($params['connection_id']) ? $params['connection_id'] : NULL,
+          is_array($params['target_hex'] ?? NULL) ? $params['target_hex'] : NULL,
+        );
+        if ($from_room === '' || $capability === NULL || ($capability['target_room_id'] ?? NULL) !== $target_room
+          || $this->findRoomInDungeon($target_room, $dungeon_data) === NULL) {
+          return ['valid' => FALSE, 'reason' => "Room '$target_room' is not reachable from the active room."];
+        }
+        if (empty($capability['available']) || empty($capability['is_discovered'])) {
+          return ['valid' => FALSE, 'reason' => sprintf(
+            "Room '%s' is not available for transition: %s.",
+            $target_room,
+            (string) ($capability['blocked_reason'] ?? 'undiscovered'),
+          )];
+        }
       }
     }
 
@@ -2405,8 +2449,6 @@ class ExplorationPhaseHandler implements MutationContextPhaseHandlerInterface {
   protected function processInteract(string $actor_id, ?string $target_id, array $params, array &$game_state, array &$dungeon_data, int $campaign_id): array {
     $interaction_type = $params['interaction_type'] ?? 'generic';
 
-    // For now, delegate generic interactions.
-    // Future: check for traps, locked doors, containers with loot.
     return [
       'interacted' => TRUE,
       'interaction_type' => $interaction_type,
@@ -2773,7 +2815,7 @@ class ExplorationPhaseHandler implements MutationContextPhaseHandlerInterface {
     $quests = $this->database->select('dc_campaign_quests', 'q')
       ->fields('q')
       ->condition('q.campaign_id', $campaign_id)
-      ->condition('q.status', ['active'], 'IN')
+      ->condition('q.status', ['active', 'offered'], 'IN')
       ->orderBy('q.created_at', 'ASC')
       ->execute()
       ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
@@ -2782,6 +2824,10 @@ class ExplorationPhaseHandler implements MutationContextPhaseHandlerInterface {
       $quest_id = trim((string) ($quest['quest_id'] ?? ''));
       if ($quest_id === '') {
         continue;
+      }
+      if (strtolower(trim((string) ($quest['status'] ?? ''))) === 'offered' && $this->questTracker) {
+        $this->questTracker->startQuest($campaign_id, $quest_id, $character_id);
+        $quest['status'] = 'active';
       }
       $progress = $this->loadSearchQuestProgress($campaign_id, $quest_id, $character_id);
       $objective_states = $progress
@@ -2792,7 +2838,7 @@ class ExplorationPhaseHandler implements MutationContextPhaseHandlerInterface {
       }
 
       $current_phase = max(1, (int) ($progress['current_phase'] ?? 1));
-      $this->backfillDiscoveredExploreObjectives($campaign_id, $quest_id, $character_id, $objective_states, $current_phase);
+      $this->backfillDiscoveredExploreObjectives($campaign_id, $quest_id, $character_id, $objective_states, $current_phase, $objective_room_ids);
       $progress = $this->loadSearchQuestProgress($campaign_id, $quest_id, $character_id);
       $objective_states = $progress
         ? json_decode((string) ($progress['objective_states'] ?? '[]'), TRUE)
@@ -3153,7 +3199,10 @@ class ExplorationPhaseHandler implements MutationContextPhaseHandlerInterface {
   protected function transferQuestSearchCollectible(int $campaign_id, int $character_id, array $item_row, ?array $quest_target = NULL): array {
     $state = json_decode((string) ($item_row['state_data'] ?? '{}'), TRUE);
     $state = is_array($state) ? $state : [];
-    $item_name = trim((string) ($state['name'] ?? $item_row['item_id'] ?? 'quest item'));
+    $raw_item_name = trim((string) ($state['name'] ?? $item_row['item_id'] ?? 'quest item'));
+    $item_name = preg_match('/^[a-z0-9]+(?:[_-][a-z0-9]+)+$/', $raw_item_name) === 1
+      ? ucwords(str_replace(['_', '-'], ' ', $raw_item_name))
+      : $raw_item_name;
     $item_instance_id = (string) $item_row['item_instance_id'];
     $quest_source = trim((string) ($quest_target['source_template_id'] ?? $state['quest_association'] ?? $state['_spawn']['quest_association'] ?? $state['source_template_id'] ?? ''));
     $quest_id = trim((string) ($quest_target['quest_id'] ?? $state['_spawn']['quest_id'] ?? $state['quest_id'] ?? $quest_source));
@@ -3179,7 +3228,7 @@ class ExplorationPhaseHandler implements MutationContextPhaseHandlerInterface {
       $current = 0;
       $target = 1;
       $narrator_notes = [];
-      if ($quest_target === NULL && $quest_id !== '' && $objective_id !== '') {
+      if ($quest_target === NULL && ($quest_id !== '' || $quest_source !== '')) {
         $quest_target = $this->resolveQuestTargetFromMetadata($campaign_id, $character_id, $quest_id, $objective_id, $quest_source);
       }
       if ($quest_target) {
@@ -3297,13 +3346,14 @@ class ExplorationPhaseHandler implements MutationContextPhaseHandlerInterface {
     string $quest_id,
     int $character_id,
     array $objective_states,
-    int $current_phase
+    int $current_phase,
+    array $active_search_room_ids = []
   ): void {
     if ($campaign_id <= 0 || $character_id <= 0 || $quest_id === '' || !$this->questTracker) {
       return;
     }
 
-    $objective_ids = $this->collectBackfillableDiscoveryObjectiveIds($campaign_id, $objective_states, $current_phase);
+    $objective_ids = $this->collectBackfillableDiscoveryObjectiveIds($campaign_id, $objective_states, $current_phase, $active_search_room_ids);
     foreach ($objective_ids as $objective_id) {
       $this->questTracker->updateObjectiveProgress($campaign_id, $quest_id, $objective_id, 1, $character_id);
     }
@@ -3315,12 +3365,12 @@ class ExplorationPhaseHandler implements MutationContextPhaseHandlerInterface {
    * @return array<int, string>
    *   Objective ids.
    */
-  protected function collectBackfillableDiscoveryObjectiveIds(int $campaign_id, array $objective_states, int $current_phase): array {
+  protected function collectBackfillableDiscoveryObjectiveIds(int $campaign_id, array $objective_states, int $current_phase, array $active_search_room_ids = []): array {
     foreach ($objective_states as $phase) {
       if (!is_array($phase) || (int) ($phase['phase'] ?? 0) !== $current_phase) {
         continue;
       }
-      return $this->collectBackfillableDiscoveryObjectiveIdsFromNodes($campaign_id, (array) ($phase['objectives'] ?? []));
+      return $this->collectBackfillableDiscoveryObjectiveIdsFromNodes($campaign_id, (array) ($phase['objectives'] ?? []), $active_search_room_ids);
     }
 
     return [];
@@ -3332,7 +3382,7 @@ class ExplorationPhaseHandler implements MutationContextPhaseHandlerInterface {
    * @return array<int, string>
    *   Objective ids.
    */
-  protected function collectBackfillableDiscoveryObjectiveIdsFromNodes(int $campaign_id, array $objectives): array {
+  protected function collectBackfillableDiscoveryObjectiveIdsFromNodes(int $campaign_id, array $objectives, array $active_search_room_ids = []): array {
     $matches = [];
     foreach ($objectives as $objective) {
       if (!is_array($objective)) {
@@ -3348,7 +3398,7 @@ class ExplorationPhaseHandler implements MutationContextPhaseHandlerInterface {
         && $this->isSearchObjectiveCurrentlyRevealed($objective)
         && ($metric === 'discovered' || $type === 'explore')
         && $location !== ''
-        && $this->searchObjectiveRoomIsDiscovered($campaign_id, $location)
+        && $this->searchObjectiveRoomIsDiscovered($campaign_id, $location, $active_search_room_ids)
       ) {
         $matches[] = $objective_id;
       }
@@ -3358,7 +3408,7 @@ class ExplorationPhaseHandler implements MutationContextPhaseHandlerInterface {
         }
         $matches = array_merge(
           $matches,
-          $this->collectBackfillableDiscoveryObjectiveIdsFromNodes($campaign_id, $objective[$children_key])
+          $this->collectBackfillableDiscoveryObjectiveIdsFromNodes($campaign_id, $objective[$children_key], $active_search_room_ids)
         );
       }
     }
@@ -3369,20 +3419,37 @@ class ExplorationPhaseHandler implements MutationContextPhaseHandlerInterface {
   /**
    * Determine whether an objective's room has already been discovered.
    */
-  protected function searchObjectiveRoomIsDiscovered(int $campaign_id, string $location): bool {
+  protected function searchObjectiveRoomIsDiscovered(int $campaign_id, string $location, array $active_search_room_ids = []): bool {
     $room_ids = $this->resolveSearchObjectiveRoomIds($campaign_id, $location);
-    if ($room_ids === [] || !$this->database->schema()->tableExists('dc_campaign_room_states')) {
+    if ($room_ids === []) {
       return FALSE;
     }
 
-    $exists = $this->database->select('dc_campaign_room_states', 'rs')
+    if ($active_search_room_ids !== [] && array_intersect($room_ids, $active_search_room_ids) !== []) {
+      return TRUE;
+    }
+
+    if (!$this->database->schema()->tableExists('dc_campaign_room_states')) {
+      return FALSE;
+    }
+
+    $states = $this->database->select('dc_campaign_room_states', 'rs')
+      ->fields('rs', ['fog_state'])
       ->condition('campaign_id', $campaign_id)
       ->condition('room_id', $room_ids, 'IN')
-      ->countQuery()
       ->execute()
-      ->fetchField();
+      ->fetchCol();
 
-    return (int) $exists > 0;
+    foreach ($states as $state_json) {
+      $state = json_decode((string) $state_json, TRUE, 512, JSON_THROW_ON_ERROR);
+      if (!is_array($state)) {
+        throw new \UnexpectedValueException('Stored room state must be a JSON object.');
+      }
+      if (!empty($state['explored'])) {
+        return TRUE;
+      }
+    }
+    return FALSE;
   }
 
   /**
@@ -3508,22 +3575,50 @@ class ExplorationPhaseHandler implements MutationContextPhaseHandlerInterface {
     string $objective_id,
     string $quest_source = ''
   ): ?array {
-    if ($campaign_id <= 0 || $character_id <= 0 || $quest_id === '' || $objective_id === '') {
+    if ($campaign_id <= 0 || $character_id <= 0 || ($quest_id === '' && $quest_source === '')) {
       return NULL;
     }
 
-    $quest = $this->database->select('dc_campaign_quests', 'q')
+    $query = $this->database->select('dc_campaign_quests', 'q')
       ->fields('q')
-      ->condition('campaign_id', $campaign_id)
-      ->condition('quest_id', $quest_id)
-      ->range(0, 1)
-      ->execute()
-      ->fetchAssoc();
-    if (!is_array($quest) || strtolower(trim((string) ($quest['status'] ?? ''))) !== 'active') {
+      ->condition('campaign_id', $campaign_id);
+    if ($quest_id !== '' && $quest_source !== '' && $quest_id !== $quest_source) {
+      $query->condition(
+        $query->orConditionGroup()
+          ->condition('quest_id', $quest_id)
+          ->condition('source_template_id', $quest_source)
+      );
+    }
+    elseif ($quest_id !== '') {
+      $query->condition(
+        $query->orConditionGroup()
+          ->condition('quest_id', $quest_id)
+          ->condition('source_template_id', $quest_id)
+      );
+    }
+    else {
+      $query->condition('source_template_id', $quest_source);
+    }
+    $quest = $query->range(0, 1)->execute()->fetchAssoc();
+    if (!is_array($quest)) {
       return NULL;
     }
 
-    $progress = $this->loadSearchQuestProgress($campaign_id, $quest_id, $character_id);
+    $resolved_quest_id = trim((string) ($quest['quest_id'] ?? ''));
+    if ($resolved_quest_id === '') {
+      return NULL;
+    }
+    $quest_status = strtolower(trim((string) ($quest['status'] ?? '')));
+    if ($quest_status === 'offered' && $this->questTracker) {
+      $this->questTracker->startQuest($campaign_id, $resolved_quest_id, $character_id);
+      $quest['status'] = 'active';
+      $quest_status = 'active';
+    }
+    if ($quest_status !== 'active') {
+      return NULL;
+    }
+
+    $progress = $this->loadSearchQuestProgress($campaign_id, $resolved_quest_id, $character_id);
     $objective_states = $progress
       ? json_decode((string) ($progress['objective_states'] ?? '[]'), TRUE)
       : json_decode((string) ($quest['generated_objectives'] ?? '[]'), TRUE);
@@ -3532,8 +3627,24 @@ class ExplorationPhaseHandler implements MutationContextPhaseHandlerInterface {
     }
 
     $current_phase = max(1, (int) ($progress['current_phase'] ?? 1));
-    $objective_node = $this->findObjectiveNodeByIdInPhase($objective_states, $objective_id, $current_phase);
+    $objective_node = $objective_id !== ''
+      ? $this->findObjectiveNodeByIdInPhase($objective_states, $objective_id, $current_phase)
+      : NULL;
     if (!is_array($objective_node)) {
+      foreach ($objective_states as $phase_entry) {
+        if (!is_array($phase_entry) || (int) ($phase_entry['phase'] ?? 0) !== $current_phase) {
+          continue;
+        }
+        foreach ((array) ($phase_entry['objectives'] ?? []) as $candidate_obj) {
+          if (is_array($candidate_obj) && strtolower((string) ($candidate_obj['type'] ?? '')) === 'collect' && empty($candidate_obj['completed'])) {
+            $objective_node = $candidate_obj;
+            $objective_id = trim((string) ($candidate_obj['objective_id'] ?? ''));
+            break 2;
+          }
+        }
+      }
+    }
+    if (!is_array($objective_node) || $objective_id === '') {
       return NULL;
     }
 
@@ -3541,13 +3652,13 @@ class ExplorationPhaseHandler implements MutationContextPhaseHandlerInterface {
     $resolved_quest_source = $quest_source !== '' ? $quest_source : (string) ($quest['source_template_id'] ?? '');
     $current = max(
       (int) ($objective_node['current'] ?? 0),
-      $this->countCharacterQuestCollectiblesForObjective($campaign_id, $character_id, $quest_id, $objective_id, $resolved_quest_source, (string) ($objective_node['item'] ?? ''))
+      $this->countCharacterQuestCollectiblesForObjective($campaign_id, $character_id, $resolved_quest_id, $objective_id, $resolved_quest_source, (string) ($objective_node['item'] ?? ''))
     );
 
     return [
       'quest' => $quest,
-      'quest_id' => $quest_id,
-      'quest_name' => (string) ($quest['quest_name'] ?? $quest_id),
+      'quest_id' => $resolved_quest_id,
+      'quest_name' => (string) ($quest['quest_name'] ?? $resolved_quest_id),
       'source_template_id' => $resolved_quest_source,
       'objective_id' => $objective_id,
       'objective_item' => (string) ($objective_node['item'] ?? ''),

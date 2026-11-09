@@ -1556,10 +1556,33 @@ class QuestGeneratorService {
 
     $associated_item_names = [];
     foreach ((array) ($contents['items'] ?? []) as $item) {
-      if (!is_array($item) || trim((string) ($item['quest_association'] ?? '')) !== $template_id) {
+      if (!is_array($item)) {
         continue;
       }
+      $quest_association = trim((string) ($item['quest_association'] ?? ''));
       $name = trim((string) ($item['name'] ?? ''));
+      $item_id = trim((string) ($item['content_id'] ?? $item['id'] ?? ''));
+      if (($quest_association === '' || $name === '' || $name === 'Unknown') && $item_id !== '') {
+        $reg_row = $this->database->select('dungeoncrawler_content_registry', 'r')
+          ->fields('r', ['name', 'schema_data'])
+          ->condition('content_type', 'item')
+          ->condition('content_id', $item_id)
+          ->range(0, 1)
+          ->execute()
+          ->fetchAssoc();
+        if (is_array($reg_row)) {
+          $reg_schema = json_decode((string) ($reg_row['schema_data'] ?? '{}'), TRUE);
+          if ($quest_association === '' && is_array($reg_schema)) {
+            $quest_association = trim((string) ($reg_schema['quest_association'] ?? ''));
+          }
+          if ($name === '' || $name === 'Unknown') {
+            $name = trim((string) ($reg_row['name'] ?? ($reg_schema['name'] ?? '')));
+          }
+        }
+      }
+      if ($quest_association !== $template_id) {
+        continue;
+      }
       if ($name !== '') {
         $associated_item_names[$name] = ($associated_item_names[$name] ?? 0) + 1;
       }
@@ -1758,6 +1781,9 @@ class QuestGeneratorService {
 
       case 'interact':
         $generated_obj['target'] = $this->resolveVariables((string) ($objective_schema['target'] ?? ''), $variables);
+        if (array_key_exists('item', $objective_schema)) {
+          $generated_obj['item'] = $this->resolveVariables((string) $objective_schema['item'], $variables);
+        }
         if (!array_key_exists('location', $objective_schema) && !array_key_exists('location_id', $objective_schema) && !empty($context['location'])) {
           $generated_obj['location_id'] = trim((string) $context['location']);
         }
@@ -2012,7 +2038,7 @@ class QuestGeneratorService {
 
     $multiplier = $difficulty_multipliers[$difficulty] ?? 1.0;
 
-    $rewards = [];
+    $rewards = ['xp' => 0, 'gold' => 0, 'items' => []];
 
     // Scale XP
     if (isset($rewards_schema['xp'])) {
@@ -3175,7 +3201,7 @@ class QuestGeneratorService {
       $quest_node = $this->findQuestNodeById($quest_nodes, $ordered_quest_id);
       $linked_quest = is_array($linked_quests[$ordered_quest_id] ?? NULL) ? $linked_quests[$ordered_quest_id] : [];
       $materialized_entry = $matching_entries[$ordered_quest_id] ?? NULL;
-      $blocked = $this->isQuestNodeBlocked($quest_node, $status_by_node);
+      $blocked = $this->isQuestNodeBlocked($quest_node, $status_by_node, $storyline_data, $quest_nodes);
       $is_discovered = $this->isStorylineQuestDiscovered($storyline_row, $storyline_data, $quest_node, $linked_quest, $materialized_entry);
       if (!$is_discovered && !$materialized_entry) {
         continue;
@@ -3253,6 +3279,7 @@ class QuestGeneratorService {
     $quest['next_step'] = $this->deriveQuestNextStep($quest, $objectives, $scene_index, $scene_id, $chapter_id, $lead_location, $blocked);
     $quest['access'] = $access;
     $quest['objectives'] = $this->sortManagementObjectives($objectives);
+    $quest['branch_choices'] = array_values(array_filter((array) ($quest_node['choices'] ?? []), 'is_array'));
     return $quest;
   }
 
@@ -3317,6 +3344,7 @@ class QuestGeneratorService {
       'next_step' => trim((string) ($objective['next_step'] ?? 'Follow the lead.')),
       'access' => $access,
       'objectives' => [$objective],
+      'branch_choices' => array_values(array_filter((array) ($quest_node['choices'] ?? []), 'is_array')),
     ];
   }
 
@@ -3868,12 +3896,65 @@ class QuestGeneratorService {
   /**
    * Determine whether a quest node is still blocked by prerequisites.
    */
-  protected function isQuestNodeBlocked(array $quest_node, array $status_by_node): bool {
+  protected function isQuestNodeBlocked(
+    array $quest_node,
+    array $status_by_node,
+    array $storyline_data = [],
+    array $quest_nodes = [],
+  ): bool {
     $dependencies = array_values(array_filter(array_map('strval', is_array($quest_node['unlocks_after'] ?? NULL) ? $quest_node['unlocks_after'] : [])));
     if ($dependencies === []) {
       return FALSE;
     }
 
+    $quest_id = trim((string) ($quest_node['quest_id'] ?? ''));
+    $selections = is_array($storyline_data['variables']['branch_choices'] ?? NULL)
+      ? $storyline_data['variables']['branch_choices']
+      : [];
+    $selected_branch_sources = [];
+    foreach (array_values(array_filter($quest_nodes, 'is_array')) as $source_node) {
+      $source_id = trim((string) ($source_node['quest_id'] ?? ''));
+      foreach (array_values(array_filter((array) ($source_node['choices'] ?? []), 'is_array')) as $choice) {
+        if (trim((string) ($choice['target_quest_id'] ?? '')) !== $quest_id) {
+          continue;
+        }
+        $decision_id = trim((string) ($choice['decision_id'] ?? ''));
+        $choice_id = trim((string) ($choice['choice_id'] ?? ''));
+        if ($decision_id !== '' && $choice_id !== '' && (string) ($selections[$decision_id] ?? '') === $choice_id) {
+          $selected_branch_sources[] = $source_id;
+        }
+      }
+    }
+    if ($selected_branch_sources !== []) {
+      foreach (array_unique($selected_branch_sources) as $source_id) {
+        if (strtolower(trim((string) ($status_by_node[$source_id] ?? ''))) === 'completed') {
+          return FALSE;
+        }
+      }
+      return TRUE;
+    }
+    $has_incoming_choice = FALSE;
+    foreach (array_values(array_filter($quest_nodes, 'is_array')) as $source_node) {
+      foreach (array_values(array_filter((array) ($source_node['choices'] ?? []), 'is_array')) as $choice) {
+        if (trim((string) ($choice['target_quest_id'] ?? '')) === $quest_id) {
+          $has_incoming_choice = TRUE;
+          break 2;
+        }
+      }
+    }
+    if ($has_incoming_choice) {
+      return TRUE;
+    }
+
+    $prerequisite_mode = trim((string) ($quest_node['prerequisite_mode'] ?? 'all')) ?: 'all';
+    if ($prerequisite_mode === 'any') {
+      foreach ($dependencies as $dependency) {
+        if (strtolower(trim((string) ($status_by_node[$dependency] ?? ''))) === 'completed') {
+          return FALSE;
+        }
+      }
+      return TRUE;
+    }
     foreach ($dependencies as $dependency) {
       $status = strtolower(trim((string) ($status_by_node[$dependency] ?? '')));
       if ($status !== 'completed') {
@@ -4426,6 +4507,19 @@ class QuestGeneratorService {
       ->condition('campaign_id', $campaign_id)
       ->condition('dungeon_id', $target_dungeon_id)
       ->execute();
+
+    if (\Drupal::hasService('dungeoncrawler_content.h3_projection_queue')) {
+      $all_room_ids = $this->database->select('dc_campaign_rooms', 'r')
+        ->fields('r', ['room_id'])
+        ->condition('campaign_id', $campaign_id)
+        ->execute()
+        ->fetchCol();
+      if ($all_room_ids !== []) {
+        /** @var \Drupal\dungeoncrawler_content\Service\H3ProjectionQueueService $h3_queue */
+        $h3_queue = \Drupal::service('dungeoncrawler_content.h3_projection_queue');
+        $h3_queue->provisionLaunchSliceNow($campaign_id, $target_dungeon_id, $all_room_ids);
+      }
+    }
   }
 
   /**

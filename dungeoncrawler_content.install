@@ -1053,6 +1053,7 @@ function dungeoncrawler_content_schema() {
       'campaign_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0],
       'connection_id' => ['type' => 'varchar', 'length' => 255, 'not null' => TRUE],
       'dungeon_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE],
+      'to_dungeon_id' => ['type' => 'varchar', 'length' => 100, 'not null' => FALSE],
       'from_room_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE],
       'to_room_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE],
       'from_hex_q' => ['type' => 'int', 'not null' => FALSE],
@@ -1082,6 +1083,7 @@ function dungeoncrawler_content_schema() {
     'indexes' => [
       'campaign_id' => ['campaign_id'],
       'campaign_dungeon' => ['campaign_id', 'dungeon_id'],
+      'campaign_target_dungeon' => ['campaign_id', 'to_dungeon_id'],
       'from_room' => ['from_room_id'],
       'to_room' => ['to_room_id'],
       'source_connection_id' => ['source_connection_id'],
@@ -4244,6 +4246,96 @@ function dungeoncrawler_content_schema() {
       'published_version_id' => ['published_version_id'],
     ],
   ];
+  $schema['dungeoncrawler_content_storyline_authoring_drafts'] = [
+    'description' => 'Mutable storyline authoring drafts for the GM Storyline Builder.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE],
+      'draft_id' => ['type' => 'varchar', 'length' => 36, 'not null' => TRUE],
+      'owner_uid' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE],
+      'source_draft_id' => ['type' => 'varchar', 'length' => 36, 'not null' => FALSE],
+      'source_revision' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => FALSE],
+      'source_template_id' => ['type' => 'varchar', 'length' => 191, 'not null' => FALSE],
+      'revision' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 1],
+      'status' => ['type' => 'varchar', 'length' => 20, 'not null' => TRUE, 'default' => 'editing'],
+      'draft_payload' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE],
+      'payload_hash' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE],
+      'created_at' => ['type' => 'int', 'not null' => TRUE],
+      'updated_at' => ['type' => 'int', 'not null' => TRUE],
+      'published_template_id' => ['type' => 'varchar', 'length' => 191, 'not null' => FALSE],
+      'published_at' => ['type' => 'int', 'not null' => FALSE],
+      'publication_receipt' => ['type' => 'text', 'size' => 'big', 'not null' => FALSE],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'draft_id' => ['draft_id'],
+    ],
+    'indexes' => [
+      'owner_status_updated' => ['owner_uid', 'status', 'updated_at'],
+      'source_template_id' => ['source_template_id'],
+      'source_draft_id' => ['source_draft_id'],
+      'published_template_id' => ['published_template_id'],
+      'updated_at' => ['updated_at'],
+    ],
+  ];
+  $schema['dungeoncrawler_content_storyline_draft_revisions'] = [
+    'description' => 'Immutable payload snapshots for Storyline Builder draft revisions.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE],
+      'draft_id' => ['type' => 'varchar', 'length' => 36, 'not null' => TRUE],
+      'revision' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE],
+      'owner_uid' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE],
+      'draft_payload' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE],
+      'payload_hash' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE],
+      'created_at' => ['type' => 'int', 'not null' => TRUE],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'draft_revision' => ['draft_id', 'revision'],
+    ],
+    'indexes' => [
+      'draft_created' => ['draft_id', 'created_at'],
+      'owner_created' => ['owner_uid', 'created_at'],
+    ],
+  ];
+  $schema['dungeoncrawler_content_storyline_draft_redirects'] = [
+    'description' => 'Redirects retired Storyline draft IDs to their retained active draft.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE],
+      'old_draft_id' => ['type' => 'varchar', 'length' => 36, 'not null' => TRUE],
+      'replacement_draft_id' => ['type' => 'varchar', 'length' => 36, 'not null' => TRUE],
+      'template_id' => ['type' => 'varchar', 'length' => 191, 'not null' => FALSE],
+      'created_at' => ['type' => 'int', 'not null' => TRUE],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'old_draft_id' => ['old_draft_id'],
+    ],
+    'indexes' => [
+      'replacement_draft_id' => ['replacement_draft_id'],
+      'template_id' => ['template_id'],
+    ],
+  ];
+  $schema['dungeoncrawler_content_storyline_draft_operations'] = [
+    'description' => 'Idempotency receipts for approved storyline draft operation batches.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE],
+      'operation_id' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE],
+      'draft_id' => ['type' => 'varchar', 'length' => 36, 'not null' => TRUE],
+      'owner_uid' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE],
+      'base_revision' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE],
+      'result_revision' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE],
+      'request_hash' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE],
+      'response_payload' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE],
+      'created_at' => ['type' => 'int', 'not null' => TRUE],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'draft_operation' => ['draft_id', 'operation_id'],
+    ],
+    'indexes' => [
+      'owner_created' => ['owner_uid', 'created_at'],
+    ],
+  ];
   $schema['dungeoncrawler_content_dungeon_editor_commands'] = [
     'description' => 'Append-only dungeon editor command log. command_id is the idempotency key.',
     'fields' => [
@@ -4330,6 +4422,42 @@ function dungeoncrawler_content_schema() {
       'family' => ['family'],
       'reason' => ['reason'],
       'audit_hook' => ['audit_hook'],
+    ],
+  ];
+
+  $schema['dungeoncrawler_content_module_releases'] = [
+    'description' => 'Module conversion release identity ledger with canonical campaign mapping pins.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE],
+      'release_id' => ['type' => 'varchar', 'length' => 36, 'not null' => TRUE],
+      'module_id' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE],
+      'module_title' => ['type' => 'varchar', 'length' => 255, 'not null' => TRUE],
+      'module_version' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE],
+      'conversion_revision' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'default' => 'base'],
+      'archive_sha256' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE],
+      'archive_path' => ['type' => 'varchar', 'length' => 1024, 'not null' => TRUE, 'default' => ''],
+      'manifest_data' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE],
+      'inventory_data' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE],
+      'plan_hash' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE],
+      'plan_data' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE],
+      'mapping_data' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE],
+      'publication_status' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'ready'],
+      'created_by' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE],
+      'published_by' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => FALSE],
+      'created' => ['type' => 'int', 'not null' => TRUE],
+      'updated' => ['type' => 'int', 'not null' => TRUE],
+      'published_at' => ['type' => 'int', 'not null' => FALSE],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'release_id' => ['release_id'],
+      'module_version_revision' => ['module_id', 'module_version', 'conversion_revision'],
+    ],
+    'indexes' => [
+      'publication_status' => ['publication_status'],
+      'module_id' => ['module_id'],
+      'archive_sha256' => ['archive_sha256'],
+      'created' => ['created'],
     ],
   ];
 
@@ -5613,6 +5741,564 @@ function dungeoncrawler_content_update_10206(): string {
   );
   \Drupal::logger('dungeoncrawler_content')->notice($message);
   return $message;
+}
+
+/**
+ * Add module conversion release ledger table.
+ */
+function dungeoncrawler_content_update_10207(): string {
+  $schema = \Drupal::database()->schema();
+  if ($schema->tableExists('dungeoncrawler_content_module_releases')) {
+    return 'update_10207 skipped: dungeoncrawler_content_module_releases already exists.';
+  }
+
+  $definition = dungeoncrawler_content_schema()['dungeoncrawler_content_module_releases'] ?? NULL;
+  if (!is_array($definition)) {
+    throw new \RuntimeException('update_10207 failed: module release schema definition missing.');
+  }
+  $schema->createTable('dungeoncrawler_content_module_releases', $definition);
+  return 'update_10207 created dungeoncrawler_content_module_releases.';
+}
+
+/**
+ * Quarantine pre-receipt module releases without erasing their audit record.
+ */
+function dungeoncrawler_content_update_10208(): string {
+  $database = \Drupal::database();
+  if (!$database->schema()->tableExists('dungeoncrawler_content_module_releases')) {
+    throw new \RuntimeException('update_10208 requires the module release ledger from update_10207.');
+  }
+  $count = $database->update('dungeoncrawler_content_module_releases')
+    ->fields(['publication_status' => 'requires_authoring'])
+    ->condition('publication_status', 'published')
+    ->execute();
+  return "update_10208 quarantined $count unverified module releases; retained audit mappings and timestamps.";
+}
+
+/**
+ * Distinguish conversion revisions without changing the pinned source version.
+ */
+function dungeoncrawler_content_update_10209(): string {
+  $schema = \Drupal::database()->schema();
+  $table = 'dungeoncrawler_content_module_releases';
+  if (!$schema->tableExists($table)) {
+    throw new \RuntimeException('update_10209 requires the module release ledger.');
+  }
+  if (!$schema->fieldExists($table, 'conversion_revision')) {
+    $schema->addField($table, 'conversion_revision', [
+      'type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'default' => 'base',
+    ]);
+  }
+  if ($schema->indexExists($table, 'module_version')) {
+    $schema->dropUniqueKey($table, 'module_version');
+  }
+  if (!$schema->indexExists($table, 'module_version_revision')) {
+    $schema->addUniqueKey($table, 'module_version_revision', ['module_id', 'module_version', 'conversion_revision']);
+  }
+  return 'update_10209 added independent conversion revisions for pinned module source versions.';
+}
+
+/**
+ * Backfill canonical registry schema_data.content_id from row content_id.
+ */
+function dungeoncrawler_content_update_10210(): string {
+  $database = \Drupal::database();
+  $schema = $database->schema();
+  $table = 'dungeoncrawler_content_registry';
+  if (!$schema->tableExists($table)) {
+    return 'update_10210 skipped: dungeoncrawler_content_registry is missing.';
+  }
+
+  $rows = $database->select($table, 'r')
+    ->fields('r', ['id', 'content_id', 'schema_data'])
+    ->execute()
+    ->fetchAllAssoc('id');
+
+  $fixed = 0;
+  foreach ($rows as $id => $row) {
+    if (!is_array($row)) {
+      continue;
+    }
+    $content_id = trim((string) ($row['content_id'] ?? ''));
+    if ($content_id === '') {
+      continue;
+    }
+    $schema_data = json_decode((string) ($row['schema_data'] ?? ''), TRUE);
+    if (!is_array($schema_data)) {
+      continue;
+    }
+    if (trim((string) ($schema_data['content_id'] ?? '')) !== '') {
+      continue;
+    }
+    $schema_data['content_id'] = $content_id;
+    $database->update($table)
+      ->fields([
+        'schema_data' => json_encode($schema_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'updated' => \Drupal::time()->getRequestTime(),
+      ])
+      ->condition('id', (int) $id)
+      ->execute();
+    $fixed++;
+  }
+
+  return "update_10210 backfilled schema_data.content_id for {$fixed} canonical registry rows.";
+}
+
+/**
+ * Backfill canonical registry schema_data.content_id for legacy NULL values.
+ */
+function dungeoncrawler_content_update_10211(): string {
+  $database = \Drupal::database();
+  $schema = $database->schema();
+  $table = 'dungeoncrawler_content_registry';
+  if (!$schema->tableExists($table)) {
+    return 'update_10211 skipped: dungeoncrawler_content_registry is missing.';
+  }
+
+  $rows = $database->select($table, 'r')
+    ->fields('r', ['id', 'content_id', 'schema_data'])
+    ->execute()
+    ->fetchAll(\PDO::FETCH_ASSOC);
+
+  $fixed = 0;
+  foreach ($rows as $row) {
+    $content_id = trim((string) ($row['content_id'] ?? ''));
+    if ($content_id === '') {
+      continue;
+    }
+    $schema_data = json_decode((string) ($row['schema_data'] ?? ''), TRUE);
+    if (!is_array($schema_data)) {
+      continue;
+    }
+    if (trim((string) ($schema_data['content_id'] ?? '')) !== '') {
+      continue;
+    }
+    $schema_data['content_id'] = $content_id;
+    $database->update($table)
+      ->fields([
+        'schema_data' => json_encode($schema_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'updated' => \Drupal::time()->getRequestTime(),
+      ])
+      ->condition('id', (int) ($row['id'] ?? 0))
+      ->execute();
+    $fixed++;
+  }
+
+  return "update_10211 backfilled schema_data.content_id for {$fixed} canonical registry rows.";
+}
+
+/**
+ * Adds durable storyline authoring draft storage and migrates expirable drafts.
+ */
+function dungeoncrawler_content_update_10212(): string {
+  $database = \Drupal::database();
+  $schema = $database->schema();
+  $table = 'dungeoncrawler_content_storyline_authoring_drafts';
+  if (!$schema->tableExists($table)) {
+    $schema->createTable($table, dungeoncrawler_content_schema()[$table]);
+  }
+
+  $migrated = 0;
+  if ($schema->tableExists('key_value_expire')) {
+    $now = \Drupal::time()->getRequestTime();
+    $rows = $database->select('key_value_expire', 'k')
+      ->fields('k', ['name', 'value', 'expire'])
+      ->condition('collection', 'dungeoncrawler_content.storyline_authoring_drafts')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+
+    foreach ($rows as $row) {
+      $draft_id = trim((string) ($row['name'] ?? ''));
+      if ($draft_id === '') {
+        continue;
+      }
+      if ((int) ($row['expire'] ?? 0) > 0 && (int) $row['expire'] < $now) {
+        continue;
+      }
+      $raw = (string) ($row['value'] ?? '');
+      $decoded = @unserialize($raw);
+      if (!is_array($decoded)) {
+        $decoded = json_decode($raw, TRUE);
+      }
+      if (!is_array($decoded)) {
+        continue;
+      }
+      $payload = is_array($decoded['payload'] ?? NULL) ? $decoded['payload'] : [];
+      $payload_json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+      if (!is_string($payload_json) || $payload_json === '') {
+        $payload_json = '{}';
+      }
+      $created_at = (int) ($decoded['created_at'] ?? $now);
+      $updated_at = (int) ($decoded['updated_at'] ?? $created_at);
+      $published_template_id = trim((string) ($decoded['published_template_id'] ?? ''));
+      $published_at = NULL;
+      if (($decoded['status'] ?? '') === 'published') {
+        $published_at = $updated_at > 0 ? $updated_at : $now;
+      }
+
+      $database->merge($table)
+        ->keys(['draft_id' => $draft_id])
+        ->fields([
+          'owner_uid' => max(0, (int) ($decoded['owner_uid'] ?? 0)),
+          'source_template_id' => trim((string) ($decoded['source_template_id'] ?? '')) ?: NULL,
+          'revision' => max(1, (int) ($decoded['revision'] ?? 1)),
+          'status' => trim((string) ($decoded['status'] ?? 'editing')) ?: 'editing',
+          'draft_payload' => $payload_json,
+          'payload_hash' => hash('sha256', $payload_json),
+          'created_at' => $created_at > 0 ? $created_at : $now,
+          'updated_at' => $updated_at > 0 ? $updated_at : $now,
+          'published_template_id' => $published_template_id !== '' ? $published_template_id : NULL,
+          'published_at' => $published_at,
+        ])
+        ->execute();
+      $migrated++;
+    }
+  }
+
+  return "update_10212 created durable storyline draft table and migrated {$migrated} expirable draft row(s).";
+}
+
+/**
+ * Grants dedicated storyline capabilities to existing trusted editor roles.
+ */
+function dungeoncrawler_content_update_10213(): string {
+  $updated_roles = [];
+  foreach (\Drupal\user\Entity\Role::loadMultiple() as $role) {
+    $changed = FALSE;
+    if (
+      $role->hasPermission('administer dungeoncrawler content')
+      || $role->hasPermission('access dungeoncrawler editor suite')
+    ) {
+      $role->grantPermission('edit canonical dungeoncrawler storylines');
+      $changed = TRUE;
+    }
+    if (
+      $role->hasPermission('administer dungeoncrawler content')
+      || $role->hasPermission('publish canonical dungeoncrawler rooms')
+      || $role->hasPermission('publish canonical dungeoncrawler dungeons')
+    ) {
+      $role->grantPermission('publish canonical dungeoncrawler storylines');
+      $changed = TRUE;
+    }
+    if ($changed) {
+      $role->save();
+      $updated_roles[] = $role->id();
+    }
+  }
+  return 'Granted storyline authoring permissions to roles: ' . implode(', ', $updated_roles) . '.';
+}
+
+/**
+ * Persists complete storyline draft publication receipts.
+ */
+function dungeoncrawler_content_update_10214(): string {
+  $schema = \Drupal::database()->schema();
+  $table = 'dungeoncrawler_content_storyline_authoring_drafts';
+  if (!$schema->tableExists($table)) {
+    throw new \RuntimeException("Required storyline draft table '{$table}' is missing.");
+  }
+  if (!$schema->fieldExists($table, 'publication_receipt')) {
+    $schema->addField($table, 'publication_receipt', [
+      'type' => 'text',
+      'size' => 'big',
+      'not null' => FALSE,
+    ]);
+  }
+  return 'Added persistent storyline draft publication receipts.';
+}
+
+/**
+ * Adds idempotency receipts for storyline draft operation batches.
+ */
+function dungeoncrawler_content_update_10215(): string {
+  $database = \Drupal::database();
+  $schema = $database->schema();
+  $table = 'dungeoncrawler_content_storyline_draft_operations';
+  if (!$schema->tableExists($table)) {
+    $schema->createTable($table, dungeoncrawler_content_schema()[$table]);
+  }
+  return 'Added persistent storyline draft operation receipts.';
+}
+
+/**
+ * Adds durable human approval records for Storyline Builder stage gates.
+ */
+function dungeoncrawler_content_update_10216(): string {
+  $schema = \Drupal::database()->schema();
+  $table = 'dungeoncrawler_content_storyline_authoring_drafts';
+  if (!$schema->tableExists($table)) {
+    throw new \RuntimeException("Required storyline draft table '{$table}' is missing.");
+  }
+  if (!$schema->fieldExists($table, 'stage_approvals')) {
+    $schema->addField($table, 'stage_approvals', [
+      'type' => 'text',
+      'size' => 'big',
+      'not null' => FALSE,
+    ]);
+  }
+  return 'Added durable Storyline Builder stage approvals.';
+}
+
+/**
+ * Retires Storyline Builder stage approvals.
+ */
+function dungeoncrawler_content_update_10217(): string {
+  $schema = \Drupal::database()->schema();
+  $table = 'dungeoncrawler_content_storyline_authoring_drafts';
+  if (!$schema->tableExists($table)) {
+    throw new \RuntimeException("Required storyline draft table '{$table}' is missing.");
+  }
+
+  if ($schema->fieldExists($table, 'stage_approvals')) {
+    $schema->dropField($table, 'stage_approvals');
+  }
+  return 'Removed obsolete Storyline Builder stage approvals.';
+}
+
+/**
+ * Adds Storyline draft lineage for owner-isolated copies and versions.
+ */
+function dungeoncrawler_content_update_10218(): string {
+  $schema = \Drupal::database()->schema();
+  $table = 'dungeoncrawler_content_storyline_authoring_drafts';
+  if (!$schema->tableExists($table)) {
+    throw new \RuntimeException("Required storyline draft table '{$table}' is missing.");
+  }
+  if (!$schema->fieldExists($table, 'source_draft_id')) {
+    $schema->addField($table, 'source_draft_id', [
+      'type' => 'varchar',
+      'length' => 36,
+      'not null' => FALSE,
+    ]);
+  }
+  if (!$schema->indexExists($table, 'source_draft_id')) {
+    $schema->addIndex(
+      $table,
+      'source_draft_id',
+      ['source_draft_id'],
+      dungeoncrawler_content_schema()[$table],
+    );
+  }
+  return 'Added owner-isolated Storyline draft lineage.';
+}
+
+/**
+ * Adds immutable Storyline draft revision snapshots and exact copy lineage.
+ */
+function dungeoncrawler_content_update_10219(): string {
+  $database = \Drupal::database();
+  $schema = $database->schema();
+  $draft_table = 'dungeoncrawler_content_storyline_authoring_drafts';
+  $revision_table = 'dungeoncrawler_content_storyline_draft_revisions';
+  if (!$schema->tableExists($draft_table)) {
+    throw new \RuntimeException("Required storyline draft table '{$draft_table}' is missing.");
+  }
+  if (!$schema->fieldExists($draft_table, 'source_revision')) {
+    $schema->addField($draft_table, 'source_revision', [
+      'type' => 'int',
+      'unsigned' => TRUE,
+      'not null' => FALSE,
+    ]);
+  }
+  if (!$schema->tableExists($revision_table)) {
+    $schema->createTable($revision_table, dungeoncrawler_content_schema()[$revision_table]);
+  }
+
+  $rows = $database->select($draft_table, 'd')
+    ->fields('d', ['draft_id', 'revision', 'owner_uid', 'draft_payload', 'payload_hash', 'updated_at'])
+    ->execute()
+    ->fetchAll(\PDO::FETCH_ASSOC);
+  $backfilled = 0;
+  foreach ($rows as $row) {
+    $exists = $database->select($revision_table, 'r')
+      ->condition('draft_id', (string) $row['draft_id'])
+      ->condition('revision', (int) $row['revision'])
+      ->countQuery()
+      ->execute()
+      ->fetchField();
+    if ((int) $exists > 0) {
+      continue;
+    }
+    $database->insert($revision_table)
+      ->fields([
+        'draft_id' => (string) $row['draft_id'],
+        'revision' => (int) $row['revision'],
+        'owner_uid' => (int) $row['owner_uid'],
+        'draft_payload' => (string) $row['draft_payload'],
+        'payload_hash' => (string) $row['payload_hash'],
+        'created_at' => (int) $row['updated_at'],
+      ])
+      ->execute();
+    $backfilled++;
+  }
+  return "Added immutable Storyline draft revisions and backfilled {$backfilled} current snapshot(s).";
+}
+
+/**
+ * Adds redirects for retired duplicate Storyline draft IDs.
+ */
+function dungeoncrawler_content_update_10220(): string {
+  $schema = \Drupal::database()->schema();
+  $table = 'dungeoncrawler_content_storyline_draft_redirects';
+  if (!$schema->tableExists($table)) {
+    $schema->createTable($table, dungeoncrawler_content_schema()[$table]);
+  }
+  return 'Added retired Storyline draft redirects.';
+}
+
+/**
+ * Adds durable cross-dungeon campaign gateways.
+ */
+function dungeoncrawler_content_update_10221(): string {
+  $database = \Drupal::database();
+  $schema = $database->schema();
+  $connection_table = 'dc_campaign_connections';
+  if (!$schema->tableExists($connection_table)) {
+    throw new \RuntimeException("Required campaign connector table '{$connection_table}' is missing.");
+  }
+  if (!$schema->fieldExists($connection_table, 'to_dungeon_id')) {
+    $schema->addField($connection_table, 'to_dungeon_id', [
+      'type' => 'varchar',
+      'length' => 100,
+      'not null' => FALSE,
+    ]);
+  }
+  if (!$schema->indexExists($connection_table, 'campaign_target_dungeon')) {
+    $schema->addIndex(
+      $connection_table,
+      'campaign_target_dungeon',
+      ['campaign_id', 'to_dungeon_id'],
+      dungeoncrawler_content_schema()[$connection_table]
+    );
+  }
+
+  $gateway_metadata = [
+    'roles' => ['settlement', 'street', 'travel'],
+    'default' => TRUE,
+  ];
+  $canonical_rows = $database->select('dungeoncrawler_content_rooms', 'r')
+    ->fields('r', ['room_id', 'layout_data'])
+    ->condition('room_id', 'tpl_room_absalom_streets')
+    ->execute()
+    ->fetchAll(\PDO::FETCH_ASSOC);
+  foreach ($canonical_rows as $row) {
+    $layout = json_decode((string) $row['layout_data'], TRUE, 512, JSON_THROW_ON_ERROR);
+    if (!is_array($layout)) {
+      throw new \RuntimeException('Absalom Streets canonical layout_data must decode to an object.');
+    }
+    $layout['metadata'] = is_array($layout['metadata'] ?? NULL) ? $layout['metadata'] : [];
+    $layout['metadata']['gateway'] = $gateway_metadata;
+    $database->update('dungeoncrawler_content_rooms')
+      ->fields([
+        'layout_data' => json_encode($layout, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+        'updated' => time(),
+      ])
+      ->condition('room_id', (string) $row['room_id'])
+      ->execute();
+  }
+
+  $campaign_rows = $database->select('dc_campaign_rooms', 'r')
+    ->fields('r', ['id', 'layout_data'])
+    ->condition('source_room_id', 'tpl_room_absalom_streets')
+    ->execute()
+    ->fetchAll(\PDO::FETCH_ASSOC);
+  foreach ($campaign_rows as $row) {
+    $layout = json_decode((string) $row['layout_data'], TRUE, 512, JSON_THROW_ON_ERROR);
+    if (!is_array($layout)) {
+      throw new \RuntimeException(sprintf(
+        'Campaign room %d layout_data must decode to an object.',
+        (int) $row['id']
+      ));
+    }
+    $layout['metadata'] = is_array($layout['metadata'] ?? NULL) ? $layout['metadata'] : [];
+    $layout['metadata']['gateway'] = $gateway_metadata;
+    $database->update('dc_campaign_rooms')
+      ->fields([
+        'layout_data' => json_encode($layout, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+        'updated' => time(),
+      ])
+      ->condition('id', (int) $row['id'])
+      ->execute();
+  }
+
+  return sprintf(
+    'Added cross-dungeon gateway storage and marked %d campaign Absalom Streets room(s) as default gateways.',
+    count($campaign_rows)
+  );
+}
+
+/**
+ * Repairs legacy prose stored in canonical storyline asset_role fields.
+ */
+function dungeoncrawler_content_update_10222(): string {
+  return _dungeoncrawler_content_repair_oversized_storyline_asset_roles();
+}
+
+/**
+ * Re-runs the asset-role repair after correcting reference mutation.
+ */
+function dungeoncrawler_content_update_10223(): string {
+  return _dungeoncrawler_content_repair_oversized_storyline_asset_roles();
+}
+
+/**
+ * Repair oversized canonical storyline asset roles without losing the prose.
+ */
+function _dungeoncrawler_content_repair_oversized_storyline_asset_roles(): string {
+  $database = \Drupal::database();
+  $table = 'dc_canonical_storylines';
+  if (!$database->schema()->tableExists($table)) {
+    throw new \RuntimeException("Required canonical storyline table '{$table}' is missing.");
+  }
+
+  $updated = 0;
+  $rows = $database->select($table, 's')
+    ->fields('s', ['template_id', 'template_data'])
+    ->execute()
+    ->fetchAll(\PDO::FETCH_ASSOC);
+  foreach ($rows as $row) {
+    $definition = json_decode((string) ($row['template_data'] ?? ''), TRUE, 512, JSON_THROW_ON_ERROR);
+    if (!is_array($definition)) {
+      throw new \RuntimeException(sprintf(
+        'Canonical storyline %s template_data must decode to an object.',
+        (string) ($row['template_id'] ?? '')
+      ));
+    }
+    $changed = FALSE;
+    if (!is_array($definition['asset_references'] ?? NULL)) {
+      continue;
+    }
+    foreach ($definition['asset_references'] as &$reference) {
+      if (!is_array($reference)) {
+        continue;
+      }
+      $asset_role = trim((string) ($reference['asset_role'] ?? ''));
+      if (mb_strlen($asset_role) <= 128) {
+        continue;
+      }
+      $asset_type = strtolower(trim((string) ($reference['asset_type'] ?? 'asset')));
+      $reference['link_data'] = is_array($reference['link_data'] ?? NULL) ? $reference['link_data'] : [];
+      $reference['link_data']['legacy_asset_role_description'] = $asset_role;
+      $reference['asset_role'] = $asset_type === 'item' && trim((string) ($reference['link_data']['quest_id'] ?? '')) !== ''
+        ? 'quest-item'
+        : 'story-' . preg_replace('/[^a-z0-9_-]+/', '-', $asset_type);
+      $changed = TRUE;
+    }
+    unset($reference);
+    if (!$changed) {
+      continue;
+    }
+    $database->update($table)
+      ->fields([
+        'template_data' => json_encode($definition, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+        'updated_at' => time(),
+      ])
+      ->condition('template_id', (string) $row['template_id'])
+      ->execute();
+    $updated++;
+  }
+
+  return sprintf('Repaired oversized asset roles in %d canonical storyline template(s).', $updated);
 }
 
 

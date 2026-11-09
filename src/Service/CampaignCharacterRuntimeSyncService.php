@@ -2055,6 +2055,147 @@ class CampaignCharacterRuntimeSyncService {
   }
 
   /**
+   * Persist the selected PC and its campaign-scoped followers during traversal.
+   *
+   * The source character ID binds follower rows to their owner; the campaign,
+   * instance ID and projected owner metadata must also agree before any move.
+   */
+  public function persistTraversingOwnerAndFollowers(array &$dungeon_payload, int $campaign_id, string $actor_id, string $room_id): array {
+    $owner = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c', ['id', 'source_character_id'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('instance_id', $actor_id)
+      ->condition('role', 'player')
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!is_array($owner)) {
+      throw new \RuntimeException(sprintf('Navigation placement contract violation: campaign %d actor %s is not a campaign player.', $campaign_id, $actor_id));
+    }
+    $owner_id = (int) $owner['id'];
+    $source_id = (int) $owner['source_character_id'];
+    if ($source_id <= 0) {
+      throw new \RuntimeException(sprintf('Navigation placement contract violation: campaign %d actor %s has no source character.', $campaign_id, $actor_id));
+    }
+    if (!is_array($dungeon_payload['entities'] ?? NULL)) {
+      throw new \RuntimeException(sprintf('Navigation placement contract violation: campaign %d has no actor entity slice.', $campaign_id));
+    }
+    $entities = &$dungeon_payload['entities'];
+    $owner_entity = NULL;
+    foreach ($entities as $entity) {
+      if ((string) ($entity['instance_id'] ?? $entity['entity_instance_id'] ?? '') === $actor_id) {
+        $owner_entity = $entity;
+        break;
+      }
+    }
+    if (!is_array($owner_entity) || (string) ($owner_entity['placement']['room_id'] ?? '') !== $room_id) {
+      throw new \RuntimeException(sprintf('Navigation placement contract violation: campaign %d player %s is not placed in destination %s.', $campaign_id, $actor_id, $room_id));
+    }
+    $hex = $owner_entity['placement']['hex'] ?? NULL;
+    if (!is_array($hex)) {
+      throw new \RuntimeException(sprintf('Navigation placement contract violation: campaign %d player %s lacks destination hex.', $campaign_id, $actor_id));
+    }
+    $owner_q = (int) ($hex['q'] ?? 0);
+    $owner_r = (int) ($hex['r'] ?? 0);
+    $owner_placement = $this->resolvePlacementRoomAndH3($dungeon_payload, $room_id, $hex, 'traversing-player-' . $actor_id);
+    if ($owner_placement['room_id'] !== $room_id) {
+      throw new \RuntimeException(sprintf('Navigation placement contract violation: player %s destination hex resolves outside room %s.', $actor_id, $room_id));
+    }
+    $this->persistRuntimePlacement($owner_id, $campaign_id, $room_id, [
+      'q' => $owner_q, 'r' => $owner_r, 'h3_index_res14' => $owner_placement['h3_index_res14'],
+    ]);
+
+    $followers = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c', ['id', 'instance_id', 'role'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('source_character_id', $source_id)
+      ->condition('role', 'player', '<>')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+    $occupied = [$owner_q . ',' . $owner_r => TRUE];
+    foreach ($entities as $entity) {
+      if ((string) ($entity['placement']['room_id'] ?? '') === $room_id) {
+        $existing_hex = $entity['placement']['hex'] ?? [];
+        if (is_array($existing_hex)) {
+          $occupied[(int) ($existing_hex['q'] ?? 0) . ',' . (int) ($existing_hex['r'] ?? 0)] = TRUE;
+        }
+      }
+    }
+    $mutations = [];
+    foreach ($followers as $follower) {
+      $follower_id = trim((string) ($follower['instance_id'] ?? ''));
+      if ($follower_id === '') {
+        throw new \RuntimeException(sprintf('Navigation placement contract violation: campaign %d follower row %d lacks instance_id.', $campaign_id, (int) $follower['id']));
+      }
+      $index = NULL;
+      foreach ($entities as $entity_index => $entity) {
+        if ((string) ($entity['instance_id'] ?? $entity['entity_instance_id'] ?? '') === $follower_id) {
+          $index = $entity_index;
+          break;
+        }
+      }
+      $metadata = $index !== NULL ? ($entities[$index]['state']['metadata'] ?? []) : [];
+      if (!is_array($metadata)
+        || (int) ($metadata['owner_character_id'] ?? 0) !== $owner_id
+        || (int) ($metadata['owner_source_character_id'] ?? 0) !== $source_id) {
+        throw new \RuntimeException(sprintf('Navigation placement contract violation: campaign %d follower %s is missing its projected owner linkage.', $campaign_id, $follower_id));
+      }
+      $follower_hex = $this->findAdjacentCompanionHex($dungeon_payload, $room_id, $owner_q, $owner_r, $occupied);
+      $placement = $this->resolvePlacementRoomAndH3($dungeon_payload, $room_id, $follower_hex, 'traversing-follower-' . $follower_id);
+      if ($placement['room_id'] !== $room_id) {
+        throw new \RuntimeException(sprintf('Navigation placement contract violation: follower %s destination hex resolves outside room %s.', $follower_id, $room_id));
+      }
+      $follower_hex['h3_index_res14'] = $placement['h3_index_res14'];
+      $occupied[$follower_hex['q'] . ',' . $follower_hex['r']] = TRUE;
+      $entities[$index]['placement']['room_id'] = $room_id;
+      $entities[$index]['placement']['hex'] = ['q' => $follower_hex['q'], 'r' => $follower_hex['r']];
+      $entities[$index]['placement']['h3_index_res14'] = $follower_hex['h3_index_res14'];
+      $this->persistRuntimePlacement((int) $follower['id'], $campaign_id, $room_id, $follower_hex);
+      $mutations[] = ['entity_id' => $follower_id, 'field' => 'placement.room_id', 'to' => $room_id];
+      $mutations[] = ['entity_id' => $follower_id, 'field' => 'placement.hex', 'to' => $entities[$index]['placement']['hex']];
+      $mutations[] = ['entity_id' => $follower_id, 'field' => 'placement.h3_index_res14', 'to' => $follower_hex['h3_index_res14']];
+    }
+    return $mutations;
+  }
+
+  /**
+   * Fail the navigation write if either actor authority retained the old room.
+   */
+  public function assertTraversingPlacementsPersisted(int $campaign_id, string $actor_id, string $room_id): void {
+    $owner = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c', ['source_character_id'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('instance_id', $actor_id)
+      ->condition('role', 'player')
+      ->range(0, 1)->execute()->fetchAssoc();
+    if (!is_array($owner) || (int) ($owner['source_character_id'] ?? 0) <= 0) {
+      throw new \RuntimeException(sprintf('Navigation verification contract violation: campaign %d has no owner for actor %s.', $campaign_id, $actor_id));
+    }
+    $query = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c', ['id', 'instance_id', 'last_room_id'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('source_character_id', (int) $owner['source_character_id']);
+    $query->condition($query->orConditionGroup()
+      ->condition('instance_id', $actor_id)
+      ->condition('role', 'player', '<>'));
+    $rows = $query->execute()->fetchAll(\PDO::FETCH_ASSOC);
+    foreach ($rows as $row) {
+      $instance_id = trim((string) ($row['instance_id'] ?? ''));
+      if ($instance_id === '') {
+        throw new \RuntimeException(sprintf('Navigation verification contract violation: campaign %d character row %d lacks instance_id.', $campaign_id, (int) $row['id']));
+      }
+      $actor_room = $this->database->select('dc_campaign_actor_runtime_state', 'a')
+        ->fields('a', ['room_id'])
+        ->condition('campaign_id', $campaign_id)
+        ->condition('actor_instance_id', $instance_id)
+        ->range(0, 1)->execute()->fetchField();
+      if ((string) ($row['last_room_id'] ?? '') !== $room_id || $actor_room !== $room_id) {
+        throw new \RuntimeException(sprintf('Navigation verification contract violation: campaign %d actor %s did not persist destination %s in character and actor runtime rows.', $campaign_id, $instance_id, $room_id));
+      }
+    }
+  }
+
+  /**
    * Resolve authoritative placement room and canonical H3 index.
    *
    * If preferred room cannot project the placement to H3, a deterministic

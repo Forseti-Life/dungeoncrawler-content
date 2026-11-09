@@ -56,6 +56,7 @@ class ConditionManager {
     'observed'     => ['is_valued' => FALSE, 'max_value' => 0, 'end_trigger' => 'persistent',  'effects' => []],
     'paralyzed'    => ['is_valued' => FALSE, 'max_value' => 0, 'end_trigger' => 'save',        'effects' => ['cannot_act' => TRUE, 'flat_footed' => TRUE]],
     'petrified'    => ['is_valued' => FALSE, 'max_value' => 0, 'end_trigger' => 'persistent',  'effects' => ['cannot_act' => TRUE]],
+    'persistent_damage' => ['is_valued' => TRUE, 'max_value' => 100, 'end_trigger' => 'save', 'effects' => []],
     'prone'        => ['is_valued' => FALSE, 'max_value' => 0, 'end_trigger' => 'action',      'effects' => ['ac' => -2, 'attack' => -2]],
     'quickened'    => ['is_valued' => FALSE, 'max_value' => 0, 'end_trigger' => 'end_of_turn', 'effects' => ['extra_action' => 1]],
     'restrained'   => ['is_valued' => FALSE, 'max_value' => 0, 'end_trigger' => 'action',      'effects' => ['cannot_move' => TRUE, 'flat_footed' => TRUE]],
@@ -222,11 +223,14 @@ class ConditionManager {
    * @see /docs/dungeoncrawler/issues/combat-engine-service.md#applycondition
    */
   public function applyCondition($participant_id, $condition_type, $value, $duration, $source, $encounter_id) {
-    if (!array_key_exists($condition_type, self::CONDITIONS)) {
+    $catalog_key = str_starts_with((string) $condition_type, 'persistent_damage_')
+      ? 'persistent_damage'
+      : $condition_type;
+    if (!array_key_exists($catalog_key, self::CONDITIONS)) {
       throw new \InvalidArgumentException("Unknown condition type: '{$condition_type}'. Must be one of: " . implode(', ', array_keys(self::CONDITIONS)));
     }
 
-    $catalog = self::CONDITIONS[$condition_type];
+    $catalog = self::CONDITIONS[$catalog_key];
     $now = time();
     [$duration_type, $duration_remaining] = $this->normalizeDuration($duration);
     $applied_at_round = $this->getCurrentRound($encounter_id);
@@ -863,11 +867,7 @@ class ConditionManager {
         (int) $participant_id,
         $damage_value,
         $damage_type,
-        [
-          'source' => 'persistent_damage',
-          'condition_id' => (int) $cond_id,
-          'condition_type' => (string) ($condition['condition_type'] ?? ''),
-        ],
+        'persistent_damage:' . (int) $cond_id,
         (int) $encounter_id
       );
       $new_hp = (int) ($hp_resolution['new_hp'] ?? $hp_before);

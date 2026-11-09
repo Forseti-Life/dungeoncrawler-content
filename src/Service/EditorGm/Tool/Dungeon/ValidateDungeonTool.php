@@ -17,7 +17,7 @@ final class ValidateDungeonTool implements EditorGmToolInterface {
     return new EditorGmToolDefinition(
       'validate_dungeon',
       EditorGmToolDefinition::FAMILY_VALIDATION,
-      'Run a deterministic Dungeon Editor validation profile against the active draft.',
+      'Validate one continuous dungeon site, including its level entrance, room placements, port links, and reachability.',
       FALSE,
       'DungeonEditorService::validateDraft()',
       [

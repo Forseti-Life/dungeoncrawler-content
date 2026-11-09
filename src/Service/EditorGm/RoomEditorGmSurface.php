@@ -6,8 +6,11 @@ use Drupal\Component\Uuid\UuidInterface;
 use Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\ApplyRoomCommandsTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\CheckPublicationReadinessTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\CreateCanonicalDefinitionTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\DescribeCanonicalDefinitionSchemaTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\DiffDraftAgainstPublishedTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\ExplainValidationFindingsTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\GenerateCanonicalDefinitionTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\GenerateRoomLayoutTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\InspectCatalogEntryTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\ListCatalogDefinitionsTool;
@@ -22,6 +25,7 @@ use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\PublishRoomVersionTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\SummarizeDefinitionUsageTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\SummarizeRoomTopologyTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\UpdateCanonicalDefinitionTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\ValidateCanonicalDefinitionTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\ValidateDraftTool;
 use Drupal\dungeoncrawler_content\Service\RoomEditorService;
 
@@ -83,8 +87,11 @@ final class RoomEditorGmSurface implements EditorGmSurfaceInterface {
       new ExplainValidationFindingsTool(),
       new CheckPublicationReadinessTool(),
       new DiffDraftAgainstPublishedTool(),
+      new DescribeCanonicalDefinitionSchemaTool(),
       new LoadCanonicalDefinitionTool(),
+      new ValidateCanonicalDefinitionTool(),
       new SummarizeDefinitionUsageTool(),
+      new CreateCanonicalDefinitionTool(),
       new UpdateCanonicalDefinitionTool(),
       new PlanRoomCommandsTool(),
       new PreviewCommandPlanTool(),
@@ -94,7 +101,10 @@ final class RoomEditorGmSurface implements EditorGmSurfaceInterface {
       new PublishRoomVersionTool(),
     ];
     if ($generation !== NULL) {
-      array_splice($tools, 12, 0, [new GenerateRoomLayoutTool($generation)]);
+      array_splice($tools, 15, 0, [
+        new GenerateRoomLayoutTool($generation),
+        new GenerateCanonicalDefinitionTool($generation),
+      ]);
     }
     $this->registry = new EditorGmToolRegistry($tools, self::SUPPORTED_COMMAND_TYPES, 'room_editor_command.schema.json');
     $this->assembler = new RoomEditorGmContextAssembler($this->registry, $intentParser);

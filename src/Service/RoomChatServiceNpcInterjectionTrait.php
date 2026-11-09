@@ -37,7 +37,7 @@ trait RoomChatServiceNpcInterjectionTrait {
           $normalized_room_index = (int) $room_index;
           if (isset($dungeon_data['rooms'][$normalized_room_index]['conversation_state'])
             && is_array($dungeon_data['rooms'][$normalized_room_index]['conversation_state'])) {
-            $conversation_state = $dungeon_data['rooms'][$normalized_room_index]['conversation_state'];
+            $conversation_state = &$dungeon_data['rooms'][$normalized_room_index]['conversation_state'];
           }
         }
       }
@@ -1317,7 +1317,13 @@ PROMPT;
       return $this->finalizeRoomIntentDecision('ooc_meta', 'ooc_meta', $routing_context);
     }
 
-    if ($this->looksLikeGmAdjudicationQuery($player_message, $normalized)) {
+    if (
+      $this->looksLikeGmAdjudicationQuery($player_message, $normalized)
+      && (
+        $directly_addressed_npc === NULL
+        || (bool) preg_match('/(?:^|[.!?]\s+|,\s*)(?:gm|game master)\b\s*[,:-]?/iu', trim($player_message))
+      )
+    ) {
       return $this->finalizeRoomIntentDecision('gm_adjudication_query', 'gm_adjudication', $routing_context);
     }
 

@@ -22,6 +22,7 @@ final class GenerateItemDefinitionTool implements EditorGmToolInterface {
       'propose only; validate_definition/create_definition approval required',
       [
         EditorGmToolDefinition::argument('prompt', 'string', TRUE, 'Original item request, 1..2000 chars.'),
+        EditorGmToolDefinition::argument('definition_id', 'string', FALSE, 'Required canonical id when fulfilling an existing reference.'),
         EditorGmToolDefinition::argument('level', 'integer', FALSE, 'Item level 0..25, default 1.'),
         EditorGmToolDefinition::argument('rarity', 'string', FALSE, 'common|uncommon|rare|epic|legendary, default common.'),
         EditorGmToolDefinition::argument('item_type', 'string', FALSE, 'Canonical item type, default held_item.'),

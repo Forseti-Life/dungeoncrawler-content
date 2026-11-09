@@ -31,11 +31,11 @@ trait RoomChatServiceGmPipelineTrait {
       $is_room_entry,
       new GmTurnCoordinatorCallbacks(
         fn (int $callback_campaign_id, string $callback_room_id, array $callback_dungeon_data): array => $this->gatherRoomNpcsWithProfiles($callback_campaign_id, $callback_room_id, $callback_dungeon_data),
-        fn (array $callback_room_npcs, string $callback_latest_player_message): ?array => $this->resolveDirectlyAddressedNpc($callback_room_npcs, $callback_latest_player_message, FALSE),
-        fn (array $callback_room_meta, array $callback_room_npcs): ?array => $this->resolveExplicitRoomConversationNpc($callback_room_meta, $callback_room_npcs),
-        fn (array $callback_chat, array $callback_room_npcs): ?array => $this->resolveActiveDirectConversationNpc($callback_chat, $callback_room_npcs),
+        fn (array $callback_room_npcs, string $callback_latest_player_message): ?array => $channel === 'room' ? $this->resolveDirectlyAddressedNpc($callback_room_npcs, $callback_latest_player_message, FALSE) : NULL,
+        fn (array $callback_room_meta, array $callback_room_npcs): ?array => $channel === 'room' ? $this->resolveExplicitRoomConversationNpc($callback_room_meta, $callback_room_npcs) : NULL,
+        fn (array $callback_chat, array $callback_room_npcs): ?array => $channel === 'room' ? $this->resolveActiveDirectConversationNpc($callback_chat, $callback_room_npcs) : NULL,
         fn (string $callback_text): string => $this->normalizeNpcNameForMatch($callback_text),
-        fn (string $callback_latest_player_message, string $callback_normalized_player_message, array $callback_active_conversation_npc): bool => $this->shouldContinueActiveRoomConversation($callback_latest_player_message, $callback_normalized_player_message, $callback_active_conversation_npc),
+        fn (string $callback_latest_player_message, string $callback_normalized_player_message, array $callback_active_conversation_npc): bool => $channel === 'room' && $this->shouldContinueActiveRoomConversation($callback_latest_player_message, $callback_normalized_player_message, $callback_active_conversation_npc),
         fn (string $callback_latest_player_message, array $callback_room_npcs, ?array $callback_effective_direct_npc, ?array $callback_active_conversation_npc): string => $this->classifyRoomTurnIntent($callback_latest_player_message, $callback_room_npcs, $callback_effective_direct_npc, $callback_active_conversation_npc),
         fn (int $callback_campaign_id, string $callback_room_id, array $callback_room_meta, array $callback_dungeon_data, array $callback_room_npcs): array => $this->buildCachedRoomPromptArtifacts($callback_campaign_id, $callback_room_id, $callback_room_meta, $callback_dungeon_data, $callback_room_npcs),
         function (string $callback_stage, int $callback_started_at, array $callback_meta = []): void {
@@ -104,6 +104,10 @@ trait RoomChatServiceGmPipelineTrait {
       $session_context = $this->buildCompactSessionContext($session_key, $campaign_id, 2, 900, 320, FALSE);
       $actor_grounding = $this->buildRoomActorGroundingSummary($campaign_id, $room_id, $dungeon_data);
       $room_quest_context = $this->buildRoomQuestbookPromptContext($campaign_id, $room_id, $character_id);
+      $storyline_branch_context = $this->buildGmStorylineBranchPromptContext($campaign_id);
+      if ($storyline_branch_context !== '') {
+        $room_quest_context = trim($room_quest_context . "\n\n" . $storyline_branch_context);
+      }
 
       $prompt_artifact_payload = $this->gmPromptOrchestration->buildPromptArtifacts(
         $session_context,

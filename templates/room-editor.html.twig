@@ -97,6 +97,10 @@
           </select>
         </div>
         <p class="room-editor__catalog-selected" data-room-editor-catalog-selected>{{ 'No object selected for placement.'|t }}</p>
+        <div class="room-editor__catalog-actions">
+          <button type="button" class="room-editor__button" data-room-editor-action="catalog-create-definition">{{ 'New in Library ↗'|t }}</button>
+          <button type="button" class="room-editor__button" data-room-editor-action="catalog-edit-definition" disabled>{{ 'Edit Selected ↗'|t }}</button>
+        </div>
         <ul class="room-editor__catalog-list" data-room-editor-catalog-list role="listbox" aria-label="{{ 'Placeable objects'|t }}"></ul>
         <p class="room-editor__catalog-empty" data-room-editor-catalog-empty hidden>{{ 'No matching objects.'|t }}</p>
         <button type="button" class="room-editor__button room-editor__catalog-more" data-room-editor-action="catalog-more" hidden>{{ 'Load more'|t }}</button>
@@ -120,6 +124,30 @@
         <label class="room-editor__field">{{ 'Maximum hexes'|t }}<input type="number" data-room-editor-generation-max-hexes min="16" max="80" step="1" value="32"></label>
         <label class="room-editor__field">{{ 'Seed (optional)'|t }}<input type="number" data-room-editor-generation-seed min="0" max="2147483647" step="1"></label>
         <button type="button" class="room-editor__button room-editor__button--primary" data-room-editor-action="generate-room-layout">{{ 'Generate room plan'|t }}</button>
+      </section>
+
+      <section class="room-editor__drawer-section room-editor__definition-generation" data-room-editor-definition-generation aria-label="{{ 'Generate canonical object'|t }}">
+        <p class="room-editor__eyebrow">{{ 'Generate Library Object…'|t }}</p>
+        <label class="room-editor__field">{{ 'Family'|t }}
+          <select data-room-editor-defgen-family>
+            <option value="obstacle">{{ 'Obstacle / Object (table, chair, lava pit…)'|t }}</option>
+            <option value="hazard">{{ 'Hazard (environmental / complex)'|t }}</option>
+            <option value="trap">{{ 'Trap (mechanical / magical / haunt)'|t }}</option>
+            <option value="item">{{ 'Item'|t }}</option>
+            <option value="creature">{{ 'Creature'|t }}</option>
+            <option value="actor">{{ 'Actor / NPC'|t }}</option>
+          </select>
+        </label>
+        <label class="room-editor__field">{{ 'Prompt'|t }}
+          <textarea data-room-editor-defgen-prompt rows="2" maxlength="2000" placeholder="{{ 'Heavy oak banquet table, bubbling lava fissure, or poison dart glyph'|t }}"></textarea>
+        </label>
+        <label class="room-editor__field">{{ 'Category / Type / Role (optional)'|t }}
+          <input type="text" data-room-editor-defgen-subtype maxlength="100" placeholder="{{ 'table, decor, simple, mechanical, guardian…'|t }}">
+        </label>
+        <label class="room-editor__field">{{ 'Level'|t }}
+          <input type="number" data-room-editor-defgen-level min="-1" max="30" step="1" value="1">
+        </label>
+        <button type="button" class="room-editor__button room-editor__button--primary" data-room-editor-action="generate-canonical-definition">{{ 'Generate library object'|t }}</button>
       </section>
 
       <section class="room-editor__drawer-section" aria-label="{{ 'Editing tools'|t }}">
@@ -204,6 +232,7 @@
             <label class="room-editor__gm-dry-run">
               <input type="checkbox" data-room-editor-gm-dry-run> {{ 'Dry run'|t }}
             </label>
+            <span class="room-editor__hint">{{ 'Enter to send · Shift + Enter for a new line'|t }}</span>
             <button type="submit" class="room-editor__button room-editor__button--primary" data-room-editor-action="gm-send">{{ 'Send'|t }}</button>
           </div>
         </form>

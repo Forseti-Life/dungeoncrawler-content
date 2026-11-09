@@ -299,6 +299,50 @@ class QuestTrackerControllerTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::ingestTouchpoint
+   */
+  public function testIngestTouchpointRejectsCoordinatorOnlyItemMode(): void {
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($this->createMock(LoggerInterface::class));
+
+    $validation = $this->createMock(StateValidationService::class);
+    $validation->method('validateQuestTouchpointIngest')->willReturn(['valid' => TRUE]);
+    $touchpoint = $this->createMock(QuestTouchpointService::class);
+    $touchpoint->expects($this->never())->method('ingestEvent');
+
+    $container = new ContainerBuilder();
+    $container->set('dungeoncrawler_content.state_validation_service', $validation);
+    $container->set('dungeoncrawler_content.quest_touchpoint', $touchpoint);
+    \Drupal::setContainer($container);
+
+    $controller = new QuestTrackerController(
+      $this->createMock(Connection::class),
+      $logger_factory,
+      $this->createMock(RoomChatService::class),
+      $this->createMock(QuestGeneratorService::class),
+      $this->createMock(QuestTrackerService::class)
+    );
+    $response = $controller->ingestTouchpoint(85, Request::create(
+      '/api/campaign/85/quest-touchpoints',
+      'POST',
+      [],
+      [],
+      [],
+      [],
+      json_encode([
+        'character_id' => 99,
+        'touchpoint' => ['matching_mode' => 'canonical_item_interaction'],
+      ])
+    ));
+
+    $this->assertSame(400, $response->getStatusCode());
+    $this->assertSame(
+      'Canonical item interactions must originate from a player action',
+      json_decode($response->getContent(), TRUE)['error']
+    );
+  }
+
+  /**
    * @covers ::resolveTouchpointConfirmation
    */
   public function testResolveTouchpointConfirmationRejectsInvalidResolveContractPayload(): void {

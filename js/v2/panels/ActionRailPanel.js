@@ -10,7 +10,7 @@ import { collectCharacterSkillEntries, buildActionRailEntrySummary } from '../ut
 import { escapeQuestHtml } from '../utils/quest-utils.js';
 import { escapeTooltipAttr } from '../utils/dom-utils.js';
 import { buildActionRailContext } from '../services/action-rail-context-service.js?v=20260819-v2-action-rail-api-authority-1';
-import { buildNavigateActionRailPanel } from '../services/action-rail-navigate-panel-service.js?v=20260723-v2-nav-exit-numbering-4';
+import { buildNavigateActionRailPanel } from '../services/action-rail-navigate-panel-service.js?v=20261024-campaign-storylines-1';
 import {
   getActionRailDirectRoute,
   isActionRailSelectableAction,

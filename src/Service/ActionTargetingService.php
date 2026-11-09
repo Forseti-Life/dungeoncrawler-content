@@ -2,10 +2,45 @@
 
 namespace Drupal\dungeoncrawler_content\Service;
 
+use Drupal\Core\Database\Connection;
+
 /**
  * Shared target normalization + requirement policy for action intents.
  */
 class ActionTargetingService {
+
+  /**
+   * Resolve one canonical placement in the authoritative active room.
+   */
+  public static function findPlacedEntityInActiveRoom(Connection $database, array $dungeon_data, ?string $target_id): ?array {
+    if (!is_string($target_id) || $target_id === '') {
+      return NULL;
+    }
+    $campaign_id = $dungeon_data['campaign_id'] ?? NULL;
+    $active_room_id = $dungeon_data['active_room_id'] ?? NULL;
+    if (!is_int($campaign_id) || $campaign_id <= 0
+      || !is_string($active_room_id) || $active_room_id === '') {
+      throw new \DomainException('Published interaction has no campaign-scoped active room.');
+    }
+    $contents_json = $database->select('dc_campaign_rooms', 'r')
+      ->fields('r', ['contents_data'])
+      ->condition('r.campaign_id', $campaign_id)
+      ->condition('r.room_id', $active_room_id)
+      ->range(0, 1)->execute()->fetchField();
+    if ($contents_json === FALSE) {
+      throw new \RuntimeException("Campaign {$campaign_id} active room {$active_room_id} has no canonical contents.");
+    }
+    $contents = json_decode((string) $contents_json, TRUE, 512, JSON_THROW_ON_ERROR);
+    if (!is_array($contents) || !is_array($contents['entities'] ?? NULL)) {
+      throw new \UnexpectedValueException("Campaign {$campaign_id} active room {$active_room_id} has invalid canonical entities.");
+    }
+    foreach ($contents['entities'] as $entity) {
+      if (is_array($entity) && ($entity['instance_id'] ?? NULL) === $target_id) {
+        return $entity;
+      }
+    }
+    return NULL;
+  }
 
   /**
    * Resolve a stable target reference from intent-level or param-level payloads.

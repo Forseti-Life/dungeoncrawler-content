@@ -442,6 +442,10 @@ class NavigationService {
     $requires_interaction = self::resolveRequiresInteraction($connection);
     $destination_type = $this->resolveDestinationType($connection);
     $destination_id = $this->resolveDestinationId($connection, $target_room_id, $destination_type);
+    $from_dungeon_id = trim((string) ($connection['from_dungeon_id'] ?? $connection['dungeon_id'] ?? ''));
+    $to_dungeon_id = trim((string) ($connection['to_dungeon_id'] ?? ''));
+    $origin_dungeon_id = $travels_forward ? $from_dungeon_id : $to_dungeon_id;
+    $destination_dungeon_id = $travels_forward ? $to_dungeon_id : $from_dungeon_id;
     $distance = $this->resolveDistance($connection, $destination_type);
     $blocked_reason = self::resolveBlockedReason(
       $target_room_id,
@@ -453,7 +457,7 @@ class NavigationService {
       self::hasRoomRoadAnchorInPayload($dungeon_data, $room_id)
     );
 
-    return [
+    $capability = [
       'connection_id' => $this->deriveConnectionId($connection),
       'origin_room_id' => $room_id,
       'target_room_id' => $target_room_id,
@@ -472,6 +476,45 @@ class NavigationService {
       'target_hex' => $target_hex,
       'travel_time_seconds' => $this->resolveTravelSeconds($connection),
     ];
+    if ($destination_dungeon_id !== '' && $destination_dungeon_id !== $origin_dungeon_id) {
+      $capability['destination_dungeon_id'] = $destination_dungeon_id;
+      $capability['dungeon_switch'] = [
+        'dungeon_id' => $destination_dungeon_id,
+        'map_id' => $destination_dungeon_id,
+        'room_id' => $target_room_id,
+        'target_room_id' => $target_room_id,
+        'next_room_id' => '',
+      ];
+    }
+    return $capability;
+  }
+
+  /**
+   * Resolve a durable cross-dungeon switch for a traversed capability.
+   *
+   * @return array<string, mixed>|null
+   *   Existing client dungeon-switch contract, or NULL for same-dungeon travel.
+   */
+  public function buildDungeonSwitchForTransition(
+    array $dungeon_data,
+    string $origin_room_id,
+    string $target_room_id,
+  ): ?array {
+    $origin_room_id = trim($origin_room_id);
+    $target_room_id = trim($target_room_id);
+    if ($origin_room_id === '' || $target_room_id === '') {
+      return NULL;
+    }
+    foreach ($this->buildNavigationCapabilitiesWithRoadNetwork($dungeon_data, $origin_room_id) as $capability) {
+      if ((string) ($capability['target_room_id'] ?? '') !== $target_room_id) {
+        continue;
+      }
+      $switch = is_array($capability['dungeon_switch'] ?? NULL)
+        ? $capability['dungeon_switch']
+        : [];
+      return $switch !== [] ? $switch : NULL;
+    }
+    return NULL;
   }
 
   /**
@@ -1041,7 +1084,7 @@ class NavigationService {
    * Normalize canonical edge distance for one connection payload.
    */
   public static function normalizeDistance(array $connection, string $destination_type): int {
-    foreach (['distance', 'travel_distance', 'distance_units'] as $key) {
+    foreach (['distance', 'travel_distance', 'travel_cost', 'distance_units'] as $key) {
       if (isset($connection[$key]) && is_numeric($connection[$key])) {
         return max(0, (int) $connection[$key]);
       }

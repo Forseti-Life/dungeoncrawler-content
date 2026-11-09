@@ -19,7 +19,7 @@ final class GenerateRoomLayoutTool implements EditorGmToolInterface {
     return new EditorGmToolDefinition(
       'generate_room_layout',
       EditorGmToolDefinition::FAMILY_PLANNING,
-      'Generate an original room layout as a validating command_plan proposal; writes nothing until apply_room_commands is approved.',
+      'Generate one local room layout for placement inside a continuous dungeon site; cross-site travel is represented by dungeon connectors, not remote room exits.',
       FALSE,
       'propose only; execution requires preview_command_plan/apply_room_commands through RoomEditorService',
       [

@@ -13,6 +13,7 @@ use Drupal\dungeoncrawler_content\Exception\QuestTemplateReferenceIntegrityExcep
 use Drupal\dungeoncrawler_content\Geometry\RoomPlacementTransformer;
 use Drupal\dungeoncrawler_content\Service\Generation\CanonicalRoomProjectionService;
 use Drupal\dungeoncrawler_content\Service\Generation\RuntimeCanonicalContentResolver;
+use Drupal\dungeoncrawler_content\Service\ModuleConversion\ModuleConversionReleaseService;
 use Drupal\dungeoncrawler_content\Support\H3SpatialHelper;
 use Psr\Log\LoggerInterface;
 use Drupal\dungeoncrawler_content\Service\QuestGeneratorService;
@@ -76,6 +77,9 @@ class CampaignInitializationService {
   protected ?DungeonEditorService $dungeonEditor;
   protected ?RuntimeCanonicalContentResolver $runtimeCanonicalContentResolver;
   protected ?CanonicalRoomProjectionService $canonicalRoomProjection;
+  protected ?ModuleConversionReleaseService $moduleConversionReleaseService;
+  protected ?CanonicalQuestTemplateService $canonicalQuestTemplateService;
+  protected ?RoomStateService $roomStateService;
 
   public function __construct(
     Connection $database,
@@ -99,7 +103,10 @@ class CampaignInitializationService {
     ?ConfigFactoryInterface $config_factory = NULL,
     ?DungeonEditorService $dungeon_editor = NULL,
     ?RuntimeCanonicalContentResolver $runtime_canonical_content_resolver = NULL,
-    ?CanonicalRoomProjectionService $canonical_room_projection = NULL
+    ?CanonicalRoomProjectionService $canonical_room_projection = NULL,
+    ?ModuleConversionReleaseService $module_conversion_release_service = NULL,
+    ?CanonicalQuestTemplateService $canonical_quest_template_service = NULL,
+    ?RoomStateService $room_state_service = NULL
   ) {
     $this->database = $database;
     $this->uuid = $uuid;
@@ -123,6 +130,9 @@ class CampaignInitializationService {
     $this->dungeonEditor = $dungeon_editor;
     $this->runtimeCanonicalContentResolver = $runtime_canonical_content_resolver;
     $this->canonicalRoomProjection = $canonical_room_projection;
+    $this->moduleConversionReleaseService = $module_conversion_release_service;
+    $this->canonicalQuestTemplateService = $canonical_quest_template_service;
+    $this->roomStateService = $room_state_service;
   }
 
   /**
@@ -354,7 +364,7 @@ class CampaignInitializationService {
   /**
    * Initialize a campaign from a current published canonical dungeon version.
    *
-   * @param array{kind:string,dungeon_id:string,version_id:string} $source
+   * @param array{kind:string,dungeon_id:string,version_id:string,module_release_id?:string,module_id?:string,module_version?:string,module_archive_sha256?:string} $source
    *   Validated source selector.
    */
   private function initializeCampaignFromPublishedDungeon(
@@ -378,6 +388,7 @@ class CampaignInitializationService {
       $campaign_theme = $this->resolvePublishedDungeonTheme($aggregate);
       $campaign_name = trim($name) !== '' ? trim($name) : (string) $aggregate['name'];
       $campaign_profile = $this->buildPublishedDungeonCampaignProfile($published, $runtime_dungeon_id);
+      $module_quest = $this->resolvePublishedModuleQuest($published);
 
       $phase = 'create_campaign_record';
       $campaign_id = $this->createCampaign($uid, $campaign_name, $campaign_theme, $difficulty, $now, $campaign_profile);
@@ -406,6 +417,18 @@ class CampaignInitializationService {
         throw new \RuntimeException('campaign_source_room_instantiation_invalid: entrance placement was not materialized.');
       }
 
+      if ($module_quest !== NULL) {
+        $phase = 'seed_published_module_quest';
+        $this->seedPublishedModuleQuest($campaign_id, $module_quest['template_id'], $difficulty, $entrance_room_id, $runtime_dungeon_id);
+        if ($this->roomStateService === NULL) {
+          throw new \RuntimeException('campaign_source_module_quest_invalid: room discovery authority is required.');
+        }
+        $this->roomStateService->recordArrival($campaign_id, $entrance_room_id, $runtime_dungeon_id);
+      }
+      elseif ($this->roomStateService !== NULL) {
+        $this->roomStateService->recordArrival($campaign_id, $entrance_room_id, $runtime_dungeon_id);
+      }
+
       $phase = 'bootstrap_chat_sessions';
       $this->bootstrapChatSessions(
         $campaign_id,
@@ -419,12 +442,37 @@ class CampaignInitializationService {
       $phase = 'persist_campaign_active_state';
       $this->persistCampaignActiveState($campaign_id, $runtime_dungeon_id, $entrance_room_id, $now);
 
+      if (!$this->h3ProjectionQueue) {
+        throw new \RuntimeException('Published-dungeon campaign initialization contract violation: H3 projection provisioning service is required for launch readiness.');
+      }
+      $launch_slice_room_ids = array_keys($room_context['rooms_by_placement_id']);
+      if ($launch_slice_room_ids === []) {
+        throw new \RuntimeException('Published-dungeon campaign initialization contract violation: no runtime rooms to certify for launch.');
+      }
+      sort($launch_slice_room_ids);
+      $phase = 'provision_h3_launch_slice';
+      $launch_provisioning_result = $this->h3ProjectionQueue->provisionLaunchSliceNow(
+        $campaign_id,
+        $runtime_dungeon_id,
+        $launch_slice_room_ids
+      );
+      $canonical_graph_version = trim((string) ($launch_provisioning_result['canonical_graph_version'] ?? ''));
+      $campaign_graph_version = trim((string) ($launch_provisioning_result['campaign_graph_version'] ?? ''));
+      if ($canonical_graph_version === '' || $campaign_graph_version === '') {
+        throw new \RuntimeException('Published-dungeon campaign initialization contract violation: launch provisioning did not return graph versions.');
+      }
+
       $phase = 'complete_initialization_step';
+      $source_kind = isset($source['module_release_id']) ? 'module_release' : 'published_dungeon';
       $this->completeInitializationStep($campaign_id, self::INIT_STEP_BOOTSTRAP, $now, [
         'operation_uuid' => $operation_uuid,
-        'source_kind' => 'published_dungeon',
+        'source_kind' => $source_kind,
         'source_dungeon_id' => (string) $source['dungeon_id'],
         'source_version_id' => (string) $source['version_id'],
+        'module_release_id' => isset($source['module_release_id']) ? (string) $source['module_release_id'] : NULL,
+        'module_id' => isset($source['module_id']) ? (string) $source['module_id'] : NULL,
+        'module_version' => isset($source['module_version']) ? (string) $source['module_version'] : NULL,
+        'module_archive_sha256' => isset($source['module_archive_sha256']) ? (string) $source['module_archive_sha256'] : NULL,
         'runtime_dungeon_id' => $runtime_dungeon_id,
         'starter_room_id' => $entrance_room_id,
       ]);
@@ -433,18 +481,28 @@ class CampaignInitializationService {
       $this->persistCampaignInitPhase($campaign_id, self::INIT_PHASE_STRUCTURAL_READY, [
         'owner' => 'CampaignInitializationService',
         'ready_at' => gmdate('c', $now),
-        'source_kind' => 'published_dungeon',
+        'source_kind' => $source_kind,
         'source_dungeon_id' => (string) $source['dungeon_id'],
         'source_version_id' => (string) $source['version_id'],
+        'module_release_id' => isset($source['module_release_id']) ? (string) $source['module_release_id'] : NULL,
+        'module_id' => isset($source['module_id']) ? (string) $source['module_id'] : NULL,
+        'module_version' => isset($source['module_version']) ? (string) $source['module_version'] : NULL,
+        'module_archive_sha256' => isset($source['module_archive_sha256']) ? (string) $source['module_archive_sha256'] : NULL,
         'dungeon_id' => $runtime_dungeon_id,
         'runtime_dungeon_id' => $runtime_dungeon_id,
         'runtime_active_room_id' => $entrance_room_id,
         'starter_room_id' => $entrance_room_id,
         'operation_uuid' => $operation_uuid,
+        'launch_slice_room_ids' => $launch_slice_room_ids,
+        'launch_slice_scope_hash' => hash('sha256', implode(',', $launch_slice_room_ids)),
+        'launch_canonical_graph_version' => $canonical_graph_version,
+        'launch_campaign_graph_version' => $campaign_graph_version,
+        'launch_slice_certified_at' => gmdate('c', $now),
       ], $now);
 
-      $this->logger->info('Campaign {campaign_id} initialized from published dungeon {source_dungeon_id} version {source_version_id}', [
+      $this->logger->info('Campaign {campaign_id} initialized from source {source_kind} dungeon {source_dungeon_id} version {source_version_id}', [
         'campaign_id' => $campaign_id,
+        'source_kind' => $source_kind,
         'source_dungeon_id' => (string) $source['dungeon_id'],
         'source_version_id' => (string) $source['version_id'],
       ]);
@@ -475,7 +533,7 @@ class CampaignInitializationService {
    * dungeons are first published as canonical versions, then projected into
    * campaign runtime tables without a separate runtime dungeon generator.
    *
-   * @param array{kind:string,dungeon_id:string,version_id:string} $source
+   * @param array{kind:string,dungeon_id:string,version_id:string,module_release_id?:string,module_id?:string,module_version?:string,module_archive_sha256?:string} $source
    *   Published dungeon source selector.
    * @param array<string,mixed> $options
    *   Options: persist_dungeon (bool, default TRUE), persist_sparse_h3 (bool,
@@ -504,7 +562,7 @@ class CampaignInitializationService {
     try {
       $room_context = $this->canonicalRoomProjection()->instantiatePublishedDungeonCampaignRooms($campaign_id, $published, $now);
       $connections = $this->seedPublishedDungeonCampaignConnectors($campaign_id, $runtime_dungeon_id, $published, $room_context);
-      $dungeon_data = $this->buildPublishedCampaignDungeonData($runtime_dungeon_id, $published, $room_context['rooms'], $connections, $now);
+      $dungeon_data = $this->buildPublishedCampaignDungeonData($campaign_id, $runtime_dungeon_id, $published, $room_context['rooms'], $connections, $now);
 
       if (($options['persist_dungeon'] ?? TRUE) !== FALSE) {
         $this->persistPublishedCampaignDungeon($campaign_id, $runtime_dungeon_id, $published, $dungeon_data, $now);
@@ -629,7 +687,7 @@ class CampaignInitializationService {
   /**
    * Normalize the caller-selected campaign source.
    *
-   * @return array{kind:string,theme?:string,dungeon_id?:string,version_id?:string}
+   * @return array{kind:string,theme?:string,dungeon_id?:string,version_id?:string,module_release_id?:string,module_id?:string,module_version?:string,module_archive_sha256?:string}
    *   Validated source selector.
    */
   private function normalizeCampaignSource(?array $source, string $theme): array {
@@ -657,6 +715,22 @@ class CampaignInitializationService {
         'version_id' => $version_id,
       ];
     }
+    if ($kind === 'module_release') {
+      $release_id = trim((string) ($source['release_id'] ?? ''));
+      if ($release_id === '') {
+        throw new \RuntimeException('campaign_source_invalid: module_release source requires release_id.');
+      }
+      $resolved = $this->moduleConversionReleaseService()->resolveCampaignSource($release_id);
+      return [
+        'kind' => 'published_dungeon',
+        'dungeon_id' => (string) $resolved['dungeon_id'],
+        'version_id' => (string) $resolved['version_id'],
+        'module_release_id' => (string) $resolved['release_id'],
+        'module_id' => (string) $resolved['module_id'],
+        'module_version' => (string) $resolved['module_version'],
+        'module_archive_sha256' => (string) $resolved['archive_sha256'],
+      ];
+    }
 
     throw new \RuntimeException(sprintf('campaign_source_invalid: unsupported source kind "%s".', $kind !== '' ? $kind : 'missing'));
   }
@@ -664,7 +738,7 @@ class CampaignInitializationService {
   /**
    * Resolve and validate a published canonical dungeon source.
    *
-   * @param array{kind:string,dungeon_id:string,version_id:string} $source
+   * @param array{kind:string,dungeon_id:string,version_id:string,module_release_id?:string,module_id?:string,module_version?:string,module_archive_sha256?:string} $source
    *   Published dungeon source selector.
    *
    * @return array<string,mixed>
@@ -672,6 +746,170 @@ class CampaignInitializationService {
    */
   private function resolvePublishedDungeonSource(array $source): array {
     return $this->runtimeCanonicalContentResolver()->resolvePublishedDungeonSource($source);
+  }
+
+  /**
+   * Validate a release-pinned quest against its canonical scene objectives.
+   *
+   * A generic published dungeon never implicitly acquires a module quest.
+   * Every scene placement must have an actionable canonical objective.
+   */
+  private function resolvePublishedModuleQuest(array $published): ?array {
+    $source = $published['source'] ?? [];
+    if (trim((string) ($source['module_release_id'] ?? '')) === '') {
+      return NULL;
+    }
+
+    $aggregate = $published['aggregate'] ?? [];
+    $conversion = $aggregate['metadata']['module_conversion'] ?? NULL;
+    if (!is_array($conversion) || ($conversion['execution_mode'] ?? NULL) !== 'original_scene_generation') {
+      throw new \RuntimeException('campaign_source_module_quest_invalid: verified module release requires original scene metadata.');
+    }
+    if (!array_key_exists('quest_template_id', $conversion)) {
+      if (array_key_exists('scene_objectives', $conversion)) {
+        throw new \RuntimeException('campaign_source_module_quest_invalid: scene objectives require a quest template reference.');
+      }
+      return NULL;
+    }
+
+    $template_id = $conversion['quest_template_id'];
+    if (!is_string($template_id) || trim($template_id) === '' || array_key_exists('scene_objectives', $conversion)) {
+      throw new \RuntimeException('campaign_source_module_quest_invalid: use a nonempty canonical quest_template_id; scene objectives belong to the canonical template.');
+    }
+    $template_id = trim($template_id);
+    $placements = [];
+    foreach (($aggregate['room_placements'] ?? []) as $placement) {
+      if (!is_array($placement) || !is_string($placement['placement_id'] ?? NULL) || trim($placement['placement_id']) === '') {
+        throw new \RuntimeException('campaign_source_module_quest_invalid: room placement is malformed.');
+      }
+      $placements[$placement['placement_id']] = TRUE;
+    }
+
+    $templates = $this->database->select('dc_canonical_quests', 'q')
+      ->fields('q', ['template_id', 'version', 'objectives_schema'])
+      ->condition('template_id', $template_id)
+      ->range(0, 2)
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+    if (count($templates) !== 1 || !is_array($templates[0]) || ($templates[0]['template_id'] ?? NULL) !== $template_id) {
+      throw new \RuntimeException('campaign_source_module_quest_invalid: expected exactly one canonical quest template version.');
+    }
+    $template = $templates[0];
+    if ($this->canonicalQuestTemplateService === NULL) {
+      throw new \RuntimeException('campaign_source_module_quest_invalid: canonical quest template authority is required.');
+    }
+    $canonical_ref = $this->canonicalQuestTemplateService->requireCanonicalQuestTemplateRef($template_id, (string) ($template['version'] ?? ''));
+    if ($canonical_ref['template_id'] !== $template_id || $canonical_ref['version'] !== ($template['version'] ?? NULL)) {
+      throw new \RuntimeException('campaign_source_module_quest_invalid: canonical quest template binding changed.');
+    }
+    try {
+      $phases = json_decode((string) ($template['objectives_schema'] ?? ''), TRUE, 512, JSON_THROW_ON_ERROR);
+    }
+    catch (\JsonException $e) {
+      throw new \RuntimeException('campaign_source_module_quest_invalid: canonical quest objectives are invalid.', 0, $e);
+    }
+    if (!is_array($phases) || !array_is_list($phases) || $phases === []) {
+      throw new \RuntimeException('campaign_source_module_quest_invalid: canonical quest objectives are missing.');
+    }
+    $canonical = [];
+    $actionable_placements = [];
+    foreach ($phases as $phase) {
+      if (!is_array($phase) || !is_array($phase['objectives'] ?? NULL) || $phase['objectives'] === []) {
+        throw new \RuntimeException('campaign_source_module_quest_invalid: canonical quest phase is malformed.');
+      }
+      $this->collectPublishedModuleQuestObjectives($phase['objectives'], $placements, $canonical, $actionable_placements);
+    }
+    if ($canonical === []) {
+      throw new \RuntimeException('campaign_source_module_quest_invalid: canonical quest has no scene objectives.');
+    }
+    if (array_diff_key($placements, $actionable_placements) !== []) {
+      throw new \RuntimeException('campaign_source_module_quest_invalid: every pinned scene placement requires an actionable canonical objective destination.');
+    }
+    return ['template_id' => $template_id];
+  }
+
+  /**
+   * Offer a verified module quest through the existing quest lifecycle.
+   */
+  private function seedPublishedModuleQuest(int $campaign_id, string $template_id, string $difficulty, string $entrance_room_id, string $runtime_dungeon_id): void {
+    $this->storylineQuestLifecycleService->ensureOfferedQuestFromTemplate(
+      $campaign_id,
+      $template_id,
+      fn(): array => $this->questGenerator->generateQuestFromTemplate(
+        $template_id,
+        $campaign_id,
+        [
+          'party_level' => 1,
+          'difficulty' => match ($difficulty) {
+            'hard' => 'severe',
+            'extreme' => 'extreme',
+            default => 'moderate',
+          },
+          'location' => $entrance_room_id,
+          'dungeon_id' => $runtime_dungeon_id,
+          'initial_status' => 'offered',
+        ]
+      )
+    );
+  }
+
+  /**
+   * Collect nested canonical objectives and their pinned destinations.
+   */
+  private function collectPublishedModuleQuestObjectives(array $objectives, array $placements, array &$canonical, array &$actionable_placements): void {
+    foreach ($objectives as $objective) {
+      if (!is_array($objective) || !is_string($objective['objective_id'] ?? NULL)) {
+        throw new \RuntimeException('campaign_source_module_quest_invalid: canonical objective is malformed.');
+      }
+      $id = trim($objective['objective_id']);
+      if ($id === '' || isset($canonical[$id])) {
+        throw new \RuntimeException('campaign_source_module_quest_invalid: canonical objective id is not unique.');
+      }
+      $type = $objective['type'] ?? NULL;
+      if (array_key_exists('location', $objective)
+        && (!is_string($objective['location']) || !is_string($objective['location_id'] ?? NULL)
+          || $objective['location'] !== $objective['location_id']
+          || !isset($placements[$objective['location']]))) {
+        throw new \RuntimeException('campaign_source_module_quest_invalid: location must equal a pinned placement location_id.');
+      }
+      if (is_string($type) && in_array(strtolower(trim($type)), ['explore', 'travel'], TRUE)
+        && (!array_key_exists('location', $objective) || !array_key_exists('location_id', $objective))) {
+        throw new \RuntimeException('campaign_source_module_quest_invalid: explore objectives require both location and location_id.');
+      }
+      $destinations = [];
+      foreach (['location', 'location_id', 'destination', 'destination_id'] as $field) {
+        if (array_key_exists($field, $objective)) {
+          $destination = $objective[$field];
+          if (!is_string($destination) || !isset($placements[trim($destination)])) {
+            throw new \RuntimeException('campaign_source_module_quest_invalid: canonical objective references an unpinned scene placement.');
+          }
+          if ($field === 'location_id' || $field === 'destination_id') {
+            $destinations[] = trim($destination);
+          }
+        }
+      }
+      $composite = is_string($type) && in_array(strtolower(trim($type)), ['composite', 'group', 'objective'], TRUE);
+      if ($destinations === [] && (!$composite || empty($objective['children']))) {
+        throw new \RuntimeException('campaign_source_module_quest_invalid: canonical objective has no scene destination.');
+      }
+      $criteria = $objective['completion_criteria'] ?? NULL;
+      if (is_string($type) && trim($type) !== ''
+        && !$composite
+        && is_array($criteria) && trim((string) ($criteria['kind'] ?? '')) !== ''
+        && trim((string) ($criteria['metric'] ?? '')) !== ''
+        && trim((string) ($objective['next_step'] ?? '')) !== '') {
+        foreach ($destinations as $destination) {
+          $actionable_placements[$destination] = TRUE;
+        }
+      }
+      $canonical[$id] = TRUE;
+      if (isset($objective['children'])) {
+        if (!is_array($objective['children'])) {
+          throw new \RuntimeException('campaign_source_module_quest_invalid: canonical objective children are malformed.');
+        }
+        $this->collectPublishedModuleQuestObjectives($objective['children'], $placements, $canonical, $actionable_placements);
+      }
+    }
   }
 
   /**
@@ -696,6 +934,10 @@ class CampaignInitializationService {
         'dungeon_id' => (string) $published['source']['dungeon_id'],
         'version_id' => (string) $published['source']['version_id'],
         'version' => (string) ($published['version_row']['version'] ?? ''),
+        'module_release_id' => (string) ($published['source']['module_release_id'] ?? ''),
+        'module_id' => (string) ($published['source']['module_id'] ?? ''),
+        'module_version' => (string) ($published['source']['module_version'] ?? ''),
+        'module_archive_sha256' => (string) ($published['source']['module_archive_sha256'] ?? ''),
       ],
       'narrative_hub_policy' => [
         'primary_room_id' => $entrance_room_id,
@@ -734,6 +976,13 @@ class CampaignInitializationService {
       throw new \RuntimeException('campaign_source_room_instantiation_invalid: CanonicalRoomProjectionService is required for published canonical projection.');
     }
     return $this->canonicalRoomProjection;
+  }
+
+  private function moduleConversionReleaseService(): ModuleConversionReleaseService {
+    if (!$this->moduleConversionReleaseService) {
+      throw new \RuntimeException('campaign_source_invalid: ModuleConversionReleaseService is required for module_release source resolution.');
+    }
+    return $this->moduleConversionReleaseService;
   }
 
   /**
@@ -887,7 +1136,7 @@ class CampaignInitializationService {
    * Persist the campaign dungeon row for a published source.
    */
   private function createPublishedCampaignDungeon(int $campaign_id, string $runtime_dungeon_id, array $published, array $rooms, array $connections, int $now): array {
-    $dungeon_data = $this->buildPublishedCampaignDungeonData($runtime_dungeon_id, $published, $rooms, $connections, $now);
+    $dungeon_data = $this->buildPublishedCampaignDungeonData($campaign_id, $runtime_dungeon_id, $published, $rooms, $connections, $now);
     $this->persistPublishedCampaignDungeon($campaign_id, $runtime_dungeon_id, $published, $dungeon_data, $now);
     return $dungeon_data;
   }
@@ -895,13 +1144,14 @@ class CampaignInitializationService {
   /**
    * Build the runtime dungeon_data payload for a published source.
    */
-  private function buildPublishedCampaignDungeonData(string $runtime_dungeon_id, array $published, array $rooms, array $connections, int $now): array {
+  private function buildPublishedCampaignDungeonData(int $campaign_id, string $runtime_dungeon_id, array $published, array $rooms, array $connections, int $now): array {
     $aggregate = $published['aggregate'];
     $entrance_room_id = (string) $published['entrance_placement']['placement_id'];
     $theme = $this->resolvePublishedDungeonTheme($aggregate);
     return [
       'schema_version' => '1.0.0',
       'source_schema_version' => (string) ($aggregate['schema_version'] ?? ''),
+      'campaign_id' => $campaign_id,
       'dungeon_id' => $runtime_dungeon_id,
       'source_dungeon_id' => (string) $published['source']['dungeon_id'],
       'source_version_id' => (string) $published['source']['version_id'],
@@ -1453,7 +1703,12 @@ class CampaignInitializationService {
       if ($connected_runtime_room_id !== '') {
         $region_room_ids[] = $connected_runtime_room_id;
       }
-      $connections = $this->buildStarterCanonicalConnections($runtime_room_id, $connected_runtime_room_id);
+      $connections = $this->buildStarterCanonicalConnections(
+        $runtime_room_id,
+        $connected_runtime_room_id,
+        (string) ($room_payload['source_room_id'] ?? $runtime_room_id),
+        (string) ($connected_room_payload['source_room_id'] ?? $connected_runtime_room_id)
+      );
     }
 
     $dungeon_data = [
@@ -1520,7 +1775,12 @@ class CampaignInitializationService {
    * @return array<int, array<string, mixed>>
    *   Canonical starter connections for payload mirroring.
    */
-  private function buildStarterCanonicalConnections(string $starter_room_id, string $connected_room_id = self::STARTER_CITY_STREETS_ROOM_ID): array {
+  private function buildStarterCanonicalConnections(
+    string $starter_room_id,
+    string $connected_room_id = self::STARTER_CITY_STREETS_ROOM_ID,
+    string $starter_source_room_id = '',
+    string $connected_source_room_id = ''
+  ): array {
     $starter_room_id = trim($starter_room_id);
     $connected_room_id = trim($connected_room_id);
     if ($starter_room_id === '') {
@@ -1529,14 +1789,24 @@ class CampaignInitializationService {
     if ($connected_room_id === '') {
       throw new \RuntimeException('Starter dungeon contract violation: connected room id is required for canonical starter connections.');
     }
-
-    $canonical_match = $this->resolveCanonicalStarterConnector($starter_room_id, $connected_room_id);
+    $starter_source_room_id = trim($starter_source_room_id) !== '' ? trim($starter_source_room_id) : $starter_room_id;
+    $connected_source_room_id = trim($connected_source_room_id) !== '' ? trim($connected_source_room_id) : $connected_room_id;
+    $canonical_match = $this->resolveCanonicalStarterConnectorForRuntimePair(
+      $starter_room_id,
+      $connected_room_id,
+      $starter_source_room_id,
+      $connected_source_room_id
+    );
     return [[
       'connection_id' => (string) ($canonical_match['connection_id'] ?? ''),
       'from_room' => (string) ($canonical_match['from_room_id'] ?? $starter_room_id),
       'from_room_id' => (string) ($canonical_match['from_room_id'] ?? $starter_room_id),
       'to_room' => (string) ($canonical_match['to_room_id'] ?? $connected_room_id),
       'to_room_id' => (string) ($canonical_match['to_room_id'] ?? $connected_room_id),
+      'from_source_room_id' => $starter_source_room_id,
+      'to_source_room_id' => $connected_source_room_id,
+      'canonical_from_room_id' => (string) ($canonical_match['canonical_from_room_id'] ?? $starter_source_room_id),
+      'canonical_to_room_id' => (string) ($canonical_match['canonical_to_room_id'] ?? $connected_source_room_id),
       'type' => (string) ($canonical_match['kind'] ?? 'hallway'),
       'kind' => (string) ($canonical_match['kind'] ?? 'hallway'),
       'state' => (string) ($canonical_match['state'] ?? $canonical_match['default_state'] ?? 'open'),
@@ -1607,6 +1877,8 @@ class CampaignInitializationService {
         $starter_connections[] = [
           'from_room_id' => $from_room_id,
           'to_room_id' => $to_room_id,
+          'from_source_room_id' => trim((string) ($connection['from_source_room_id'] ?? $from_room_id)),
+          'to_source_room_id' => trim((string) ($connection['to_source_room_id'] ?? $to_room_id)),
           'connection_id' => trim((string) ($connection['connection_id'] ?? '')),
         ];
       }
@@ -1624,7 +1896,14 @@ class CampaignInitializationService {
     foreach ($starter_connections as $starter_connection) {
       $from_room_id = (string) $starter_connection['from_room_id'];
       $to_room_id = (string) $starter_connection['to_room_id'];
-      $canonical_match = $this->resolveCanonicalStarterConnector($from_room_id, $to_room_id);
+      $from_source_room_id = trim((string) ($starter_connection['from_source_room_id'] ?? $from_room_id));
+      $to_source_room_id = trim((string) ($starter_connection['to_source_room_id'] ?? $to_room_id));
+      $canonical_match = $this->resolveCanonicalStarterConnectorForRuntimePair(
+        $from_room_id,
+        $to_room_id,
+        $from_source_room_id,
+        $to_source_room_id
+      );
 
       $connection_id = (string) ($starter_connection['connection_id'] ?? '');
       if ($connection_id === '') {
@@ -1885,6 +2164,56 @@ class CampaignInitializationService {
   }
 
   /**
+   * Resolve canonical starter connector for runtime ids using source-id fallback.
+   */
+  private function resolveCanonicalStarterConnectorForRuntimePair(
+    string $runtime_from_room_id,
+    string $runtime_to_room_id,
+    string $source_from_room_id,
+    string $source_to_room_id
+  ): array {
+    if (!$this->connectorDefinitionService) {
+      throw new \RuntimeException('Starter connector authority contract violation: ConnectorDefinitionService is required.');
+    }
+
+    $runtime_from_room_id = trim($runtime_from_room_id);
+    $runtime_to_room_id = trim($runtime_to_room_id);
+    $source_from_room_id = trim($source_from_room_id) !== '' ? trim($source_from_room_id) : $runtime_from_room_id;
+    $source_to_room_id = trim($source_to_room_id) !== '' ? trim($source_to_room_id) : $runtime_to_room_id;
+    $canonical_connectors = $this->connectorDefinitionService->loadCanonicalConnectorsForDungeon(self::STARTER_CANONICAL_CONNECTOR_DUNGEON_ID);
+    if ($canonical_connectors === []) {
+      throw new \RuntimeException(sprintf(
+        'Starter connector authority contract violation: canonical connector table is empty for %s.',
+        self::STARTER_CANONICAL_CONNECTOR_DUNGEON_ID
+      ));
+    }
+
+    $canonical_match = $this->matchCanonicalStarterConnector($canonical_connectors, $runtime_from_room_id, $runtime_to_room_id);
+    if (
+      $canonical_match === NULL
+      && !($source_from_room_id === $runtime_from_room_id && $source_to_room_id === $runtime_to_room_id)
+    ) {
+      $canonical_match = $this->matchCanonicalStarterConnector($canonical_connectors, $source_from_room_id, $source_to_room_id);
+    }
+    if ($canonical_match === NULL) {
+      throw new \RuntimeException(sprintf(
+        'Starter connector authority contract violation: canonical connector missing for runtime %s <-> %s (source %s <-> %s) in %s.',
+        $runtime_from_room_id,
+        $runtime_to_room_id,
+        $source_from_room_id,
+        $source_to_room_id,
+        self::STARTER_CANONICAL_CONNECTOR_DUNGEON_ID
+      ));
+    }
+
+    $canonical_match['canonical_from_room_id'] = (string) ($canonical_match['from_room_id'] ?? $source_from_room_id);
+    $canonical_match['canonical_to_room_id'] = (string) ($canonical_match['to_room_id'] ?? $source_to_room_id);
+    $canonical_match['from_room_id'] = $runtime_from_room_id;
+    $canonical_match['to_room_id'] = $runtime_to_room_id;
+    return $canonical_match;
+  }
+
+  /**
    * Resolve canonical starter connector payload and normalize endpoint direction.
    */
   private function matchCanonicalStarterConnector(array $canonical_connectors, string $from_room_id, string $to_room_id): ?array {
@@ -1940,6 +2269,7 @@ class CampaignInitializationService {
       ));
     }
 
+    $fixed_h3_by_coordinate = $this->starterRoomFixedH3ByCoordinate($room_id);
     foreach ($hexes as $hex_index => &$hex) {
       if (!is_array($hex) || !is_numeric($hex['q'] ?? NULL) || !is_numeric($hex['r'] ?? NULL)) {
         throw new \RuntimeException(sprintf(
@@ -1950,6 +2280,10 @@ class CampaignInitializationService {
         ));
       }
       $h3_index = trim((string) ($hex['h3_index_res14'] ?? $hex['h3_index'] ?? ''));
+      if ($h3_index === '') {
+        $coordinate_key = ((int) $hex['q']) . ':' . ((int) $hex['r']);
+        $h3_index = trim((string) ($fixed_h3_by_coordinate[$coordinate_key] ?? ''));
+      }
       if ($h3_index === '') {
         throw new \RuntimeException(sprintf(
           'H3 fixed-data contract violation: starter dungeon %s room %s hex[%d] is missing h3_index_res14/h3_index.',
@@ -1971,6 +2305,41 @@ class CampaignInitializationService {
 
     $room['hexes'] = $hexes;
     return $room;
+  }
+
+  /**
+   * Resolve fixed H3 indexes for a starter room by source q/r coordinate.
+   *
+   * @return array<string,string>
+   *   Map key "{q}:{r}" => lowercase h3 index.
+   */
+  private function starterRoomFixedH3ByCoordinate(string $room_id): array {
+    $room_id = trim($room_id);
+    if ($room_id === '') {
+      return [];
+    }
+    if (!$this->database->schema()->tableExists('dungeoncrawler_content_h3_room_cells')) {
+      return [];
+    }
+
+    $rows = $this->database->select('dungeoncrawler_content_h3_room_cells', 'c')
+      ->fields('c', ['source_q', 'source_r', 'h3_index', 'updated'])
+      ->condition('room_id', $room_id)
+      ->condition('cell_role', 'room_hex')
+      ->condition('h3_index', '', '<>')
+      ->orderBy('updated', 'DESC')
+      ->execute()
+      ->fetchAll();
+
+    $map = [];
+    foreach ($rows as $row) {
+      $key = ((int) ($row->source_q ?? 0)) . ':' . ((int) ($row->source_r ?? 0));
+      if (isset($map[$key])) {
+        continue;
+      }
+      $map[$key] = strtolower(trim((string) ($row->h3_index ?? '')));
+    }
+    return $map;
   }
 
   /**
@@ -2326,7 +2695,8 @@ class CampaignInitializationService {
       ));
     }
 
-    if ((int) ($layout_data['width'] ?? 0) !== 8 || (int) ($layout_data['height'] ?? 0) !== 8) {
+    [$layout_width, $layout_height] = $this->starterLayoutDimensions($layout_data);
+    if ($layout_width !== 8 || $layout_height !== 8) {
       throw new \RuntimeException('Undead crypt starter contract violation: layout dimensions must be 8x8 (40x40 feet).');
     }
 
@@ -2336,10 +2706,12 @@ class CampaignInitializationService {
       if (!is_array($entry)) {
         continue;
       }
+      $entry_side = strtolower(trim((string) ($entry['side'] ?? $entry['edge'] ?? '')));
+      $is_west_entry = $entry_side === 'west' || $entry_side === '2';
       if (
         (int) ($entry['q'] ?? 999) === -4
         && (int) ($entry['r'] ?? 999) === 0
-        && strtolower(trim((string) ($entry['side'] ?? ''))) === 'west'
+        && $is_west_entry
       ) {
         $has_west_entry = TRUE;
         break;
@@ -2370,6 +2742,7 @@ class CampaignInitializationService {
           break;
         }
       }
+
       if (!is_array($matched)) {
         throw new \RuntimeException(sprintf(
           'Undead crypt starter contract violation: required NPC %s is missing from contents_data.npcs.',
@@ -2387,13 +2760,42 @@ class CampaignInitializationService {
           (int) $position['r']
         ));
       }
-      if (!$this->isStarterNpcHostileAttitude((string) ($matched['attitude'] ?? ''))) {
-        throw new \RuntimeException(sprintf(
-          'Undead crypt starter contract violation: NPC %s must be hostile.',
-          $content_id
-        ));
-      }
     }
+  }
+
+  /**
+   * Resolve starter layout dimensions from explicit metadata or hex bounds.
+   *
+   * @return array{0:int,1:int}
+   *   Width/height dimensions.
+   */
+  private function starterLayoutDimensions(array $layout_data): array {
+    $width = (int) ($layout_data['width'] ?? 0);
+    $height = (int) ($layout_data['height'] ?? 0);
+    if ($width > 0 && $height > 0) {
+      return [$width, $height];
+    }
+
+    $hexes = is_array($layout_data['hexes'] ?? NULL) ? $layout_data['hexes'] : [];
+    $min_q = NULL;
+    $max_q = NULL;
+    $min_r = NULL;
+    $max_r = NULL;
+    foreach ($hexes as $hex) {
+      if (!is_array($hex) || !is_numeric($hex['q'] ?? NULL) || !is_numeric($hex['r'] ?? NULL)) {
+        continue;
+      }
+      $q = (int) $hex['q'];
+      $r = (int) $hex['r'];
+      $min_q = $min_q === NULL ? $q : min($min_q, $q);
+      $max_q = $max_q === NULL ? $q : max($max_q, $q);
+      $min_r = $min_r === NULL ? $r : min($min_r, $r);
+      $max_r = $max_r === NULL ? $r : max($max_r, $r);
+    }
+    if ($min_q === NULL || $max_q === NULL || $min_r === NULL || $max_r === NULL) {
+      return [0, 0];
+    }
+    return [($max_q - $min_q) + 1, ($max_r - $min_r) + 1];
   }
 
   /**
@@ -2401,14 +2803,6 @@ class CampaignInitializationService {
    */
   private function loadStarterCityStreetsRoomSeed(): ?array {
     return $this->loadStarterConnectedRoomSeed(self::STARTER_CITY_STREETS_ROOM_ID);
-  }
-
-  /**
-   * Resolve whether starter NPC attitude satisfies hostile contract gate.
-   */
-  private function isStarterNpcHostileAttitude(string $attitude): bool {
-    $score = DispositionAuthorityContract::attitudeToScore($attitude);
-    return $score !== NULL && DispositionAuthorityContract::isHostileScore($score);
   }
 
   /**
@@ -2682,6 +3076,7 @@ class CampaignInitializationService {
         'is_cleared' => 0,
         'fog_state' => json_encode([
           'visibility' => 'initial',
+          'explored' => TRUE,
           'discovered_hexes' => [],
           'runtime_room_items_seeded' => TRUE,
         ]),
@@ -2692,6 +3087,7 @@ class CampaignInitializationService {
 
     // Create content objects
     foreach ((array) ($contents_data['items'] ?? []) as $item) {
+      $item = $this->hydrateStarterItemSeedFromCanonicalRegistry(is_array($item) ? $item : []);
       $item_type = strtolower(trim((string) ($item['type'] ?? '')));
       $quest_association = trim((string) ($item['quest_association'] ?? ''));
       $item_tags = array_values(array_unique(array_filter(array_map(
@@ -2711,7 +3107,7 @@ class CampaignInitializationService {
 
       $schema_data = [
         'position' => $item['position'] ?? [],
-        'description' => $item['name'] ?? '',
+        'description' => $item['description'] ?? ($item['name'] ?? ''),
         'quest_association' => $quest_association !== '' ? $quest_association : NULL,
       ];
 
@@ -3569,8 +3965,78 @@ class CampaignInitializationService {
       (int) $npc['stats']['currentHp'],
       (int) ($npc['stats']['maxHp'] ?? $canonical_definition['stats']['maxHp'] ?? 0)
     );
+    if (empty($npc['quests']) || !is_array($npc['quests'])) {
+      $npc['quests'] = match ($content_id) {
+        'tavern_keeper' => [
+          ['quest_id' => 'gather_wine', 'title' => 'Collect Wine Bottles', 'description' => 'Eldric needs wine bottles for the evening service'],
+          ['quest_id' => 'gather_torch_components', 'title' => 'Gather Torch Materials', 'description' => 'Help brighten the tavern by collecting torch components'],
+          ['quest_id' => 'tavern_storyline_leads', 'title' => 'Ask About Storyline Leads', 'description' => 'Get Eldric\'s latest actionable leads and choose which thread to pursue.'],
+        ],
+        'scholar_npc' => [
+          ['quest_id' => 'collect_spellbooks', 'title' => 'Recover Lost Spellbook', 'description' => 'Marta seeks a missing spellbook in the tavern'],
+          ['quest_id' => 'stabilize_arcane_resonance', 'title' => 'Stabilize Arcane Resonance', 'description' => 'Help Marta collect resonance samples and stabilize the codex\'s ambient magical feedback.'],
+        ],
+        'gribbles_rindsworth' => [
+          ['quest_id' => 'follow_the_whispers', 'title' => 'Follow the Whispers', 'description' => 'Track suspicious tavern rumors to identify who is moving contraband arcana through town.'],
+          ['quest_id' => 'recover_blackmail_ledger', 'title' => 'Recover Blackmail Ledger', 'description' => 'Retrieve Gribbles\' stolen ledger before rival brokers weaponize its secrets.'],
+        ],
+        default => [],
+      };
+    }
 
     return $npc;
+  }
+
+  /**
+   * Hydrate starter item payload from canonical registry when room seed is sparse.
+   */
+  private function hydrateStarterItemSeedFromCanonicalRegistry(array $item): array {
+    $content_id = trim((string) ($item['content_id'] ?? ''));
+    if ($content_id === '') {
+      return $item;
+    }
+    $row = $this->database->select('dungeoncrawler_content_registry', 'r')
+      ->fields('r', ['name', 'tags', 'schema_data'])
+      ->condition('content_type', 'item')
+      ->condition('content_id', $content_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!is_array($row)) {
+      return $item;
+    }
+    $schema_data = json_decode((string) ($row['schema_data'] ?? '{}'), TRUE);
+    if (!is_array($schema_data)) {
+      $schema_data = [];
+    }
+    $tags = json_decode((string) ($row['tags'] ?? '[]'), TRUE);
+    if (!is_array($tags)) {
+      $tags = is_array($schema_data['tags'] ?? NULL) ? $schema_data['tags'] : [];
+    }
+    $quest_association = trim((string) ($item['quest_association'] ?? $schema_data['quest_association'] ?? ''));
+    if ($quest_association !== '') {
+      $item['quest_association'] = $quest_association;
+      if (!in_array($quest_association, $tags, TRUE)) {
+        $tags[] = $quest_association;
+      }
+    }
+    $item_type = trim((string) ($item['type'] ?? $schema_data['item_type'] ?? $schema_data['type'] ?? ''));
+    if ($item_type !== '') {
+      $item['type'] = $item_type;
+      if ($item_type === 'collectible_item' && !in_array('collectible', $tags, TRUE)) {
+        $tags[] = 'collectible';
+      }
+    }
+    if (trim((string) ($item['name'] ?? '')) === '' || trim((string) ($item['name'] ?? '')) === 'Unknown') {
+      $item['name'] = trim((string) ($row['name'] ?? $schema_data['name'] ?? $content_id));
+    }
+    if (trim((string) ($item['description'] ?? '')) === '') {
+      $item['description'] = trim((string) ($schema_data['description'] ?? $item['name'] ?? ''));
+    }
+    if (empty($item['tags']) && $tags !== []) {
+      $item['tags'] = array_values(array_unique(array_filter(array_map('strval', $tags))));
+    }
+    return $item;
   }
 
   /**

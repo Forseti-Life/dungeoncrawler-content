@@ -165,38 +165,39 @@ class DungeonEditorMigrationTest extends TestCase {
   }
 
   /**
-   * Editor routes are protected by authentication as well as permission.
-   *
-   * Permission configuration alone is a single point of failure: one
-   * misconfigured role grant would expose an authoring surface. The route
-   * itself must also require a session.
+   * Editor routes are protected by authentication for every authoring surface.
    */
-  public function testEditorRoutesCarryBothAuthenticationAndPermission(): void {
+  public function testEditorRoutesRequireAuthentication(): void {
     $routes = Yaml::decode(
       (string) file_get_contents($this->moduleRoot() . '/dungeoncrawler_content.routing.yml')
     );
 
-    $editor_permissions = [
-      'edit canonical dungeoncrawler rooms',
-      'publish canonical dungeoncrawler rooms',
-      'edit canonical dungeoncrawler dungeons',
-      'publish canonical dungeoncrawler dungeons',
-      'edit canonical dungeoncrawler definitions',
-      'access dungeoncrawler editor suite',
+    $editor_prefixes = [
+      'dungeoncrawler_content.editor_suite',
+      'dungeoncrawler_content.room_editor',
+      'dungeoncrawler_content.dungeon_editor',
+      'dungeoncrawler_content.definition_',
     ];
 
     $checked = 0;
     foreach ($routes as $name => $route) {
-      $permission = $route['requirements']['_permission'] ?? NULL;
-      if (!in_array($permission, $editor_permissions, TRUE)) {
+      $is_editor_route = FALSE;
+      foreach ($editor_prefixes as $prefix) {
+        if (str_starts_with((string) $name, $prefix)) {
+          $is_editor_route = TRUE;
+          break;
+        }
+      }
+      if (!$is_editor_route) {
         continue;
       }
       $checked++;
       $this->assertSame(
         'TRUE',
         $route['requirements']['_user_is_logged_in'] ?? NULL,
-        $name . ' must require an authenticated session in addition to its permission.'
+        $name . ' must require an authenticated session.'
       );
+      $this->assertArrayNotHasKey('_permission', $route['requirements'] ?? [], $name . ' must not require an admin editor permission.');
     }
 
     $this->assertGreaterThan(0, $checked, 'At least one editor route must be under test.');

@@ -13,6 +13,7 @@ from typing import Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 from langgraph_actor_harness.scripted_sequence import load_scripted_testing_steps
+from langgraph_actor_harness.island_scenario import QUEST_TEMPLATE as ISLAND_QUEST_TEMPLATE, run_island_scenario
 from langgraph_actor_harness.security_boundary import (
     ALLOWED_ACTOR_RUNTIME_ENV_VARS,
     FORBIDDEN_ACTOR_RUNTIME_ENV_VARS,
@@ -50,6 +51,7 @@ class HarnessState(TypedDict, total=False):
     scriptedtesting_complete: bool
     scripted_step_index: int
     scripted_pending_step_id: str
+    module_release_id: str
 
 
 ACTION_PARAM_REQUIREMENTS: dict[str, tuple[str, ...]] = {
@@ -1270,6 +1272,11 @@ def node_bootstrap(state: HarnessState) -> HarnessState:
     owner_uid = int(state.get("owner_uid", 0))
     if owner_uid > 0:
         command.append(f"--uid={owner_uid}")
+    if state.get("module_release_id"):
+        command.extend([
+            f"--module-release-id={state['module_release_id']}",
+            f"--quest-template-id={ISLAND_QUEST_TEMPLATE}",
+        ])
     payload = run_json_command(command)
 
     next_state: HarnessState = dict(state)
@@ -1887,6 +1894,8 @@ def main() -> int:
     parser.add_argument("--actor-id", default="", help="Required if --campaign-id is set.")
     parser.add_argument("--room-id", default="", help="Required if --campaign-id is set.")
     parser.add_argument("--skip-scriptedtesting", action="store_true", help="Skip scripted testing pre-routine and start autonomous harness immediately.")
+    parser.add_argument("--scenario", choices=("default", "island"), default="default", help="Select the Burasco testing scenario.")
+    parser.add_argument("--module-release-id", default="", help="Pinned published Island module release (required for --scenario=island).")
     args = parser.parse_args()
     enforce_actor_runtime_secret_boundary()
 
@@ -1895,6 +1904,10 @@ def main() -> int:
             raise RuntimeError("--campaign-id requires --character-id, --actor-id, and --room-id.")
     elif args.uid <= 0:
         raise RuntimeError("Bootstrap mode requires --uid (or HARNESS_OWNER_UID).")
+    if args.scenario == "island" and not args.module_release_id.strip():
+        raise RuntimeError("Island scenario requires --module-release-id.")
+    if args.scenario != "island" and args.module_release_id.strip():
+        raise RuntimeError("--module-release-id requires --scenario=island.")
 
     now_stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
     correlation_id = f"langgraph-harness-{now_stamp}"
@@ -1916,14 +1929,33 @@ def main() -> int:
         "scriptedtesting_complete": bool(args.skip_scriptedtesting),
         "scripted_step_index": 0,
         "scripted_pending_step_id": "",
+        "module_release_id": args.module_release_id.strip(),
     }
     if initial_state["character_name"] == "":
         raise RuntimeError("--character-name cannot be empty.")
     if initial_state["campaign_name"] == "" and initial_state["campaign_id"] <= 0:
         raise RuntimeError("--campaign-name cannot be empty when creating a new campaign.")
 
-    graph = build_graph()
-    final_state = graph.invoke(initial_state)
+    if args.scenario == "island":
+        bootstrapped = node_bootstrap(initial_state)
+        progress_state = bootstrapped
+
+        def record_island_progress(updated: dict[str, Any]) -> None:
+            nonlocal progress_state
+            progress_state = updated
+
+        try:
+            final_state = run_island_scenario(
+                bootstrapped, node_snapshot, node_execute_action, create_tool_decision,
+                validate_tool_decision_contract, record_island_progress
+            )
+        except RuntimeError as exc:
+            final_state = dict(progress_state)
+            final_state["run_status"] = "blocked"
+            final_state["stop_reason"] = str(exc)
+    else:
+        graph = build_graph()
+        final_state = graph.invoke(initial_state)
     TRACE_LOG_DIR.mkdir(parents=True, exist_ok=True)
     trace_path = TRACE_LOG_DIR / f"{correlation_id}.json"
     trace_path.write_text(json.dumps(final_state, indent=2) + "\n", encoding="utf-8")

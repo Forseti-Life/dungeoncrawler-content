@@ -29,7 +29,7 @@ class QuestTouchpointService {
    * @var \Drupal\Component\Datetime\TimeInterface
    */
   protected TimeInterface $time;
-  protected StorylineQuestLifecycleService $storylineQuestLifecycleService;
+  protected ?StorylineQuestLifecycleService $storylineQuestLifecycleService;
 
   /**
    * Constructor.
@@ -39,7 +39,7 @@ class QuestTouchpointService {
     QuestConfirmationService $confirmation_service,
     KeyValueFactoryInterface $key_value_factory,
     TimeInterface $time,
-    StorylineQuestLifecycleService $storyline_quest_lifecycle_service
+    ?StorylineQuestLifecycleService $storyline_quest_lifecycle_service = NULL
   ) {
     $this->questTracker = $quest_tracker;
     $this->confirmationService = $confirmation_service;
@@ -90,11 +90,11 @@ class QuestTouchpointService {
     }
 
     $active_quests = $this->questTracker->getActiveQuests($campaign_id, $character_id);
-    $candidates = $this->findObjectiveCandidates($active_quests, $touchpoint, $objective_type);
+    $candidates = $this->findObjectiveCandidates($active_quests, $touchpoint, $objective_type, $occurred_at);
     if ($candidates === []) {
       if ($room_id !== '') {
         $open_quests = $this->loadOpenRoomQuests($campaign_id, $room_id);
-        $open_candidates = $this->findObjectiveCandidates($open_quests, $touchpoint, $objective_type);
+        $open_candidates = $this->findObjectiveCandidates($open_quests, $touchpoint, $objective_type, $occurred_at);
         if ($open_candidates !== []) {
           $started_quest_ids = $this->activateOpenQuestCandidates($campaign_id, $character_id, $open_candidates);
           if ($started_quest_ids === []) {
@@ -112,7 +112,7 @@ class QuestTouchpointService {
 
           if ($candidates !== []) {
             $active_quests = $this->questTracker->getActiveQuests($campaign_id, $character_id);
-            $active_candidates = $this->findObjectiveCandidates($active_quests, $touchpoint, $objective_type);
+            $active_candidates = $this->findObjectiveCandidates($active_quests, $touchpoint, $objective_type, $occurred_at);
             if ($active_candidates !== []) {
               $candidates = $active_candidates;
             }
@@ -400,7 +400,7 @@ class QuestTouchpointService {
    */
   protected function isDeterministicTouchpoint(array $touchpoint): bool {
     $matching_mode = strtolower(trim((string) ($touchpoint['matching_mode'] ?? '')));
-    if (in_array($matching_mode, ['typed_receipt', 'runtime_receipt', 'room_receipt', 'canonical_receipt', 'direct_npc_dialogue'], TRUE)) {
+    if (in_array($matching_mode, ['typed_receipt', 'runtime_receipt', 'room_receipt', 'canonical_receipt', 'direct_npc_dialogue', 'canonical_item_interaction'], TRUE)) {
       return TRUE;
     }
 
@@ -474,15 +474,27 @@ class QuestTouchpointService {
   /**
    * Find objective candidates that match the touchpoint.
    */
-  protected function findObjectiveCandidates(array $active_quests, array $touchpoint, string $objective_type): array {
+  protected function findObjectiveCandidates(array $active_quests, array $touchpoint, string $objective_type, int $occurred_at = 0): array {
     $matches = [];
     $objective_id_hint = (string) ($touchpoint['objective_id'] ?? '');
     $item_ref = $this->normalizeToken((string) ($touchpoint['item_ref'] ?? $touchpoint['entity_ref'] ?? ''));
     $npc_tokens = $this->buildTouchpointNpcTokens($touchpoint);
+    $canonical_item = ($touchpoint['matching_mode'] ?? NULL) === 'canonical_item_interaction';
 
     foreach ($active_quests as $quest) {
       $quest_id = (string) ($quest['quest_id'] ?? '');
       if ($quest_id === '') {
+        continue;
+      }
+
+      $source_template_id = strtolower(trim((string) ($quest['source_template_id'] ?? '')));
+      $quest_created_at = (int) ($quest['created_at'] ?? 0);
+      if (
+        $occurred_at > 0
+        && $objective_id_hint === ''
+        && $source_template_id !== 'tavern_storyline_leads'
+        && $quest_created_at >= $occurred_at
+      ) {
         continue;
       }
 
@@ -501,6 +513,14 @@ class QuestTouchpointService {
 
         if ($objective_id_hint !== '' && $objective_id_hint !== $candidate_objective_id) {
           continue;
+        }
+        if ($canonical_item) {
+          if ($objective_type !== 'interact'
+            || $this->normalizeToken((string) ($objective['item'] ?? '')) !== $item_ref
+            || $item_ref === ''
+            || ($objective['location_id'] ?? NULL) !== ($touchpoint['room_id'] ?? NULL)) {
+            continue;
+          }
         }
 
         if ($objective_id_hint === '' || $objective_id_hint !== $candidate_objective_id) {
@@ -670,6 +690,9 @@ class QuestTouchpointService {
         );
       }
       $this->questTracker->startQuest($campaign_id, $quest_id, $character_id);
+      if (method_exists($this->questTracker, 'reconcileCarriedCollectObjectivesForCharacter')) {
+        $this->questTracker->reconcileCarriedCollectObjectivesForCharacter($campaign_id, $quest, $character_id);
+      }
     }
   }
 

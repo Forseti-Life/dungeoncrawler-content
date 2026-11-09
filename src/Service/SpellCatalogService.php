@@ -57,9 +57,13 @@ class SpellCatalogService {
     '3_actions',  // 3 actions
     'reaction',   // reaction
     'free_action',// free action
+    '1_action_to_2_actions',
+    '1_action_to_3_actions',
+    '1_action_or_more',
     'one_minute', // 1 minute (exploration)
     'ten_minutes',// 10 minutes (exploration)
     'one_hour',   // 1 hour (exploration)
+    'one_day',    // 1 day (downtime)
   ];
 
   const RARITY_LEVELS = ['common', 'uncommon', 'rare', 'unique'];
@@ -648,6 +652,20 @@ class SpellCatalogService {
    */
   protected function normalizeCastActions(string $value): string {
     $normalized = strtolower(trim($value));
+    $normalized = str_replace(
+      ['[one-action]', '[two-actions]', '[three-actions]', '[reaction]', '[free-action]'],
+      ['1_action', '2_actions', '3_actions', 'reaction', 'free_action'],
+      $normalized
+    );
+    if (str_contains($normalized, '1_action') && str_contains($normalized, '3_actions')) {
+      return '1_action_to_3_actions';
+    }
+    if (str_contains($normalized, '1_action') && str_contains($normalized, '2_actions')) {
+      return '1_action_to_2_actions';
+    }
+    if (str_contains($normalized, '1_action') && str_contains($normalized, 'or_more')) {
+      return '1_action_or_more';
+    }
     return match ($normalized) {
       '1 action' => '1_action',
       '2 actions' => '2_actions',
@@ -657,7 +675,8 @@ class SpellCatalogService {
       '1 minute' => 'one_minute',
       '10 minutes' => 'ten_minutes',
       '1 hour' => 'one_hour',
-      default => str_replace(' ', '_', $normalized),
+      '1 day' => 'one_day',
+      default => str_replace([' ', '-'], '_', $normalized),
     };
   }
 
@@ -676,11 +695,23 @@ class SpellCatalogService {
       throw new \RuntimeException('Spell registry table dungeoncrawler_content_registry is unavailable.');
     }
 
-    return $this->database->select('dungeoncrawler_content_registry', 'r')
+    $query = $this->database->select('dungeoncrawler_content_registry', 'r')
       ->fields('r', ['content_id', 'name', 'level', 'tags', 'schema_data'])
       ->condition('content_type', 'spell')
-      ->condition('r.content_id', '%\_c', 'NOT LIKE')
-      ->execute()
+      ->condition('r.content_id', '%\_c', 'NOT LIKE');
+
+    if ($this->database->schema()->tableExists('dungeoncrawler_content_definition_quarantine')) {
+      $quarantined_ids = $this->database->select('dungeoncrawler_content_definition_quarantine', 'q')
+        ->fields('q', ['definition_id'])
+        ->condition('family', 'spell')
+        ->execute()
+        ->fetchCol();
+      if ($quarantined_ids !== []) {
+        $query->condition('r.content_id', array_values(array_unique(array_map('strval', $quarantined_ids))), 'NOT IN');
+      }
+    }
+
+    return $query->execute()
       ->fetchAll();
   }
 

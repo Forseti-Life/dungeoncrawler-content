@@ -47,7 +47,10 @@ class SpellFeatActionDataValidatorService {
     }
 
     $rank_source = $spell['rank'] ?? $spell['level'] ?? $spell['spell_level'] ?? NULL;
-    if ($rank_source !== NULL) {
+    if ($rank_source === NULL) {
+      $errors[] = 'Spell rank/level is required.';
+    }
+    else {
       if (!is_numeric($rank_source)) {
         $errors[] = 'Spell rank/level must be numeric when provided.';
       }
@@ -58,14 +61,47 @@ class SpellFeatActionDataValidatorService {
         }
       }
     }
+    $declared_ranks = [];
+    foreach (['rank', 'level', 'spell_level'] as $rank_field) {
+      if (isset($spell[$rank_field]) && is_numeric($spell[$rank_field])) {
+        $declared_ranks[$rank_field] = (int) $spell[$rank_field];
+      }
+    }
+    if (count(array_unique($declared_ranks)) > 1) {
+      $errors[] = sprintf(
+        'Spell rank fields disagree (%s).',
+        implode(', ', array_map(
+          static fn(string $field, int $value): string => "{$field}={$value}",
+          array_keys($declared_ranks),
+          array_values($declared_ranks)
+        ))
+      );
+    }
+    $raw_text = trim((string) ($spell['raw_text_block'] ?? ''));
+    if ($raw_text !== '' && preg_match('/\bSPELL\s+([0-9]+)\b/i', $raw_text, $rank_match) === 1 && is_numeric($rank_source)) {
+      $embedded_rank = (int) $rank_match[1];
+      if ($embedded_rank !== (int) $rank_source) {
+        $errors[] = sprintf(
+          'Spell rank %d disagrees with raw_text_block SPELL %d.',
+          (int) $rank_source,
+          $embedded_rank
+        );
+      }
+    }
 
     $traditions = $spell['traditions'] ?? [];
-    if (!is_array($traditions) || $traditions === []) {
+    $is_focus_spell = strtolower(trim((string) ($spell['spell_type'] ?? ''))) === 'focus'
+      || strtolower(trim((string) ($spell['focus_class'] ?? 'none'))) !== 'none'
+      || strtolower(trim((string) ($spell['focus_domain'] ?? 'none'))) !== 'none';
+    if ((!is_array($traditions) || $traditions === []) && !$is_focus_spell) {
       $errors[] = 'Spell traditions must be a non-empty array.';
     }
-    else {
+    elseif (is_array($traditions)) {
       foreach ($traditions as $index => $tradition) {
         $tradition = strtolower(trim((string) $tradition));
+        if ($is_focus_spell && $tradition === 'none') {
+          continue;
+        }
         if (!in_array($tradition, SpellCatalogService::TRADITIONS, TRUE)) {
           $errors[] = sprintf('Spell traditions[%d] is invalid.', (int) $index);
         }
@@ -92,7 +128,7 @@ class SpellFeatActionDataValidatorService {
 
     if (array_key_exists('cast_actions', $spell) && $spell['cast_actions'] !== NULL && trim((string) $spell['cast_actions']) !== '') {
       $cast_actions = strtolower(trim((string) $spell['cast_actions']));
-      if (!in_array($cast_actions, SpellCatalogService::CAST_ACTION_TYPES, TRUE)) {
+      if ($cast_actions !== 'none' && !in_array($cast_actions, SpellCatalogService::CAST_ACTION_TYPES, TRUE)) {
         $errors[] = 'Spell cast_actions is invalid.';
       }
     }
@@ -113,6 +149,48 @@ class SpellFeatActionDataValidatorService {
             $errors[] = sprintf('Spell traits[%d] must be a non-empty string.', (int) $index);
           }
         }
+      }
+    }
+
+    if (isset($spell['damage'])) {
+      if (!is_array($spell['damage'])) {
+        $errors[] = 'Spell damage must be an array when provided.';
+      }
+      else {
+        foreach ($spell['damage'] as $index => $damage) {
+          if (!is_array($damage)) {
+            $errors[] = sprintf('Spell damage[%d] must be an object/array.', (int) $index);
+            continue;
+          }
+          $formula = strtolower(trim((string) ($damage['formula'] ?? '')));
+          $damage_type = strtolower(trim((string) ($damage['type'] ?? '')));
+          if ($formula !== '' && $formula !== 'none' && preg_match('/^\d+d\d+(?:\s*[+-]\s*\d+)?$/', $formula) !== 1) {
+            $errors[] = sprintf('Spell damage[%d].formula is invalid.', (int) $index);
+          }
+          if (($formula === '' || $formula === 'none') && $damage_type !== '' && $damage_type !== 'none') {
+            $errors[] = sprintf('Spell damage[%d] declares a type without an executable formula.', (int) $index);
+          }
+          if ($formula !== '' && $formula !== 'none' && ($damage_type === '' || $damage_type === 'none')) {
+            $errors[] = sprintf('Spell damage[%d] declares a formula without a damage type.', (int) $index);
+          }
+        }
+      }
+    }
+    $narrative = $this->firstNonEmptyString(
+      $spell['description'] ?? NULL,
+      $spell['description_snippet'] ?? NULL,
+      $spell['effect_text'] ?? NULL
+    );
+    if (preg_match('/\b(?:the target (?:also )?takes|you deal)\s+\d+d\d+(?:\s*[+-]\s*\d+)?\s+[a-z]+\s+damage\b/i', $narrative) === 1) {
+      $has_executable_damage = FALSE;
+      foreach ((array) ($spell['damage'] ?? []) as $damage) {
+        if (is_array($damage) && preg_match('/^\d+d\d+(?:\s*[+-]\s*\d+)?$/', trim((string) ($damage['formula'] ?? ''))) === 1) {
+          $has_executable_damage = TRUE;
+          break;
+        }
+      }
+      if (!$has_executable_damage) {
+        $errors[] = 'Spell narrative declares damage without an executable damage formula.';
       }
     }
 

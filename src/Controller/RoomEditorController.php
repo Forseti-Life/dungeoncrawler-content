@@ -83,6 +83,13 @@ class RoomEditorController extends ControllerBase {
                     'definition_id' => $definition_placeholder,
                   ])->toString()
                 ),
+                'canonicalLibraryCreate' => str_replace(
+                  $family_placeholder,
+                  '{family}',
+                  Url::fromRoute('dungeoncrawler_content.definition_create', [
+                    'family' => $family_placeholder,
+                  ])->toString()
+                ),
               ],
             ],
           ],

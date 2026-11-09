@@ -1,0 +1,229 @@
+{#
+/**
+ * @file
+ * Module manager surface for discovery + read-only intake preview.
+ */
+#}
+<div class="dc-character-list dc-character-list--storylines room-editor module-manager" data-module-manager>
+  <div class="game-shell">
+    <header class="room-editor__header">
+      <div class="room-editor__header-row">
+        <div>
+          <p class="room-editor__eyebrow">{{ 'DungeonCrawler'|t }}</p>
+          <h1 class="room-editor__title">{{ 'Module Manager'|t }}</h1>
+        </div>
+        <p class="room-editor__status" data-module-manager-status role="status" aria-live="polite">{{ 'Loading catalog…'|t }}</p>
+      </div>
+      <p class="room-editor__helper">{{ 'Module intake is for review only. Registering an identity does not convert, publish, or enable campaign launch.'|t }}</p>
+      <p><a href="{{ path('dungeoncrawler_content.module_explorer') }}">{{ 'Explore downloaded raw module files and maps'|t }}</a></p>
+    </header>
+
+    <section class="module-manager__section" aria-labelledby="module-manager-overview-heading">
+      <h2 id="module-manager-overview-heading" class="room-editor__eyebrow">{{ 'Quick module overview (scored)'|t }}</h2>
+      <p class="room-editor__helper">{{ 'Per-module readiness score and breakdown from local archives. Use this for triage before opening advanced workflows.'|t }}</p>
+      <button type="button" class="room-editor__button room-editor__button--primary" data-module-manager-refresh-overview>{{ 'Refresh module overview scores'|t }}</button>
+      <p class="module-manager__item-meta" data-module-manager-overview-status role="status">{{ 'Loading module overview…'|t }}</p>
+      <ul class="module-manager__list" data-module-manager-overview-list></ul>
+    </section>
+
+    <section class="module-manager__section" aria-labelledby="module-manager-local-archives-heading">
+      <h2 id="module-manager-local-archives-heading" class="room-editor__eyebrow">{{ 'Downloaded archives (quick inspect)'|t }}</h2>
+      <p class="room-editor__helper">{{ 'Pick a local archive to auto-fill Inspect local archive and immediately run scoring/readiness analysis.'|t }}</p>
+      <label class="room-editor__label" for="module-manager-local-archives-search">{{ 'Search downloaded archive names'|t }}</label>
+      <input id="module-manager-local-archives-search" class="room-editor__input" type="search"
+             data-module-manager-local-archives-search placeholder="{{ 'the-island, pathfinder, module…'|t }}">
+      <ul class="module-manager__list" data-module-manager-local-archives></ul>
+    </section>
+
+    <section class="module-manager__section" aria-labelledby="module-manager-intake-heading">
+      <h2 id="module-manager-intake-heading" class="room-editor__eyebrow">{{ 'Inspect local archive'|t }}</h2>
+      <form class="module-manager__form" data-module-manager-inspect-form>
+        <label class="room-editor__label" for="module-manager-archive-path">{{ 'Archive path'|t }}</label>
+        <input id="module-manager-archive-path"
+               class="room-editor__input"
+               type="text"
+               name="archive_path"
+               placeholder="{{ '/path/to/module.zip'|t }}"
+               required>
+
+        <label class="room-editor__label" for="module-manager-archive-hash">{{ 'Expected SHA-256 (optional)'|t }}</label>
+        <input id="module-manager-archive-hash"
+               class="room-editor__input"
+               type="text"
+               name="expected_sha256"
+               placeholder="{{ '64-char lowercase hash'|t }}">
+
+        <label class="room-editor__label" for="module-manager-plan-hash">{{ 'Expected plan hash (optional)'|t }}</label>
+        <input id="module-manager-plan-hash"
+               class="room-editor__input"
+               type="text"
+               name="expected_plan_hash"
+               placeholder="{{ '64-char lowercase hash from prior review'|t }}">
+
+        <label class="room-editor__label" for="module-manager-decisions-json">{{ 'Decisions JSON (optional)'|t }}</label>
+        <textarea id="module-manager-decisions-json"
+                  class="room-editor__input module-manager__textarea"
+                  name="decisions_json"
+                  rows="4"
+                  placeholder='{"resource_dispositions":{"resource-id":"reference_only"}}'></textarea>
+
+        <label class="module-manager__checkbox">
+          <input type="checkbox" name="register_release" value="1">
+          <span>{{ 'Register intake identity for further authoring (not playable)'|t }}</span>
+        </label>
+
+        <label class="room-editor__label" for="module-manager-conversion-revision">{{ 'Conversion revision (optional; keeps the source version unchanged)'|t }}</label>
+        <input id="module-manager-conversion-revision"
+               class="room-editor__input"
+               type="text"
+               name="conversion_revision"
+               placeholder="{{ 'forseti-1'|t }}">
+
+        <button type="submit" class="room-editor__button room-editor__button--primary" data-module-manager-inspect-submit>
+          {{ 'Inspect archive'|t }}
+        </button>
+      </form>
+    </section>
+
+    <div class="module-manager__columns">
+      <section class="module-manager__section" aria-labelledby="module-manager-catalog-heading">
+        <h2 id="module-manager-catalog-heading" class="room-editor__eyebrow">{{ 'Catalog references'|t }}</h2>
+        <ul class="module-manager__list" data-module-manager-catalog></ul>
+      </section>
+
+      <section class="module-manager__section" aria-labelledby="module-manager-packs-heading">
+        <h2 id="module-manager-packs-heading" class="room-editor__eyebrow">{{ 'Archive packs'|t }}</h2>
+        <ul class="module-manager__list" data-module-manager-packs></ul>
+      </section>
+    </div>
+
+    <section class="module-manager__section" aria-labelledby="module-manager-releases-heading">
+      <h2 id="module-manager-releases-heading" class="room-editor__eyebrow">{{ 'Registered releases'|t }}</h2>
+      <ul class="module-manager__list" data-module-manager-releases></ul>
+    </section>
+
+    <section class="module-manager__section" aria-labelledby="module-manager-readiness-heading">
+      <h2 id="module-manager-readiness-heading" class="room-editor__eyebrow">{{ 'Module readiness analysis'|t }}</h2>
+      <p class="module-manager__metrics" data-module-manager-readiness-summary>{{ 'Run Inspect archive to calculate module state, readiness score, and import risk profile.'|t }}</p>
+      <p class="module-manager__metrics" data-module-manager-readiness-score></p>
+      <div data-module-manager-readiness-inventory-table></div>
+      <ul class="module-manager__list" data-module-manager-readiness-recommendations></ul>
+    </section>
+
+    <details class="module-manager__advanced" data-module-manager-advanced>
+      <summary class="module-manager__advanced-summary">{{ 'Advanced module workflow (selected module)'|t }}</summary>
+      <p class="room-editor__helper">{{ 'Use after triage: validation, review decisions, receipts, and definition binding for a specific module release.'|t }}</p>
+
+      <section class="module-manager__section" aria-labelledby="module-manager-validation-heading">
+        <h2 id="module-manager-validation-heading" class="room-editor__eyebrow">{{ 'Full conversion validation'|t }}</h2>
+      <label class="room-editor__label" for="module-manager-validation-release">{{ 'Release ID'|t }}</label>
+      <input id="module-manager-validation-release" class="room-editor__input" type="text"
+             data-module-manager-validation-release placeholder="{{ 'Select from releases above or paste release ID'|t }}">
+      <label class="room-editor__label" for="module-manager-validation-profile">{{ 'Validation profile'|t }}</label>
+      <select id="module-manager-validation-profile" class="room-editor__input" data-module-manager-validation-profile>
+        <option value="original_adaptation">{{ 'original_adaptation'|t }}</option>
+        <option value="encounter_complete_adaptation">{{ 'encounter_complete_adaptation'|t }}</option>
+        <option value="source_faithful">{{ 'source_faithful'|t }}</option>
+      </select>
+      <label class="room-editor__label" for="module-manager-validation-dungeon-id">{{ 'Pinned dungeon ID (optional override)'|t }}</label>
+      <input id="module-manager-validation-dungeon-id" class="room-editor__input" type="text"
+             data-module-manager-validation-dungeon-id placeholder="{{ 'dungeon_id'|t }}">
+      <label class="room-editor__label" for="module-manager-validation-version-id">{{ 'Pinned version ID (optional override)'|t }}</label>
+      <input id="module-manager-validation-version-id" class="room-editor__input" type="text"
+             data-module-manager-validation-version-id placeholder="{{ 'version_id'|t }}">
+      <button type="button" class="room-editor__button room-editor__button--primary" data-module-manager-run-validation>
+        {{ 'Run full conversion validation'|t }}
+      </button>
+      <p class="module-manager__item-meta" data-module-manager-validation-status role="status"></p>
+      <p class="module-manager__metrics" data-module-manager-validation-summary></p>
+      <ul class="module-manager__list" data-module-manager-validation-findings></ul>
+      <pre class="module-manager__json" data-module-manager-validation-report>{}</pre>
+      </section>
+
+      <section class="module-manager__section" aria-labelledby="module-manager-actor-review-heading">
+        <h2 id="module-manager-actor-review-heading" class="room-editor__eyebrow">{{ 'Actor placement review decision'|t }}</h2>
+      <p class="room-editor__helper">{{ 'Use reviewed decisions to classify each actor as placed or catalog_only. For placed decisions, include target room/version/anchor and source evidence when claiming source fidelity.'|t }}</p>
+      <label class="room-editor__label" for="module-manager-actor-review-release">{{ 'Release ID'|t }}</label>
+      <input id="module-manager-actor-review-release" class="room-editor__input" type="text"
+             data-module-manager-actor-review-release placeholder="{{ 'release_id'|t }}">
+      <label class="room-editor__label" for="module-manager-actor-review-plan-hash">{{ 'Expected plan hash'|t }}</label>
+      <input id="module-manager-actor-review-plan-hash" class="room-editor__input" type="text"
+             data-module-manager-actor-review-plan-hash placeholder="{{ '64-char plan hash'|t }}">
+      <label class="room-editor__label" for="module-manager-actor-review-resource">{{ 'Actor resource_id'|t }}</label>
+      <input id="module-manager-actor-review-resource" class="room-editor__input" type="text"
+             data-module-manager-actor-review-resource placeholder="{{ 'manifest.pack.Actor.actor-id'|t }}">
+      <label class="room-editor__label" for="module-manager-actor-review-status">{{ 'Decision status'|t }}</label>
+      <select id="module-manager-actor-review-status" class="room-editor__input" data-module-manager-actor-review-status>
+        <option value="placed">{{ 'placed'|t }}</option>
+        <option value="catalog_only">{{ 'catalog_only'|t }}</option>
+      </select>
+      <label class="room-editor__label" for="module-manager-actor-review-origin">{{ 'Origin of decision'|t }}</label>
+      <select id="module-manager-actor-review-origin" class="room-editor__input" data-module-manager-actor-review-origin>
+        <option value="interpretive">{{ 'interpretive'|t }}</option>
+        <option value="source">{{ 'source'|t }}</option>
+        <option value="project_original">{{ 'project_original'|t }}</option>
+      </select>
+      <label class="room-editor__label" for="module-manager-actor-review-rationale">{{ 'Rationale'|t }}</label>
+      <textarea id="module-manager-actor-review-rationale" class="room-editor__input module-manager__textarea"
+                data-module-manager-actor-review-rationale rows="3"
+                placeholder="{{ 'Why this review decision is correct for this actor and profile.'|t }}"></textarea>
+      <div class="module-manager__columns">
+        <div>
+          <label class="room-editor__label" for="module-manager-actor-review-room-id">{{ 'Placement room_id (required when placed)'|t }}</label>
+          <input id="module-manager-actor-review-room-id" class="room-editor__input" type="text" data-module-manager-actor-review-room-id>
+        </div>
+        <div>
+          <label class="room-editor__label" for="module-manager-actor-review-room-version">{{ 'Placement room_version (required when placed)'|t }}</label>
+          <input id="module-manager-actor-review-room-version" class="room-editor__input" type="text" data-module-manager-actor-review-room-version>
+        </div>
+      </div>
+      <label class="room-editor__label" for="module-manager-actor-review-instance">{{ 'Placement instance_id (required when placed)'|t }}</label>
+      <input id="module-manager-actor-review-instance" class="room-editor__input" type="text" data-module-manager-actor-review-instance>
+      <label class="room-editor__label" for="module-manager-actor-review-anchor">{{ 'Placement anchor_hex (integer q,r; required when placed)'|t }}</label>
+      <input id="module-manager-actor-review-anchor" class="room-editor__input" type="text"
+             data-module-manager-actor-review-anchor placeholder="{{ '0,1'|t }}">
+      <label class="room-editor__label" for="module-manager-actor-review-evidence">{{ 'Source evidence JSON (optional object)'|t }}</label>
+      <textarea id="module-manager-actor-review-evidence" class="room-editor__input module-manager__textarea"
+                data-module-manager-actor-review-evidence rows="4"
+                placeholder='{"scene_resource_id":"...","token_id":"...","note":"..."}'></textarea>
+      <button type="button" class="room-editor__button" data-module-manager-save-actor-review>
+        {{ 'Save actor review decision'|t }}
+      </button>
+      <p class="module-manager__item-meta" data-module-manager-actor-review-feedback role="status"></p>
+      </section>
+
+      <section class="module-manager__section" aria-labelledby="module-manager-plan-heading">
+        <h2 id="module-manager-plan-heading" class="room-editor__eyebrow">{{ 'Dry-run conversion plan'|t }}</h2>
+      <div class="module-manager__metrics" data-module-manager-metrics></div>
+      <div class="module-manager__metrics" data-module-manager-summary></div>
+      <pre class="module-manager__json" data-module-manager-plan>{}</pre>
+      </section>
+
+      <section class="module-manager__section" aria-labelledby="module-manager-generation-heading">
+        <h2 id="module-manager-generation-heading" class="room-editor__eyebrow">{{ 'Source gaps and original proposals'|t }}</h2>
+      <p class="room-editor__helper">{{ 'Source defaults are not evidence. Proposals use original content, are not saved or published, and require review in the canonical editors. Scene geometry, terrain, and placement require separate review.'|t }}</p>
+      <p class="module-manager__metrics" data-module-manager-generation-summary></p>
+      <ul class="module-manager__list" data-module-manager-generation-gaps></ul>
+      <pre class="module-manager__json" data-module-manager-generation-proposal>{}</pre>
+      <label class="room-editor__label" for="module-manager-reviewed-definition">{{ 'Review and edit canonical definition JSON'|t }}</label>
+      <textarea id="module-manager-reviewed-definition" class="room-editor__input module-manager__textarea"
+                data-module-manager-reviewed-definition rows="12" placeholder="{{ 'Generate a proposal above to begin review.'|t }}"></textarea>
+      <label class="module-manager__checkbox">
+        <input type="checkbox" data-module-manager-review-confirmed>
+        <span>{{ 'I reviewed this definition and confirm it is project-original; no source text, names, or protected artwork have been copied.'|t }}</span>
+      </label>
+      <button type="button" class="room-editor__button" data-module-manager-save-definition>{{ 'Save reviewed canonical definition'|t }}</button>
+      <label class="room-editor__label" for="module-manager-bind-release">{{ 'Unpublished release ID to bind the saved definition'|t }}</label>
+      <input id="module-manager-bind-release" class="room-editor__input" type="text"
+             data-module-manager-bind-release placeholder="{{ 'Register an intake release or enter its ID'|t }}">
+      <button type="button" class="room-editor__button" data-module-manager-bind-definition>{{ 'Bind reviewed version and record native receipt'|t }}</button>
+      <p class="module-manager__item-meta" data-module-manager-definition-status role="status"></p>
+      </section>
+
+      <section class="module-manager__section" aria-labelledby="module-manager-findings-heading">
+        <h2 id="module-manager-findings-heading" class="room-editor__eyebrow">{{ 'Findings'|t }}</h2>
+      <ul class="module-manager__list" data-module-manager-findings></ul>
+      </section>
+    </details>
+  </div>
+</div>

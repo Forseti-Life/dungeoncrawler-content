@@ -81,11 +81,11 @@ class GmTurnCoordinatorService {
         $implicit_single_npc_question = TRUE;
       }
     }
-    if ($effective_direct_npc === NULL) {
+    $turn_intent = $callbacks->classifyRoomTurnIntent($latest_player_message, $room_npcs, $effective_direct_npc, $active_conversation_npc);
+    if ($effective_direct_npc === NULL && in_array($turn_intent, ['direct_npc_dialogue', 'direct_npc_transaction', 'quest_query'], TRUE)) {
       $effective_direct_npc = $this->selectHighestCharismaNpc($room_npcs);
       $charisma_fallback_npc = $effective_direct_npc !== NULL;
     }
-    $turn_intent = $callbacks->classifyRoomTurnIntent($latest_player_message, $room_npcs, $effective_direct_npc, $active_conversation_npc);
     $route_decision = $this->turnIntentRouter->routeFromIntent($turn_intent, $is_room_entry);
     $callbacks->recordDebugStage('gm.intent_classification', $stage_started_at, [
       'intent' => $turn_intent,

@@ -72,17 +72,15 @@ class RoomEditorContractTest extends UnitTestCase {
   /**
    * Verifies route permissions and campaign-runtime isolation.
    */
-  public function testRoutesAreRestrictedAndServiceAvoidsCampaignTables(): void {
+  public function testRoutesAreAuthenticatedAndServiceAvoidsCampaignTables(): void {
     $module_root = dirname(__DIR__, 4);
     $routes = Yaml::parseFile($module_root . '/dungeoncrawler_content.routing.yml');
     $this->assertSame(
-      'edit canonical dungeoncrawler rooms',
-      $routes['dungeoncrawler_content.room_editor']['requirements']['_permission']
+      'TRUE',
+      $routes['dungeoncrawler_content.room_editor']['requirements']['_user_is_logged_in']
     );
-    $this->assertSame(
-      'publish canonical dungeoncrawler rooms',
-      $routes['dungeoncrawler_content.room_editor_publish']['requirements']['_permission']
-    );
+    $this->assertArrayNotHasKey('_permission', $routes['dungeoncrawler_content.room_editor']['requirements']);
+    $this->assertArrayNotHasKey('_permission', $routes['dungeoncrawler_content.room_editor_publish']['requirements']);
 
     $service = (string) file_get_contents($module_root . '/src/Service/RoomEditorService.php');
     $this->assertStringNotContainsString('dc_campaign_rooms', $service);
@@ -108,7 +106,7 @@ class RoomEditorContractTest extends UnitTestCase {
       $route = $routes[$route_name];
       $this->assertSame('/api/room-editor/drafts/{draft_id}/gm', $route['path']);
       $this->assertSame([$method], $route['methods']);
-      $this->assertSame('edit canonical dungeoncrawler rooms', $route['requirements']['_permission']);
+      $this->assertArrayNotHasKey('_permission', $route['requirements']);
       $this->assertSame('[0-9a-f-]{36}', $route['requirements']['draft_id']);
     }
 
@@ -120,8 +118,11 @@ class RoomEditorContractTest extends UnitTestCase {
           '@dungeoncrawler_content.editor_gm_surface.dungeon_editor',
           '@dungeoncrawler_content.editor_gm_surface.definition_editor',
           '@dungeoncrawler_content.editor_gm_surface.editor_suite',
+          '@dungeoncrawler_content.editor_gm_surface.storyline_builder',
         ],
         '@dungeoncrawler_content.editor_gm_intent_parser',
+        '@?ai_conversation.ai_api_service',
+        '@logger.factory',
       ],
       $services['dungeoncrawler_content.editor_gm_harness']['arguments'],
       'The harness owns no editor authority of its own; every surface brings its own.'
@@ -183,12 +184,19 @@ class RoomEditorContractTest extends UnitTestCase {
       JSON_THROW_ON_ERROR
     );
     $surface_source = (string) file_get_contents($module_root . '/src/Service/EditorGm/RoomEditorGmSurface.php');
+    $planning_source = (string) file_get_contents($module_root . '/src/Service/EditorGm/Tool/PlanRoomCommandsTool.php')
+      . (string) file_get_contents($module_root . '/src/Service/EditorGm/EditorCanonicalGenerationPlanService.php');
 
     foreach ($command_schema['properties']['type']['enum'] as $type) {
       $this->assertStringContainsString(
         "'" . $type . "'",
         $surface_source,
         sprintf('Command type %s must be declared in the Room Editor surface toolset.', $type)
+      );
+      $this->assertStringContainsString(
+        "'" . $type . "'",
+        $planning_source,
+        sprintf('Command type %s must be planned by a Room Editor planning tool.', $type)
       );
     }
     $this->assertStringContainsString(
@@ -233,6 +241,7 @@ class RoomEditorContractTest extends UnitTestCase {
       'PlanRoomCommandsTool',
       'PreviewCommandPlanTool',
       'PlanCanonicalDefinitionPatchTool',
+      'GenerateCanonicalDefinitionTool',
     ] as $class) {
       $source = (string) file_get_contents($module_root . '/src/Service/EditorGm/Tool/' . $class . '.php');
       $this->assertStringContainsString('FAMILY_PLANNING', $source, $class . ' must declare the planning family.');
@@ -243,6 +252,23 @@ class RoomEditorContractTest extends UnitTestCase {
           $class . ' must not call the mutating method ' . $mutator
         );
       }
+    }
+
+    $surface_source = (string) file_get_contents($module_root . '/src/Service/EditorGm/RoomEditorGmSurface.php');
+    foreach ([
+      'DescribeCanonicalDefinitionSchemaTool',
+      'LoadCanonicalDefinitionTool',
+      'ValidateCanonicalDefinitionTool',
+      'GenerateCanonicalDefinitionTool',
+      'PlanCanonicalDefinitionPatchTool',
+      'CreateCanonicalDefinitionTool',
+      'UpdateCanonicalDefinitionTool',
+    ] as $canonical_tool_class) {
+      $this->assertStringContainsString(
+        'new ' . $canonical_tool_class . '(',
+        $surface_source,
+        sprintf('Canonical library tool %s must be registered on the Room Editor GM surface.', $canonical_tool_class)
+      );
     }
 
     $plan_schema = json_decode(
@@ -433,6 +459,102 @@ class RoomEditorContractTest extends UnitTestCase {
     ] as $needle) {
       $this->assertStringContainsString($needle, $install);
     }
+  }
+
+  /**
+   * Verifies every one of the 19 Room Editor commands can be planned via PlanRoomCommandsTool.
+   */
+  public function testPlanRoomCommandsToolPlansAllNineteenCommandTypes(): void {
+    $room_editor = $this->createMock(RoomEditorService::class);
+    $room_editor->method('getDraft')->willReturn([
+      'draft_id' => '11111111-1111-4111-8111-111111111111',
+      'room_id' => 'contract_room',
+      'revision' => 3,
+      'status' => 'active',
+      'room' => [
+        'schema_version' => 'canonical-room-v1',
+        'room_id' => 'contract_room',
+        'name' => 'Contract Room',
+        'description' => 'A contract test room.',
+        'room_type' => 'chamber',
+        'size_category' => 'small',
+        'hexes' => [
+          ['q' => 0, 'r' => 0, 'terrain_type' => 'stone_floor', 'elevation_ft' => 0, 'lighting' => 'bright_light'],
+          ['q' => 1, 'r' => 0, 'terrain_type' => 'stone_floor', 'elevation_ft' => 0, 'lighting' => 'bright_light'],
+          ['q' => 2, 'r' => 0, 'terrain_type' => 'stone_floor', 'elevation_ft' => 0, 'lighting' => 'bright_light'],
+        ],
+        'terrain' => ['type' => 'stone_floor'],
+        'lighting' => ['level' => 'bright_light', 'light_sources' => []],
+        'entry_ports' => [
+          ['port_id' => 'entry-default', 'hex' => ['q' => 0, 'r' => 0], 'edge' => 3, 'label' => 'Default Entry', 'arrival_facing' => 0, 'is_default' => TRUE, 'tags' => []],
+          ['port_id' => 'entry-secondary', 'hex' => ['q' => 0, 'r' => 0], 'edge' => 4, 'label' => 'Side Entry', 'arrival_facing' => 1, 'is_default' => FALSE, 'tags' => []],
+        ],
+        'exit_ports' => [
+          ['port_id' => 'exit-east', 'hex' => ['q' => 1, 'r' => 0], 'edge' => 0, 'label' => 'East Door', 'kind' => 'door', 'direction' => 'bidirectional', 'default_state' => 'open', 'destination_hint' => NULL, 'linked_placement_id' => NULL, 'requirements' => [], 'tags' => []],
+        ],
+        'placements' => [
+          [
+            'instance_id' => '22222222-2222-4222-8222-222222222222',
+            'definition_ref' => ['family' => 'actor', 'definition_id' => 'npc_tavern_keeper', 'version' => '1.0.0'],
+            'anchor_hex' => ['q' => 0, 'r' => 0],
+            'facing' => 0,
+            'elevation_ft' => 0,
+            'overrides' => [],
+          ],
+        ],
+        'environmental_effects' => [],
+        'gameplay_defaults' => ['safe_for_rest' => FALSE, 'visibility' => 'visible'],
+        'metadata' => ['tags' => [], 'provenance' => ['source' => 'contract-test']],
+      ],
+    ]);
+    $room_editor->method('validateDraft')->willReturn([
+      'valid' => TRUE,
+      'profile' => 'editing',
+      'errors' => [],
+      'warnings' => [],
+    ]);
+    $context = new \Drupal\dungeoncrawler_content\Service\EditorGm\RoomEditorGmToolContext(
+      '11111111-1111-4111-8111-111111111111',
+      'editing',
+      $room_editor,
+      $this->createMock(CanonicalDefinitionService::class),
+    );
+    $tool = new \Drupal\dungeoncrawler_content\Service\EditorGm\Tool\PlanRoomCommandsTool();
+
+    $cases = [
+      ['goal' => 'set_metadata', 'parameters' => ['name' => 'Renamed Room'], 'expected' => 'set_room_metadata'],
+      ['goal' => 'expand_footprint', 'parameters' => ['hexes' => [['q' => 3, 'r' => 0]]], 'expected' => 'add_hex'],
+      ['goal' => 'shrink_footprint', 'parameters' => ['hexes' => [['q' => 2, 'r' => 0]]], 'expected' => 'remove_hex'],
+      ['goal' => 'retheme_terrain', 'parameters' => ['terrain_type' => 'rough_stone', 'hexes' => [['q' => 2, 'r' => 0]]], 'expected' => 'set_hex_terrain'],
+      ['goal' => 'level_elevation', 'parameters' => ['elevation_ft' => 10, 'hexes' => [['q' => 2, 'r' => 0]]], 'expected' => 'set_hex_elevation'],
+      ['goal' => 'place_objects', 'parameters' => ['placements' => [['family' => 'item', 'definition_id' => 'torch', 'version' => '1.0.0', 'anchor_hex' => ['q' => 2, 'r' => 0], 'facing' => 2]]], 'expected' => 'place_object'],
+      ['goal' => 'move_objects', 'parameters' => ['moves' => [['instance_id' => '22222222-2222-4222-8222-222222222222', 'anchor_hex' => ['q' => 2, 'r' => 0]]]], 'expected' => 'move_object'],
+      ['goal' => 'rotate_objects', 'parameters' => ['rotations' => [['instance_id' => '22222222-2222-4222-8222-222222222222', 'facing' => 3]]], 'expected' => 'rotate_object'],
+      ['goal' => 'update_object_overrides', 'parameters' => ['updates' => [['instance_id' => '22222222-2222-4222-8222-222222222222', 'overrides' => ['display_name' => 'Eldric']]]], 'expected' => 'update_object_overrides'],
+      ['goal' => 'duplicate_objects', 'parameters' => ['duplicates' => [['instance_id' => '22222222-2222-4222-8222-222222222222', 'anchor_hex' => ['q' => 2, 'r' => 0]]]], 'expected' => 'duplicate_object'],
+      ['goal' => 'clear_placements', 'parameters' => ['instance_ids' => ['22222222-2222-4222-8222-222222222222']], 'expected' => 'remove_object'],
+      ['goal' => 'add_entry_ports', 'parameters' => ['ports' => [['port_id' => 'entry-north', 'hex' => ['q' => 2, 'r' => 0], 'edge' => 1, 'label' => 'North Entry']]], 'expected' => 'add_entry_port'],
+      ['goal' => 'update_entry_ports', 'parameters' => ['ports' => [['port_id' => 'entry-secondary', 'changes' => ['label' => 'Updated Side Entry']]]], 'expected' => 'update_entry_port'],
+      ['goal' => 'remove_entry_ports', 'parameters' => ['port_ids' => ['entry-secondary']], 'expected' => 'remove_entry_port'],
+      ['goal' => 'add_exit_ports', 'parameters' => ['ports' => [['port_id' => 'exit-north', 'hex' => ['q' => 2, 'r' => 0], 'edge' => 1, 'label' => 'North Door']]], 'expected' => 'add_exit_port'],
+      ['goal' => 'update_exit_ports', 'parameters' => ['ports' => [['port_id' => 'exit-east', 'changes' => ['default_state' => 'locked']]]], 'expected' => 'update_exit_port'],
+      ['goal' => 'remove_exit_ports', 'parameters' => ['port_ids' => ['exit-east']], 'expected' => 'remove_exit_port'],
+      ['goal' => 'undo', 'parameters' => ['target_command_id' => '33333333-3333-4333-8333-333333333333'], 'expected' => 'undo'],
+      ['goal' => 'redo', 'parameters' => ['target_command_id' => '33333333-3333-4333-8333-333333333333'], 'expected' => 'redo'],
+    ];
+
+    $planned_types = [];
+    foreach ($cases as $case) {
+      $result = $tool->execute(['goal' => $case['goal'], 'parameters' => $case['parameters']], $context);
+      $this->assertSame($case['expected'], $result['command_plan']['steps'][0]['command_type']);
+      $planned_types[] = $result['command_plan']['steps'][0]['command_type'];
+    }
+
+    $this->assertSame(
+      \Drupal\dungeoncrawler_content\Service\EditorGm\RoomEditorGmSurface::SUPPORTED_COMMAND_TYPES,
+      $planned_types,
+      'PlanRoomCommandsTool must be able to plan every single supported Room Editor command type.'
+    );
   }
 
   private function roomEditorService(): RoomEditorService {

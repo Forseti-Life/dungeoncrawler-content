@@ -590,6 +590,12 @@ class QuestTrackerController extends ControllerBase {
           'details' => array_values(array_filter(array_map('strval', (array) ($validation['errors'] ?? [])))),
         ], 400);
       }
+      if (($payload['touchpoint']['matching_mode'] ?? '') === 'canonical_item_interaction') {
+        return new JsonResponse([
+          'success' => FALSE,
+          'error' => 'Canonical item interactions must originate from a player action',
+        ], 400);
+      }
 
       /** @var \Drupal\dungeoncrawler_content\Service\QuestTouchpointService $touchpoint_service */
       $touchpoint_service = \Drupal::service('dungeoncrawler_content.quest_touchpoint');

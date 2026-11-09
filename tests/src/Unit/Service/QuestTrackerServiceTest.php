@@ -1135,4 +1135,23 @@ class QuestTrackerServiceTest extends UnitTestCase {
     );
   }
 
+  public function testItemInteractionTargetIsNotMistakenForNpcActor(): void {
+    $service = (new \ReflectionClass(QuestTrackerService::class))->newInstanceWithoutConstructor();
+    $collect = new \ReflectionMethod($service, 'collectObjectiveActorReferences');
+    $actor_refs = [];
+    $collect->invokeArgs($service, [[
+      'type' => 'interact',
+      'target' => 'original-wayfinding-marker',
+      'item' => 'original-wayfinding-marker',
+    ], &$actor_refs]);
+    $this->assertSame([], $actor_refs);
+
+    $collect->invokeArgs($service, [[
+      'type' => 'interact',
+      'target' => 'island-guide',
+      'item' => 'original-wayfinding-marker',
+    ], &$actor_refs]);
+    $this->assertSame(['island-guide' => TRUE], $actor_refs);
+  }
+
 }

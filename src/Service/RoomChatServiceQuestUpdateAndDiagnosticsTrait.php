@@ -492,19 +492,23 @@ trait RoomChatServiceQuestUpdateAndDiagnosticsTrait {
       $matching_mode = $objective_id !== '' ? 'typed_receipt' : 'direct_npc_dialogue';
     }
 
+    $touchpoint_payload = [
+      'objective_type' => $objective_type,
+      'objective_id' => $objective_id,
+      'npc_ref' => $resolved_npc_ref,
+      'entity_ref' => $resolved_entity_ref,
+      'room_id' => $room_id,
+      'confidence' => 'high',
+      'quantity' => 1,
+      'matching_mode' => $matching_mode,
+    ];
+    if (trim($player_message) !== '') {
+      $touchpoint_payload['player_message'] = $player_message;
+    }
+
     $result = $this->questTouchpointService->ingestEvent($campaign_id, [
       'character_id' => $character_id,
-      'touchpoint' => [
-        'objective_type' => $objective_type,
-        'objective_id' => $objective_id,
-        'npc_ref' => $resolved_npc_ref,
-        'entity_ref' => $resolved_entity_ref,
-        'room_id' => $room_id,
-        'player_message' => $player_message,
-        'confidence' => 'high',
-        'quantity' => 1,
-        'matching_mode' => $matching_mode,
-      ],
+      'touchpoint' => $touchpoint_payload,
     ]);
 
     $this->logger->info('Conversation quest touchpoint result: campaign={campaign_id} character={character_id} room={room_id} npc_ref={npc_ref} target_name={target_name} objective_type={objective_type} objective_id={objective_id} matching_mode={matching_mode} decision={decision} quest_id={quest_id} matched_objective_id={matched_objective_id} reason={reason}', [

@@ -16,24 +16,340 @@ class StorylineRealizationService {
   ) {}
 
   /**
+   * Describe authored assets without mutating canonical or campaign storage.
+   *
+   * This is the single storyline-asset extraction path used by realization and
+   * campaign attachment planning.
+   *
+   * @return array<string, mixed>
+   *   Normalized dungeons, rooms, actors, items, quests, and entry point.
+   */
+  public function describeStorylineAssets(array $storyline): array {
+    $storyline_data = is_array($storyline['storyline_data'] ?? NULL)
+      ? $storyline['storyline_data']
+      : (is_array($storyline['template_data'] ?? NULL) ? $storyline['template_data'] : $storyline);
+    $dungeons = [];
+    $rooms = [];
+    $items = [];
+
+    foreach ($this->extractStorylineDungeonOutlines($storyline_data) as $dungeon) {
+      $dungeon_id = trim((string) ($dungeon['dungeon_id'] ?? ''));
+      if ($dungeon_id === '') {
+        throw new \RuntimeException('Storyline asset manifest contract violation: dungeon_id is required.');
+      }
+      $room_ids = [];
+      foreach (array_values(array_filter((array) ($dungeon['rooms'] ?? []), 'is_array')) as $room) {
+        $room_id = trim((string) ($room['room_id'] ?? ''));
+        if ($room_id === '') {
+          throw new \RuntimeException(sprintf(
+            'Storyline asset manifest contract violation: dungeon %s contains a room without room_id.',
+            $dungeon_id
+          ));
+        }
+        $room_ids[] = $room_id;
+        $rooms[$room_id] = [
+          'room_id' => $room_id,
+          'dungeon_id' => $dungeon_id,
+          'name' => (string) ($room['name'] ?? $room_id),
+          'room_role' => (string) ($room['room_role'] ?? 'room'),
+        ];
+        foreach (array_values(array_filter(array_map('strval', (array) ($room['item_ids'] ?? [])))) as $item_id) {
+          $items[$item_id] ??= [
+            'content_id' => $item_id,
+            'room_ids' => [],
+          ];
+          $items[$item_id]['room_ids'][] = $room_id;
+        }
+      }
+      $dungeons[$dungeon_id] = [
+        'dungeon_id' => $dungeon_id,
+        'name' => (string) ($dungeon['name'] ?? $dungeon_id),
+        'entrance_room_id' => trim((string) ($dungeon['entrance_room_id'] ?? '')),
+        'room_ids' => array_values(array_unique($room_ids)),
+      ];
+    }
+
+    $asset_references = $this->collectStorylineAssetReferences($storyline_data);
+    foreach ($asset_references as $reference) {
+      $asset_type = strtolower(trim((string) ($reference['asset_type'] ?? '')));
+      $asset_id = trim((string) ($reference['asset_id'] ?? ''));
+      if ($asset_id === '') {
+        continue;
+      }
+      $link_data = is_array($reference['link_data'] ?? NULL) ? $reference['link_data'] : [];
+      if ($asset_type === 'dungeon') {
+        $dungeons[$asset_id] ??= [
+          'dungeon_id' => $asset_id,
+          'name' => $asset_id,
+          'entrance_room_id' => '',
+          'room_ids' => [],
+        ];
+        continue;
+      }
+      if (in_array($asset_type, ['room', 'location'], TRUE)) {
+        $linked_dungeon_id = trim((string) ($link_data['dungeon_id'] ?? ''));
+        $outline_dungeon_ids = [];
+        foreach ($dungeons as $dungeon_id => $dungeon) {
+          if (in_array($asset_id, (array) ($dungeon['room_ids'] ?? []), TRUE)) {
+            $outline_dungeon_ids[] = $dungeon_id;
+          }
+        }
+        if ($linked_dungeon_id !== '' && $outline_dungeon_ids !== [] && !in_array($linked_dungeon_id, $outline_dungeon_ids, TRUE)) {
+          throw new \RuntimeException(sprintf(
+            'Storyline asset manifest contract violation: room %s is assigned to dungeon %s in asset references but to %s in generated_outline.',
+            $asset_id,
+            $linked_dungeon_id,
+            implode(', ', $outline_dungeon_ids)
+          ));
+        }
+        $dungeon_id = $linked_dungeon_id;
+        if ($dungeon_id === '' && count($outline_dungeon_ids) === 1) {
+          $dungeon_id = $outline_dungeon_ids[0];
+        }
+        if ($dungeon_id === '' && count($dungeons) === 1) {
+          $dungeon_id = (string) array_key_first($dungeons);
+        }
+        if ($dungeon_id === '' || !isset($dungeons[$dungeon_id])) {
+          throw new \RuntimeException(sprintf(
+            'Storyline asset manifest contract violation: room %s cannot be assigned to exactly one declared dungeon.',
+            $asset_id
+          ));
+        }
+        $dungeons[$dungeon_id]['room_ids'][] = $asset_id;
+        $rooms[$asset_id] ??= [
+          'room_id' => $asset_id,
+          'dungeon_id' => $dungeon_id,
+          'name' => $asset_id,
+          'room_role' => (string) ($reference['asset_role'] ?? 'room'),
+        ];
+        if ((string) $rooms[$asset_id]['dungeon_id'] !== $dungeon_id) {
+          throw new \RuntimeException(sprintf(
+            'Storyline asset manifest contract violation: room %s is assigned to multiple dungeons (%s and %s).',
+            $asset_id,
+            (string) $rooms[$asset_id]['dungeon_id'],
+            $dungeon_id
+          ));
+        }
+        continue;
+      }
+      if ($asset_type === 'item') {
+        $room_id = trim((string) ($link_data['room_id'] ?? $link_data['location_id'] ?? ''));
+        $items[$asset_id] ??= [
+          'content_id' => $asset_id,
+          'room_ids' => [],
+        ];
+        if ($room_id !== '') {
+          $items[$asset_id]['room_ids'][] = $room_id;
+        }
+      }
+    }
+    foreach ($dungeons as &$dungeon) {
+      $dungeon['room_ids'] = array_values(array_unique(array_map('strval', (array) $dungeon['room_ids'])));
+    }
+    unset($dungeon);
+
+    $actors = [];
+    foreach ($this->buildStorylineNpcSpecs($storyline_data) as $spec) {
+      $entity_ref = trim((string) ($spec['entity_ref'] ?? ''));
+      if ($entity_ref === '') {
+        continue;
+      }
+      $actors[] = [
+        'entity_ref' => $entity_ref,
+        'runtime_instance_id' => $this->normalizeNpcInstanceId($entity_ref),
+        'name' => (string) ($spec['name'] ?? $entity_ref),
+        'role' => (string) ($spec['role'] ?? 'neutral'),
+        'canonical_location_id' => trim((string) ($spec['canonical_location_id'] ?? '')),
+        'spec' => $spec,
+      ];
+    }
+    $actor_index = array_fill_keys(array_column($actors, 'entity_ref'), TRUE);
+    foreach ($asset_references as $reference) {
+      $asset_type = strtolower(trim((string) ($reference['asset_type'] ?? '')));
+      $entity_ref = trim((string) ($reference['asset_id'] ?? ''));
+      if (
+        $entity_ref === ''
+        || isset($actor_index[$entity_ref])
+        || !in_array($asset_type, ['npc', 'campaign_npc', 'character', 'creature'], TRUE)
+      ) {
+        continue;
+      }
+      $actors[] = [
+        'entity_ref' => $entity_ref,
+        'runtime_instance_id' => $this->normalizeNpcInstanceId($entity_ref),
+        'name' => $entity_ref,
+        'role' => (string) ($reference['asset_role'] ?? 'neutral'),
+        'canonical_location_id' => trim((string) (
+          $reference['link_data']['room_id']
+          ?? $reference['link_data']['location_id']
+          ?? ''
+        )),
+        'spec' => NULL,
+      ];
+      $actor_index[$entity_ref] = TRUE;
+    }
+
+    $quests = [];
+    foreach ((array) ($storyline_data['linked_quests'] ?? []) as $quest) {
+      $quest_id = is_array($quest)
+        ? trim((string) ($quest['quest_template_id'] ?? $quest['quest_id'] ?? $quest['id'] ?? ''))
+        : trim((string) $quest);
+      if ($quest_id !== '') {
+        $quests[$quest_id] = [
+          'quest_id' => $quest_id,
+          'source' => is_array($quest) ? $quest : ['quest_id' => $quest_id],
+        ];
+      }
+    }
+    foreach ($asset_references as $reference) {
+      if (strtolower(trim((string) ($reference['asset_type'] ?? ''))) !== 'quest') {
+        continue;
+      }
+      $quest_id = trim((string) ($reference['asset_id'] ?? ''));
+      if ($quest_id !== '') {
+        $quests[$quest_id] ??= [
+          'quest_id' => $quest_id,
+          'source' => $reference,
+        ];
+      }
+    }
+
+    $outline = is_array($storyline_data['metadata']['generated_outline'] ?? NULL)
+      ? $storyline_data['metadata']['generated_outline']
+      : [];
+    $entry_point = is_array($outline['entry_point'] ?? NULL) ? $outline['entry_point'] : [];
+    $entry_dungeon = is_array($outline['entry_dungeon'] ?? NULL) ? $outline['entry_dungeon'] : [];
+
+    return [
+      'dungeons' => array_values($dungeons),
+      'rooms' => array_values($rooms),
+      'actors' => $actors,
+      'items' => array_values(array_map(static function (array $item): array {
+        $item['room_ids'] = array_values(array_unique($item['room_ids']));
+        return $item;
+      }, $items)),
+      'quests' => array_values($quests),
+      'entry_point' => [
+        'dungeon_id' => trim((string) (
+          $entry_point['primary_dungeon_id']
+          ?? $entry_point['dungeon_id']
+          ?? $entry_dungeon['dungeon_id']
+          ?? ''
+        )),
+        'room_id' => trim((string) (
+          $entry_point['primary_location_id']
+          ?? $entry_point['primary_scene_id']
+          ?? $entry_point['room_id']
+          ?? $entry_point['location_id']
+          ?? $entry_dungeon['entrance_room_id']
+          ?? ''
+        )),
+        'actor_id' => trim((string) (
+          $entry_point['primary_quest_giver_id']
+          ?? $entry_point['primary_actor_id']
+          ?? $entry_point['actor_id']
+          ?? $entry_point['quest_giver_id']
+          ?? ''
+        )),
+        'quest_id' => trim((string) (
+          $entry_point['primary_quest_id']
+          ?? $entry_point['quest_id']
+          ?? $entry_point['initial_quest_id']
+          ?? ''
+        )),
+      ],
+    ];
+  }
+
+  /**
+   * Collect normalized canonical asset references from every authored scope.
+   *
+   * @return array<int, array<string, mixed>>
+   */
+  private function collectStorylineAssetReferences(array $storyline_data): array {
+    $references = [];
+    $append = static function (array $raw, string $chapter_id = '', string $scene_id = '') use (&$references): void {
+      foreach ($raw as $reference) {
+        if (!is_array($reference)) {
+          continue;
+        }
+        $asset_type = strtolower(trim((string) ($reference['asset_type'] ?? $reference['type'] ?? '')));
+        $asset_id = trim((string) ($reference['asset_id'] ?? $reference['id'] ?? ''));
+        if ($asset_type === '' || $asset_id === '') {
+          continue;
+        }
+        $reference['asset_type'] = $asset_type;
+        $reference['asset_id'] = $asset_id;
+        $reference['chapter_id'] = trim((string) ($reference['chapter_id'] ?? $chapter_id));
+        $reference['scene_id'] = trim((string) ($reference['scene_id'] ?? $scene_id));
+        $reference['link_data'] = is_array($reference['link_data'] ?? NULL) ? $reference['link_data'] : [];
+        $key = implode('|', [
+          $asset_type,
+          $asset_id,
+          $reference['chapter_id'],
+          $reference['scene_id'],
+          trim((string) ($reference['asset_role'] ?? '')),
+        ]);
+        $references[$key] = $reference;
+      }
+    };
+
+    $append((array) ($storyline_data['asset_references'] ?? []));
+    foreach ((array) ($storyline_data['chapters'] ?? []) as $chapter) {
+      if (!is_array($chapter)) {
+        continue;
+      }
+      $chapter_id = trim((string) ($chapter['chapter_id'] ?? ''));
+      $append((array) ($chapter['asset_references'] ?? []), $chapter_id);
+      foreach ((array) ($chapter['scenes'] ?? []) as $scene) {
+        if (!is_array($scene)) {
+          continue;
+        }
+        $append(
+          (array) ($scene['asset_references'] ?? []),
+          $chapter_id,
+          trim((string) ($scene['scene_id'] ?? ''))
+        );
+      }
+    }
+
+    return array_values($references);
+  }
+
+  /**
    * Materialize questgiver/boss storyline NPC references into real campaign NPCs.
    *
    * @return array<int, string>
    *   Entity refs realized during this pass.
    */
-  public function realizeStorylineNpcs(int $campaign_id, array $storyline): array {
+  public function realizeStorylineNpcs(
+    int $campaign_id,
+    array $storyline,
+    array $actor_mappings = [],
+    bool $preserve_exact_existing = FALSE,
+    array $room_mappings = [],
+  ): array {
     $storyline_data = is_array($storyline['storyline_data'] ?? NULL) ? $storyline['storyline_data'] : [];
     $specs = $this->buildStorylineNpcSpecs($storyline_data);
     $realized = [];
+    $runtime_entity_ids = [];
 
     foreach ($specs as $spec) {
+      $canonical_location_id = trim((string) ($spec['canonical_location_id'] ?? ''));
+      if ($canonical_location_id !== '' && isset($room_mappings[$canonical_location_id])) {
+        $spec['canonical_location_id'] = (string) $room_mappings[$canonical_location_id];
+      }
       $fields = $this->normalizeStorylineNpcFields($campaign_id, $spec);
       if ($fields === NULL) {
         continue;
       }
 
       $entity_ref = (string) $fields['entity_ref'];
-      $instance_id = $this->normalizeNpcInstanceId($entity_ref);
+      $mapping = is_array($actor_mappings[$entity_ref] ?? NULL) ? $actor_mappings[$entity_ref] : [];
+      $instance_id = trim((string) ($mapping['runtime_instance_id'] ?? ''));
+      if ($instance_id === '') {
+        $instance_id = $this->normalizeNpcInstanceId($entity_ref);
+      }
       $existing_id = $this->database->select('dc_campaign_characters', 'cc')
         ->fields('cc', ['id'])
         ->condition('campaign_id', $campaign_id)
@@ -51,6 +367,25 @@ class StorylineRealizationService {
           ->range(0, 1)
           ->execute()
           ->fetchAssoc() ?: [];
+      }
+
+      if ($existing !== [] && $preserve_exact_existing) {
+        $existing_state = json_decode((string) ($existing['state_data'] ?? '{}'), TRUE);
+        $existing_content_id = is_array($existing_state)
+          ? trim((string) ($existing_state['content_id'] ?? ''))
+          : '';
+        $mapping_action = trim((string) ($mapping['action'] ?? ''));
+        if ($existing_content_id === $entity_ref || $mapping_action === 'map') {
+          $runtime_entity_ids[$entity_ref] = $instance_id;
+          $realized[] = $entity_ref;
+          continue;
+        }
+        throw new \RuntimeException(sprintf(
+          'Storyline actor realization conflict: runtime instance %s belongs to %s, not %s.',
+          $instance_id,
+          $existing_content_id !== '' ? $existing_content_id : 'an unidentifiable actor',
+          $entity_ref
+        ));
       }
 
       $upsert_fields = $this->buildStorylineNpcActorFields($campaign_id, $instance_id, $fields, $existing);
@@ -74,11 +409,22 @@ class StorylineRealizationService {
         );
       }
 
+      $runtime_entity_ids[$entity_ref] = $instance_id;
       $realized[] = $entity_ref;
     }
 
     $storyline_id = trim((string) ($storyline['storyline_id'] ?? ''));
     if ($storyline_id !== '' && isset($storyline_data['contacts']) && is_array($storyline_data['contacts'])) {
+      foreach ($storyline_data['contacts'] as &$contact) {
+        if (!is_array($contact)) {
+          continue;
+        }
+        $entity_id = trim((string) ($contact['entity_id'] ?? ''));
+        if ($entity_id !== '' && isset($runtime_entity_ids[$entity_id])) {
+          $contact['runtime_entity_id'] = $runtime_entity_ids[$entity_id];
+        }
+      }
+      unset($contact);
       $updated_contacts = $this->buildRuntimeStorylineContacts($storyline_data['contacts']);
       if ($updated_contacts !== array_values(array_filter($storyline_data['contacts'], 'is_array'))) {
         $storyline_data['contacts'] = $updated_contacts;

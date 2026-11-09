@@ -503,6 +503,71 @@ class QuestTouchpointServiceTest extends UnitTestCase {
   }
 
   /**
+   * Newly created quests in the same request turn do not auto-complete Phase 1 interact objectives.
+   */
+  public function testIngestEventSkipsSameTurnNewlyCreatedQuestWithoutHint(): void {
+    $store = $this->createMock(KeyValueStoreInterface::class);
+    $store->expects($this->once())
+      ->method('get')
+      ->willReturn(NULL);
+
+    $factory = $this->createMock(KeyValueFactoryInterface::class);
+    $factory->method('get')->willReturn($store);
+
+    $quest_tracker = $this->createMock(QuestTrackerService::class);
+    $quest_tracker->expects($this->once())
+      ->method('getActiveQuests')
+      ->with(1146, 5597)
+      ->willReturn([
+        [
+          'quest_id' => 'follow_the_whispers_1146_6af0c2407e13a',
+          'source_template_id' => 'follow_the_whispers',
+          'quest_name' => 'Follow the Whispers',
+          'character_id' => 5597,
+          'created_at' => 1794163263,
+          'current_phase' => 1,
+          'objective_states' => json_encode([
+            [
+              'phase' => 1,
+              'objectives' => [
+                [
+                  'objective_id' => 'gather_whisper_network',
+                  'type' => 'interact',
+                  'target' => 'gribbles_rindsworth',
+                  'description' => 'Question Gribbles about current whisper traffic.',
+                  'completed' => FALSE,
+                ],
+              ],
+            ],
+          ]),
+        ],
+      ]);
+    $quest_tracker->method('getCampaignQuestTracking')->willReturn([]);
+    $quest_tracker->expects($this->never())
+      ->method('updateObjectiveProgress');
+
+    $confirmation_service = $this->createMock(QuestConfirmationService::class);
+    $time = $this->createMock(TimeInterface::class);
+    $time->method('getRequestTime')->willReturn(1794163263);
+
+    $service = new QuestTouchpointService($quest_tracker, $confirmation_service, $factory, $time);
+    $result = $service->ingestEvent(1146, [
+      'character_id' => 5597,
+      'touchpoint' => [
+        'objective_type' => 'interact',
+        'npc_ref' => 'Gribbles Rindsworth',
+        'entity_ref' => 'gribbles_rindsworth',
+        'room_id' => 'tavern_entrance',
+        'confidence' => 'high',
+        'matching_mode' => 'direct_npc_dialogue',
+      ],
+    ]);
+
+    $this->assertTrue($result['success']);
+    $this->assertSame('NO_ACTION', $result['decision']);
+  }
+
+  /**
    * Build a representative active quest row for matching.
    */
   private function buildActiveQuestRow(): array {

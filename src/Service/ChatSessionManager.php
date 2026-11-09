@@ -23,6 +23,10 @@ use Psr\Log\LoggerInterface;
  *   ├── gm_private (secret player actions: pickpocket, stealth)
  *   └── system_log (dice, checks, mechanical results)
  *
+ * Editor GM conversations use independent root sessions keyed by editor
+ * surface and draft. They share this normalized storage but never feed into a
+ * campaign runtime hierarchy.
+ *
  * Feed-up rules:
  *   - ALL messages feed up to the campaign root (GM master memory).
  *   - Room messages feed up to dungeon.
@@ -41,6 +45,7 @@ use Psr\Log\LoggerInterface;
  *   campaign.{id}.gm_private.{char_id}
  *   campaign.{id}.system_log
  *   campaign.{id}.dungeon.{dungeon_id}.room.{room_id}.encounter
+ *   editor_gm.{surface}.{draft_id}
  *
  * @see dungeoncrawler_content_update_10024() for table creation.
  */
@@ -60,6 +65,7 @@ class ChatSessionManager {
     'gm_private',
     'system_log',
     'encounter',
+    'editor_gm',
   ];
 
   /**
@@ -192,6 +198,15 @@ class ChatSessionManager {
     return "campaign.{$campaign_id}.dungeon.{$dungeon_id}.room.{$safe_room}.encounter";
   }
 
+  /**
+   * Draft-scoped editor GM session key.
+   */
+  public function editorGmSessionKey(string $surface_id, string $draft_id): string {
+    $safe_surface = preg_replace('/[^a-zA-Z0-9_\-]/', '_', $surface_id);
+    $safe_draft = preg_replace('/[^a-zA-Z0-9_\-]/', '_', $draft_id);
+    return "editor_gm.{$safe_surface}.{$safe_draft}";
+  }
+
   // =========================================================================
   // Session CRUD.
   // =========================================================================
@@ -277,6 +292,27 @@ class ChatSessionManager {
       'message_count' => 0,
       'summary' => '',
     ];
+  }
+
+  /**
+   * Get or create one draft-scoped editor GM conversation.
+   */
+  public function ensureEditorGmSession(string $surface_id, string $draft_id, string $label = ''): array {
+    if (trim($surface_id) === '' || trim($draft_id) === '') {
+      throw new \InvalidArgumentException('editor_gm_session_scope_required');
+    }
+    return $this->getOrCreateSession(
+      0,
+      'editor_gm',
+      $this->editorGmSessionKey($surface_id, $draft_id),
+      $label !== '' ? $label : "Editor GM: {$surface_id}",
+      $draft_id,
+      NULL,
+      [
+        'surface_id' => $surface_id,
+        'draft_id' => $draft_id,
+      ],
+    );
   }
 
   /**
@@ -830,6 +866,13 @@ class ChatSessionManager {
   }
 
   /**
+   * Get the most recent messages in chronological display order.
+   */
+  public function getRecentMessagesChronological(int $session_id, int $limit = 50): array {
+    return array_reverse($this->getMessages($session_id, $limit));
+  }
+
+  /**
    * Normalize a chat message row loaded from storage.
    */
   protected function normalizeMessageRow(array $row): array {
@@ -865,25 +908,20 @@ class ChatSessionManager {
       $parts[] = "PRIOR CONTEXT (summary of earlier events):\n" . $summary;
     }
 
-    // Include recent messages.
-    $recent = $this->getMessagesChronological($session_id, $max_recent);
-    // getMessagesChronological returns oldest first, but we want the LAST N.
-    // Actually, we want the most recent N in chronological order.
-    // Since we ordered ASC, we actually want to get the last N.
-    // Let's query differently:
-    $all_recent = $this->getMessages($session_id, $max_recent);
-    // getMessages returns DESC, so reverse for chronological.
-    $all_recent = array_reverse($all_recent);
+    // Include the most recent messages in chronological display order.
+    $all_recent = $this->getRecentMessagesChronological($session_id, $max_recent);
 
     if (!empty($all_recent)) {
       $lines = [];
+      $content_limit = ($session['session_type'] ?? '') === 'editor_gm' ? 2000 : 500;
       foreach ($all_recent as $msg) {
         $type_tag = strtoupper($msg['speaker_type'] ?? 'unknown');
         $speaker = $msg['speaker'] ?? 'Unknown';
         $content = $msg['message'] ?? '';
-        if (strlen($content) > 500) {
-          $content = substr($content, 0, 497) . '...';
+        if (mb_strlen($content, 'UTF-8') > $content_limit) {
+          $content = mb_substr($content, 0, $content_limit - 3, 'UTF-8') . '...';
         }
+        $content = mb_scrub($content, 'UTF-8');
         $msg_type = $msg['message_type'] ?? 'narrative';
         if ($msg_type === 'mechanical' || $msg_type === 'system') {
           $lines[] = "[SYSTEM]: {$content}";
@@ -1076,9 +1114,10 @@ class ChatSessionManager {
           : "--- Dungeon #{$dungeon_id} Summary ---\n" . $dungeon_summary;
 
         // Enforce max length by trimming from front.
-        if (strlen($new_summary) > self::MAX_SUMMARY_LENGTH) {
-          $new_summary = '...' . substr($new_summary, strlen($new_summary) - self::MAX_SUMMARY_LENGTH + 3);
+        if (mb_strlen($new_summary, 'UTF-8') > self::MAX_SUMMARY_LENGTH) {
+          $new_summary = '...' . mb_substr($new_summary, mb_strlen($new_summary, 'UTF-8') - self::MAX_SUMMARY_LENGTH + 3, NULL, 'UTF-8');
         }
+        $new_summary = mb_scrub($new_summary, 'UTF-8');
 
         $this->database->update('dc_chat_sessions')
           ->fields([

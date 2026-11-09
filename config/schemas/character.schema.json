@@ -536,6 +536,128 @@
       "default": 1,
       "description": "Hero points (refresh at session start)."
     },
+    "actor_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]{0,190}$",
+      "description": "Canonical actor/character slug identifier."
+    },
+    "actor_type": {
+      "type": "string",
+      "enum": ["pc", "npc"],
+      "default": "pc",
+      "description": "Unified actor classification (pc or npc)."
+    },
+    "occupation": {
+      "type": "string",
+      "maxLength": 150,
+      "description": "Character or NPC occupation."
+    },
+    "role": {
+      "type": "string",
+      "maxLength": 64,
+      "description": "Party or narrative role (player, ally, contact, merchant, adversary, neutral, quest_giver)."
+    },
+    "attitude": {
+      "type": "string",
+      "enum": ["hostile", "unfriendly", "indifferent", "friendly", "helpful"],
+      "description": "Initial or current disposition attitude."
+    },
+    "perception": {
+      "type": "integer",
+      "minimum": -10,
+      "maximum": 60,
+      "description": "Perception modifier."
+    },
+    "saves": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "fortitude": {"type": "integer", "minimum": -10, "maximum": 60},
+        "reflex": {"type": "integer", "minimum": -10, "maximum": 60},
+        "will": {"type": "integer", "minimum": -10, "maximum": 60}
+      },
+      "description": "Saving throw modifiers."
+    },
+    "senses": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1, "maxLength": 100},
+      "description": "Special senses (e.g., low-light vision, darkvision)."
+    },
+    "attacks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "bonus", "damage"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1, "maxLength": 120},
+          "bonus": {"type": "integer", "minimum": -10, "maximum": 60},
+          "damage": {"type": "string", "minLength": 1, "maxLength": 120}
+        }
+      },
+      "description": "Configured melee or ranged strike entries."
+    },
+    "motivations": {
+      "type": "string",
+      "maxLength": 1000,
+      "description": "Core motivations driving the character/actor."
+    },
+    "fears": {
+      "type": "string",
+      "maxLength": 1000,
+      "description": "Key fears or vulnerabilities."
+    },
+    "bonds": {
+      "type": "string",
+      "maxLength": 1000,
+      "description": "Personal, institutional, or narrative bonds."
+    },
+    "personality_traits": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1, "maxLength": 120},
+      "description": "Discrete personality trait tags."
+    },
+    "psychology": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inner_conflict",
+        "coping_mechanism",
+        "stress_response",
+        "insecurity",
+        "secret",
+        "desire",
+        "need",
+        "trigger",
+        "anchor"
+      ],
+      "properties": {
+        "inner_conflict": {"type": "string", "minLength": 1, "maxLength": 500},
+        "coping_mechanism": {"type": "string", "minLength": 1, "maxLength": 500},
+        "stress_response": {"type": "string", "minLength": 1, "maxLength": 500},
+        "insecurity": {"type": "string", "minLength": 1, "maxLength": 500},
+        "secret": {"type": "string", "minLength": 1, "maxLength": 500},
+        "desire": {"type": "string", "minLength": 1, "maxLength": 500},
+        "need": {"type": "string", "minLength": 1, "maxLength": 500},
+        "trigger": {"type": "string", "minLength": 1, "maxLength": 500},
+        "anchor": {"type": "string", "minLength": 1, "maxLength": 500}
+      },
+      "description": "Structured 9-axis character/actor psychology profile."
+    },
+    "storyline_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "contact_id": {"type": "string", "maxLength": 128},
+        "availability": {"type": "string", "maxLength": 64},
+        "chapter_id": {"type": "string", "maxLength": 128},
+        "scene_id": {"type": "string", "maxLength": 128},
+        "location_id": {"type": "string", "maxLength": 128},
+        "dialogue": {"type": "string", "maxLength": 2000},
+        "knowledge": {"type": "string", "maxLength": 2000}
+      },
+      "description": "Optional storyline authoring contact/scene binding."
+    },
     "created_at": {
       "type": "string",
       "format": "date-time",

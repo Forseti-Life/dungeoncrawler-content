@@ -356,6 +356,14 @@ trait EncounterNavigationTransitionCoordinatorTrait {
         'r' => (int) ($entry_hex['r'] ?? 0),
       ],
     ];
+    $dungeon_switch = $this->requireNavigationService()->buildDungeonSwitchForTransition(
+      $dungeon_data,
+      $origin_room_id,
+      $target_room_id
+    );
+    if (is_array($dungeon_switch)) {
+      $receipt['dungeon_switch'] = $dungeon_switch;
+    }
 
     if ($origin_room_id !== '') {
       $receipt['origin_room_id'] = $origin_room_id;

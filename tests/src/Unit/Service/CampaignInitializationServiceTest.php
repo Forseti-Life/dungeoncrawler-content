@@ -14,8 +14,11 @@ use Drupal\Core\Logger\LoggerChannelInterface;
 use Drupal\dungeoncrawler_content\Service\CampaignInitializationService;
 use Drupal\dungeoncrawler_content\Service\CampaignClockService;
 use Drupal\dungeoncrawler_content\Service\CampaignNameGeneratorService;
+use Drupal\dungeoncrawler_content\Service\CanonicalQuestTemplateService;
 use Drupal\dungeoncrawler_content\Service\Generation\CanonicalRoomProjectionService;
+use Drupal\dungeoncrawler_content\Service\ModuleConversion\ModuleConversionReleaseService;
 use Drupal\dungeoncrawler_content\Service\NpcSheetGenerationService;
+use Drupal\dungeoncrawler_content\Service\QuestDestinationValidatorService;
 use Drupal\dungeoncrawler_content\Service\QuestGeneratorService;
 use Drupal\dungeoncrawler_content\Service\RoomViewImageService;
 use Drupal\dungeoncrawler_content\Service\ChatSessionManager;
@@ -168,7 +171,375 @@ class CampaignInitializationServiceTest extends UnitTestCase {
       'unknown kind' => [['kind' => 'legacy']],
       'missing dungeon id' => [['kind' => 'published_dungeon', 'version_id' => '11111111-1111-4111-8111-111111111111']],
       'missing version id' => [['kind' => 'published_dungeon', 'dungeon_id' => 'd2_fixture']],
+      'missing module release id' => [['kind' => 'module_release']],
       'blank theme' => [['kind' => 'theme', 'theme' => '']],
+    ];
+  }
+
+  /**
+   * @covers ::normalizeCampaignSource
+   */
+  public function testNormalizeCampaignSourceResolvesModuleReleaseToPinnedPublishedDungeonSource(): void {
+    $service = (new \ReflectionClass(CampaignInitializationService::class))
+      ->newInstanceWithoutConstructor();
+    $release_service = $this->createMock(ModuleConversionReleaseService::class);
+    $release_service->expects($this->once())
+      ->method('resolveCampaignSource')
+      ->with('11111111-1111-4111-8111-111111111111')
+      ->willReturn([
+        'release_id' => '11111111-1111-4111-8111-111111111111',
+        'module_id' => 'fixture-module',
+        'module_title' => 'Fixture Module',
+        'module_version' => '1.0.0',
+        'archive_sha256' => str_repeat('a', 64),
+        'dungeon_id' => 'fixture_dungeon',
+        'version_id' => '22222222-2222-4222-8222-222222222222',
+      ]);
+    $property = new \ReflectionProperty(CampaignInitializationService::class, 'moduleConversionReleaseService');
+    $property->setAccessible(TRUE);
+    $property->setValue($service, $release_service);
+    $method = new \ReflectionMethod(CampaignInitializationService::class, 'normalizeCampaignSource');
+    $method->setAccessible(TRUE);
+
+    $normalized = $method->invoke($service, [
+      'kind' => 'module_release',
+      'release_id' => '11111111-1111-4111-8111-111111111111',
+    ], 'classic_dungeon');
+
+    $this->assertSame('published_dungeon', $normalized['kind']);
+    $this->assertSame('fixture_dungeon', $normalized['dungeon_id']);
+    $this->assertSame('22222222-2222-4222-8222-222222222222', $normalized['version_id']);
+    $this->assertSame('11111111-1111-4111-8111-111111111111', $normalized['module_release_id']);
+    $this->assertSame('fixture-module', $normalized['module_id']);
+    $this->assertSame('1.0.0', $normalized['module_version']);
+    $this->assertSame(str_repeat('a', 64), $normalized['module_archive_sha256']);
+  }
+
+  /**
+   * @covers ::resolvePublishedModuleQuest
+   */
+  public function testPublishedModuleQuestRequiresVerifiedReleaseAndExplicitReference(): void {
+    $database = $this->createMock(Connection::class);
+    $database->expects($this->never())->method('select');
+    $service = $this->questResolutionService($database);
+    $method = new \ReflectionMethod(CampaignInitializationService::class, 'resolvePublishedModuleQuest');
+    $method->setAccessible(TRUE);
+    $published = $this->moduleQuestFixture();
+
+    $published['source'] = ['dungeon_id' => 'dungeon', 'version_id' => 'version'];
+    $this->assertNull($method->invoke($service, $published));
+
+    $published = $this->moduleQuestFixture();
+    unset($published['aggregate']['metadata']['module_conversion']['quest_template_id']);
+    $this->assertNull($method->invoke($service, $published));
+  }
+
+  /**
+   * @covers ::resolvePublishedModuleQuest
+   * @covers ::collectPublishedModuleQuestObjectives
+   */
+  public function testPublishedModuleQuestValidatesCanonicalSceneBinding(): void {
+    $service = $this->questResolutionService($this->canonicalQuestDatabase([
+      'template_id' => 'island-authored',
+      'version' => '1.0.0',
+      'objectives_schema' => json_encode([
+        ['phase' => 1, 'objectives' => [
+          self::actionableObjective('enter_lair', 'placement-a'),
+          self::actionableObjective('find_clue', 'placement-b'),
+        ]],
+      ]),
+    ]));
+    $method = new \ReflectionMethod(CampaignInitializationService::class, 'resolvePublishedModuleQuest');
+    $method->setAccessible(TRUE);
+    $this->assertSame(['template_id' => 'island-authored'], $method->invoke($service, $this->moduleQuestFixture()));
+  }
+
+  /**
+   * @covers ::resolvePublishedModuleQuest
+   * @covers ::collectPublishedModuleQuestObjectives
+   */
+  public function testNestedActionableObjectivesCoverEveryPinnedScene(): void {
+    $service = $this->questResolutionService($this->canonicalQuestDatabase([
+      'template_id' => 'island-authored',
+      'version' => '1.0.0',
+      'objectives_schema' => json_encode([['phase' => 1, 'objectives' => [[
+        'objective_id' => 'explore_both',
+        'type' => 'composite',
+        'description' => 'Explore both scenes.',
+        'next_step' => 'Complete both explorations.',
+        'completion_criteria' => ['kind' => 'all_children', 'metric' => 'children_completed', 'description' => 'Complete both scenes.'],
+        'children' => [
+          self::actionableObjective('enter_lair', 'placement-a'),
+          self::actionableObjective('find_clue', 'placement-b'),
+        ],
+      ]]]]),
+    ]));
+    $this->assertSame(
+      ['template_id' => 'island-authored'],
+      (new \ReflectionMethod(CampaignInitializationService::class, 'resolvePublishedModuleQuest'))
+        ->invoke($service, $this->moduleQuestFixture())
+    );
+  }
+
+  /**
+   * @dataProvider invalidModuleQuestProvider
+   * @covers ::resolvePublishedModuleQuest
+   * @covers ::collectPublishedModuleQuestObjectives
+   */
+  public function testPublishedModuleQuestRejectsInvalidBinding(array $changes, ?array $template): void {
+    $service = $this->questResolutionService($this->canonicalQuestDatabase($template));
+    $published = $this->moduleQuestFixture();
+    foreach ($changes as $key => $value) {
+      $published['aggregate']['metadata']['module_conversion'][$key] = $value;
+    }
+    $method = new \ReflectionMethod(CampaignInitializationService::class, 'resolvePublishedModuleQuest');
+    $method->setAccessible(TRUE);
+    $this->expectException(\RuntimeException::class);
+    $this->expectExceptionMessage('campaign_source_module_quest_invalid');
+    $method->invoke($service, $published);
+  }
+
+  public static function invalidModuleQuestProvider(): array {
+    $matching = [
+      'template_id' => 'island-authored',
+      'version' => '1.0.0',
+      'objectives_schema' => json_encode([['phase' => 1, 'objectives' => [
+        self::actionableObjective('enter_lair', 'placement-a'),
+        self::actionableObjective('find_clue', 'placement-b'),
+      ]]]),
+    ];
+    $valid = [
+      'template_id' => 'island-authored',
+      'version' => '1.0.0',
+      'objectives_schema' => '{"phases":"malformed"}',
+    ];
+    return [
+      'empty reference' => [['quest_template_id' => ''], NULL],
+      'missing canonical row' => [[], NULL],
+      'ambiguous template versions' => [[], [$matching, $matching]],
+      'invalid canonical schema' => [[], $valid],
+      'second destination not pinned' => [[], [
+        'template_id' => 'island-authored',
+        'version' => '1.0.0',
+        'objectives_schema' => '[{"phase":1,"objectives":[{"objective_id":"enter_lair","destination_id":"placement-a"},{"objective_id":"find_clue","location_id":"source-room-id"}]}]',
+      ]],
+      'human scene alias masks pinned id' => [[], [
+        'template_id' => 'island-authored',
+        'version' => '1.0.0',
+        'objectives_schema' => json_encode([['phase' => 1, 'objectives' => [
+          self::actionableObjective('enter_lair', 'placement-a'),
+          [...self::actionableObjective('find_clue', 'placement-b'), 'location' => 'scene-alias'],
+        ]]]),
+      ]],
+      'different pinned location and location id' => [[], [
+        'template_id' => 'island-authored',
+        'version' => '1.0.0',
+        'objectives_schema' => json_encode([['phase' => 1, 'objectives' => [
+          self::actionableObjective('enter_lair', 'placement-a'),
+          [...self::actionableObjective('find_clue', 'placement-b'), 'location' => 'placement-a'],
+        ]]]),
+      ]],
+      'explore missing required location' => [[], [
+        'template_id' => 'island-authored',
+        'version' => '1.0.0',
+        'objectives_schema' => json_encode([['phase' => 1, 'objectives' => [
+          self::actionableObjective('enter_lair', 'placement-a'),
+          array_diff_key(self::actionableObjective('find_clue', 'placement-b'), ['location' => TRUE]),
+        ]]]),
+      ]],
+      'location without location id' => [[], [
+        'template_id' => 'island-authored',
+        'version' => '1.0.0',
+        'objectives_schema' => json_encode([['phase' => 1, 'objectives' => [
+          self::actionableObjective('enter_lair', 'placement-a'),
+          [...array_diff_key(self::actionableObjective('find_clue', 'placement-b'), ['location_id' => TRUE]), 'type' => 'interact', 'destination_id' => 'placement-b'],
+        ]]]),
+      ]],
+      'objective without scene destination' => [[], [
+        'template_id' => 'island-authored',
+        'version' => '1.0.0',
+        'objectives_schema' => '[{"phase":1,"objectives":[{"objective_id":"enter_lair"}]}]',
+      ]],
+      'unexpected scene override' => [['scene_objectives' => []], NULL],
+      'unplaced destination' => [[], [
+        'template_id' => 'island-authored',
+        'version' => '1.0.0',
+        'objectives_schema' => '[{"phase":1,"objectives":[{"objective_id":"enter_lair","destination_id":"elsewhere"}]}]',
+      ]],
+      'duplicate objective' => [[], [
+        'template_id' => 'island-authored',
+        'version' => '1.0.0',
+        'objectives_schema' => '[{"phase":1,"objectives":[{"objective_id":"enter_lair","destination_id":"placement-a"},{"objective_id":"enter_lair","location_id":"placement-b"}]}]',
+      ]],
+      'uncovered pinned scene' => [[], [
+        'template_id' => 'island-authored',
+        'version' => '1.0.0',
+        'objectives_schema' => json_encode([['phase' => 1, 'objectives' => [
+          self::actionableObjective('enter_lair', 'placement-a'),
+        ]]]),
+      ]],
+      'nonactionable scene destination' => [[], [
+        'template_id' => 'island-authored',
+        'version' => '1.0.0',
+        'objectives_schema' => json_encode([['phase' => 1, 'objectives' => [
+          self::actionableObjective('enter_lair', 'placement-a'),
+          [
+            'objective_id' => 'narrative_only',
+            'type' => 'group',
+            'location_id' => 'placement-b',
+            'description' => 'Review lair narrative.',
+            'next_step' => 'Complete nested objective.',
+            'completion_criteria' => ['kind' => 'all_children', 'metric' => 'children_completed', 'description' => 'Complete nested objective.'],
+            'children' => [self::actionableObjective('nested_lair', 'placement-a')],
+          ],
+        ]]]),
+      ]],
+    ];
+  }
+
+  /**
+   * @covers ::resolvePublishedModuleQuest
+   */
+  public function testPublishedModuleQuestRejectsQuarantinedCanonicalTemplate(): void {
+    $template = [
+      'template_id' => 'island-authored',
+      'version' => '1.0.0',
+      'objectives_schema' => json_encode([['phase' => 1, 'objectives' => [
+        self::actionableObjective('enter_lair', 'placement-a'),
+        self::actionableObjective('find_clue', 'placement-b'),
+      ]]]),
+    ];
+    $service = $this->questResolutionService($this->canonicalQuestDatabase($template));
+    $authority = $this->createMock(CanonicalQuestTemplateService::class);
+    $authority->expects($this->once())->method('requireCanonicalQuestTemplateRef')
+      ->with('island-authored', '1.0.0')
+      ->willThrowException(new \OutOfBoundsException('quest_template_quarantined:island-authored'));
+    (new \ReflectionProperty(CampaignInitializationService::class, 'canonicalQuestTemplateService'))->setValue($service, $authority);
+    $this->expectException(\OutOfBoundsException::class);
+    $this->expectExceptionMessage('quest_template_quarantined:island-authored');
+    (new \ReflectionMethod(CampaignInitializationService::class, 'resolvePublishedModuleQuest'))
+      ->invoke($service, $this->moduleQuestFixture());
+  }
+
+  private static function actionableObjective(string $id, string $location): array {
+    return [
+      'objective_id' => $id,
+      'type' => 'explore',
+      'description' => 'Explore ' . $location,
+      'location_id' => $location,
+      'location' => $location,
+      'next_step' => 'Explore ' . $location,
+      'completion_criteria' => ['kind' => 'flag', 'metric' => 'discovered', 'description' => 'Discover the scene.'],
+    ];
+  }
+
+  /**
+   * @covers \Drupal\dungeoncrawler_content\Service\QuestDestinationValidatorService::validateQuestDestination
+   */
+  public function testPinnedPlacementUuidIsAcceptedAsRuntimeQuestLocation(): void {
+    $placement_id = '22222222-2222-4222-8222-222222222222';
+    $validator = new QuestDestinationValidatorService();
+    $validator->validateQuestDestination(
+      ['location_id' => $placement_id],
+      ['rooms' => [['room_id' => $placement_id, 'name' => 'Published scene']]]
+    );
+    $this->addToAssertionCount(1);
+  }
+
+  /**
+   * @covers ::seedPublishedModuleQuest
+   */
+  public function testPublishedModuleQuestUsesGeneratorAndLifecycleWithoutCustomInsert(): void {
+    $service = $this->questResolutionService($this->createMock(Connection::class));
+    $generator = $this->createMock(QuestGeneratorService::class);
+    $generator->expects($this->once())->method('generateQuestFromTemplate')
+      ->with('island-authored', 42, [
+        'party_level' => 1,
+        'difficulty' => 'severe',
+        'location' => 'placement-a',
+        'dungeon_id' => 'runtime-dungeon',
+        'initial_status' => 'offered',
+      ])
+      ->willReturn(['quest_id' => 'quest-42', 'source_template_id' => 'island-authored']);
+    $lifecycle = $this->createMock(StorylineQuestLifecycleService::class);
+    $lifecycle->expects($this->once())->method('ensureOfferedQuestFromTemplate')
+      ->with(42, 'island-authored', $this->callback(static function (callable $factory): bool {
+        return $factory() === ['quest_id' => 'quest-42', 'source_template_id' => 'island-authored'];
+      }))
+      ->willReturn(TRUE);
+    (new \ReflectionProperty(CampaignInitializationService::class, 'questGenerator'))->setValue($service, $generator);
+    (new \ReflectionProperty(CampaignInitializationService::class, 'storylineQuestLifecycleService'))->setValue($service, $lifecycle);
+    (new \ReflectionMethod(CampaignInitializationService::class, 'seedPublishedModuleQuest'))
+      ->invoke($service, 42, 'island-authored', 'hard', 'placement-a', 'runtime-dungeon');
+  }
+
+  /**
+   * @covers ::seedPublishedModuleQuest
+   */
+  public function testPublishedModuleQuestDoesNotSuppressGenerationFailure(): void {
+    $service = $this->questResolutionService($this->createMock(Connection::class));
+    $generator = $this->createMock(QuestGeneratorService::class);
+    $generator->method('generateQuestFromTemplate')
+      ->willThrowException(new \RuntimeException('canonical destination not materialized'));
+    $lifecycle = $this->createMock(StorylineQuestLifecycleService::class);
+    $lifecycle->method('ensureOfferedQuestFromTemplate')
+      ->willReturnCallback(static function (int $campaign_id, string $template_id, callable $factory): bool {
+        $factory();
+        return TRUE;
+      });
+    (new \ReflectionProperty(CampaignInitializationService::class, 'questGenerator'))->setValue($service, $generator);
+    (new \ReflectionProperty(CampaignInitializationService::class, 'storylineQuestLifecycleService'))->setValue($service, $lifecycle);
+    $this->expectException(\RuntimeException::class);
+    $this->expectExceptionMessage('canonical destination not materialized');
+    (new \ReflectionMethod(CampaignInitializationService::class, 'seedPublishedModuleQuest'))
+      ->invoke($service, 42, 'island-authored', 'normal', 'placement-a', 'runtime-dungeon');
+  }
+
+  private function questResolutionService(Connection $database): CampaignInitializationService {
+    $service = (new \ReflectionClass(CampaignInitializationService::class))->newInstanceWithoutConstructor();
+    (new \ReflectionProperty(CampaignInitializationService::class, 'database'))->setValue($service, $database);
+    $authority = $this->createMock(CanonicalQuestTemplateService::class);
+    $authority->method('requireCanonicalQuestTemplateRef')
+      ->willReturnCallback(static fn(string $id, ?string $version): array => [
+        'template_id' => $id,
+        'version' => $version,
+        'name' => 'Authored scene quest',
+        'quest_type' => 'module_story',
+        'source_table' => 'dc_canonical_quests',
+      ]);
+    (new \ReflectionProperty(CampaignInitializationService::class, 'canonicalQuestTemplateService'))->setValue($service, $authority);
+    return $service;
+  }
+
+  private function canonicalQuestDatabase(?array $template): Connection {
+    $select = $this->createMock(SelectInterface::class);
+    $select->method('fields')->willReturnSelf();
+    $select->method('condition')->willReturnSelf();
+    $select->method('range')->with(0, 2)->willReturnSelf();
+    $select->method('execute')->willReturn(new class($template) {
+      public function __construct(private ?array $template) {}
+      public function fetchAll(int $fetch_style): array {
+        return $this->template === NULL ? [] : (array_is_list($this->template) ? $this->template : [$this->template]);
+      }
+    });
+    $database = $this->createMock(Connection::class);
+    $database->method('select')->with('dc_canonical_quests', 'q')->willReturn($select);
+    return $database;
+  }
+
+  private function moduleQuestFixture(): array {
+    return [
+      'source' => ['module_release_id' => 'verified-release', 'dungeon_id' => 'dungeon', 'version_id' => 'version'],
+      'aggregate' => [
+        'room_placements' => [
+          ['placement_id' => 'placement-a'],
+          ['placement_id' => 'placement-b'],
+        ],
+        'metadata' => ['module_conversion' => [
+          'execution_mode' => 'original_scene_generation',
+          'quest_template_id' => 'island-authored',
+        ]],
+      ],
     ];
   }
 

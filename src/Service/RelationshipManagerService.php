@@ -541,10 +541,6 @@ class RelationshipManagerService {
       return ((int) ($b['priority'] ?? 0)) <=> ((int) ($a['priority'] ?? 0));
     });
 
-    if ($items === []) {
-      $items = $this->buildCanonicalStorylineContacts($broker_entity_id);
-    }
-
     return $items;
   }
 
@@ -616,6 +612,22 @@ class RelationshipManagerService {
    * Builds the authored starting-location summary for a storyline.
    */
   protected function buildStorylineLeadLocation(array $storyline_data, ?array $quest_giver): array {
+    $attachment = is_array($storyline_data['metadata']['campaign_attachment'] ?? NULL)
+      ? $storyline_data['metadata']['campaign_attachment']
+      : [];
+    $hook_room_id = trim((string) ($attachment['storyline_hook_room_id'] ?? ''));
+    if ($hook_room_id !== '') {
+      return [
+        'location_id' => $hook_room_id,
+        'chapter_id' => '',
+        'chapter_name' => '',
+        'scene_id' => '',
+        'scene_name' => '',
+        'label' => $this->humanizeIdentifier($hook_room_id),
+        'notes' => 'Authored storyline hook location.',
+      ];
+    }
+
     $chapter_map = [];
     foreach (array_values(is_array($storyline_data['chapters'] ?? NULL) ? $storyline_data['chapters'] : []) as $chapter) {
       if (!is_array($chapter)) {
@@ -665,6 +677,7 @@ class RelationshipManagerService {
     }
 
     return [
+      'location_id' => '',
       'chapter_id' => $chapter_id,
       'chapter_name' => $chapter_name,
       'scene_id' => $scene_id,

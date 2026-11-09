@@ -3,6 +3,7 @@
 namespace Drupal\Tests\dungeoncrawler_content\Unit\Service;
 
 use Drupal\dungeoncrawler_content\Service\MapVisualStateProjector;
+use Drupal\dungeoncrawler_content\Service\NavigationService;
 use Drupal\Tests\UnitTestCase;
 
 /**
@@ -12,6 +13,104 @@ use Drupal\Tests\UnitTestCase;
  * @group map
  */
 class MapVisualStateProjectorTest extends UnitTestCase {
+
+  public function testSourceMapProjectionRequiresStagedAssetsAndKeepsPlacement(): void {
+    $projector = new MapVisualStateProjector();
+    $room = [
+      'room_id' => 'island-room',
+      'hexes' => [['q' => 0, 'r' => 0]],
+      'metadata' => ['module_conversion' => ['source_scene' => [
+        'conversion_state' => 'original_gameplay_generated_map_staged',
+        'width_px' => 3984,
+        'height_px' => 5082,
+        'map_assets' => [
+          'background' => ['url' => '/sites/default/files/island-map.webp', 'license_notice_url' => '/sites/default/files/island-map.LICENSE.txt', 'width' => 3984, 'height' => 5082],
+          'tiles' => [
+            ['url' => '/sites/default/files/island-tile.webp', 'license_notice_url' => '/sites/default/files/island-tile.LICENSE.txt', 'placement' => [
+              'x' => 12.5, 'y' => 40, 'width' => 180, 'height' => 100,
+              'rotation' => 15, 'alpha' => 0.8,
+            ]],
+          ],
+        ],
+      ]]],
+    ];
+    $payload = ['active_room_id' => 'island-room', 'rooms' => ['island-room' => $room]];
+    $map = $projector->project($payload)['topology']['rooms']['island-room']['source_map'];
+    $this->assertSame(3984, $map['width_px']);
+    $this->assertSame(5082, $map['height_px']);
+    $this->assertSame('/sites/default/files/island-map.webp', $map['background_url']);
+    $this->assertSame(3984, $map['background_width_px']);
+    $this->assertSame(5082, $map['background_height_px']);
+    $this->assertSame('/sites/default/files/island-map.LICENSE.txt', $map['background_license_notice_url']);
+    $this->assertSame([[
+      'url' => '/sites/default/files/island-tile.webp',
+      'license_notice_url' => '/sites/default/files/island-tile.LICENSE.txt',
+      'x' => 12.5, 'y' => 40, 'width' => 180, 'height' => 100,
+      'rotation' => 15, 'alpha' => 0.8,
+    ]], $map['tiles']);
+    $this->assertNull($map['alignment']);
+
+    $payload['rooms']['island-room']['metadata']['module_conversion']['source_scene']['map_alignment'] = [
+      'status' => 'reviewed',
+      'origin_x_px' => 2000, 'origin_y_px' => 2500,
+      'source_hex_radius_px' => 50, 'rotation_degrees' => 0,
+    ];
+    $aligned = $projector->project($payload)['topology']['rooms']['island-room']['source_map'];
+    $this->assertSame(50, $aligned['alignment']['source_hex_radius_px']);
+    $scene = &$payload['rooms']['island-room']['metadata']['module_conversion']['source_scene'];
+    $scene['width_px'] = 5000;
+    $scene['height_px'] = 5000;
+    $scene['map_assets']['background']['width'] = 500;
+    $scene['map_assets']['background']['height'] = 500;
+    $this->assertSame(500, $projector->project($payload)['topology']['rooms']['island-room']['source_map']['background_width_px']);
+    unset($scene);
+
+    $payload['rooms']['island-room']['metadata']['module_conversion']['source_scene']['conversion_state'] = 'original_gameplay_generated_map_unattached';
+    $this->assertNull($projector->project($payload)['topology']['rooms']['island-room']['source_map']);
+  }
+
+  public function testStagedSourceMapWithMissingPlacementFailsClosed(): void {
+    $projector = new MapVisualStateProjector();
+    $this->expectException(\DomainException::class);
+    $this->expectExceptionMessage('source_map_projection_invalid');
+    $projector->project(['active_room_id' => 'island-room', 'rooms' => [
+      'island-room' => [
+        'room_id' => 'island-room',
+        'metadata' => ['module_conversion' => ['source_scene' => [
+          'conversion_state' => 'original_gameplay_generated_map_staged',
+          'width_px' => 3984,
+          'height_px' => 5082,
+          'map_assets' => [
+            'background' => ['url' => '/sites/default/files/island-map.webp', 'license_notice_url' => '/sites/default/files/island-map.LICENSE.txt'],
+            'tiles' => [['url' => '/sites/default/files/island-tile.webp', 'license_notice_url' => '/sites/default/files/island-tile.LICENSE.txt', 'placement' => NULL]],
+          ],
+        ]]],
+      ],
+    ]]);
+  }
+
+  public function testSourceMapRejectsDistortedReviewedAlignment(): void {
+    $projector = new MapVisualStateProjector();
+    $this->expectException(\DomainException::class);
+    $this->expectExceptionMessage('source_map_alignment_invalid');
+    $projector->project(['active_room_id' => 'room-a', 'rooms' => [
+      'room-a' => [
+        'room_id' => 'room-a',
+        'metadata' => ['module_conversion' => ['source_scene' => [
+          'conversion_state' => 'original_gameplay_generated_map_staged',
+          'width_px' => 5000, 'height_px' => 5000,
+          'map_assets' => [
+            'background' => ['url' => '/map.png', 'license_notice_url' => '/map.LICENSE.txt', 'width' => 500, 'height' => 300],
+            'tiles' => [],
+          ],
+          'map_alignment' => [
+            'status' => 'reviewed', 'origin_x_px' => 2500, 'origin_y_px' => 2500,
+            'source_hex_radius_px' => 100, 'rotation_degrees' => 0,
+          ],
+        ]]],
+      ],
+    ]]);
+  }
 
   /**
    * Verifies the projector emits canonical room, connection, and occupant fields.
@@ -88,8 +187,8 @@ class MapVisualStateProjectorTest extends UnitTestCase {
       'connections' => [
         [
           'connection_id' => 'door-1',
-          'from' => ['q' => 0, 'r' => 0],
-          'to' => ['q' => 1, 'r' => 0],
+          'from' => ['room_id' => 'room-a', 'q' => 0, 'r' => 0],
+          'to' => ['room_id' => 'room-b', 'q' => 1, 'r' => 0],
           'type' => 'door',
           'is_known' => TRUE,
           'is_passable' => TRUE,
@@ -141,7 +240,7 @@ class MapVisualStateProjectorTest extends UnitTestCase {
     $this->assertSame('room-a', $result['map_meta']['active_room_id']);
     $this->assertSame('Downstairs', $result['topology']['rooms']['room-a']['subtitle']);
     $this->assertTrue($result['topology']['rooms']['room-a']['hex_bounds']['has_hexes']);
-    $this->assertSame(6, $result['topology']['rooms']['room-a']['hex_bounds']['hex_count']);
+    $this->assertSame(2, $result['topology']['rooms']['room-a']['hex_bounds']['hex_count']);
     $this->assertSame(0, $result['topology']['rooms']['room-a']['hex_bounds']['min_q']);
     $this->assertSame(2, $result['topology']['rooms']['room-a']['hex_bounds']['max_q']);
     $this->assertSame(-1, $result['topology']['rooms']['room-a']['hex_bounds']['min_r']);
@@ -167,10 +266,7 @@ class MapVisualStateProjectorTest extends UnitTestCase {
     $this->assertSame('normal', $roomAHex00['lighting']);
     $this->assertSame(0.0, $roomAHex00['elevation_ft']);
 
-    $this->assertNotNull($roomAFilledHex);
-    $this->assertSame('floor', $roomAFilledHex['terrain_type']);
-    $this->assertSame('normal', $roomAFilledHex['lighting']);
-    $this->assertSame(0.0, $roomAFilledHex['elevation_ft']);
+    $this->assertNull($roomAFilledHex);
     $this->assertFalse($result['topology']['rooms']['room-b']['state']['explored']);
     $this->assertSame('wood_floor', $result['topology']['rooms']['room-a']['terrain']['type']);
     $this->assertSame('dim_light', $result['topology']['rooms']['room-b']['lighting']);
@@ -274,6 +370,44 @@ class MapVisualStateProjectorTest extends UnitTestCase {
     $this->assertNotNull($hexEntry);
     $this->assertFalse((bool) ($hex00['is_entry'] ?? FALSE));
     $this->assertTrue((bool) ($hexEntry['is_entry'] ?? FALSE));
+  }
+
+  public function testProjectUsesEntryPortAndDoesNotInventFloorInsideBounds(): void {
+    $projector = new MapVisualStateProjector();
+    $room = [
+      'room_id' => 'island-room',
+      'hexes' => [
+        ['q' => -3, 'r' => 0],
+        ['q' => 0, 'r' => 0],
+        ['q' => 3, 'r' => 0],
+      ],
+      'entry_points' => [['q' => -3, 'r' => 0, 'is_default' => TRUE]],
+    ];
+    $result = $projector->project([
+      'active_room_id' => 'island-room',
+      'rooms' => ['island-room' => $room],
+    ]);
+    $hexes = $result['topology']['rooms']['island-room']['hexes'];
+    $this->assertCount(3, $hexes);
+    $this->assertSame(-3, $result['map_meta']['hex_grid']['origin']['q']);
+    $this->assertSame(0, $result['map_meta']['hex_grid']['origin']['r']);
+    $this->assertSame([TRUE, FALSE, FALSE], array_column($hexes, 'is_entry'));
+  }
+
+  public function testProjectRejectsEntryPortOutsideAuthoredFootprint(): void {
+    $projector = new MapVisualStateProjector();
+    $this->expectException(\DomainException::class);
+    $this->expectExceptionMessage('authored entry is outside its hex footprint');
+    $projector->project([
+      'active_room_id' => 'room-a',
+      'rooms' => [
+        'room-a' => [
+          'room_id' => 'room-a',
+          'hexes' => [['q' => 0, 'r' => 0]],
+          'entry_points' => [['q' => 2, 'r' => 1, 'is_default' => TRUE]],
+        ],
+      ],
+    ]);
   }
 
   /**
@@ -624,7 +758,14 @@ class MapVisualStateProjectorTest extends UnitTestCase {
    * Quest destinations are surfaced as synthetic exits in the active room.
    */
   public function testProjectAddsQuestDestinationExitForActiveRoom(): void {
-    $projector = new MapVisualStateProjector();
+    $navigation = $this->createMock(NavigationService::class);
+    $navigation->expects($this->once())->method('buildNavigationCapabilitiesWithQuestTargets')
+      ->willReturn([[
+        'target_room_id' => 'room-b',
+        'quest_reference' => TRUE,
+        'quest_ids' => ['quest-1'],
+      ]]);
+    $projector = new MapVisualStateProjector($navigation);
 
     $result = $projector->project([
       'active_room_id' => 'room-a',
@@ -669,7 +810,10 @@ class MapVisualStateProjectorTest extends UnitTestCase {
    * Invalid quest destination references hard-fail visual projection.
    */
   public function testProjectRejectsInvalidQuestDestinationContract(): void {
-    $projector = new MapVisualStateProjector();
+    $navigation = $this->createMock(NavigationService::class);
+    $navigation->method('buildNavigationCapabilitiesWithQuestTargets')
+      ->willThrowException(new \InvalidArgumentException('Quest destination contract violation'));
+    $projector = new MapVisualStateProjector($navigation);
 
     $this->expectException(\InvalidArgumentException::class);
     $this->expectExceptionMessage('Quest destination contract violation');

@@ -30,6 +30,24 @@ use Psr\Log\LoggerInterface;
  */
 class EncounterPhaseHandlerTest extends UnitTestCase {
 
+  public function testParticipantSyncReportsOnlyActorsWhoseRuntimeStateChanges(): void {
+    $participants = [
+      ['entity_id' => 'player-1', 'hp' => 7, 'max_hp' => 12, 'is_defeated' => FALSE, 'conditions' => []],
+      ['entity_id' => 'familiar-1', 'hp' => 3, 'max_hp' => 3, 'is_defeated' => FALSE, 'conditions' => []],
+    ];
+    $handler = (new \ReflectionClass(EncounterPhaseHandler::class))->newInstanceWithoutConstructor();
+    $dungeon_data = ['entities' => [
+      ['entity_instance_id' => 'player-1', 'state' => ['hit_points' => ['current' => 12, 'max' => 12]]],
+      ['entity_instance_id' => 'familiar-1', 'state' => []],
+    ]];
+    $method = new \ReflectionMethod(EncounterPhaseHandler::class, 'applyEncounterParticipantsToDungeonData');
+    $args = [$participants, &$dungeon_data];
+    $this->assertSame(['player-1', 'familiar-1'], $method->invokeArgs($handler, $args));
+    $this->assertSame(7, $dungeon_data['entities'][0]['state']['hit_points']['current']);
+    $this->assertSame(3, $dungeon_data['entities'][1]['state']['hit_points']['current']);
+    $this->assertSame([], $method->invokeArgs($handler, $args));
+  }
+
   /**
    * Chameleon Gnomes expose minor color shift on their turn.
    *

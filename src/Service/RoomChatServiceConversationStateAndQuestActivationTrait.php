@@ -206,29 +206,49 @@ trait RoomChatServiceConversationStateAndQuestActivationTrait {
 
     $tracked_ref = trim((string) ($conversation_npc['entity_ref'] ?? ''));
     if ($tracked_ref === '') {
-      unset($dungeon_data['rooms'][$room_index]['conversation_state']);
-      if (isset($dungeon_data['rooms'][$room_index]['state']) && is_array($dungeon_data['rooms'][$room_index]['state'])) {
-        unset($dungeon_data['rooms'][$room_index]['state']['conversation_state']);
+      if (isset($dungeon_data['rooms'][$room_index]['conversation_state']) && is_array($dungeon_data['rooms'][$room_index]['conversation_state'])) {
+        unset(
+          $dungeon_data['rooms'][$room_index]['conversation_state']['entity_ref'],
+          $dungeon_data['rooms'][$room_index]['conversation_state']['speaker_name'],
+          $dungeon_data['rooms'][$room_index]['conversation_state']['intent'],
+          $dungeon_data['rooms'][$room_index]['conversation_state']['channel'],
+          $dungeon_data['rooms'][$room_index]['conversation_state']['character_id'],
+          $dungeon_data['rooms'][$room_index]['conversation_state']['updated_at']
+        );
       }
-      unset($dungeon_data['rooms'][$room_index]['conversation_queue']);
+      if (isset($dungeon_data['rooms'][$room_index]['state']['conversation_state']) && is_array($dungeon_data['rooms'][$room_index]['state']['conversation_state'])) {
+        unset(
+          $dungeon_data['rooms'][$room_index]['state']['conversation_state']['entity_ref'],
+          $dungeon_data['rooms'][$room_index]['state']['conversation_state']['speaker_name'],
+          $dungeon_data['rooms'][$room_index]['state']['conversation_state']['intent'],
+          $dungeon_data['rooms'][$room_index]['state']['conversation_state']['channel'],
+          $dungeon_data['rooms'][$room_index]['state']['conversation_state']['character_id'],
+          $dungeon_data['rooms'][$room_index]['state']['conversation_state']['updated_at']
+        );
+      }
       return;
     }
 
     $tracked_name = trim((string) ($conversation_npc['profile']['display_name'] ?? $conversation_npc['entity']['name'] ?? $tracked_ref));
-    $conversation_state = [
+    $existing_state = isset($dungeon_data['rooms'][$room_index]['conversation_state']) && is_array($dungeon_data['rooms'][$room_index]['conversation_state'])
+      ? $dungeon_data['rooms'][$room_index]['conversation_state']
+      : [];
+    $conversation_state = array_merge($existing_state, [
       'entity_ref' => $tracked_ref,
       'speaker_name' => $tracked_name,
       'intent' => $turn_intent,
       'channel' => 'room',
       'character_id' => $character_id,
       'updated_at' => date('c'),
-    ];
+    ]);
     $dungeon_data['rooms'][$room_index]['conversation_state'] = $conversation_state;
     if (!isset($dungeon_data['rooms'][$room_index]['state']) || !is_array($dungeon_data['rooms'][$room_index]['state'])) {
       $dungeon_data['rooms'][$room_index]['state'] = [];
     }
-    $dungeon_data['rooms'][$room_index]['state']['conversation_state'] = $conversation_state;
-    unset($dungeon_data['rooms'][$room_index]['conversation_queue']);
+    $existing_nested = isset($dungeon_data['rooms'][$room_index]['state']['conversation_state']) && is_array($dungeon_data['rooms'][$room_index]['state']['conversation_state'])
+      ? $dungeon_data['rooms'][$room_index]['state']['conversation_state']
+      : [];
+    $dungeon_data['rooms'][$room_index]['state']['conversation_state'] = array_merge($existing_nested, $conversation_state);
   }
 
 
@@ -873,6 +893,76 @@ trait RoomChatServiceConversationStateAndQuestActivationTrait {
   }
 
   /**
+   * Build authoritative pending/resolved branch context for the gameplay GM.
+   */
+  protected function buildGmStorylineBranchPromptContext(int $campaign_id): string {
+    if ($campaign_id <= 0 || !$this->storylineManager) {
+      return '';
+    }
+    $contexts = $this->storylineManager->getCampaignStorylineBranchContext($campaign_id);
+    if ($contexts === []) {
+      return '';
+    }
+
+    $lines = [
+      '=== STORYLINE DECISION CONTEXT (GM ONLY) ===',
+      'These are authored runtime decisions. Do not invent alternate outcomes or reveal them to players before play establishes the result.',
+    ];
+    foreach (array_slice($contexts, 0, 4) as $storyline) {
+      $storyline_id = trim((string) ($storyline['storyline_id'] ?? ''));
+      $name = trim((string) ($storyline['name'] ?? $storyline_id));
+      $pending_by_decision = [];
+      foreach (array_values(array_filter((array) ($storyline['pending_choices'] ?? []), 'is_array')) as $choice) {
+        $pending_by_decision[(string) ($choice['decision_id'] ?? '')][] = $choice;
+      }
+      foreach ($pending_by_decision as $decision_id => $choices) {
+        if ($decision_id === '') {
+          continue;
+        }
+        $lines[] = sprintf('- Pending decision %s in %s {storyline_id: %s}', $decision_id, $name, $storyline_id);
+        foreach (array_slice($choices, 0, 4) as $choice) {
+          $trigger = is_array($choice['trigger'] ?? NULL) ? $choice['trigger'] : [];
+          $trigger_text = trim(implode('; ', array_filter([
+            trim((string) ($trigger['type'] ?? 'player_choice')),
+            trim((string) ($trigger['condition'] ?? '')),
+            trim((string) ($trigger['source_id'] ?? '')),
+          ])));
+          $effect_summary = trim((string) ($choice['effects']['summary'] ?? ''));
+          $target = trim((string) ($choice['target_scene_id'] ?? ''));
+          if ($target === '') {
+            $target = trim((string) ($choice['target_quest_id'] ?? ''));
+          }
+          if ($target === '') {
+            $target = 'terminal';
+          }
+          $lines[] = sprintf(
+            '  - %s {choice_id: %s; trigger: %s; target: %s}%s',
+            trim((string) ($choice['label'] ?? 'Choice')),
+            trim((string) ($choice['choice_id'] ?? '')),
+            $trigger_text !== '' ? $trigger_text : 'player_choice',
+            $target,
+            $effect_summary !== '' ? '; consequence: ' . $effect_summary : '',
+          );
+        }
+      }
+      foreach (array_slice((array) ($storyline['resolved_choices'] ?? []), 0, 4) as $choice) {
+        if (!is_array($choice)) {
+          continue;
+        }
+        $lines[] = sprintf(
+          '- Resolved %s = %s in %s: %s',
+          trim((string) ($choice['decision_id'] ?? 'decision')),
+          trim((string) ($choice['choice_id'] ?? 'choice')),
+          $name,
+          trim((string) ($choice['effects']['summary'] ?? 'outcome applied')),
+        );
+      }
+    }
+    $lines[] = 'When play establishes an authored outcome, use the resolve_storyline_branch GM tool with campaign_id, storyline_id, decision_id, and choice_id. The tool applies effects and progression atomically.';
+    return $this->truncateContextBlock(implode("\n", $lines), 2200, 0.8);
+  }
+
+  /**
    * Start clearly mentioned location quests for the acting character.
    */
 
@@ -1436,31 +1526,8 @@ trait RoomChatServiceConversationStateAndQuestActivationTrait {
       ->execute()
       ->fetchAssoc();
 
-    if (!is_array($storyline_row) && $template_id !== '' && $this->storylineManager) {
-      try {
-        $instantiated = $this->storylineManager->instantiateStorylineTemplate($campaign_id, $template_id, [
-          'status' => 'lead',
-          'priority' => (int) ($contact['priority'] ?? 0),
-          'realize_storyline_assets' => TRUE,
-        ]);
-        if ($instantiated !== []) {
-          $storyline_row = [
-            'storyline_id' => (string) ($instantiated['storyline_id'] ?? $template_id),
-            'storyline_data' => json_encode($instantiated['storyline_data'] ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-          ];
-        }
-      }
-      catch (\Throwable $e) {
-        $this->logger->warning('Failed to instantiate brokered storyline template {template_id} in campaign {campaign_id}: {message}', [
-          'template_id' => $template_id,
-          'campaign_id' => $campaign_id,
-          'message' => $e->getMessage(),
-        ]);
-      }
-    }
-
     if (!is_array($storyline_row)) {
-      $this->logger->warning('Brokered storyline contact {storyline_id} has no campaign storyline row in campaign {campaign_id}.', [
+      $this->logger->warning('Brokered storyline contact {storyline_id} is unavailable because it has not passed campaign attachment planning for campaign {campaign_id}.', [
         'storyline_id' => $storyline_id !== '' ? $storyline_id : $template_id,
         'campaign_id' => $campaign_id,
       ]);
@@ -1491,7 +1558,18 @@ trait RoomChatServiceConversationStateAndQuestActivationTrait {
         $entry_point = is_array($storyline_data['metadata']['generated_outline']['entry_point'] ?? NULL)
           ? $storyline_data['metadata']['generated_outline']['entry_point']
           : [];
-        $primary_dungeon_id = trim((string) ($entry_point['primary_dungeon_id'] ?? ''));
+        $attachment = is_array($storyline_data['metadata']['campaign_attachment'] ?? NULL)
+          ? $storyline_data['metadata']['campaign_attachment']
+          : [];
+        $attached_dungeons = array_values(array_filter(
+          is_array($attachment['dungeons'] ?? NULL) ? $attachment['dungeons'] : [],
+          'is_array'
+        ));
+        $primary_dungeon_id = trim((string) (
+          $attached_dungeons[0]['runtime_dungeon_id']
+          ?? $entry_point['primary_dungeon_id']
+          ?? ''
+        ));
         $generation_context = [
           'party_level' => $this->loadCharacterQuestLevel($campaign_id, $character_id),
           'difficulty' => 'moderate',

@@ -41,6 +41,19 @@
             "required_value": true,
             "description": "Complete when Marta's storyline lead has been added to the journal."
           }
+        },
+        {
+          "objective_id": "speak_to_gribbles",
+          "type": "interact",
+          "target": "gribbles_rindsworth",
+          "description": "Gather Gribbles Rindsworth's storyline lead.",
+          "next_step": "Talk to Gribbles Rindsworth in The Gilded Tankard and ask what whisper leads he has.",
+          "completion_criteria": {
+            "kind": "flag",
+            "metric": "completed",
+            "required_value": true,
+            "description": "Complete when Gribbles's storyline lead has been added to the journal."
+          }
         }
       ]
     }

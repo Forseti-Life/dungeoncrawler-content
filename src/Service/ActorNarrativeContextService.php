@@ -9,15 +9,21 @@ use Drupal\Core\Database\Connection;
  */
 class ActorNarrativeContextService {
 
-  protected const CONTEXT_VERSION = 'actor-narrative-context-v1';
+  protected const CONTEXT_VERSION = 'actor-narrative-context-v2';
 
   protected Connection $database;
   protected ?RelationshipManagerService $relationshipManager;
+  protected ?StorylineManagerService $storylineManager;
   protected array $schemaFieldCache = [];
 
-  public function __construct(Connection $database, ?RelationshipManagerService $relationship_manager = NULL) {
+  public function __construct(
+    Connection $database,
+    ?RelationshipManagerService $relationship_manager = NULL,
+    ?StorylineManagerService $storyline_manager = NULL,
+  ) {
     $this->database = $database;
     $this->relationshipManager = $relationship_manager;
+    $this->storylineManager = $storyline_manager;
   }
 
   /**
@@ -36,6 +42,22 @@ class ActorNarrativeContextService {
     $quest_links_as_giver = $this->loadQuestLinksAsGiver($campaign_id, $actor_id, $room_id);
     $quest_links_as_contact = $this->loadQuestLinksAsContact($campaign_id, $entity_ref, $actor_name, $room_id);
     $storyline_links = $this->loadStorylineLinks($campaign_id, $entity_ref, $actor_name);
+    $branch_context = [];
+    if ($this->storylineManager) {
+      $actor_refs = $this->buildEntityRefCandidates($entity_ref);
+      $instance_id = trim((string) ($actor_row['instance_id'] ?? ''));
+      if ($instance_id !== '') {
+        $actor_refs = array_values(array_unique(array_merge(
+          $actor_refs,
+          $this->buildEntityRefCandidates($instance_id),
+        )));
+      }
+      $branch_context = $this->storylineManager->getCampaignStorylineBranchContext(
+        $campaign_id,
+        '',
+        $actor_refs,
+      );
+    }
 
     $knows_active_objectives = $quest_links_as_giver !== [] || $quest_links_as_contact !== [];
     $has_offerable_work = count(array_filter($quest_links_as_giver, static function (array $quest): bool {
@@ -53,6 +75,7 @@ class ActorNarrativeContextService {
         'as_contact' => $quest_links_as_contact,
       ],
       'storyline_links' => $storyline_links,
+      'storyline_branch_context' => $branch_context,
       'knowledge_directives' => [
         'knows_linked_objectives' => $knows_active_objectives,
         'can_offer_linked_work' => $has_offerable_work,
@@ -61,7 +84,8 @@ class ActorNarrativeContextService {
         $actor_name !== '' ? $actor_name : $entity_ref,
         $quest_links_as_giver,
         $quest_links_as_contact,
-        $storyline_links
+        $storyline_links,
+        $branch_context,
       ),
     ];
   }
@@ -366,7 +390,8 @@ class ActorNarrativeContextService {
     string $actor_name,
     array $quests_as_giver,
     array $quests_as_contact,
-    array $storyline_links
+    array $storyline_links,
+    array $branch_context,
   ): string {
     $lines = ['=== ACTOR NARRATIVE CONTEXT (ROLE-SCOPED) ==='];
     $lines[] = 'Only use these facts as this actor would reasonably know them. Do not reveal hidden future beats.';
@@ -413,11 +438,38 @@ class ActorNarrativeContextService {
       }
     }
 
+    if ($branch_context !== []) {
+      $lines[] = '- Resolved storyline consequences this actor knows and must portray:';
+      foreach (array_slice($branch_context, 0, 3) as $storyline) {
+        $storyline_name = trim((string) ($storyline['name'] ?? $storyline['storyline_id'] ?? 'Storyline'));
+        foreach (array_slice((array) ($storyline['resolved_choices'] ?? []), 0, 3) as $choice) {
+          if (!is_array($choice)) {
+            continue;
+          }
+          foreach (array_values(array_filter((array) ($choice['effects']['actors'] ?? []), 'is_array')) as $effect) {
+            $reaction = trim((string) ($effect['reaction'] ?? ''));
+            $consequence = trim((string) ($effect['effect'] ?? ''));
+            $detail = trim(implode(' ', array_filter([$reaction, $consequence])));
+            if ($detail !== '') {
+              $lines[] = '  - ' . $storyline_name . ': ' . $detail;
+            }
+          }
+        }
+        foreach ((array) ($storyline['actor_state'] ?? []) as $state) {
+          if (is_array($state) && $state !== []) {
+            $lines[] = '  - ' . $storyline_name . ' current state: '
+              . json_encode($state, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+          }
+        }
+      }
+    }
+
     if (
       $offerable === []
       && $active_giver === []
       && $quests_as_contact === []
       && $storyline_links === []
+      && $branch_context === []
     ) {
       $lines[] = '- No linked quest/storyline obligations are currently known for ' . $actor_name . '.';
     }

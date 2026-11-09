@@ -5,12 +5,14 @@ namespace Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Suite;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolContext;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolDefinition;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolInterface;
-use Drupal\dungeoncrawler_content\Service\EditorGm\EditorSuiteGmToolContext;
+use Drupal\dungeoncrawler_content\Service\EditorSuite\EditorSuiteService;
 
 /**
  * Lists every canonical room with its publication status.
  */
 final class ListRoomsTool implements EditorGmToolInterface {
+
+  public function __construct(private readonly EditorSuiteService $suite) {}
 
   public function definition(): EditorGmToolDefinition {
     return new EditorGmToolDefinition(
@@ -26,8 +28,7 @@ final class ListRoomsTool implements EditorGmToolInterface {
   }
 
   public function execute(array $arguments, EditorGmToolContext $context): array {
-    $context = EditorSuiteGmToolContext::of($context);
-    $rooms = $context->suite->rooms();
+    $rooms = $this->suite->rooms();
     if (!empty($arguments['published_only'])) {
       $rooms = array_values(array_filter($rooms, static fn(array $r): bool => $r['published_version_id'] !== NULL));
     }

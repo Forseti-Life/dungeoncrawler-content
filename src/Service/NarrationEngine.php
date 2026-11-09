@@ -729,6 +729,7 @@ class NarrationEngine {
         [
           'system_prompt' => $this->buildNarratorSystemPrompt('scene_beat'),
           'max_tokens' => 400,
+          'thinking' => 'disabled',
           'skip_cache' => TRUE,
         ]
       );

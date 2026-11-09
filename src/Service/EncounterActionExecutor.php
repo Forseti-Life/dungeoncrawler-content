@@ -21,6 +21,8 @@ class EncounterActionExecutor {
   protected CanonicalProjectionService $canonicalProjectionService;
   protected CombatResolutionContractService $combatResolutionContractService;
   protected UnifiedDamageEngine $unifiedDamageEngine;
+  protected ?SpellEffectResolverService $spellEffectResolver;
+  protected ?SpellFeatActionDataValidatorService $rulesDataValidator;
   protected UnifiedMovementEngine $unifiedMovementEngine;
   protected ?MovementResolverService $movementResolver;
   protected ?ActorDispositionService $actorDispositionService;
@@ -51,7 +53,9 @@ class EncounterActionExecutor {
     ?UnifiedMovementEngine $unified_movement_engine = NULL,
     ?RelationshipAttitudeService $relationship_attitude_service = NULL,
     ?RelationshipsActorIdentityResolverService $relationships_actor_identity_resolver_service = NULL,
-    ?InstitutionMembershipService $institution_membership_service = NULL
+    ?InstitutionMembershipService $institution_membership_service = NULL,
+    ?SpellEffectResolverService $spell_effect_resolver = NULL,
+    ?SpellFeatActionDataValidatorService $rules_data_validator = NULL
   ) {
     $this->encounterStore = $encounter_store;
     $this->combatEngine = $combat_engine;
@@ -70,6 +74,8 @@ class EncounterActionExecutor {
     $this->relationshipAttitudeService = $relationship_attitude_service;
     $this->relationshipsActorIdentityResolverService = $relationships_actor_identity_resolver_service;
     $this->institutionMembershipService = $institution_membership_service;
+    $this->spellEffectResolver = $spell_effect_resolver;
+    $this->rulesDataValidator = $rules_data_validator;
     $this->actionTargetingService = $action_targeting_service ?? new ActionTargetingService();
     $this->unifiedDamageEngine = $unified_damage_engine ?? new UnifiedDamageEngine(
       $encounter_store,
@@ -79,12 +85,6 @@ class EncounterActionExecutor {
     $this->unifiedMovementEngine = $unified_movement_engine ?? new UnifiedMovementEngine(
       $combat_resolution_contract_service
     );
-  }
-
-  protected function isMagicMissileSpell(string $spell_id, string $spell_name): bool {
-    $identifier = strtolower(trim($spell_id !== '' ? $spell_id : $spell_name));
-    $canonical = preg_replace('/[^a-z0-9]+/', '', $identifier) ?? '';
-    return $canonical === 'magicmissile';
   }
 
   public function processTalk(
@@ -844,14 +844,35 @@ class EncounterActionExecutor {
     $is_focus_spell = !empty($params['is_focus_spell']);
     $requires_attack_roll = !empty($params['requires_attack_roll']);
     $spell_tradition = $params['spell_tradition'] ?? NULL;
-    if ($target_id === NULL && $this->isMagicMissileSpell($spell_id, (string) $spell_name)) {
+    $spell_contract = $this->spellCatalog->getSpell($spell_id !== '' ? $spell_id : (string) $spell_name);
+    if ($spell_contract === NULL) {
+      return ['cast' => FALSE, 'error' => "Spell '{$spell_name}' is not present in the canonical spell registry.", 'mutations' => [], 'narration' => NULL];
+    }
+    if ($this->rulesDataValidator === NULL) {
+      return ['cast' => FALSE, 'error' => 'Canonical spell contract validator is unavailable.', 'mutations' => [], 'narration' => NULL];
+    }
+    $contract_validation = $this->rulesDataValidator->validateSpellDefinition(
+      $spell_contract,
+      ValidationProfileResolverService::PROFILE_INTERMEDIARY_INGEST
+    );
+    if (empty($contract_validation['valid'])) {
       return [
         'cast' => FALSE,
-        'error' => 'Magic Missile requires selecting a valid target.',
+        'error' => sprintf(
+          "Spell '%s' has an invalid canonical execution contract: %s",
+          (string) ($spell_contract['id'] ?? $spell_name),
+          implode('; ', (array) ($contract_validation['errors'] ?? []))
+        ),
         'mutations' => [],
         'narration' => NULL,
       ];
     }
+    $spell_id = (string) ($spell_contract['id'] ?? $spell_id);
+    $spell_name = (string) ($spell_contract['name'] ?? $spell_name);
+    $spell_level = (int) ($spell_contract['rank'] ?? $spell_contract['level'] ?? $spell_level);
+    $is_cantrip = !empty($spell_contract['is_cantrip']) || strtolower((string) ($spell_contract['spell_type'] ?? '')) === 'cantrip';
+    $is_focus_spell = strtolower((string) ($spell_contract['spell_type'] ?? '')) === 'focus';
+    $requires_attack_roll = !empty($spell_contract['requires_attack_roll']);
 
     $enc_cs = $this->encounterStore->loadEncounter($encounter_id);
     $ptcp_cs = $enc_cs ? $this->findEncounterParticipantByEntityId($enc_cs, $actor_id) : NULL;
@@ -984,8 +1005,12 @@ class EncounterActionExecutor {
     $char_tradition = $canonical_state['spells']['tradition']
       ?? $edata_cs['spellcasting_tradition']
       ?? NULL;
-    if ($spell_tradition && $char_tradition && strtolower((string) $spell_tradition) !== strtolower((string) $char_tradition)) {
-      return ['cast' => FALSE, 'error' => "Spell tradition '{$spell_tradition}' does not match character tradition '{$char_tradition}'.", 'mutations' => [], 'narration' => NULL];
+    $contract_traditions = array_values(array_filter(array_map(
+      static fn($tradition): string => strtolower(trim((string) $tradition)),
+      (array) ($spell_contract['traditions'] ?? [])
+    ), static fn(string $tradition): bool => $tradition !== '' && $tradition !== 'none'));
+    if ($char_tradition && $contract_traditions !== [] && !in_array(strtolower((string) $char_tradition), $contract_traditions, TRUE)) {
+      return ['cast' => FALSE, 'error' => "Spell '{$spell_name}' is not available to character tradition '{$char_tradition}'.", 'mutations' => [], 'narration' => NULL];
     }
 
     $cast_time_param = $params['cast_time'] ?? NULL;
@@ -1013,6 +1038,7 @@ class EncounterActionExecutor {
     $spell_damage_type = NULL;
     $spell_damage_mutations = [];
     $spell_damage_packet = NULL;
+    $damage_resolution = [];
     $target_defeated = FALSE;
     $missiles_fired = NULL;
     if ($is_innate_spell) {
@@ -1043,6 +1069,22 @@ class EncounterActionExecutor {
     $disposition_change = NULL;
     if ($is_cantrip) {
       $effective_level = $this->canonicalProjectionService->resolveEffectiveCantripLevel($canonical_state, $edata_cs);
+      $effect_resolution = [];
+      if ($target_id !== NULL && trim($target_id) !== '') {
+        $effect_resolution = $this->resolveCanonicalSpellEffects(
+          $encounter_id,
+          $actor_id,
+          $target_refs,
+          $spell_id,
+          (string) $spell_name,
+          max(1, $effective_level),
+          (int) ($params['action_cost'] ?? 1),
+          $target_participant
+        );
+        if (!empty($effect_resolution['error'])) {
+          return ['cast' => FALSE, 'error' => (string) $effect_resolution['error'], 'mutations' => [], 'narration' => NULL];
+        }
+      }
       if ($should_trigger_negative_spell_disposition) {
         $classified_disposition_change = $this->applyClassifiedDispositionMutation(
           $campaign_id > 0 ? $campaign_id : NULL,
@@ -1078,9 +1120,15 @@ class EncounterActionExecutor {
         'effective_level' => $effective_level,
         'spell_dc' => $spell_dc,
         'attack_result' => $attack_result,
+        'damage' => $effect_resolution['damage'] ?? NULL,
+        'healing' => $effect_resolution['healing'] ?? NULL,
+        'target_results' => $effect_resolution['target_results'] ?? [],
+        'damage_packet' => $effect_resolution['damage_packet'] ?? NULL,
+        'state_effect_packets' => $effect_resolution['state_effect_packets'] ?? [],
+        'effect_contract' => $this->buildSpellEffectContract($spell_contract),
         'disposition_change' => $disposition_change,
         'narration' => NULL,
-        'mutations' => [],
+        'mutations' => $effect_resolution['mutations'] ?? [],
       ];
     }
 
@@ -1159,13 +1207,13 @@ class EncounterActionExecutor {
       }
 
       if ($target_id !== NULL && trim($target_id) !== '') {
-        $damage_resolution = $this->applySupportedSpellDamageToEncounterTarget(
+        $damage_resolution = $this->resolveCanonicalSpellEffects(
           $encounter_id,
           $actor_id,
-          (string) $target_id,
+          $target_refs,
           (string) $spell_id,
           (string) $spell_name,
-          (int) $slot_level,
+          max(1, $cast_at_level > 0 ? $cast_at_level : $spell_level),
           (int) ($params['action_cost'] ?? 1),
           $target_participant
         );
@@ -1212,8 +1260,12 @@ class EncounterActionExecutor {
         'spell_dc' => $spell_dc,
         'attack_result' => $attack_result,
         'damage' => $spell_damage,
+        'healing' => $damage_resolution['healing'] ?? NULL,
         'damage_type' => $spell_damage_type,
         'damage_packet' => $spell_damage_packet,
+        'target_results' => $damage_resolution['target_results'] ?? [],
+        'state_effect_packets' => $damage_resolution['state_effect_packets'] ?? [],
+        'effect_contract' => $this->buildSpellEffectContract($spell_contract),
         'missiles_fired' => $missiles_fired,
         'is_defeated' => $target_defeated,
         'disposition_change' => $disposition_change,
@@ -1317,10 +1369,10 @@ class EncounterActionExecutor {
     }
 
     if ($target_id !== NULL && trim($target_id) !== '') {
-      $damage_resolution = $this->applySupportedSpellDamageToEncounterTarget(
+      $damage_resolution = $this->resolveCanonicalSpellEffects(
         $encounter_id,
         $actor_id,
-        (string) $target_id,
+        $target_refs,
         (string) $spell_id,
         (string) $spell_name,
         (int) $slot_level,
@@ -1420,8 +1472,12 @@ class EncounterActionExecutor {
       'spell_attack_modifier' => $spell_attack_mod,
       'attack_result' => $attack_result,
       'damage' => $spell_damage,
+      'healing' => $damage_resolution['healing'] ?? NULL,
       'damage_type' => $spell_damage_type,
       'damage_packet' => $spell_damage_packet,
+      'target_results' => $damage_resolution['target_results'] ?? [],
+      'state_effect_packets' => $damage_resolution['state_effect_packets'] ?? [],
+      'effect_contract' => $this->buildSpellEffectContract($spell_contract),
       'missiles_fired' => $missiles_fired,
       'is_defeated' => $target_defeated,
       'disposition_change' => $disposition_change,
@@ -1450,28 +1506,81 @@ class EncounterActionExecutor {
   }
 
   /**
-   * Apply direct spell damage for currently supported deterministic spells.
+   * Resolve canonical spell effects through the shared effect resolver.
    */
-  protected function applySupportedSpellDamageToEncounterTarget(
+  protected function resolveCanonicalSpellEffects(
     int $encounter_id,
     string $source_actor_id,
-    string $target_id,
+    array $target_refs,
     string $spell_id,
     string $spell_name,
     int $cast_rank,
     int $action_cost,
     ?array $target_participant_hint = NULL
   ): array {
-    return $this->unifiedDamageEngine->applySupportedSpellDamageToEncounterTarget(
+    if ($this->spellEffectResolver === NULL) {
+      return ['error' => 'Canonical spell effect resolver is unavailable.'];
+    }
+    $spell = $this->spellCatalog->getSpell($spell_id !== '' ? $spell_id : $spell_name);
+    if ($spell === NULL) {
+      return ['error' => "Spell '{$spell_name}' is not present in the canonical spell registry."];
+    }
+
+    $source_participant = $this->findEncounterParticipantByEntityId(
+      $this->encounterStore->loadEncounter($encounter_id) ?: [],
+      $source_actor_id
+    );
+    $source_data = !empty($source_participant['entity_ref'])
+      ? json_decode((string) $source_participant['entity_ref'], TRUE)
+      : [];
+    $spell_dc = (int) ($source_data['spell_dc'] ?? 10);
+    $spell_attack_modifier = (int) ($source_data['spell_attack_modifier'] ?? 0);
+    $resolution = $this->spellEffectResolver->resolve(
       $encounter_id,
       $source_actor_id,
-      $target_id,
-      $spell_id,
-      $spell_name,
+      $target_refs,
+      $spell,
       $cast_rank,
-      $action_cost,
-      $target_participant_hint
+      $spell_dc,
+      $spell_attack_modifier,
+      $action_cost
     );
+    $target_result = is_array($resolution['target_results'][0] ?? NULL) ? $resolution['target_results'][0] : [];
+    $first_packet = is_array($resolution['damage_packets'][0] ?? NULL) ? $resolution['damage_packets'][0] : NULL;
+
+    return [
+      'damage' => (int) ($resolution['damage'] ?? 0),
+      'healing' => (int) ($resolution['healing'] ?? 0),
+      'damage_type' => is_string($first_packet['damage_type'] ?? NULL) ? $first_packet['damage_type'] : NULL,
+      'damage_packet' => $first_packet,
+      'target_results' => $resolution['target_results'] ?? [],
+      'state_effect_packets' => $resolution['state_effect_packets'] ?? [],
+      'mutations' => $resolution['mutations'] ?? [],
+      'is_defeated' => !empty($resolution['is_defeated']),
+      'missiles_fired' => $this->isCanonicalMagicMissile($spell_id)
+        ? max(1, min(3, $action_cost)) * (1 + max(0, (int) floor((max(1, $cast_rank) - 1) / 2)))
+        : NULL,
+      'degree' => $target_result['degree'] ?? NULL,
+    ];
+  }
+
+  protected function isCanonicalMagicMissile(string $spell_id): bool {
+    return preg_replace('/[^a-z0-9]+/', '', strtolower($spell_id)) === 'magicmissile';
+  }
+
+  /**
+   * Project the canonical effect contract for GM, actor, and client context.
+   */
+  protected function buildSpellEffectContract(array $spell): array {
+    return [
+      'description' => (string) ($spell['description'] ?? ''),
+      'targets' => (string) ($spell['targets'] ?? ''),
+      'area' => (string) ($spell['area'] ?? ''),
+      'duration' => (string) ($spell['duration'] ?? ''),
+      'damage' => is_array($spell['damage'] ?? NULL) ? $spell['damage'] : [],
+      'conditions_caused' => is_array($spell['conditions_caused'] ?? NULL) ? $spell['conditions_caused'] : [],
+      'outcomes' => is_array($spell['effects']['outcomes'] ?? NULL) ? $spell['effects']['outcomes'] : [],
+    ];
   }
 
   protected function findEncounterParticipantByEntityId(array $encounter, string $entity_id): ?array {

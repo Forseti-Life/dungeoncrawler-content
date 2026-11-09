@@ -742,6 +742,74 @@
           </div>
         </div>
         <div class="campaign-settings-panel__members">
+          <h4>{{ 'Campaign launch defaults'|t }}</h4>
+          <div class="campaign-settings-panel__member-list">
+            <label for="campaign-source-start-from" class="campaign-settings-panel__label">{{ 'Start from'|t }}</label>
+            <select id="campaign-source-start-from" class="merchant-trade-panel__select">
+              <option value="theme">{{ 'Theme'|t }}</option>
+              <option value="published_dungeon">{{ 'Published dungeon'|t }}</option>
+              <option value="module_release">{{ 'Module release'|t }}</option>
+            </select>
+            <label for="campaign-source-theme" class="campaign-settings-panel__label">{{ 'Theme'|t }}</label>
+            <select id="campaign-source-theme" class="merchant-trade-panel__select">
+              <option value="classic_dungeon">{{ 'Classic Dungeon'|t }}</option>
+              <option value="goblin_warrens">{{ 'Goblin Warrens'|t }}</option>
+              <option value="undead_crypt">{{ 'Undead Crypt'|t }}</option>
+            </select>
+            <label for="campaign-source-published-dungeon" class="campaign-settings-panel__label">{{ 'Published dungeon'|t }}</label>
+            <select id="campaign-source-published-dungeon" class="merchant-trade-panel__select">
+              <option value="">{{ 'No published dungeons available'|t }}</option>
+            </select>
+            <label for="campaign-source-module-release" class="campaign-settings-panel__label">{{ 'Module release'|t }}</label>
+            <select id="campaign-source-module-release" class="merchant-trade-panel__select">
+              <option value="">{{ 'No launchable module releases available'|t }}</option>
+            </select>
+            <div class="campaign-settings-panel__mode-actions">
+              <button type="button" class="btn btn-secondary btn-sm" id="campaign-source-save-defaults">{{ 'Save defaults'|t }}</button>
+              <button type="button" class="btn btn-primary btn-sm" id="campaign-source-apply-now">{{ 'Apply to current campaign'|t }}</button>
+            </div>
+          </div>
+        </div>
+        <div class="campaign-settings-panel__members campaign-storyline-settings">
+          <h4>{{ 'Storylines'|t }}</h4>
+          <p class="muted">{{ 'Attach canonical storylines to this campaign. Successful attachments activate automatically.'|t }}</p>
+          <div class="campaign-settings-panel__member-list">
+            <label for="campaign-storyline-template" class="campaign-settings-panel__label">{{ 'Canonical storyline'|t }}</label>
+            <select id="campaign-storyline-template" class="merchant-trade-panel__select">
+              <option value="">{{ 'Select a storyline'|t }}</option>
+            </select>
+            <label class="campaign-settings-panel__label">
+              <input type="checkbox" id="campaign-storyline-primary">
+              {{ 'Make this the primary storyline'|t }}
+            </label>
+            <div class="campaign-settings-panel__mode-actions">
+              <button type="button" class="btn btn-secondary btn-sm" id="campaign-storyline-preview">{{ 'Preview attachment'|t }}</button>
+              <button type="button" class="btn btn-primary btn-sm" id="campaign-storyline-apply" hidden>{{ 'Attach and activate'|t }}</button>
+            </div>
+            <div id="campaign-storyline-plan" class="campaign-storyline-settings__plan" hidden>
+              <strong id="campaign-storyline-plan-summary"></strong>
+              <p id="campaign-storyline-hook"></p>
+              <label for="campaign-storyline-gateway-room" class="campaign-settings-panel__label">{{ 'Campaign gateway room'|t }}</label>
+              <select id="campaign-storyline-gateway-room" class="merchant-trade-panel__select"></select>
+              <label for="campaign-storyline-gateway-port" class="campaign-settings-panel__label">{{ 'Gateway exit'|t }}</label>
+              <select id="campaign-storyline-gateway-port" class="merchant-trade-panel__select"></select>
+              <label for="campaign-storyline-travel-distance" class="campaign-settings-panel__label">{{ 'Road travel distance'|t }}</label>
+              <input id="campaign-storyline-travel-distance" class="merchant-trade-panel__input" type="number" min="1" step="1" placeholder="{{ 'Distance from the campaign road gateway'|t }}">
+              <div id="campaign-storyline-setting-placements"></div>
+              <div id="campaign-storyline-actor-decisions"></div>
+              <div id="campaign-storyline-findings"></div>
+              <button type="button" class="btn btn-secondary btn-sm" id="campaign-storyline-recheck">{{ 'Recheck decisions'|t }}</button>
+            </div>
+            <p id="campaign-storyline-status" class="campaign-settings-panel__status" role="status" aria-live="polite"></p>
+            <div>
+              <strong>{{ 'Attached storylines'|t }}</strong>
+              <div id="campaign-storyline-attached-list" class="campaign-storyline-settings__attached">
+                <p class="muted">{{ 'No storyline data loaded yet.'|t }}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="campaign-settings-panel__members">
           <h4>{{ 'Campaign members'|t }}</h4>
           <div class="campaign-settings-panel__member-list" id="campaign-member-list">
             <p class="muted">{{ 'No member data loaded yet.'|t }}</p>

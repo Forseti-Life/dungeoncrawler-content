@@ -86,6 +86,13 @@ class CharacterViewController extends ControllerBase {
       throw new AccessDeniedHttpException();
     }
 
+    return $this->buildCharacterSheetRenderArray($record, $campaign_id);
+  }
+
+  /**
+   * Build the unified character_sheet render array for any PC or NPC actor record.
+   */
+  protected function buildCharacterSheetRenderArray(object $record, int $campaign_id = 0): array {
     // Decode character data via manager and normalize onto the canonical shape
     // used by the character sheet.
     $decoded = $this->characterManager->getCharacterData($record);
@@ -271,7 +278,8 @@ class CharacterViewController extends ControllerBase {
     $portrait_url = $this->resolveCampaignCharacterPortraitUrl(
       (int) $record->id,
       $campaign_id,
-      (string) ($record->portrait ?? '')
+      (string) ($record->portrait ?? ''),
+      (string) ($record->instance_id ?? '')
     );
 
     $alignment = (string) ($state_basic_info['alignment'] ?? $char_data['alignment'] ?? '');
@@ -283,15 +291,17 @@ class CharacterViewController extends ControllerBase {
     $char_profile = is_array($char_data['profile'] ?? NULL) ? $char_data['profile'] : [];
     $profile = $state_profile !== [] ? $state_profile : $char_profile;
     $profile_sheet = is_array($profile['character_sheet'] ?? NULL) ? $profile['character_sheet'] : [];
-    $attitude = (string) ($state_descriptors['attitude'] ?? $profile['attitude'] ?? '');
-    $motivations = (string) ($state_descriptors['motivations'] ?? $profile['motivations'] ?? '');
+    $attitude = (string) ($state_descriptors['attitude'] ?? $profile['attitude'] ?? $char_data['attitude'] ?? '');
+    $motivations = (string) ($state_descriptors['motivations'] ?? $profile['motivations'] ?? $char_data['motivations'] ?? '');
     $goals = $this->normalizePersonalityGoals($state['goals'] ?? ($char_data['goals'] ?? []));
     $psychology_dimensions = $this->buildPsychologyDimensions(is_array($profile['personality_axes'] ?? NULL) ? $profile['personality_axes'] : []);
-    $psychology_traits = is_array($profile['personality_traits'] ?? NULL) ? array_values($profile['personality_traits']) : [];
-    $psychology_fears = trim((string) ($profile['fears'] ?? ''));
-    $psychology_bonds = trim((string) ($profile['bonds'] ?? ''));
-    $actor_description = trim((string) ($state['description'] ?? $profile_sheet['description'] ?? ''));
-    $actor_role = trim((string) ($profile['role'] ?? $state['role'] ?? $record->role ?? ''));
+    $psychology_traits = is_array($profile['personality_traits'] ?? NULL)
+      ? array_values($profile['personality_traits'])
+      : (is_array($char_data['personality_traits'] ?? NULL) ? array_values($char_data['personality_traits']) : []);
+    $psychology_fears = trim((string) ($profile['fears'] ?? $char_data['fears'] ?? ''));
+    $psychology_bonds = trim((string) ($profile['bonds'] ?? $char_data['bonds'] ?? ''));
+    $actor_description = trim((string) ($state['description'] ?? $char_data['description'] ?? $profile_sheet['description'] ?? ''));
+    $actor_role = trim((string) ($profile['role'] ?? $state['role'] ?? $char_data['role'] ?? $record->role ?? ''));
     $default_location = is_array($state['location'] ?? NULL) ? $state['location'] : [];
     $quest_payload = is_array($state['quests'] ?? NULL) ? $state['quests'] : [];
 
@@ -526,23 +536,40 @@ class CharacterViewController extends ControllerBase {
   }
 
   /**
-   * Renders a generic actor sheet for runtime/non-PC actor refs.
+   * Renders a full character sheet for runtime/canonical/storyline actor refs.
    */
   public function viewRuntimeActor(string $actor_id): array {
     $campaign_id = (int) (\Drupal::request()->query->get('campaign_id') ?? 0);
-    if ($campaign_id <= 0) {
-      throw new AccessDeniedHttpException();
-    }
-
     $is_admin = $this->currentUser()->hasPermission('administer site configuration');
-    if (!$is_admin) {
+
+    if ($campaign_id > 0 && !$is_admin) {
       $campaign_authorization = \Drupal::service('dungeoncrawler_content.campaign_authorization');
       if (!$campaign_authorization->canAccessCampaign($campaign_id, (int) $this->currentUser()->id())) {
         throw new AccessDeniedHttpException();
       }
     }
 
-    $descriptor = $this->resolveRuntimeActorDescriptor($campaign_id, $actor_id);
+    $record = $this->characterManager->loadActorBySlugOrId($actor_id, $campaign_id);
+    if ($record) {
+      $is_owner = $this->characterManager->isOwner($record);
+      $is_campaign_owner = $campaign_id > 0 ? $this->isCampaignOwner($campaign_id) : FALSE;
+      if (!$is_admin && !$is_owner && !$is_campaign_owner && $campaign_id <= 0) {
+        throw new AccessDeniedHttpException();
+      }
+      return $this->buildCharacterSheetRenderArray($record, $campaign_id);
+    }
+
+    $descriptor = NULL;
+    if ($campaign_id > 0) {
+      $descriptor = $this->resolveRuntimeActorDescriptor($campaign_id, $actor_id);
+    }
+    elseif ($is_admin) {
+      $descriptor = $this->resolveCanonicalActorDescriptor($actor_id);
+    }
+    else {
+      throw new AccessDeniedHttpException();
+    }
+
     if (!$descriptor) {
       throw new NotFoundHttpException();
     }
@@ -623,6 +650,7 @@ class CharacterViewController extends ControllerBase {
         $campaign_character_id > 0 ? 'campaign-character:' . $campaign_character_id : '',
         $character_id > 0 ? 'character:' . $character_id : '',
         $content_id !== '' ? 'content:' . $content_id : '',
+        $content_id,
         $runtime_id,
       ]);
       if (!in_array($normalized_actor_id, $candidate_actor_ids, TRUE)) {
@@ -644,6 +672,52 @@ class CharacterViewController extends ControllerBase {
     }
 
     return NULL;
+  }
+
+  /**
+   * Resolve a canonical actor descriptor for admin-only actor-sheet access.
+   *
+   * @return array<string,mixed>|null
+   */
+  protected function resolveCanonicalActorDescriptor(string $actor_id): ?array {
+    $normalized_actor_id = trim($actor_id);
+    if ($normalized_actor_id === '') {
+      return NULL;
+    }
+    if (str_starts_with($normalized_actor_id, 'content:')) {
+      $normalized_actor_id = substr($normalized_actor_id, strlen('content:'));
+    }
+    if ($normalized_actor_id === '') {
+      return NULL;
+    }
+
+    $row = $this->database->select('dc_canonical_actors', 'a')
+      ->fields('a', ['actor_id', 'actor_type', 'display_name', 'state_data', 'metadata'])
+      ->condition('actor_id', $normalized_actor_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!is_array($row)) {
+      return NULL;
+    }
+
+    $state_data = json_decode((string) ($row['state_data'] ?? '{}'), TRUE);
+    $metadata = json_decode((string) ($row['metadata'] ?? '{}'), TRUE);
+    $state_data = is_array($state_data) ? $state_data : [];
+    $metadata = is_array($metadata) ? $metadata : [];
+
+    return [
+      'actor_id' => $normalized_actor_id,
+      'entity_ref' => '',
+      'campaign_character_id' => 0,
+      'character_id' => 0,
+      'display_name' => (string) ($row['display_name'] ?? $metadata['name'] ?? $normalized_actor_id),
+      'actor_kind' => (string) ($row['actor_type'] ?? 'actor'),
+      'type' => (string) ($row['actor_type'] ?? 'actor'),
+      'team' => (string) ($metadata['team'] ?? $state_data['team'] ?? 'neutral'),
+      'room_id' => '',
+      'initiative' => NULL,
+    ];
   }
 
   /**
@@ -1728,7 +1802,12 @@ class CharacterViewController extends ControllerBase {
   /**
    * Resolve portrait URL for a campaign character record.
    */
-  private function resolveCampaignCharacterPortraitUrl(int $character_id, int $campaign_id = 0, string $legacy_portrait = ''): string {
+  private function resolveCampaignCharacterPortraitUrl(
+    int $character_id,
+    int $campaign_id = 0,
+    string $legacy_portrait = '',
+    string $instance_id = '',
+  ): string {
     if ($character_id <= 0) {
       return '';
     }
@@ -1765,7 +1844,61 @@ class CharacterViewController extends ControllerBase {
     }
 
     $legacy = trim($legacy_portrait);
-    return $legacy !== '' ? $legacy : '';
+    if ($legacy !== '') {
+      return $legacy;
+    }
+
+    $raw_slug = trim($instance_id);
+    if ($raw_slug !== '') {
+      $base_slug = str_starts_with($raw_slug, 'npc_') ? substr($raw_slug, 4) : $raw_slug;
+      $candidates = array_values(array_unique(array_filter([
+        $raw_slug,
+        $base_slug,
+        $base_slug !== '' ? 'npc_' . $base_slug : '',
+        $base_slug !== '' ? 'tpl_char_npc_' . $base_slug . '_001' : '',
+      ])));
+
+      if ($candidates !== [] && $this->database->schema()->tableExists('dungeoncrawler_content_characters')) {
+        $tpl_ids = $this->database->select('dungeoncrawler_content_characters', 't')
+          ->fields('t', ['id'])
+          ->condition('t.instance_id', $candidates, 'IN')
+          ->execute()
+          ->fetchCol();
+        foreach ($tpl_ids as $tpl_id) {
+          $tpl_portraits = $this->imageRepository->loadImagesForObject(
+            'dungeoncrawler_content_characters',
+            (string) $tpl_id,
+            NULL,
+            'portrait',
+            'original'
+          );
+          if (!empty($tpl_portraits)) {
+            $resolved = trim((string) $this->imageRepository->resolveClientUrl($tpl_portraits[0]));
+            if ($resolved !== '') {
+              return $resolved;
+            }
+          }
+        }
+      }
+
+      if ($candidates !== [] && $this->database->schema()->tableExists('dc_campaign_characters')) {
+        $fallback_portrait = $this->database->select('dc_campaign_characters', 'c')
+          ->fields('c', ['portrait'])
+          ->condition('c.instance_id', $candidates, 'IN')
+          ->isNotNull('c.portrait')
+          ->condition('c.portrait', '', '<>')
+          ->orderBy('c.updated', 'DESC')
+          ->orderBy('c.id', 'DESC')
+          ->range(0, 1)
+          ->execute()
+          ->fetchField();
+        if (is_string($fallback_portrait) && trim($fallback_portrait) !== '') {
+          return trim($fallback_portrait);
+        }
+      }
+    }
+
+    return '';
   }
 
   /**

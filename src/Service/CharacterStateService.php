@@ -60,6 +60,16 @@ class CharacterStateService {
       ->execute()
       ->fetchObject();
 
+    if (!$record && !ctype_digit(trim($character_id))) {
+      $slug_query = $this->database->select('dc_campaign_characters', 'c')
+        ->fields('c')
+        ->condition('instance_id', trim($character_id));
+      if ($campaign_id !== NULL && $campaign_id > 0) {
+        $slug_query->condition('campaign_id', [$campaign_id, 0], 'IN');
+      }
+      $record = $slug_query->range(0, 1)->execute()->fetchObject();
+    }
+
     if (!$record) {
       throw new \InvalidArgumentException("Character not found: {$character_id}");
     }
@@ -78,135 +88,119 @@ class CharacterStateService {
     
     $type = $record->type ?? ($merged_library['type'] ?? 'pc');
 
-    // Build CharacterState structure. For PCs we hydrate the sheet; for other types
-    // (npc/obstacle/trap/hazard) we expose the full library payload under npcDefinition/statePayload.
-    if ($type === 'pc') {
-      $portrait_url = $this->resolvePortraitUrl($record, $campaign_id);
-      $descriptors = $this->buildEntityDescriptors($merged_library, $type, (string) $record->name);
-      $features = is_array($merged_library['features'] ?? NULL) ? $merged_library['features'] : [];
-      $features = array_replace([
-        'ancestryFeatures' => [],
-        'classFeatures' => [],
-        'feats' => [],
-        'featSelections' => [],
-      ], $features);
-      if (is_array($merged_library['feats'] ?? NULL) && $merged_library['feats'] !== []) {
-        $features['feats'] = $merged_library['feats'];
-      }
-      if (is_array($merged_library['feat_selections'] ?? NULL) && $merged_library['feat_selections'] !== []) {
-        $features['featSelections'] = $merged_library['feat_selections'];
-      }
-      $state = [
-        'characterId' => (string) $record->id,
-        'userId' => (string) $record->uid,
-        'campaignId' => $merged_library['campaignId'] ?? NULL,
-        'instanceId' => $merged_library['instanceId'] ?? NULL,
-        'type' => $type,
-
-        'basicInfo' => [
-          'name' => $merged_library['basicInfo']['name'] ?? $record->name,
-          'level' => (int) ($merged_library['basicInfo']['level'] ?? $record->level),
-          'experiencePoints' => $merged_library['basicInfo']['experiencePoints'] ?? ($merged_library['experiencePoints'] ?? 0),
-          'ancestry' => $merged_library['basicInfo']['ancestry'] ?? $record->ancestry,
-          'heritage' => $merged_library['basicInfo']['heritage'] ?? ($merged_library['heritage'] ?? ''),
-          'background' => $merged_library['basicInfo']['background'] ?? ($merged_library['background'] ?? ''),
-          'class' => $merged_library['basicInfo']['class'] ?? $record->class,
-          'alignment' => $merged_library['basicInfo']['alignment'] ?? ($merged_library['alignment'] ?? ''),
-          'deity' => $merged_library['basicInfo']['deity'] ?? ($merged_library['deity'] ?? NULL),
-          'age' => $merged_library['basicInfo']['age'] ?? ($merged_library['age'] ?? NULL),
-          'appearance' => $merged_library['basicInfo']['appearance'] ?? ($merged_library['appearance'] ?? NULL),
-          'personality' => $merged_library['basicInfo']['personality'] ?? ($merged_library['personality'] ?? NULL),
-          'backstory' => $merged_library['basicInfo']['backstory'] ?? ($merged_library['backstory'] ?? NULL),
-        ],
-
-        'abilities' => $merged_library['abilities'] ?? [
-          'strength' => 10,
-          'dexterity' => 10,
-          'constitution' => 10,
-          'intelligence' => 10,
-          'wisdom' => 10,
-          'charisma' => 10,
-        ],
-
-        'resources' => is_array($merged_library['resources'] ?? NULL) ? $merged_library['resources'] : [
-          'hitPoints' => [
-            'current' => (int) ($record->hp_current ?? 0),
-            'max' => (int) ($record->hp_max ?? 0),
-            'temporary' => 0,
-          ],
-          'heroPoints' => [
-            'current' => 1,
-            'max' => 3,
-          ],
-        ],
-
-        'defenses' => is_array($merged_library['defenses'] ?? NULL) ? $merged_library['defenses'] : [
-          'armorClass' => (int) ($record->armor_class ?? 0),
-          'fortitude' => 0,
-          'reflex' => 0,
-          'will' => 0,
-        ],
-        'conditions' => is_array($merged_library['conditions'] ?? NULL) ? $merged_library['conditions'] : [],
-        'actions' => $merged_library['actions'] ?? [
-          'threeActionEconomy' => [
-            'actionsRemaining' => 3,
-            'reactionAvailable' => TRUE,
-          ],
-          'availableActions' => [],
-        ],
-        'spells' => $merged_library['spells'] ?? [],
-        'skills' => is_array($merged_library['skills'] ?? NULL) ? $merged_library['skills'] : [],
-        'inventory' => is_array($merged_library['inventory'] ?? NULL) ? $merged_library['inventory'] : [
-          'worn' => ['weapons' => [], 'armor' => NULL, 'shield' => NULL, 'accessories' => []],
-          'carried' => [],
-          'currency' => ['cp' => 0, 'sp' => 0, 'gp' => 0, 'pp' => 0],
-          'totalBulk' => 0,
-          'encumbrance' => 'unencumbered',
-        ],
-        'features' => $features,
-        'progression' => is_array($merged_library['progression'] ?? NULL) ? $merged_library['progression'] : [],
-        'portrait_url' => $portrait_url,
-        'portrait' => $portrait_url, // Legacy alias still read by older character-sheet callers.
-        'descriptors' => $descriptors,
-        'perception' => (int) ($merged_library['perception'] ?? 0),
-        'speed' => (int) ($merged_library['speed'] ?? 25),
-
-        // Ancestry creature traits — auto-assigned at creation, persisted in character_data.
-        // Falls back to ancestry defaults if traits were not stored (e.g. legacy characters).
-        'traits' => $this->resolveCharacterTraits($merged_library),
-
-        'metadata' => [
-          'createdAt' => date('c', $record->created),
-          'updatedAt' => date('c', $record->changed),
-          'lastSyncedAt' => date('c'),
-          'version' => $merged_library['version'] ?? 0,
-        ],
-      ];
+    // Unified CharacterState hydration for both PCs and NPCs/actors.
+    $descriptors = $this->buildEntityDescriptors($merged_library, $type, (string) $record->name);
+    $features = is_array($merged_library['features'] ?? NULL) ? $merged_library['features'] : [];
+    $features = array_replace([
+      'ancestryFeatures' => [],
+      'classFeatures' => [],
+      'feats' => [],
+      'featSelections' => [],
+    ], $features);
+    if (is_array($merged_library['feats'] ?? NULL) && $merged_library['feats'] !== []) {
+      $features['feats'] = $merged_library['feats'];
     }
-    else {
-      // Non-PC entities: return the full library payload under npcDefinition so NPC/obstacle/trap/hazard
-      // structures (including influence/relationship frameworks) are preserved end-to-end.
-      $npc_definition = $merged_library;
-      $descriptors = $this->buildEntityDescriptors($merged_library, $type, (string) $record->name);
-      $state = [
-        'characterId' => (string) $record->id,
-        'userId' => (string) $record->uid,
-        'campaignId' => $merged_library['campaignId'] ?? NULL,
-        'instanceId' => $merged_library['instanceId'] ?? NULL,
-        'type' => $type,
-        'descriptors' => $descriptors,
-        'npcDefinition' => $npc_definition,
-        'metadata' => [
-          'createdAt' => date('c', $record->created),
-          'updatedAt' => date('c', $record->changed),
-          'lastSyncedAt' => date('c'),
-          'version' => $merged_library['version'] ?? 0,
+    if (is_array($merged_library['feat_selections'] ?? NULL) && $merged_library['feat_selections'] !== []) {
+      $features['featSelections'] = $merged_library['feat_selections'];
+    }
+    $stats = is_array($merged_library['stats'] ?? NULL) ? $merged_library['stats'] : [];
+    $saves = is_array($merged_library['saves'] ?? NULL) ? $merged_library['saves'] : [
+      'fortitude' => (int) ($merged_library['defenses']['fortitude'] ?? $stats['fortitude'] ?? 0),
+      'reflex' => (int) ($merged_library['defenses']['reflex'] ?? $stats['reflex'] ?? 0),
+      'will' => (int) ($merged_library['defenses']['will'] ?? $stats['will'] ?? 0),
+    ];
+
+    $state = [
+      'characterId' => (string) $record->id,
+      'userId' => (string) $record->uid,
+      'campaignId' => $merged_library['campaignId'] ?? NULL,
+      'instanceId' => $merged_library['instanceId'] ?? ($record->instance_id ?? NULL),
+      'type' => $type,
+
+      'basicInfo' => [
+        'name' => $merged_library['basicInfo']['name'] ?? ($merged_library['display_name'] ?? $merged_library['name'] ?? $record->name),
+        'level' => (int) ($merged_library['basicInfo']['level'] ?? $merged_library['level'] ?? $record->level ?? 1),
+        'experiencePoints' => $merged_library['basicInfo']['experiencePoints'] ?? ($merged_library['experiencePoints'] ?? 0),
+        'ancestry' => $merged_library['basicInfo']['ancestry'] ?? ($merged_library['ancestry'] ?? $record->ancestry ?? ''),
+        'heritage' => $merged_library['basicInfo']['heritage'] ?? ($merged_library['heritage'] ?? ''),
+        'background' => $merged_library['basicInfo']['background'] ?? ($merged_library['background'] ?? ($merged_library['occupation'] ?? '')),
+        'class' => $merged_library['basicInfo']['class'] ?? ($merged_library['class'] ?? $record->class ?? ''),
+        'alignment' => $merged_library['basicInfo']['alignment'] ?? ($merged_library['alignment'] ?? ''),
+        'deity' => $merged_library['basicInfo']['deity'] ?? ($merged_library['deity'] ?? NULL),
+        'age' => $merged_library['basicInfo']['age'] ?? ($merged_library['age'] ?? NULL),
+        'appearance' => $merged_library['basicInfo']['appearance'] ?? ($merged_library['appearance'] ?? $merged_library['description'] ?? NULL),
+        'personality' => $merged_library['basicInfo']['personality'] ?? ($merged_library['personality'] ?? NULL),
+        'backstory' => $merged_library['basicInfo']['backstory'] ?? ($merged_library['backstory'] ?? NULL),
+      ],
+
+      'abilities' => $merged_library['abilities'] ?? [
+        'strength' => 10,
+        'dexterity' => 10,
+        'constitution' => 10,
+        'intelligence' => 10,
+        'wisdom' => 10,
+        'charisma' => 10,
+      ],
+
+      'resources' => is_array($merged_library['resources'] ?? NULL) ? $merged_library['resources'] : [
+        'hitPoints' => [
+          'current' => (int) ($record->hp_current ?? $stats['currentHp'] ?? 0),
+          'max' => (int) ($record->hp_max ?? $stats['maxHp'] ?? 0),
+          'temporary' => 0,
         ],
-      ];
+        'heroPoints' => [
+          'current' => 1,
+          'max' => 3,
+        ],
+      ],
+
+      'defenses' => is_array($merged_library['defenses'] ?? NULL) ? $merged_library['defenses'] : [
+        'armorClass' => (int) ($record->armor_class ?? $stats['ac'] ?? 10),
+        'fortitude' => (int) ($saves['fortitude'] ?? 0),
+        'reflex' => (int) ($saves['reflex'] ?? 0),
+        'will' => (int) ($saves['will'] ?? 0),
+      ],
+      'saves' => $saves,
+      'conditions' => is_array($merged_library['conditions'] ?? NULL) ? $merged_library['conditions'] : [],
+      'actions' => $merged_library['actions'] ?? [
+        'threeActionEconomy' => [
+          'actionsRemaining' => 3,
+          'reactionAvailable' => TRUE,
+        ],
+        'availableActions' => [],
+      ],
+      'attacks' => is_array($merged_library['attacks'] ?? NULL) ? $merged_library['attacks'] : [],
+      'spells' => $merged_library['spells'] ?? [],
+      'skills' => is_array($merged_library['skills'] ?? NULL) ? $merged_library['skills'] : [],
+      'inventory' => is_array($merged_library['inventory'] ?? NULL) ? $merged_library['inventory'] : [
+        'worn' => ['weapons' => [], 'armor' => NULL, 'shield' => NULL, 'accessories' => []],
+        'carried' => [],
+        'currency' => ['cp' => 0, 'sp' => 0, 'gp' => 0, 'pp' => 0],
+        'totalBulk' => 0,
+        'encumbrance' => 'unencumbered',
+      ],
+      'features' => $features,
+      'progression' => is_array($merged_library['progression'] ?? NULL) ? $merged_library['progression'] : [],
+      'descriptors' => $descriptors,
+      'perception' => (int) ($merged_library['perception'] ?? $stats['perception'] ?? 0),
+      'speed' => (int) ($merged_library['speed'] ?? 25),
+      'traits' => $this->resolveCharacterTraits($merged_library),
+      'psychology' => is_array($merged_library['psychology'] ?? NULL) ? $merged_library['psychology'] : [],
+      'storylineBinding' => is_array($merged_library['storyline_binding'] ?? NULL) ? $merged_library['storyline_binding'] : [],
+      'metadata' => [
+        'createdAt' => date('c', (int) ($record->created ?? time())),
+        'updatedAt' => date('c', (int) ($record->changed ?? time())),
+        'lastSyncedAt' => date('c'),
+        'version' => $merged_library['version'] ?? 0,
+      ],
+    ];
+
+    if ($type !== 'pc') {
+      $state['npcDefinition'] = $merged_library;
     }
 
     // If campaign runtime state exists, layer it over the library defaults.
-    $campaign_row = $this->loadCampaignCharacter($campaign_id, $instance_id, (int) $character_id);
+    $campaign_row = $this->loadCampaignCharacter($campaign_id, $instance_id, (int) $record->id);
     if ($campaign_row) {
       $campaign_state = json_decode($campaign_row['state_data'] ?? '', TRUE);
       if (is_array($campaign_state) && !empty($campaign_state)) {

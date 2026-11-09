@@ -68,11 +68,17 @@ final class EditorDefinitionGenerationServiceTest extends TestCase {
       'item' => 'item_id',
       'creature' => 'creature_id',
       'actor' => 'actor_id',
+      'obstacle' => 'object_id',
+      'hazard' => 'hazard_id',
+      'trap' => 'trap_id',
     ][$family]);
     $definitions->method('nameProperty')->willReturnCallback(static fn(string $family): string => [
       'item' => 'name',
       'creature' => 'name',
       'actor' => 'display_name',
+      'obstacle' => 'label',
+      'hazard' => 'name',
+      'trap' => 'name',
     ][$family]);
     $definitions->method('currentVersion')->willReturn(NULL);
     $definitions->method('validateDefinition')->willReturnCallback(function (string $family, array $payload) use (&$calls, $validationFindings): array {
@@ -144,6 +150,40 @@ final class EditorDefinitionGenerationServiceTest extends TestCase {
     $this->assertArrayNotHasKey('level', $result['payload']);
   }
 
+  public function testConformingObstacleHazardAndTrapResponsesProduceCreateProposals(): void {
+    $obstacleAi = $this->ai([$this->obstaclePayload()]);
+    $obstacle = $this->service($obstacleAi, $this->definitions())->generateObstacleDefinition([
+      'prompt' => 'heavy oak banquet table',
+      'category' => 'table',
+      'seed' => 48,
+    ], $this->context('obstacle'));
+    $this->assertSame('obstacle_definition', $obstacle['generation_type']);
+    $this->assertSame('create_definition', $obstacle['proposed_execution']['tool_name']);
+    $this->assertSame('generate_obstacle_definition', $obstacle['payload']['metadata']['generated_by']['tool']);
+
+    $hazardAi = $this->ai([$this->hazardPayload()]);
+    $hazard = $this->service($hazardAi, $this->definitions())->generateHazardDefinition([
+      'prompt' => 'bubbling lava fissure',
+      'level' => 3,
+      'complexity' => 'simple',
+      'seed' => 49,
+    ], $this->context('hazard'));
+    $this->assertSame('hazard_definition', $hazard['generation_type']);
+    $this->assertSame('create_definition', $hazard['proposed_execution']['tool_name']);
+    $this->assertSame('generate_hazard_definition', $hazard['payload']['metadata']['generated_by']['tool']);
+
+    $trapAi = $this->ai([$this->trapPayload()]);
+    $trap = $this->service($trapAi, $this->definitions())->generateTrapDefinition([
+      'prompt' => 'poison dart glyph',
+      'level' => 2,
+      'type' => 'mechanical',
+      'seed' => 50,
+    ], $this->context('trap'));
+    $this->assertSame('trap_definition', $trap['generation_type']);
+    $this->assertSame('create_definition', $trap['proposed_execution']['tool_name']);
+    $this->assertSame('generate_trap_definition', $trap['payload']['metadata']['generated_by']['tool']);
+  }
+
   public function testNonconformingThenConformingRetriesWithFindings(): void {
     $finding = [[
       'code' => 'required',
@@ -190,6 +230,9 @@ final class EditorDefinitionGenerationServiceTest extends TestCase {
       ['generateItemDefinition', 'item'],
       ['generateCreatureDefinition', 'creature'],
       ['generateNpcDefinition', 'actor'],
+      ['generateObstacleDefinition', 'obstacle'],
+      ['generateHazardDefinition', 'hazard'],
+      ['generateTrapDefinition', 'trap'],
     ] as [$method, $family]) {
       try {
         $this->service(NULL, $this->definitions())->{$method}(['prompt' => 'anything', 'seed' => 47], $this->context($family));
@@ -210,6 +253,9 @@ final class EditorDefinitionGenerationServiceTest extends TestCase {
       ['generateItemDefinition', 'item', $this->itemPayload(), 'item_definition'],
       ['generateCreatureDefinition', 'creature', $this->creaturePayload(), 'creature_definition'],
       ['generateNpcDefinition', 'actor', $this->actorPayload(), 'npc_definition'],
+      ['generateObstacleDefinition', 'obstacle', $this->obstaclePayload(), 'obstacle_definition'],
+      ['generateHazardDefinition', 'hazard', $this->hazardPayload(), 'hazard_definition'],
+      ['generateTrapDefinition', 'trap', $this->trapPayload(), 'trap_definition'],
     ];
   }
 
@@ -279,6 +325,54 @@ final class EditorDefinitionGenerationServiceTest extends TestCase {
         'description' => 'An anxious original warden.',
         'conditions' => [],
       ],
+    ];
+  }
+
+  private function obstaclePayload(): array {
+    return $this->generatedPayloadBase() + [
+      'schema_version' => '1.0.0',
+      'object_id' => 'oak_banquet_table',
+      'label' => 'Oak Banquet Table',
+      'category' => 'table',
+      'description' => 'A heavy oak banquet table scarred by knives.',
+      'tags' => ['table', 'gen-evidence'],
+      'size' => 'medium',
+      'movable' => FALSE,
+      'stackable' => TRUE,
+      'movement' => [
+        'passable' => FALSE,
+        'blocks_movement' => TRUE,
+        'cost_multiplier' => 0,
+      ],
+    ];
+  }
+
+  private function hazardPayload(): array {
+    return $this->generatedPayloadBase() + [
+      'schema_version' => '1.0.0',
+      'hazard_id' => 'lava_fissure',
+      'name' => 'Bubbling Lava Fissure',
+      'level' => 3,
+      'complexity' => 'simple',
+      'rarity' => 'common',
+      'traits' => ['environmental', 'hazard', 'gen-evidence'],
+      'stealth_dc' => 18,
+      'description' => 'A crack in the floor venting molten rock.',
+    ];
+  }
+
+  private function trapPayload(): array {
+    return $this->generatedPayloadBase() + [
+      'schema_version' => '1.0.0',
+      'trap_id' => 'poison_dart_glyph',
+      'name' => 'Poison Dart Glyph',
+      'level' => 2,
+      'type' => 'mechanical',
+      'stealth_dc' => 18,
+      'complexity' => 'simple',
+      'rarity' => 'common',
+      'traits' => ['mechanical', 'trap', 'gen-evidence'],
+      'description' => 'A concealed spring-loaded dart launcher.',
     ];
   }
 

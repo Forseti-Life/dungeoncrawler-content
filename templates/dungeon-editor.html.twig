@@ -39,7 +39,7 @@
                       data-published-version-id="{{ dungeon.published_version_id }}"
                       data-has-active-draft="{{ dungeon.has_active_draft ? '1' : '0' }}"
                       {% if dungeon.dungeon_id == selected_dungeon_id %} selected{% endif %}>
-                {{ dungeon.name }} ({% if dungeon.published_version_id %}{{ dungeon.publication_status }}{% elseif dungeon.has_active_draft %}{{ 'converted draft'|t }}{% else %}{{ 'legacy/unpublished - not loadable'|t }}{% endif %})
+                {{ dungeon.name }} ({% if dungeon.published_version_id %}{{ dungeon.publication_status }}{% elseif dungeon.has_active_draft %}{{ 'converted draft'|t }}{% else %}{{ 'unpublished'|t }}{% endif %})
               </option>
             {% endfor %}
           </select>
@@ -200,6 +200,7 @@
             <label class="room-editor__gm-dry-run">
               <input type="checkbox" data-dungeon-editor-gm-dry-run> {{ 'Dry run'|t }}
             </label>
+            <span class="room-editor__hint">{{ 'Enter to send · Shift + Enter for a new line'|t }}</span>
             <button type="submit" class="room-editor__button room-editor__button--primary" data-dungeon-editor-action="gm-send">{{ 'Send'|t }}</button>
           </div>
         </form>

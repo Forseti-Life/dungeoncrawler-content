@@ -364,21 +364,21 @@ class StateValidationService {
   /**
    * Validate canonical spell definition objects for completeness and safety.
    */
-  public function validateSpellDefinition(array $spell): array {
+  public function validateSpellDefinition(array $spell, ?string $profile = NULL): array {
     if ($this->rulesDataValidator === NULL) {
       return ['valid' => FALSE, 'errors' => ['Spell/feat/action validator service is unavailable.']];
     }
-    return $this->rulesDataValidator->validateSpellDefinition($spell);
+    return $this->rulesDataValidator->validateSpellDefinition($spell, $profile);
   }
 
   /**
    * Validate canonical feat definition objects for completeness and safety.
    */
-  public function validateFeatDefinition(array $feat): array {
+  public function validateFeatDefinition(array $feat, ?string $profile = NULL): array {
     if ($this->rulesDataValidator === NULL) {
       return ['valid' => FALSE, 'errors' => ['Spell/feat/action validator service is unavailable.']];
     }
-    return $this->rulesDataValidator->validateFeatDefinition($feat);
+    return $this->rulesDataValidator->validateFeatDefinition($feat, $profile);
   }
 
   /**
@@ -508,16 +508,41 @@ class StateValidationService {
       return $report;
     }
 
-    $rows = $this->database->select('dungeoncrawler_content_registry', 'r')
-      ->fields('r', ['content_id', 'name', 'content_type', 'source_file', 'schema_data'])
+    $query = $this->database->select('dungeoncrawler_content_registry', 'r')
+      ->fields('r', ['content_id', 'name', 'content_type', 'level', 'source_file', 'schema_data'])
       ->condition('content_type', $type)
-      ->orderBy('content_id', 'ASC')
-      ->execute()
+      ->orderBy('content_id', 'ASC');
+    $quarantined_count = 0;
+    if ($this->database->schema()->tableExists('dungeoncrawler_content_definition_quarantine')) {
+      $quarantined_ids = $this->database->select('dungeoncrawler_content_definition_quarantine', 'q')
+        ->fields('q', ['definition_id'])
+        ->condition('family', $type)
+        ->execute()
+        ->fetchCol();
+      $quarantined_ids = array_values(array_unique(array_map('strval', $quarantined_ids)));
+      $quarantined_count = count($quarantined_ids);
+      if ($quarantined_ids !== []) {
+        $query->condition('content_id', $quarantined_ids, 'NOT IN');
+      }
+    }
+    $rows = $query->execute()
       ->fetchAll(\PDO::FETCH_ASSOC);
+    $report['summary']['quarantined_items'] = $quarantined_count;
 
     if (!is_array($rows) || $rows === []) {
       $report['errors'][] = "Canonical content registry contains no {$type} records.";
       return $report;
+    }
+
+    $normalized_id_counts = [];
+    foreach ($rows as $row) {
+      if (!is_array($row)) {
+        continue;
+      }
+      $normalized_id = strtolower(str_replace('_', '-', trim((string) ($row['content_id'] ?? ''))));
+      if ($normalized_id !== '') {
+        $normalized_id_counts[$normalized_id] = ($normalized_id_counts[$normalized_id] ?? 0) + 1;
+      }
     }
 
     foreach ($rows as $row) {
@@ -543,6 +568,42 @@ class StateValidationService {
         foreach ((array) ($validation['errors'] ?? []) as $validation_error) {
           $item_errors[] = (string) $validation_error;
         }
+
+        $schema_id = trim((string) (
+          $schema_data['id']
+          ?? $schema_data['spell_id']
+          ?? $schema_data['feat_id']
+          ?? $schema_data['content_id']
+          ?? ''
+        ));
+        if ($schema_id !== '' && strtolower(str_replace('_', '-', $schema_id)) !== strtolower(str_replace('_', '-', $content_id))) {
+          $item_errors[] = sprintf(
+            "Registry content_id '%s' disagrees with schema id '%s'.",
+            $content_id,
+            $schema_id
+          );
+        }
+
+        $schema_level = $type === 'spell'
+          ? ($schema_data['rank'] ?? $schema_data['level'] ?? $schema_data['spell_level'] ?? NULL)
+          : ($schema_data['level'] ?? NULL);
+        if (is_numeric($schema_level) && (int) $schema_level !== (int) ($row['level'] ?? 0)) {
+          $item_errors[] = sprintf(
+            'Registry level %d disagrees with schema %s %d.',
+            (int) ($row['level'] ?? 0),
+            $type === 'spell' ? 'rank' : 'level',
+            (int) $schema_level
+          );
+        }
+      }
+
+      $normalized_id = strtolower(str_replace('_', '-', $content_id));
+      if (($normalized_id_counts[$normalized_id] ?? 0) > 1) {
+        $item_errors[] = sprintf(
+          "Duplicate normalized %s id '%s' exists in the canonical registry.",
+          $type,
+          $normalized_id
+        );
       }
 
       $item_errors = array_values(array_unique($item_errors));

@@ -7,6 +7,7 @@ namespace Drupal\dungeoncrawler_content\Service\EditorGm;
 use Drupal\dungeoncrawler_content\Geometry\RoomPlacementTransformer;
 use Drupal\dungeoncrawler_content\Geometry\RoomPortEdgePolicy;
 use Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService;
+use Drupal\dungeoncrawler_content\Service\Generation\CanonicalDefinitionGenerationService;
 use Drupal\dungeoncrawler_content\Service\Generation\CanonicalGenerationException;
 use Drupal\dungeoncrawler_content\Service\Generation\CanonicalGenerationService;
 use Drupal\dungeoncrawler_content\Service\Generation\CanonicalDungeonLayoutPlanService;
@@ -30,11 +31,41 @@ class EditorCanonicalGenerationPlanService {
   private const DUNGEON_MAX_LINKS = 40;
   private const DUNGEON_MAX_COMMANDS = 120;
 
+  private readonly CanonicalDefinitionGenerationService $definitionGeneration;
+
   public function __construct(
     private readonly CanonicalGenerationService $generation,
     private readonly CanonicalDefinitionService $definitions,
     private readonly CanonicalDungeonLayoutPlanService $dungeonLayoutPlan,
-  ) {}
+    ?CanonicalDefinitionGenerationService $definitionGeneration = NULL,
+  ) {
+    $this->definitionGeneration = $definitionGeneration ?? new CanonicalDefinitionGenerationService($this->generation, $this->definitions);
+  }
+
+  /**
+   * Generates a non-mutating canonical definition proposal for an editor surface.
+   */
+  public function generateCanonicalDefinition(array $arguments, EditorGmToolContext $context): array {
+    $family = strtolower(trim((string) ($arguments['family'] ?? '')));
+    if (!in_array($family, GenerationVocabulary::PLACEABLE_FAMILIES, TRUE)) {
+      throw $this->exception('generation_input_invalid', [$this->finding('generation_input_invalid', '/family', 'family must be one of: ' . implode(', ', GenerationVocabulary::PLACEABLE_FAMILIES) . '.')], 400);
+    }
+    $result = $this->definitionGeneration->generateDefinitionByFamily($family, $arguments, [
+      'family' => $family,
+      'definition_id' => '',
+      'validation_profile' => $context->validationProfile,
+      'surface_id' => $context->surfaceId(),
+    ]);
+    $result['proposed_execution'] = [
+      'tool_name' => 'create_canonical_definition',
+      'authority' => 'CanonicalDefinitionService::saveDefinition()',
+      'arguments' => [
+        'family' => $family,
+        'payload' => $result['payload'],
+      ],
+    ];
+    return $result;
+  }
 
   /**
    * Generates a non-mutating Room Editor command plan.
@@ -157,22 +188,39 @@ class EditorCanonicalGenerationPlanService {
   }
 
   private function placeableCatalog(array $families): array {
-    $catalog = $this->definitions->catalog(NULL, '', 250, 0);
     $definitions = [];
-    foreach ((array) ($catalog['definitions'] ?? []) as $definition) {
-      if (!is_array($definition)) {
-        continue;
+    foreach ($families as $family) {
+      $family_catalog = $this->definitions->catalog($family, '', 250, 0);
+      $family_count = 0;
+      foreach ((array) ($family_catalog['definitions'] ?? []) as $definition) {
+        if (!is_array($definition)) {
+          continue;
+        }
+        $category = (string) ($definition['category'] ?? '');
+        if ($family === 'actor' && in_array($category, ['trap', 'obstacle'], TRUE)) {
+          continue;
+        }
+        $definition_id = (string) ($definition['definition_id'] ?? '');
+        $version = (string) ($definition['definition_version'] ?? '');
+        if (!$this->definitions->definitionExists($family, $definition_id, $version)) {
+          throw new \RuntimeException(sprintf(
+            'canonical_generation_catalog_contract_invalid:%s:%s:%s',
+            $family,
+            $definition_id,
+            $version
+          ));
+        }
+        $definitions[] = [
+          'family' => $family,
+          'definition_id' => $definition_id,
+          'version' => $version,
+          'label' => (string) ($definition['label'] ?? $definition_id),
+        ];
+        $family_count++;
+        if ($family_count === 10) {
+          break;
+        }
       }
-      $family = (string) ($definition['family'] ?? '');
-      if (!in_array($family, $families, TRUE)) {
-        continue;
-      }
-      $definitions[] = [
-        'family' => $family,
-        'definition_id' => (string) ($definition['definition_id'] ?? ''),
-        'version' => (string) ($definition['version'] ?? '1.0.0'),
-        'label' => (string) ($definition['label'] ?? $definition['name'] ?? $definition['definition_id'] ?? ''),
-      ];
     }
     return $definitions;
   }
@@ -199,9 +247,11 @@ class EditorCanonicalGenerationPlanService {
         'hex_count' => count((array) ($room['hexes'] ?? [])),
       ],
       'catalog' => $catalog_refs,
+      'site_topology_contract' => CanonicalSiteTopologyContract::describe(),
       'required_output_shape' => $shape,
       'requirements' => [
         'Return one JSON object only. No prose.',
+        'Generate one local room. Entry and exit ports describe this room boundary inside its site; do not encode a remote city, road, wilderness, or other dungeon as a direct room destination.',
         'Use at least ' . $input['min_hexes'] . ' and at most ' . $input['max_hexes'] . ' hexes.',
         'Use only catalog definition refs for placements; include at least one placement when catalog is non-empty.',
         'Boundary port edge is computed and enforced server-side; provide desired port anchor hexes only.',
@@ -246,6 +296,17 @@ class EditorCanonicalGenerationPlanService {
       ],
     ], 'Record generated room metadata and provenance.');
 
+    foreach (['entry_ports' => 'remove_entry_port', 'exit_ports' => 'remove_exit_port'] as $bucket => $type) {
+      foreach ((array) ($current[$bucket] ?? []) as $port) {
+        if ($bucket === 'entry_ports' && !empty($port['is_default'])) {
+          $steps[] = $this->step(count($steps) + 1, 'update_entry_port', [
+            'port_id' => $port['port_id'],
+            'changes' => ['is_default' => FALSE],
+          ], 'Clear the prior default before replacing the generated footprint.');
+        }
+        $steps[] = $this->step(count($steps) + 1, $type, ['port_id' => $port['port_id']], 'Replace the existing room port for the generated footprint.');
+      }
+    }
     $existing = RoomPortEdgePolicy::footprint($current);
     foreach ($hexes as $hex) {
       $key = RoomPortEdgePolicy::hexKey($hex);
@@ -261,8 +322,8 @@ class EditorCanonicalGenerationPlanService {
     if ($entries === [] || $exits === []) {
       throw $this->nonconforming([$this->finding('required_missing', $entries === [] ? '/entry_ports' : '/exit_ports', 'Generated room must include at least one entry and one exit port for G1.')]);
     }
-    $steps = array_merge($steps, $this->portSteps($current, $entries, TRUE, count($steps)));
-    $steps = array_merge($steps, $this->portSteps($current, $exits, FALSE, count($steps)));
+    $steps = array_merge($steps, $this->portSteps($entries, TRUE, count($steps)));
+    $steps = array_merge($steps, $this->portSteps($exits, FALSE, count($steps)));
 
     $placements = $this->placements($decoded, $catalog, $hexes, $input['seed']);
     if ($catalog !== [] && $placements === []) {
@@ -392,24 +453,11 @@ class EditorCanonicalGenerationPlanService {
     return $ports;
   }
 
-  private function portSteps(array $current, array $ports, bool $entry, int $offset): array {
-    $bucket = $entry ? 'entry_ports' : 'exit_ports';
+  private function portSteps(array $ports, bool $entry, int $offset): array {
     $command = $entry ? 'add_entry_port' : 'add_exit_port';
-    $update = $entry ? 'update_entry_port' : 'update_exit_port';
-    $existing = [];
-    foreach ((array) ($current[$bucket] ?? []) as $port) {
-      $existing[(string) ($port['port_id'] ?? '')] = TRUE;
-    }
     $steps = [];
     foreach ($ports as $port) {
-      if (isset($existing[$port['port_id']])) {
-        $changes = $port;
-        unset($changes['port_id']);
-        $steps[] = $this->step($offset + count($steps) + 1, $update, ['port_id' => $port['port_id'], 'changes' => $changes], sprintf('Update generated %s port %s.', $entry ? 'entry' : 'exit', $port['port_id']));
-      }
-      else {
-        $steps[] = $this->step($offset + count($steps) + 1, $command, ['port' => $port], sprintf('Add generated %s port %s.', $entry ? 'entry' : 'exit', $port['port_id']));
-      }
+      $steps[] = $this->step($offset + count($steps) + 1, $command, ['port' => $port], sprintf('Add generated %s port %s.', $entry ? 'entry' : 'exit', $port['port_id']));
     }
     return $steps;
   }

@@ -35,6 +35,11 @@ final class GenerationVocabulary {
   public const CREATURE_TYPES = ['aberration', 'animal', 'astral', 'beast', 'celestial', 'construct', 'dragon', 'dream', 'elemental', 'ethereal', 'fey', 'fiend', 'fungus', 'giant', 'humanoid', 'monitor', 'ooze', 'plant', 'spirit', 'undead'];
   public const CREATURE_RARITIES = ['common', 'uncommon', 'rare', 'unique'];
   public const NPC_ATTITUDES = ['hostile', 'unfriendly', 'indifferent', 'friendly', 'helpful'];
+  public const OBSTACLE_CATEGORIES = ['bar', 'table', 'stool', 'crate', 'door', 'decor', 'wall', 'custom'];
+  public const HAZARD_COMPLEXITIES = ['simple', 'complex'];
+  public const HAZARD_RARITIES = ['common', 'uncommon', 'rare', 'unique'];
+  public const TRAP_TYPES = ['mechanical', 'magical', 'haunt', 'environmental'];
+  public const TRAP_RARITIES = ['common', 'uncommon', 'rare', 'unique'];
 
   /**
    * Legacy runtime terrain choices by dungeon theme.

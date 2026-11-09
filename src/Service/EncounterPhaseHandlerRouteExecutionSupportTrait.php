@@ -1649,10 +1649,13 @@ trait EncounterPhaseHandlerRouteExecutionSupportTrait {
    *   combat_participants rows as returned by CombatEncounterStore::loadEncounter().
    * @param array $dungeon_data
    *   Dungeon payload; $dungeon_data['entities'][*]['state'] is updated in place.
+   *
+   * @return list<string>
+   *   IDs of actors whose runtime state changed.
    */
-  protected function applyEncounterParticipantsToDungeonData(array $participants, array &$dungeon_data): void {
+  protected function applyEncounterParticipantsToDungeonData(array $participants, array &$dungeon_data): array {
     if ($participants === [] || empty($dungeon_data['entities'])) {
-      return;
+      return [];
     }
 
     $participant_by_entity = [];
@@ -1663,6 +1666,7 @@ trait EncounterPhaseHandlerRouteExecutionSupportTrait {
       }
     }
 
+    $changed_entity_ids = [];
     foreach ($dungeon_data['entities'] as &$entity) {
       if (!is_array($entity)) {
         continue;
@@ -1672,6 +1676,7 @@ trait EncounterPhaseHandlerRouteExecutionSupportTrait {
         continue;
       }
 
+      $before_state = $entity['state'] ?? NULL;
       $participant = $participant_by_entity[$entity_id];
       $hp = isset($participant['hp']) ? (int) $participant['hp'] : NULL;
       $max_hp = isset($participant['max_hp']) ? (int) $participant['max_hp'] : NULL;
@@ -1707,8 +1712,12 @@ trait EncounterPhaseHandlerRouteExecutionSupportTrait {
       $entity['state']['metadata']['is_defeated'] = $is_defeated;
       $entity['state']['conditions'] = $conditions;
       $entity['state']['metadata']['conditions'] = $conditions;
+      if ($entity['state'] !== $before_state) {
+        $changed_entity_ids[] = $entity_id;
+      }
     }
     unset($entity);
+    return $changed_entity_ids;
   }
 
 
@@ -3047,6 +3056,7 @@ trait EncounterPhaseHandlerRouteExecutionSupportTrait {
     if ($runtime_sync instanceof CampaignCharacterRuntimeSyncService) {
       $dungeon_data = $runtime_sync->syncActiveRoomPlayerEntities($dungeon_data, $campaign_id, $preferred_actor_id, [
         'trace_id' => 'bootstrap_room_entity_hydration',
+        'membership_projection_mode' => TRUE,
       ]);
     }
 
@@ -3225,6 +3235,17 @@ trait EncounterPhaseHandlerRouteExecutionSupportTrait {
       if (!is_array($entity)) {
         continue;
       }
+      $hints['entity_count']++;
+      // Generic room entities are often non-actor payloads (props/interactables);
+      // hydration readiness must only wait on actor-bearing NPC/creature records.
+      $content_type = strtolower(trim((string) (
+        $entity['entity_ref']['content_type']
+        ?? $entity['content_type']
+        ?? ''
+      )));
+      if (!in_array($content_type, ['npc', 'creature', 'monster', 'follower', 'companion'], TRUE)) {
+        continue;
+      }
       $content_id = trim((string) (
         $entity['entity_ref']['content_id']
         ?? $entity['content_id']
@@ -3233,7 +3254,6 @@ trait EncounterPhaseHandlerRouteExecutionSupportTrait {
       if ($content_id !== '') {
         $hints['npc_content_ids'][] = $content_id;
       }
-      $hints['entity_count']++;
     }
     foreach ((array) ($contents_data['creatures'] ?? []) as $creature) {
       if (!is_array($creature)) {

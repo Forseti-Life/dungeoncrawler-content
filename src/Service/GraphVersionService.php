@@ -77,10 +77,15 @@ class GraphVersionService {
     }
     $room_rows = $room_query->execute()->fetchAll(\PDO::FETCH_ASSOC) ?: [];
 
-    $connection_rows = $this->database->select('dc_campaign_connections', 'c')
+    $connection_query = $this->database->select('dc_campaign_connections', 'c')
       ->fields('c', ['connection_id', 'updated'])
-      ->condition('campaign_id', $campaign_id)
-      ->condition('dungeon_id', $dungeon_id)
+      ->condition('campaign_id', $campaign_id);
+    $connection_query->condition(
+      $connection_query->orConditionGroup()
+        ->condition('dungeon_id', $dungeon_id)
+        ->condition('to_dungeon_id', $dungeon_id)
+    );
+    $connection_rows = $connection_query
       ->orderBy('connection_id', 'ASC')
       ->execute()
       ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
@@ -142,10 +147,15 @@ class GraphVersionService {
       }
     }
 
-    $connection_rows = $this->database->select('dc_campaign_connections', 'c')
+    $connection_query = $this->database->select('dc_campaign_connections', 'c')
       ->fields('c', ['from_room_id', 'to_room_id'])
-      ->condition('campaign_id', $campaign_id)
-      ->condition('dungeon_id', $dungeon_id)
+      ->condition('campaign_id', $campaign_id);
+    $connection_query->condition(
+      $connection_query->orConditionGroup()
+        ->condition('dungeon_id', $dungeon_id)
+        ->condition('to_dungeon_id', $dungeon_id)
+    );
+    $connection_rows = $connection_query
       ->execute()
       ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
     foreach ($connection_rows as $connection_row) {

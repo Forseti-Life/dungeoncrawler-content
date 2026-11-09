@@ -23,7 +23,7 @@
     "objectives_schema": {"type": "array", "minItems": 1, "items": {"$ref": "#/definitions/quest_phase"}},
     "rewards_schema": {"type": "object", "additionalProperties": true},
     "story_impact": {"type": "object", "additionalProperties": true},
-    "metadata": {"$ref": "#/definitions/runtime_metadata"}
+    "metadata": {"oneOf": [{"$ref": "#/definitions/runtime_metadata"}, {"$ref": "#/definitions/reviewed_original_metadata"}]}
   },
   "definitions": {
     "quest_phase": {
@@ -54,6 +54,7 @@
         "children": {"type": "array", "items": {"$ref": "#/definitions/quest_objective"}}
       }
     },
-    "runtime_metadata": {"type": "object", "additionalProperties": false, "required": ["runtime_generated", "generated_by"], "properties": {"runtime_generated": {"type": "boolean", "const": true}, "generated_by": {"type": "object", "additionalProperties": false, "required": ["source", "service", "tool", "model", "prompt_hash", "seed", "generated_at"], "properties": {"source": {"type": "string", "enum": ["runtime_generated"]}, "service": {"type": "string", "enum": ["canonical_generation"]}, "tool": {"type": "string"}, "model": {"type": "string", "minLength": 1, "maxLength": 200}, "provider": {"type": "string", "minLength": 1, "maxLength": 100}, "prompt_hash": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}, "seed": {"type": "integer", "minimum": 0, "maximum": 2147483647}, "generated_at": {"type": "string", "format": "date-time"}, "finish_reason": {"type": ["string", "null"]}, "reasoning_tokens": {"type": ["integer", "null"], "minimum": 0}}}}}
+    "runtime_metadata": {"type": "object", "additionalProperties": false, "required": ["runtime_generated", "generated_by"], "properties": {"runtime_generated": {"type": "boolean", "const": true}, "generated_by": {"type": "object", "additionalProperties": false, "required": ["source", "service", "tool", "model", "prompt_hash", "seed", "generated_at"], "properties": {"source": {"type": "string", "enum": ["runtime_generated"]}, "service": {"type": "string", "enum": ["canonical_generation"]}, "tool": {"type": "string"}, "model": {"type": "string", "minLength": 1, "maxLength": 200}, "provider": {"type": "string", "minLength": 1, "maxLength": 100}, "prompt_hash": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}, "seed": {"type": "integer", "minimum": 0, "maximum": 2147483647}, "generated_at": {"type": "string", "format": "date-time"}, "finish_reason": {"type": ["string", "null"]}, "reasoning_tokens": {"type": ["integer", "null"], "minimum": 0}}}}},
+    "reviewed_original_metadata": {"type": "object", "additionalProperties": false, "required": ["rights_status", "reviewed_by", "source_release_id"], "properties": {"rights_status": {"const": "project_original"}, "reviewed_by": {"type": "integer", "minimum": 1}, "source_release_id": {"type": "string", "minLength": 1, "maxLength": 100}}}
   }
 }

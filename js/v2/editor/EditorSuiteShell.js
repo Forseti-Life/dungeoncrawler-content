@@ -8,6 +8,17 @@
  * draft, so there is no plan/apply path — only read and routing tools.
  */
 
+import {
+  appendEditorGmMessage,
+  buildEditorGmRequest,
+  describeEditorGmToolCall,
+  parseEditorGmMessage,
+  renderEditorGmToolCalls,
+  renderEditorGmToolset,
+  selectEditorGmTool,
+  shouldSubmitEditorGmKey,
+} from './EditorGmChatClient.js?v=20261024-tool-calls-1';
+
 function clearElement(el) {
   while (el && el.firstChild) {
     el.removeChild(el.firstChild);
@@ -79,6 +90,10 @@ export class EditorSuiteShell {
     }
     this._cacheDom();
     this._bindEvents();
+    this._appendGmMessage(
+      'assistant',
+      'Welcome to the Editor Suite GM. Ask me to inspect, compare, validate, or route you to the right editor for the content you are building.',
+    );
     return this.refresh();
   }
 
@@ -169,6 +184,9 @@ export class EditorSuiteShell {
       if (Number.isInteger(surface.draft_count)) {
         rows.push(`${surface.draft_count} active draft(s)`);
       }
+      if (Number.isInteger(surface.requires_authoring_count)) {
+        rows.push(`${surface.requires_authoring_count} release(s) require authoring`);
+      }
       if (Number.isInteger(surface.family_count)) {
         rows.push(`${surface.family_count} families`);
         rows.push(`${surface.definition_count} definitions`);
@@ -239,63 +257,11 @@ export class EditorSuiteShell {
   }
 
   _renderGmToolset() {
-    const body = this._dom.gmTools;
-    clearElement(body);
-    const manifest = this._gm.manifest;
-    if (!manifest) {
-      body.appendChild(makeEl('p', 'room-editor__hint', 'Toolset unavailable.'));
-      return;
-    }
-    Object.keys(manifest.families || {}).forEach((family) => {
-      body.appendChild(makeEl('p', 'room-editor__gm-tool-family', family));
-      const list = makeEl('ul', 'room-editor__gm-tool-list');
-      (manifest.families[family] || []).forEach((tool) => {
-        const item = makeEl('li');
-        const button = makeEl('button', 'room-editor__gm-tool', tool.name);
-        button.type = 'button';
-        button.title = `${tool.summary}\n${tool.authority}`;
-        button.setAttribute('data-gm-tool', tool.name);
-        const template = {};
-        (tool.arguments || []).filter((arg) => arg.required).forEach((arg) => {
-          template[arg.name] = arg.type === 'integer' ? 0 : (arg.type === 'boolean' ? false : '');
-        });
-        button.setAttribute('data-gm-template', JSON.stringify(template));
-        item.appendChild(button);
-        list.appendChild(item);
-      });
-      body.appendChild(list);
-    });
+    renderEditorGmToolset(this._dom.gmTools, this._gm.manifest);
   }
 
   _parseGmMessage(raw) {
-    const text = String(raw || '').trim();
-    if (!text) {
-      throw new Error('Enter a request, or a tool name to run directly.');
-    }
-    const match = text.match(/^([a-z][a-z0-9_]*)\s*([\s\S]*)$/);
-    if (!match || !this._isKnownGmTool(match[1])) {
-      return { kind: 'natural_language', utterance: text };
-    }
-    const rest = match[2].trim();
-    let args = {};
-    if (rest) {
-      let parsed = null;
-      try {
-        parsed = JSON.parse(rest);
-      } catch (_err) {
-        throw new Error('Tool arguments must be a JSON object.');
-      }
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        throw new Error('Tool arguments must be a JSON object.');
-      }
-      args = parsed;
-    }
-    return { kind: 'tool_call', toolName: match[1], args };
-  }
-
-  _isKnownGmTool(name) {
-    return !!this._gm.manifest
-      && Object.values(this._gm.manifest.families || {}).some((tools) => tools.some((t) => t.name === name));
+    return parseEditorGmMessage(raw, this._gm.manifest);
   }
 
   async _submitGmMessage() {
@@ -324,12 +290,16 @@ export class EditorSuiteShell {
       this._appendGmMessage('error', 'Another request is still running.');
       return null;
     }
-    const body = {
-      schema_version: 'editor-gm-request-v1',
-      tool_context: { tool_id: 'editor_suite', validation_profile: 'editing' },
+    const body = buildEditorGmRequest({
+      toolId: 'editor_suite',
       intent,
-      options: { dry_run: false },
-    };
+    });
+    const skipToolMessages = new Set();
+    if (intent?.type === 'tool_call' && intent.tool_name) {
+      const initialToolMessage = describeEditorGmToolCall(intent.tool_name, intent.arguments || {});
+      this._appendGmMessage('tool', initialToolMessage);
+      skipToolMessages.add(initialToolMessage);
+    }
     this._busy = true;
     this._setGmState(`Running ${label}...`);
     let envelope = null;
@@ -347,7 +317,16 @@ export class EditorSuiteShell {
     this._gm.manifest = this._gm.context?.tools || this._gm.manifest;
     this._renderGmContext();
     this._renderGmToolset();
-    this._appendGmMessage('success', `${label} → ${envelope.route_family}`, envelope.tool_result);
+    renderEditorGmToolCalls(
+      this._dom.gmTranscript,
+      envelope.tool_calls || envelope.tool_result?.tool_calls || [],
+      { skipMessages: skipToolMessages },
+    );
+    if (typeof envelope.tool_result?.assistant_response === 'string' && envelope.tool_result.assistant_response.trim() !== '') {
+      this._appendGmMessage('assistant', envelope.tool_result.assistant_response.trim(), envelope.tool_result);
+    } else {
+      this._appendGmMessage('success', `${label} → ${envelope.route_family}`, envelope.tool_result);
+    }
     if (typeof envelope.tool_result?.route === 'string') {
       const item = this._dom.gmTranscript.lastElementChild;
       const link = makeEl('a', 'room-editor__button', 'Go there');
@@ -362,12 +341,7 @@ export class EditorSuiteShell {
   }
 
   _appendGmMessage(kind, text, detail) {
-    const item = makeEl('li', `room-editor__gm-message room-editor__gm-message--${kind}`, text);
-    if (detail !== undefined && detail !== null) {
-      item.appendChild(makeEl('pre', null, typeof detail === 'string' ? detail : JSON.stringify(detail, null, 2)));
-    }
-    this._dom.gmTranscript.appendChild(item);
-    this._dom.gmTranscript.scrollTop = this._dom.gmTranscript.scrollHeight;
+    return appendEditorGmMessage(this._dom.gmTranscript, kind, text, detail);
   }
 
   _setGmState(text, level = 'info') {
@@ -418,16 +392,13 @@ export class EditorSuiteShell {
       this._submitGmMessage();
     });
     this._on(this._dom.gmInput, 'keydown', (event) => {
-      if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+      if (shouldSubmitEditorGmKey(event)) {
         event.preventDefault();
         this._submitGmMessage();
       }
     });
     this._on(this.root, 'click', (event) => {
-      const tool = event.target.closest('[data-gm-tool]');
-      if (tool) {
-        this._dom.gmInput.value = `${tool.getAttribute('data-gm-tool')} ${tool.getAttribute('data-gm-template') || '{}'}`;
-        this._dom.gmInput.focus();
+      if (selectEditorGmTool(event, this._dom.gmInput)) {
         return;
       }
       const action = event.target.closest('[data-editor-suite-action]');

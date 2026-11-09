@@ -3,6 +3,9 @@
     "hexmap:review": "node testing/hexmap-ui-review.mjs",
     "hexmap:review:install": "npx playwright install chromium"
   },
+  "dependencies": {
+    "classic-level": "^2.0.0"
+  },
   "devDependencies": {
     "@types/react": "^19.2.7",
     "@types/react-native": "^0.72.8",

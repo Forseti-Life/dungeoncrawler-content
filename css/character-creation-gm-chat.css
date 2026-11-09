@@ -120,6 +120,11 @@
   font-size: 0.88rem;
 }
 
+.character-creation-gm-chat__hint {
+  color: #d3c6a8;
+  font-size: 0.78rem;
+}
+
 .character-creation-gm-chat__status.is-error {
   color: #ffb7b0;
 }

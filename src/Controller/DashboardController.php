@@ -4,12 +4,11 @@ namespace Drupal\dungeoncrawler_content\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
-use Drupal\Core\Form\FormBuilderInterface;
 use Drupal\Core\Link;
 use Drupal\Core\Url;
-use Drupal\dungeoncrawler_content\Form\GeminiImageGenerationStubForm;
 use Drupal\dungeoncrawler_content\Service\ImageGenerationIntegrationService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
+use Symfony\Component\Routing\Exception\RouteNotFoundException;
 
 /**
  * Controller for the Dungeon Crawler game content dashboard.
@@ -22,13 +21,6 @@ class DashboardController extends ControllerBase {
    * @var \Drupal\Core\Entity\EntityTypeManagerInterface
    */
   protected $entityTypeManager;
-
-  /**
-   * The form builder.
-   *
-   * @var \Drupal\Core\Form\FormBuilderInterface
-   */
-  protected $formBuilder;
 
   /**
   * Provider integration service.
@@ -47,9 +39,8 @@ class DashboardController extends ControllerBase {
    * @param \Drupal\dungeoncrawler_content\Service\ImageGenerationIntegrationService $integration_service
    *   Provider integration service.
    */
-  public function __construct(EntityTypeManagerInterface $entity_type_manager, FormBuilderInterface $form_builder, ImageGenerationIntegrationService $integration_service) {
+  public function __construct(EntityTypeManagerInterface $entity_type_manager, ImageGenerationIntegrationService $integration_service) {
     $this->entityTypeManager = $entity_type_manager;
-    $this->formBuilder = $form_builder;
     $this->integrationService = $integration_service;
   }
 
@@ -59,7 +50,6 @@ class DashboardController extends ControllerBase {
   public static function create(ContainerInterface $container) {
     return new static(
       $container->get('entity_type.manager'),
-      $container->get('form_builder'),
       $container->get('dungeoncrawler_content.image_generation_integration'),
     );
   }
@@ -74,45 +64,128 @@ class DashboardController extends ControllerBase {
     $build = [];
 
     $build['header'] = [
-      '#markup' => '<h2>⚔️ ' . $this->t('Dungeon Content Management') . '</h2><p>' . $this->t('Manage the algorithm-generated dungeon rooms, creatures, items, and quests that populate the living dungeon.') . '</p>',
+      '#markup' => '<h2>⚔️ ' . $this->t('DungeonCrawler System Management Home') . '</h2><p>' . $this->t('Use this page as the central launch point for module intake, conversion governance, authoring tools, diagnostics, and operations controls.') . '</p>',
     ];
 
-    // Content type statistics.
-    $game_types = [
-      'dungeon' => $this->t('🏰 Dungeon Rooms'),
-      'character_class' => $this->t('🧙 Character Classes'),
-      'quest' => $this->t('📜 Quests'),
-      'item' => $this->t('⚔️ Items & Loot'),
-      'article' => $this->t('📖 Lore & World-Building'),
+    $managementLinks = [
+      [
+        'title' => $this->t('Module Manager'),
+        'description' => $this->t('Inspect local module archives, score readiness, register release identities, and run conversion validation.'),
+        'route' => 'dungeoncrawler_content.module_manager',
+      ],
+      [
+        'title' => $this->t('Module Explorer'),
+        'description' => $this->t('Browse raw source archives and inspect source files, maps, and assets before conversion decisions.'),
+        'route' => 'dungeoncrawler_content.module_explorer',
+      ],
+      [
+        'title' => $this->t('Room Editor'),
+        'description' => $this->t('Edit room geometry, ports, terrain, and canonical room placements.'),
+        'route' => 'dungeoncrawler_content.room_editor',
+      ],
+      [
+        'title' => $this->t('Dungeon Editor'),
+        'description' => $this->t('Edit dungeon topology, room relationships, and traversal structure.'),
+        'route' => 'dungeoncrawler_content.dungeon_editor',
+      ],
+      [
+        'title' => $this->t('Canonical Library'),
+        'description' => $this->t('Manage actor, creature, item, obstacle, trap, and hazard definitions.'),
+        'route' => 'dungeoncrawler_content.definition_index',
+      ],
+      [
+        'title' => $this->t('Storyline Explorer'),
+        'description' => $this->t('Inspect storyline node/edge graphs and campaign narrative pointers.'),
+        'route' => 'dungeoncrawler_content.storyline_explorer',
+      ],
+      [
+        'title' => $this->t('GM Storyline Builder'),
+        'description' => $this->t('Consolidated storyline generation flow showing each step with generation and validation tooling.'),
+        'route' => 'dungeoncrawler_content.gm_storyline_builder',
+      ],
+      [
+        'title' => $this->t('Room Turn Logs'),
+        'description' => $this->t('Trace room-level sequencing to diagnose narrator/actor runtime behavior.'),
+        'route' => 'dungeoncrawler_content.room_turn_log_browser',
+      ],
+      [
+        'title' => $this->t('Institution Review Queue'),
+        'description' => $this->t('Resolve institution normalization/backfill queue items.'),
+        'route' => 'dungeoncrawler_content.institution_review_browser',
+      ],
+      [
+        'title' => $this->t('Generated Images'),
+        'description' => $this->t('Review generated image outputs and metadata for quality checks.'),
+        'route' => 'dungeoncrawler_content.generated_image_browser',
+      ],
+      [
+        'title' => $this->t('Image Generation'),
+        'description' => $this->t('Run provider-backed image generation workflows and prompt testing.'),
+        'route' => 'dungeoncrawler_content.image_generation_interface',
+      ],
+      [
+        'title' => $this->t('Dungeon Crawler Settings'),
+        'description' => $this->t('Configure integrations and system-level DungeonCrawler settings.'),
+        'route' => 'dungeoncrawler_content.settings',
+      ],
+      [
+        'title' => $this->t('Testing Dashboard'),
+        'description' => $this->t('Open admin testing and diagnostics workflows.'),
+        'route' => 'dungeoncrawler_content.testing_home',
+      ],
     ];
 
     $rows = [];
-    $node_storage = $this->entityTypeManager->getStorage('node');
+    foreach ($managementLinks as $entry) {
+      try {
+        $rows[] = [
+          Link::fromTextAndUrl($entry['title'], Url::fromRoute($entry['route']))->toString(),
+          $entry['description'],
+        ];
+      }
+      catch (RouteNotFoundException) {
+        $rows[] = [
+          (string) $entry['title'],
+          $this->t('@description (route unavailable)', ['@description' => (string) $entry['description']]),
+        ];
+      }
+    }
+    $build['management_home'] = [
+      '#type' => 'table',
+      '#header' => [$this->t('Management Surface'), $this->t('Purpose')],
+      '#rows' => $rows,
+      '#attributes' => ['class' => ['game-content-dashboard']],
+      '#empty' => $this->t('No management surfaces are available for this account.'),
+    ];
 
-    foreach ($game_types as $type => $label) {
+    $legacy_types = [
+      'dungeon' => $this->t('Dungeon nodes'),
+      'quest' => $this->t('Quest nodes'),
+      'item' => $this->t('Item nodes'),
+      'article' => $this->t('Lore/article nodes'),
+      'character_class' => $this->t('Character class nodes'),
+    ];
+    $inventoryRows = [];
+    $node_storage = $this->entityTypeManager->getStorage('node');
+    foreach ($legacy_types as $type => $label) {
       try {
         $count = $node_storage->getQuery()
           ->condition('type', $type)
           ->accessCheck(FALSE)
           ->count()
           ->execute();
-        $rows[] = [$label, $count];
+        $inventoryRows[] = [$label, $count];
       }
       catch (\Exception $e) {
-        $rows[] = [$label, $this->t('Content type not yet created')];
+        $inventoryRows[] = [$label, $this->t('Unavailable')];
       }
     }
-
-    $build['stats'] = [
+    $build['legacy_inventory'] = [
       '#type' => 'table',
-      '#header' => [$this->t('Content Type'), $this->t('Count')],
-      '#rows' => $rows,
-      '#empty' => $this->t('No game content types have been created yet.'),
+      '#header' => [$this->t('Legacy Content Type'), $this->t('Count')],
+      '#rows' => $inventoryRows,
+      '#empty' => $this->t('No legacy content types are available.'),
       '#attributes' => ['class' => ['game-content-dashboard']],
-    ];
-
-    $build['actions'] = [
-      '#markup' => '<p>' . $this->t('The dungeon grows procedurally as adventurers explore. Use Structure → Content Types to manage dungeon rooms, algorithm-generated creatures, items, and quests.') . '</p>',
     ];
 
     $integration_status = $this->integrationService->getIntegrationStatus();
@@ -126,13 +199,13 @@ class DashboardController extends ControllerBase {
     $gemini_mode = $gemini_ready ? 'live-ready' : 'stub';
     $vertex_mode = $vertex_ready ? 'live-ready' : 'stub';
 
-    $build['gemini_image_generation'] = [
+    $build['provider_status'] = [
       '#type' => 'details',
-        '#title' => $this->t('Algorithmic Image Generation (Gemini + Vertex)'),
+      '#title' => $this->t('Provider status'),
       '#open' => TRUE,
       '#attributes' => ['class' => ['game-content-dashboard']],
       'overview' => [
-        '#markup' => '<p>' . $this->t('Use this panel to stage prompt payloads for Gemini or Vertex image generation. When live mode and credentials are configured, requests call the selected provider; otherwise they run as integration stubs.') . '</p>',
+        '#markup' => '<p>' . $this->t('Operational readiness snapshot for configured image generation providers.') . '</p>',
       ],
       'status' => [
         '#theme' => 'item_list',
@@ -151,43 +224,7 @@ class DashboardController extends ControllerBase {
             '@source' => (string) ($vertex_status['auth_source'] ?? $vertex_status['api_key_source'] ?? 'none'),
             '@model' => (string) ($vertex_status['model'] ?? ''),
           ]),
-          $this->t('Integration output: request ID + normalized payload preview'),
-        ],
-      ],
-      'setup_help_title' => [
-        '#markup' => '<h4>' . $this->t('Server Environment Setup') . '</h4>',
-      ],
-      'setup_help_text' => [
-        '#markup' => '<p>' . $this->t('Set GEMINI_API_KEY for Gemini and use a Google service-account file or JSON environment variable for Vertex. Vertex no longer accepts API-key authentication for this integration.') . '</p>',
-      ],
-      'setup_help_commands' => [
-        '#markup' => '<pre>sudo tee -a /etc/apache2/envvars >/dev/null &lt;&lt;\'EOF\'
-export GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
-export GOOGLE_APPLICATION_CREDENTIALS="/etc/forseti/vertex-service-account.json"
-EOF
-
-sudo systemctl reload apache2
-cd /home/keithaumiller/forseti.life/sites/dungeoncrawler
-./vendor/bin/drush cr</pre>',
-      ],
-      'form' => $this->formBuilder->getForm(GeminiImageGenerationStubForm::class),
-    ];
-
-    $build['debugging'] = [
-      '#type' => 'details',
-      '#title' => $this->t('Debugging & Troubleshooting'),
-      '#open' => TRUE,
-      '#attributes' => ['class' => ['game-content-dashboard']],
-      'overview' => [
-        '#markup' => '<p>' . $this->t('Open the structured room turn log browser to trace narrator and NPC sequencing problems by campaign, room, and turn key.') . '</p>',
-      ],
-      'links' => [
-        '#theme' => 'item_list',
-        '#items' => [
-          Link::fromTextAndUrl(
-            $this->t('Open Room Turn Logs'),
-            Url::fromRoute('dungeoncrawler_content.room_turn_log_browser')
-          )->toString(),
+          $this->t('Open Image Generation to run provider tests and prompt payload requests.'),
         ],
       ],
     ];

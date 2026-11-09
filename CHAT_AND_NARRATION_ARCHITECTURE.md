@@ -219,6 +219,8 @@ The final context string is bounded by `NpcPsychologyService::MAX_CONTEXT_LENGTH
 
 `ChatSessionManager` maintains a **tree of chat sessions** per campaign.
 Each session is a logical conversation channel with its own message history.
+Draft-scoped editor GM conversations reuse the same normalized session and
+message authority as independent roots and never feed into campaign runtime.
 
 ```
 Campaign Root
@@ -250,6 +252,7 @@ Campaign Root
 | `spell` | Spell effect | — | Magical communication (Message, Sending) |
 | `gm_private` | GM only | — | Secret checks, hidden notes |
 | `system_log` | Campaign-wide | — | Dice rolls, mechanical events |
+| `editor_gm` | Per editor draft | — | Persistent author/GM transcript and prompt context |
 
 ### Session Keys (Deterministic)
 
@@ -266,6 +269,7 @@ system_log:{campaign_id}
 gm_private:{campaign_id}
 whisper:{campaign_id}:{char_a_id}:{char_b_id}
 spell:{campaign_id}:{spell_name}:{caster_id}
+editor_gm.{surface_id}.{draft_id}
 ```
 
 ### Canonical Room Alias Reuse

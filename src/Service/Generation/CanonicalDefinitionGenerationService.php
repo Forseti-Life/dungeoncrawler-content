@@ -22,6 +22,7 @@ final class CanonicalDefinitionGenerationService {
     $this->assertScope($scope, 'item');
     $input = [
       'prompt' => $this->boundedString($arguments, 'prompt', TRUE, 1, 2000),
+      'definition_id' => $this->boundedString($arguments, 'definition_id', FALSE, 0, 100),
       'level' => $this->intRange($arguments, 'level', 0, 25, 1),
       'rarity' => $this->enum($arguments, 'rarity', GenerationVocabulary::ITEM_RARITIES, 'common'),
       'item_type' => $this->enum($arguments, 'item_type', GenerationVocabulary::ITEM_TYPES, 'held_item'),
@@ -38,6 +39,7 @@ final class CanonicalDefinitionGenerationService {
     $this->assertScope($scope, 'creature');
     $input = [
       'prompt' => $this->boundedString($arguments, 'prompt', TRUE, 1, 2000),
+      'definition_id' => $this->boundedString($arguments, 'definition_id', FALSE, 0, 100),
       'level' => $this->intRange($arguments, 'level', -1, 25, 1),
       'role' => $this->boundedString($arguments, 'role', FALSE, 0, 100),
       'creature_type' => $this->enum($arguments, 'creature_type', GenerationVocabulary::CREATURE_TYPES, 'animal'),
@@ -59,6 +61,7 @@ final class CanonicalDefinitionGenerationService {
       'role' => $this->boundedString($arguments, 'role', FALSE, 0, 100),
       'attitude' => $this->enum($arguments, 'attitude', GenerationVocabulary::NPC_ATTITUDES, 'indifferent'),
       'definition_id' => $this->boundedString($arguments, 'definition_id', FALSE, 0, 100),
+      'storyline_binding' => is_array($arguments['storyline_binding'] ?? NULL) ? $arguments['storyline_binding'] : [],
       'seed' => $this->seed($arguments),
     ];
 
@@ -66,6 +69,73 @@ final class CanonicalDefinitionGenerationService {
       fn(array $prior_findings): string => $this->definitionPrompt('actor', $input, $scope, $prior_findings, $this->actorShape($input)),
       fn(array $decoded, array $provenance): array => $this->definitionResult('actor', 'npc_definition', 'generate_npc_definition', $decoded, $provenance, $input)
     );
+  }
+
+  public function generateObstacleDefinition(array $arguments, array $scope): array {
+    $this->assertScope($scope, 'obstacle');
+    $input = [
+      'prompt' => $this->boundedString($arguments, 'prompt', TRUE, 1, 2000),
+      'definition_id' => $this->boundedString($arguments, 'definition_id', FALSE, 0, 100),
+      'category' => $this->enum($arguments, 'category', GenerationVocabulary::OBSTACLE_CATEGORIES, 'decor'),
+      'size' => $this->enum($arguments, 'size', GenerationVocabulary::SIZE_CATEGORIES, 'medium'),
+      'movable' => array_key_exists('movable', $arguments) ? (bool) $arguments['movable'] : FALSE,
+      'stackable' => array_key_exists('stackable', $arguments) ? (bool) $arguments['stackable'] : FALSE,
+      'blocks_movement' => array_key_exists('blocks_movement', $arguments) ? (bool) $arguments['blocks_movement'] : TRUE,
+      'seed' => $this->seed($arguments),
+    ];
+
+    return $this->generation->completeJson('generate_obstacle_definition', 'editor_generation_obstacle_definition', $input['seed'], 2000,
+      fn(array $prior_findings): string => $this->definitionPrompt('obstacle', $input, $scope, $prior_findings, $this->obstacleShape($input)),
+      fn(array $decoded, array $provenance): array => $this->definitionResult('obstacle', 'obstacle_definition', 'generate_obstacle_definition', $decoded, $provenance, $input)
+    );
+  }
+
+  public function generateHazardDefinition(array $arguments, array $scope): array {
+    $this->assertScope($scope, 'hazard');
+    $input = [
+      'prompt' => $this->boundedString($arguments, 'prompt', TRUE, 1, 2000),
+      'definition_id' => $this->boundedString($arguments, 'definition_id', FALSE, 0, 100),
+      'level' => $this->intRange($arguments, 'level', -1, 25, 1),
+      'complexity' => $this->enum($arguments, 'complexity', GenerationVocabulary::HAZARD_COMPLEXITIES, 'simple'),
+      'rarity' => $this->enum($arguments, 'rarity', GenerationVocabulary::HAZARD_RARITIES, 'common'),
+      'seed' => $this->seed($arguments),
+    ];
+
+    return $this->generation->completeJson('generate_hazard_definition', 'editor_generation_hazard_definition', $input['seed'], 3000,
+      fn(array $prior_findings): string => $this->definitionPrompt('hazard', $input, $scope, $prior_findings, $this->hazardShape($input)),
+      fn(array $decoded, array $provenance): array => $this->definitionResult('hazard', 'hazard_definition', 'generate_hazard_definition', $decoded, $provenance, $input)
+    );
+  }
+
+  public function generateTrapDefinition(array $arguments, array $scope): array {
+    $this->assertScope($scope, 'trap');
+    $input = [
+      'prompt' => $this->boundedString($arguments, 'prompt', TRUE, 1, 2000),
+      'definition_id' => $this->boundedString($arguments, 'definition_id', FALSE, 0, 100),
+      'level' => $this->intRange($arguments, 'level', -1, 25, 1),
+      'type' => $this->enum($arguments, 'type', GenerationVocabulary::TRAP_TYPES, 'mechanical'),
+      'complexity' => $this->enum($arguments, 'complexity', GenerationVocabulary::HAZARD_COMPLEXITIES, 'simple'),
+      'rarity' => $this->enum($arguments, 'rarity', GenerationVocabulary::TRAP_RARITIES, 'common'),
+      'seed' => $this->seed($arguments),
+    ];
+
+    return $this->generation->completeJson('generate_trap_definition', 'editor_generation_trap_definition', $input['seed'], 3000,
+      fn(array $prior_findings): string => $this->definitionPrompt('trap', $input, $scope, $prior_findings, $this->trapShape($input)),
+      fn(array $decoded, array $provenance): array => $this->definitionResult('trap', 'trap_definition', 'generate_trap_definition', $decoded, $provenance, $input)
+    );
+  }
+
+  public function generateDefinitionByFamily(string $family, array $arguments, array $scope): array {
+    $scope['family'] = $family;
+    return match ($family) {
+      'item' => $this->generateItemDefinition($arguments, $scope),
+      'creature' => $this->generateCreatureDefinition($arguments, $scope),
+      'actor' => $this->generateNpcDefinition($arguments, $scope),
+      'obstacle' => $this->generateObstacleDefinition($arguments, $scope),
+      'hazard' => $this->generateHazardDefinition($arguments, $scope),
+      'trap' => $this->generateTrapDefinition($arguments, $scope),
+      default => throw $this->exception('generation_scope_invalid', [$this->finding('generation_scope_invalid', '/family', sprintf('Unsupported definition family "%s".', $family))], 400),
+    };
   }
 
 
@@ -80,12 +150,7 @@ final class CanonicalDefinitionGenerationService {
     if ($arguments['prompt'] === '') {
       throw $this->exception('generation_input_invalid', [$this->finding('generation_input_invalid', '/prompt', 'Prompt is required for explicit runtime definition generation.')], 400);
     }
-    $generated = match ($family) {
-      'creature' => $this->generateCreatureDefinition($arguments, $scope),
-      'item' => $this->generateItemDefinition($arguments, $scope),
-      'actor' => $this->generateNpcDefinition($arguments, $scope),
-      default => throw $this->exception('generation_scope_invalid', [$this->finding('generation_scope_invalid', '/family', 'Runtime definition generation supports creature, item, and actor only.')], 400),
-    };
+    $generated = $this->generateDefinitionByFamily($family, $arguments, $scope);
     $payload = $generated['payload'];
     if ($family === 'actor') {
       $payload['source_module'] = 'runtime_generated';
@@ -157,8 +222,102 @@ final class CanonicalDefinitionGenerationService {
       'actor' => [
         'For actor/NPC definitions, use only actor_id, version, actor_type, display_name, source_module, and state_data top-level keys; metadata is server-injected.',
       ],
+      'obstacle' => [
+        'For obstacle definitions, include object_id, label, category, movable, stackable, movement (passable, blocks_movement, cost_multiplier), size, description, and tags.',
+        'Category must be one of bar, table, stool, crate, door, decor, wall, custom.',
+        'Include gen-evidence in tags.',
+      ],
+      'hazard' => [
+        'For hazard definitions, include hazard_id, name, level, complexity (simple|complex), rarity, traits, stealth_dc, description, disable, trigger, and effect.',
+        'Include gen-evidence in traits.',
+      ],
+      'trap' => [
+        'For trap definitions, include trap_id, name, level, type (mechanical|magical|haunt|environmental), stealth_dc, complexity (simple|complex), rarity, traits, description, disable, trigger, and effect.',
+        'Include gen-evidence in traits.',
+      ],
       default => [],
     };
+  }
+
+  private function obstacleShape(array $input): array {
+    $blocks = (bool) ($input['blocks_movement'] ?? TRUE);
+    return [
+      'schema_version' => '1.0.0',
+      'object_id' => 'optional canonical slug; server fills if absent',
+      'label' => 'string 1..100',
+      'category' => $input['category'],
+      'description' => 'string 1..1000',
+      'tags' => [$input['category'], 'gen-evidence'],
+      'size' => $input['size'],
+      'movable' => (bool) $input['movable'],
+      'stackable' => (bool) $input['stackable'],
+      'movement' => [
+        'passable' => !$blocks,
+        'blocks_movement' => $blocks,
+        'cost_multiplier' => $blocks ? 0 : 2,
+      ],
+    ];
+  }
+
+  private function hazardShape(array $input): array {
+    $level = (int) $input['level'];
+    $dc = max(12, 15 + $level);
+    return [
+      'schema_version' => '1.0.0',
+      'hazard_id' => 'optional canonical slug; server fills if absent',
+      'name' => 'string 1..200',
+      'level' => $level,
+      'complexity' => $input['complexity'],
+      'rarity' => $input['rarity'],
+      'traits' => ['environmental', 'hazard', 'gen-evidence'],
+      'stealth_dc' => $dc,
+      'description' => 'string 1..2000',
+      'disable' => [
+        'thievery_dc' => $dc,
+        'athletics_dc' => $dc + 2,
+      ],
+      'trigger' => 'A creature enters an affected hex or disturbs the area.',
+      'effect' => [
+        'damage' => '2d6+3',
+        'damage_type' => 'fire',
+        'save_dc' => $dc,
+        'save_type' => 'reflex',
+        'conditions_applied' => [],
+        'area' => '1 hex',
+        'description' => 'Deals hazard damage with a basic Reflex save.',
+      ],
+    ];
+  }
+
+  private function trapShape(array $input): array {
+    $level = (int) $input['level'];
+    $dc = max(12, 15 + $level);
+    return [
+      'schema_version' => '1.0.0',
+      'trap_id' => 'optional canonical slug; server fills if absent',
+      'name' => 'string 1..200',
+      'level' => $level,
+      'type' => $input['type'],
+      'complexity' => $input['complexity'],
+      'rarity' => $input['rarity'],
+      'traits' => [$input['type'], 'trap', 'gen-evidence'],
+      'stealth_dc' => $dc,
+      'description' => 'string 1..2000',
+      'disable' => [
+        'thievery_dc' => $dc,
+      ],
+      'trigger' => 'A creature steps onto the trapped hex or opens the mechanism.',
+      'effect' => [
+        'attack_bonus' => 8 + $level,
+        'damage' => '2d8+4',
+        'damage_type' => 'piercing',
+        'save_dc' => $dc,
+        'save_type' => 'reflex',
+        'conditions_applied' => [],
+        'area' => '1 hex',
+        'description' => 'Strikes or forces a basic Reflex save against trap damage.',
+      ],
+    ];
   }
 
   private function creatureShape(array $input): array {
@@ -185,7 +344,10 @@ final class CanonicalDefinitionGenerationService {
   }
 
   private function actorShape(array $input): array {
-    $stats = Pf2eGenerationRules::npcFallbackStats(max(1, $input['level']));
+    $level = max(1, (int) $input['level']);
+    $role = $input['role'] !== '' ? $input['role'] : 'npc';
+    $stats = Pf2eGenerationRules::npcFallbackStats($level);
+    $abilities = Pf2eGenerationRules::npcFallbackAbilityScores($role, $role);
     return [
       'actor_id' => 'optional canonical slug; server fills if absent',
       'version' => '1.0.0',
@@ -194,15 +356,54 @@ final class CanonicalDefinitionGenerationService {
       'source_module' => 'gen-evidence',
       'state_data' => [
         'name' => 'same as display_name',
-        'class' => $input['role'] !== '' ? $input['role'] : 'npc',
+        'class' => $role,
+        'ancestry' => 'Humanoid',
+        'occupation' => $role,
+        'role' => $role,
+        'alignment' => 'N',
         'level' => $input['level'],
         'hp_current' => $stats['currentHp'],
         'max_hp' => $stats['maxHp'],
         'ac' => $stats['ac'],
+        'perception' => $stats['perception'],
+        'saves' => [
+          'fortitude' => $stats['fortitude'],
+          'reflex' => $stats['reflex'],
+          'will' => $stats['will'],
+        ],
+        'abilities' => $abilities,
+        'skills' => [
+          ['name' => 'Perception', 'modifier' => $stats['perception']],
+          ['name' => 'Society', 'modifier' => 3 + $level],
+        ],
+        'attacks' => [
+          ['name' => 'Dagger', 'bonus' => 5 + $level, 'damage' => '1d4+1 piercing'],
+        ],
+        'equipment' => ['Traveler\'s gear'],
+        'languages' => ['Common'],
+        'senses' => ['Normal vision'],
+        'spells' => [],
         'species' => 'string',
         'attitude' => $input['attitude'],
         'source_module' => 'gen-evidence',
         'description' => 'string <=4000',
+        'appearance' => 'string <=2000',
+        'backstory' => 'string <=4000',
+        'personality_traits' => ['observant', 'guarded'],
+        'motivations' => 'Protect their interests and survive the current crisis.',
+        'fears' => 'Being exposed or betrayed.',
+        'bonds' => 'Tied to local factions and contacts.',
+        'psychology' => [
+          'inner_conflict' => 'Balances duty against personal safety.',
+          'coping_mechanism' => 'Stays focused on routines and practical details.',
+          'stress_response' => 'Becomes guarded and transactional under pressure.',
+          'insecurity' => 'Doubts whether allies will keep their word.',
+          'secret' => 'Knows more about local operations than they admit.',
+          'desire' => 'Wants leverage and stability.',
+          'need' => 'Needs trustworthy allies.',
+          'trigger' => 'Direct threats or broken promises.',
+          'anchor' => 'A trusted contact or sworn obligation.',
+        ],
         'conditions' => [],
       ],
     ];
@@ -259,6 +460,80 @@ final class CanonicalDefinitionGenerationService {
       $payload[$id_property] = $family === 'creature'
         ? $this->deterministicUuid($seed, $family . ':' . $name)
         : $this->slug($name, $seed);
+    }
+    if ($family === 'actor' && isset($payload['state_data']) && is_array($payload['state_data'])) {
+      $state = $payload['state_data'];
+      $level = max(1, (int) ($state['level'] ?? $input['level'] ?? 1));
+      $role = trim((string) ($state['role'] ?? $input['role'] ?? $state['class'] ?? 'npc'));
+      $class_name = trim((string) ($state['class'] ?? $role));
+      $stats = Pf2eGenerationRules::npcFallbackStats($level, [
+        'ac' => $state['ac'] ?? NULL,
+        'currentHp' => $state['hp_current'] ?? NULL,
+        'maxHp' => $state['max_hp'] ?? ($state['hp_current'] ?? NULL),
+      ]);
+      $state['max_hp'] = (int) ($state['max_hp'] ?? $stats['maxHp']);
+      $state['hp_current'] = (int) ($state['hp_current'] ?? $state['max_hp']);
+      $state['ac'] = (int) ($state['ac'] ?? $stats['ac']);
+      $state['ancestry'] = (string) ($state['ancestry'] ?? $state['species'] ?? 'Human');
+      $state['role'] = $role !== '' ? $role : 'npc';
+      $state['occupation'] = (string) ($state['occupation'] ?? $state['role']);
+      $state['alignment'] = (string) ($state['alignment'] ?? 'N');
+      $state['perception'] = (int) ($state['perception'] ?? $stats['perception']);
+      $state['saves'] = is_array($state['saves'] ?? NULL) ? [
+        'fortitude' => (int) ($state['saves']['fortitude'] ?? $stats['fortitude']),
+        'reflex' => (int) ($state['saves']['reflex'] ?? $stats['reflex']),
+        'will' => (int) ($state['saves']['will'] ?? $stats['will']),
+      ] : [
+        'fortitude' => $stats['fortitude'],
+        'reflex' => $stats['reflex'],
+        'will' => $stats['will'],
+      ];
+      $state['abilities'] = is_array($state['abilities'] ?? NULL)
+        ? array_replace(Pf2eGenerationRules::npcFallbackAbilityScores($role, $class_name), $state['abilities'])
+        : Pf2eGenerationRules::npcFallbackAbilityScores($role, $class_name);
+      if (empty($state['skills']) || !is_array($state['skills'])) {
+        $state['skills'] = [
+          ['name' => 'Perception', 'modifier' => $state['perception']],
+          ['name' => 'Society', 'modifier' => 3 + $level],
+        ];
+      }
+      if (empty($state['attacks']) || !is_array($state['attacks'])) {
+        $state['attacks'] = [
+          ['name' => 'Dagger', 'bonus' => 5 + $level, 'damage' => '1d4+1 piercing'],
+        ];
+      }
+      $state['languages'] = is_array($state['languages'] ?? NULL) && $state['languages'] !== [] ? array_values($state['languages']) : ['Common'];
+      $state['senses'] = is_array($state['senses'] ?? NULL) && $state['senses'] !== [] ? array_values($state['senses']) : ['Normal vision'];
+      $state['equipment'] = is_array($state['equipment'] ?? NULL) ? array_values($state['equipment']) : [];
+      $state['spells'] = is_array($state['spells'] ?? NULL) ? array_values($state['spells']) : [];
+      $state['appearance'] = (string) ($state['appearance'] ?? $state['description'] ?? '');
+      $state['backstory'] = (string) ($state['backstory'] ?? $state['description'] ?? '');
+      $state['personality_traits'] = is_array($state['personality_traits'] ?? NULL) && $state['personality_traits'] !== []
+        ? array_values($state['personality_traits'])
+        : ['observant', 'guarded'];
+      $state['motivations'] = (string) ($state['motivations'] ?? 'Protect their interests and survive the current crisis.');
+      $state['fears'] = (string) ($state['fears'] ?? 'Being exposed or betrayed.');
+      $state['bonds'] = (string) ($state['bonds'] ?? 'Tied to local factions and contacts.');
+      if (empty($state['psychology']) || !is_array($state['psychology'])) {
+        $state['psychology'] = [
+          'inner_conflict' => 'Balances duty against personal safety.',
+          'coping_mechanism' => 'Stays focused on routines and practical details.',
+          'stress_response' => 'Becomes guarded and transactional under pressure.',
+          'insecurity' => 'Doubts whether allies will keep their word.',
+          'secret' => 'Knows more about local operations than they admit.',
+          'desire' => 'Wants leverage and stability.',
+          'need' => 'Needs trustworthy allies.',
+          'trigger' => 'Direct threats or broken promises.',
+          'anchor' => 'A trusted contact or sworn obligation.',
+        ];
+      }
+      if (is_array($input['storyline_binding'] ?? NULL) && $input['storyline_binding'] !== []) {
+        $state['storyline_binding'] = array_replace(
+          is_array($state['storyline_binding'] ?? NULL) ? $state['storyline_binding'] : [],
+          $input['storyline_binding']
+        );
+      }
+      $payload['state_data'] = $state;
     }
     return $payload;
   }

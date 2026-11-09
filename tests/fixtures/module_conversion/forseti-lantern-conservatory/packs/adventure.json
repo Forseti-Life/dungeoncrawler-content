@@ -1,0 +1,106 @@
+[
+  {
+    "_id": "adv-forseti-lantern-conservatory",
+    "name": "Forseti Lantern Conservatory",
+    "type": "Adventure",
+    "scenes": [
+      {
+        "_id": "scene-greenhouse-entry",
+        "name": "Greenhouse Entry",
+        "type": "Scene",
+        "width": 1800,
+        "height": 1200,
+        "grid": {"type": 1, "size": 100, "distance": 5, "units": "ft"},
+        "background": {"src": "modules/forseti-lantern-conservatory/assets/scenes/greenhouse.svg"},
+        "navOrder": 1,
+        "tiles": [{"_id": "tile-lantern", "x": 200, "y": 150, "texture": {"src": "modules/forseti-lantern-conservatory/assets/scenes/greenhouse.svg"}}],
+        "drawings": [{"_id": "drawing-path", "x": 100, "y": 100}],
+        "tokens": [
+          {
+            "_id": "token-curator"
+          }
+        ],
+        "notes": []
+      },
+      {
+        "_id": "scene-lantern-archive",
+        "name": "Lantern Archive",
+        "type": "Scene",
+        "tokens": [],
+        "notes": []
+      },
+      {
+        "_id": "scene-solar-observatory",
+        "name": "Solar Observatory",
+        "type": "Scene",
+        "tokens": [],
+        "notes": []
+      }
+    ],
+    "actors": [
+      {
+        "_id": "actor-curator-lyra",
+        "name": "Curator Lyra",
+        "type": "npc",
+        "items": [
+          {
+            "_id": "item-curator-ledger",
+            "name": "Curator Ledger",
+            "type": "lore"
+          }
+        ]
+      }
+    ],
+    "items": [
+      {
+        "_id": "item-lantern-key",
+        "name": "Lantern Key",
+        "type": "consumable"
+      }
+    ],
+    "journal": [
+      {
+        "_id": "journal-conservatory-log",
+        "name": "Conservatory Log",
+        "pages": [
+          {
+            "_id": "page-public-log",
+            "name": "Public Log",
+            "text": {
+              "content": "The conservatory doors are open to invited scholars."
+            }
+          },
+          {
+            "_id": "page-gm-log",
+            "name": "GM Log",
+            "text": {
+              "content": "GM-only: hidden switch behind the brass telescope."
+            }
+          }
+        ]
+      }
+    ],
+    "tables": [
+      {
+        "_id": "table-observatory-hints",
+        "name": "Observatory Hints",
+        "results": [
+          {
+            "_id": "result-1",
+            "text": "The lantern hums when brought near the archive shelf."
+          },
+          {
+            "_id": "result-2",
+            "text": "@UUID[Compendium.pf2e.conditionitems.Item.DmAIPqOBomZ7H95W]"
+          }
+        ]
+      }
+    ],
+    "folders": [
+      {
+        "_id": "folder-conservatory",
+        "name": "Conservatory Assets"
+      }
+    ]
+  }
+]

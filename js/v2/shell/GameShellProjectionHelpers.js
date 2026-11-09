@@ -402,6 +402,10 @@ export function _normalizeAuthoritativeNavigationCapability(exit, activeRoomId) 
       : [],
     origin_hex: originHex,
     target_hex: targetHex,
+    destination_dungeon_id: String(exit?.destination_dungeon_id || '').trim(),
+    dungeon_switch: exit?.dungeon_switch && typeof exit.dungeon_switch === 'object'
+      ? { ...exit.dungeon_switch }
+      : null,
     connection: exit,
   };
 }

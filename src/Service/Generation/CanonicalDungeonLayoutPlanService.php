@@ -6,6 +6,7 @@ namespace Drupal\dungeoncrawler_content\Service\Generation;
 
 use Drupal\dungeoncrawler_content\Geometry\RoomPlacementTransformer;
 use Drupal\dungeoncrawler_content\Service\DungeonEditorService;
+use Drupal\dungeoncrawler_content\Service\EditorGm\CanonicalSiteTopologyContract;
 
 /**
  * Builds canonical dungeon generation command plans for editor and runtime.
@@ -21,6 +22,7 @@ class CanonicalDungeonLayoutPlanService {
   private const DUNGEON_MAX_PLACEMENTS = 20;
   private const DUNGEON_MAX_LINKS = 40;
   private const DUNGEON_MAX_COMMANDS = 120;
+  private const SEALED_ORDER_SEARCH_LIMIT = 4096;
 
   public function __construct(private readonly CanonicalGenerationService $generation) {}
 
@@ -32,6 +34,10 @@ class CanonicalDungeonLayoutPlanService {
    */
   public function generateDungeonLayoutPlan(array $arguments, array $draft, array $dungeon, array $library, callable $simulate): array {
     $input = $this->normalizeDungeonInput($arguments);
+    if ($input['required_room_ids'] !== []) {
+      $required = array_fill_keys($input['required_room_ids'], TRUE);
+      $library = array_values(array_filter($library, static fn(array $room): bool => isset($required[$room['room_id'] ?? ''])));
+    }
     if ($library === []) {
       throw $this->exception('generation_catalog_reference_unresolved', [$this->finding('generation_catalog_reference_unresolved', '/room_library', 'No published room versions are available for dungeon generation.')]);
     }
@@ -50,11 +56,14 @@ class CanonicalDungeonLayoutPlanService {
   /**
    * Convert command-plan steps into revision-checked command envelopes.
    */
-  public function envelopesFromSteps(array $steps, int $base_revision, int $seed): array {
+  public function envelopesFromSteps(array $steps, int $base_revision, int $seed, string $draft_id): array {
+    if ($draft_id === '') {
+      throw new \InvalidArgumentException('dungeon_command_draft_id_required');
+    }
     $envelopes = [];
     foreach ($steps as $index => $step) {
       $envelopes[] = [
-        'command_id' => $this->deterministicUuid($seed, 'dungeon-command', $index + 1),
+        'command_id' => $this->deterministicUuid($seed, 'dungeon-command:' . $draft_id, $index + 1),
         'expected_revision' => $base_revision + $index,
         'type' => $step['command_type'],
         'payload' => $step['payload'],
@@ -65,7 +74,7 @@ class CanonicalDungeonLayoutPlanService {
   }
 
   private function normalizeDungeonInput(array $arguments): array {
-    return [
+    $input = [
       'prompt' => $this->boundedString($arguments, 'prompt', TRUE, 1, 2000),
       'theme' => $this->boundedString($arguments, 'theme', FALSE, 0, 100),
       'room_count' => $this->intRange($arguments, 'room_count', 3, self::DUNGEON_MAX_PLACEMENTS, 3),
@@ -76,6 +85,22 @@ class CanonicalDungeonLayoutPlanService {
       'seed' => $this->seed($arguments),
       'publication_ready' => !empty($arguments['publication_ready']),
     ];
+    $required = $arguments['required_room_ids'] ?? [];
+    if (!is_array($required) || !array_is_list($required)
+      || count($required) > self::DUNGEON_MAX_PLACEMENTS
+      || ($required !== [] && count($required) !== $input['room_count'])) {
+      throw $this->exception('generation_input_invalid', [$this->finding('generation_input_invalid', '/required_room_ids', 'Required room IDs must be a list matching room_count.')], 400);
+    }
+    foreach ($required as $room_id) {
+      if (!is_string($room_id) || !preg_match('/^[a-z0-9][a-z0-9_-]{0,99}$/', $room_id)) {
+        throw $this->exception('generation_input_invalid', [$this->finding('generation_input_invalid', '/required_room_ids', 'Each required room ID must be a canonical slug.')], 400);
+      }
+    }
+    if (count(array_unique($required)) !== count($required)) {
+      throw $this->exception('generation_input_invalid', [$this->finding('generation_input_invalid', '/required_room_ids', 'Required room IDs must be unique.')], 400);
+    }
+    $input['required_room_ids'] = $required;
+    return $input;
   }
 
   private function seed(array $arguments): int {
@@ -166,10 +191,13 @@ class CanonicalDungeonLayoutPlanService {
       'nonterminal_room_ids' => array_values(array_map(static fn(array $room): string => (string) $room['room_id'], array_slice($nonterminal_library, 0, 20))),
       'terminal_room_ids' => array_values(array_map(static fn(array $room): string => (string) $room['room_id'], array_slice($terminal_library, 0, 20))),
       'allowed_room_ids' => $allowed_room_ids,
+      'site_topology_contract' => CanonicalSiteTopologyContract::describe(),
       'required_output_shape' => $shape,
       'requirements' => [
         'Return one JSON object only. No prose.',
+        'Generate one continuous navigable site only. If locations are separated by a street, road, wilderness, or shared travel hub, they require separate dungeon plans and must not be linked directly here.',
         'Return exactly ' . $input['room_count'] . ' room references and use only exact room_id values from allowed_room_ids.',
+        $input['required_room_ids'] !== [] ? 'Include every required_room_ids value exactly once: ' . implode(', ', $input['required_room_ids']) . '.' : 'Room templates may be reused.',
         $publication_ready ? 'Use nonterminal_room_ids for every room except the final room; use terminal_room_ids for the final goal room so no exit port is left dangling at publication.' : 'Use nonterminal_room_ids for every generated room.',
         'Do not invent room_id values and do not use room names as room_id values.',
         $publication_ready ? 'Every nonterminal listed room has exactly one exit port; every terminal listed room has no exit ports.' : 'Every listed room is a published version with both entry and exit ports; no other rooms are eligible.',
@@ -198,6 +226,10 @@ class CanonicalDungeonLayoutPlanService {
     if (count($selected) > self::DUNGEON_MAX_PLACEMENTS) {
       throw $this->exception('generation_size_limit_exceeded', [$this->finding('generation_size_limit_exceeded', '/rooms', 'Generated dungeon exceeds placement cap.')]);
     }
+    $sealed_plan = $input['publication_ready'] && $input['required_room_ids'] !== []
+      ? $this->orderSealedPublicationRooms($selected, $input)
+      : NULL;
+    $selected = $sealed_plan['rooms'] ?? $selected;
 
     $steps = [];
     $steps[] = $this->step(1, 'set_dungeon_metadata', [
@@ -215,7 +247,14 @@ class CanonicalDungeonLayoutPlanService {
     $links = [];
     foreach ($selected as $index => $room) {
       $placement_id = $this->deterministicUuid($input['seed'], 'dungeon-placement', $index + 1);
-      if ($index === 0) {
+      if ($sealed_plan !== NULL) {
+        $placement = $sealed_plan['placements'][$index];
+        $placement['label'] = (string) ($room['role'] ?? $room['name']);
+        if ($index > 0) {
+          $links[] = $sealed_plan['links'][$index - 1];
+        }
+      }
+      elseif ($index === 0) {
         $placement = [
           'placement_id' => $placement_id,
           'room_id' => $room['room_id'],
@@ -261,7 +300,7 @@ class CanonicalDungeonLayoutPlanService {
       throw $this->exception('generation_size_limit_exceeded', [$this->finding('generation_size_limit_exceeded', '/command_plan/steps', 'Generated dungeon plan exceeds command or link caps.')]);
     }
 
-    $simulation = $simulate($this->envelopesFromSteps($steps, (int) ($draft['revision'] ?? 0), $input['seed']), 'editing');
+    $simulation = $simulate($this->envelopesFromSteps($steps, (int) ($draft['revision'] ?? 0), $input['seed'], (string) ($draft['draft_id'] ?? '')), 'editing');
     $this->assertDungeonSimulation($simulation);
 
     return [
@@ -332,10 +371,92 @@ class CanonicalDungeonLayoutPlanService {
     if (count($selected) < $input['room_count']) {
       throw $this->nonconforming([$this->finding('required_missing', '/rooms', sprintf('Generated dungeon must include %d usable published room references.', $input['room_count']))]);
     }
+    if ($input['required_room_ids'] !== []) {
+      $selected_ids = array_column($selected, 'room_id');
+      sort($selected_ids);
+      $required_ids = $input['required_room_ids'];
+      sort($required_ids);
+      if ($selected_ids !== $required_ids) {
+        throw $this->nonconforming([$this->finding('required_missing', '/rooms', 'Generated dungeon must use every required room exactly once.')]);
+      }
+    }
     return $selected;
   }
 
+  private function orderSealedPublicationRooms(array $selected, array $input): array {
+    $terminal = array_pop($selected);
+    $attempts = 0;
+    $limit_reached = FALSE;
+    $search = function (array $ordered, array $remaining, array $placements, array $links, array $occupied) use (&$search, $terminal, $input, &$attempts, &$limit_reached): ?array {
+      if ($limit_reached) {
+        return NULL;
+      }
+      $candidates = $remaining === [] ? [$terminal] : $remaining;
+      foreach ($candidates as $key => $room) {
+        $index = count($ordered);
+        $placement_id = $this->deterministicUuid($input['seed'], 'dungeon-placement', $index + 1);
+        if ($index === 0) {
+          $placement = [
+            'placement_id' => $placement_id,
+            'room_id' => $room['room_id'],
+            'version_id' => $room['version_id'],
+            'origin' => ['q' => 0, 'r' => 0],
+            'rotation_steps' => 0,
+          ];
+          $placement_options = [[$placement, NULL]];
+        }
+        else {
+          $placement_options = $this->sealedPlacementCandidates($placements[$index - 1], $ordered[$index - 1], $room, $occupied, $placement_id, $input, $index + 1);
+        }
+        foreach ($placement_options as [$placement, $link]) {
+          if (++$attempts > self::SEALED_ORDER_SEARCH_LIMIT) {
+            $limit_reached = TRUE;
+            return NULL;
+          }
+          $next_occupied = $occupied;
+          foreach ((array) ($room['footprint'] ?? []) as $hex) {
+            $level = RoomPlacementTransformer::toLevel($hex, $placement);
+            $next_occupied[RoomPlacementTransformer::hexKey($level)] = TRUE;
+          }
+          $next_ordered = [...$ordered, $room];
+          $next_placements = [...$placements, $placement];
+          $next_links = $link === NULL ? $links : [...$links, $link];
+          if ($remaining === []) {
+            return ['rooms' => $next_ordered, 'placements' => $next_placements, 'links' => $next_links];
+          }
+          $next_remaining = $remaining;
+          unset($next_remaining[$key]);
+          $result = $search($next_ordered, array_values($next_remaining), $next_placements, $next_links, $next_occupied);
+          if ($result !== NULL) {
+            return $result;
+          }
+        }
+      }
+      return NULL;
+    };
+    $plan = $search([], $selected, [], [], []);
+    if ($plan === NULL) {
+      throw $this->nonconforming([$this->finding('no_sealed_placement', '/selected_rooms', $limit_reached
+        ? 'Sealed placement order search exceeded its bounded limit.'
+        : 'No non-overlapping sealed placement order was available for the required rooms.')]);
+    }
+    if (array_column($plan['rooms'], 'room_id') !== array_column([...$selected, $terminal], 'room_id')) {
+      foreach ($plan['rooms'] as $index => &$room) {
+        $room['role'] = $index === 0 ? 'entrance' : ($index === count($plan['rooms']) - 1 ? 'goal' : 'connector');
+      }
+      unset($room);
+    }
+    return $plan;
+  }
+
   private function sealedPlacement(array $anchor, array $anchor_room, array $room, array $occupied, string $placement_id, array $input, int $ordinal): array {
+    foreach ($this->sealedPlacementCandidates($anchor, $anchor_room, $room, $occupied, $placement_id, $input, $ordinal) as $candidate) {
+      return $candidate;
+    }
+    throw $this->nonconforming([$this->finding('no_sealed_placement', '/selected_rooms/' . ($ordinal - 1), 'No non-overlapping sealed placement was available for selected room.')]);
+  }
+
+  private function sealedPlacementCandidates(array $anchor, array $anchor_room, array $room, array $occupied, string $placement_id, array $input, int $ordinal): \Generator {
     $exits = array_values(array_filter((array) ($anchor_room['ports'] ?? []), static fn(array $p): bool => ($p['kind'] ?? '') === 'exit'));
     $entries = array_values(array_filter((array) ($room['ports'] ?? []), static fn(array $p): bool => ($p['kind'] ?? '') === 'entry'));
     if ($exits === [] || $entries === []) {
@@ -365,7 +486,7 @@ class CanonicalDungeonLayoutPlanService {
             'tags' => [],
           ];
           if ($this->placementFits($placement, $room, $occupied)) {
-            return [$placement, [
+            yield [$placement, [
               'from' => ['placement_id' => $anchor['placement_id'], 'port_id' => $exit_port['port_id']],
               'to' => ['placement_id' => $placement_id, 'port_id' => $entry_port['port_id']],
               'kind' => $input['link_kind'],
@@ -376,7 +497,6 @@ class CanonicalDungeonLayoutPlanService {
         }
       }
     }
-    throw $this->nonconforming([$this->finding('no_sealed_placement', '/selected_rooms/' . ($ordinal - 1), 'No non-overlapping sealed placement was available for selected room.')]);
   }
 
   private function placementFits(array $placement, array $room, array $occupied): bool {

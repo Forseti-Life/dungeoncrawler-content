@@ -352,13 +352,7 @@ class LocationGenerationController extends ControllerBase {
       $this->appendRoomConnection($dungeon_data, $origin_room_id, (string) ($room['room_id'] ?? ''));
       $this->appendRoomRegion($dungeon_data, $room);
       $this->persistDungeonPayload($campaign_id, (string) $dungeon_record['dungeon_id'], $dungeon_data);
-      $this->roomStateService->setState($campaign_id, (string) $room['room_id'], (string) $dungeon_record['dungeon_id'], [
-        'roomId' => (string) $room['room_id'],
-        'dungeonId' => (string) $dungeon_record['dungeon_id'],
-        'explored' => TRUE,
-        'visibility' => 'visible',
-        'isCleared' => FALSE,
-      ]);
+      $this->roomStateService->recordArrival($campaign_id, (string) $room['room_id'], (string) $dungeon_record['dungeon_id']);
 
       $navigation = $this->mapGenerator->buildClientNavigationPayload([
         'destination' => (string) ($room['name'] ?? 'Generated Room'),
@@ -871,13 +865,7 @@ class LocationGenerationController extends ControllerBase {
 
     $dungeon_id = (string) ($generated['dungeon_id'] ?? '');
     $landing_room_id = (string) ($landing_room['room_id'] ?? '');
-    $this->roomStateService->setState($campaign_id, $landing_room_id, $dungeon_id, [
-      'roomId' => $landing_room_id,
-      'dungeonId' => $dungeon_id,
-      'explored' => TRUE,
-      'visibility' => 'visible',
-      'isCleared' => FALSE,
-    ]);
+    $this->roomStateService->recordArrival($campaign_id, $landing_room_id, $dungeon_id);
 
     return [
       'message' => sprintf('Generated remote dungeon landing for %s.', (string) ($landing_room['name'] ?? $destination)),

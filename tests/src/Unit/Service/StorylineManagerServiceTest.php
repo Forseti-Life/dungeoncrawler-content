@@ -1687,7 +1687,7 @@ class StorylineManagerServiceTest extends UnitTestCase {
     $schema->method('tableExists')
       ->willReturnCallback(static fn(string $table): bool => in_array($table, ['dc_canonical_storylines', 'dc_canonical_quests'], TRUE));
     $schema->method('fieldExists')
-      ->willReturnCallback(static fn(string $table, string $field): bool => $table === 'dc_canonical_storylines' && in_array($field, ['template_id', 'name', 'template_data', 'created', 'updated'], TRUE));
+      ->willReturnCallback(static fn(string $table, string $field): bool => $table === 'dc_canonical_storylines' && in_array($field, ['template_id', 'name', 'template_data', 'created_at', 'updated_at'], TRUE));
 
     $connection = $this->createMock(Connection::class);
     $connection->method('schema')->willReturn($schema);
@@ -2403,6 +2403,171 @@ class StorylineManagerServiceTest extends UnitTestCase {
     );
 
     $this->assertSame([], $errors);
+  }
+
+  /**
+   * @covers ::analyzeStorylineNarrative
+   */
+  public function testAnalyzeStorylineNarrativeBuildsTimelineConflictAndRelationshipGraph(): void {
+    $service = $this->buildService();
+    $storyline = $this->buildNarrativeAnalysisFixture();
+
+    $analysis = $service->analyzeStorylineNarrative($storyline);
+
+    $this->assertSame('storyline-narrative-analysis-v1', $analysis['schema_version']);
+    $this->assertSame(2, $analysis['metrics']['scene_count']);
+    $this->assertSame(2, $analysis['metrics']['actor_count']);
+    $this->assertSame(1, $analysis['metrics']['conflict_count']);
+    $this->assertSame(0, $analysis['metrics']['unresolved_conflict_count']);
+    $this->assertSame([], array_values(array_filter(
+      $analysis['findings'],
+      static fn(array $finding): bool => ($finding['severity'] ?? '') === 'error'
+    )));
+    $edge_types = array_column($analysis['graph']['edges'], 'type');
+    $this->assertContains('sequence', $edge_types);
+    $this->assertContains('foreshadows', $edge_types);
+    $this->assertContains('relationship', $edge_types);
+    $this->assertContains('introduces_conflict', $edge_types);
+    $this->assertContains('resolved_by', $edge_types);
+  }
+
+  /**
+   * @covers ::analyzeStorylineNarrative
+   */
+  public function testAnalyzeStorylineNarrativeFindsChronologyAndContinuityConflicts(): void {
+    $service = $this->buildService();
+    $storyline = $this->buildNarrativeAnalysisFixture();
+    $storyline['chapters'][0]['scenes'][1]['order'] = 1;
+    $storyline['metadata']['storyline_analysis']['scene_annotations']['scene-two']['foreshadowing'] = [[
+      'target_scene_id' => 'scene-one',
+      'description' => 'Invalid backward foreshadow.',
+    ]];
+    $storyline['metadata']['storyline_analysis']['scene_annotations']['scene-two']['relationship_changes'][0]['before'] = 10;
+    $storyline['metadata']['storyline_analysis']['conflicts'][0]['introduced_scene_id'] = 'scene-two';
+    $storyline['metadata']['storyline_analysis']['conflicts'][0]['resolved_scene_id'] = 'scene-one';
+
+    $analysis = $service->analyzeStorylineNarrative($storyline);
+    $codes = array_column($analysis['findings'], 'code');
+
+    $this->assertContains('DCV_NARRATIVE_DUPLICATE_SCENE_ORDER', $codes);
+    $this->assertContains('DCV_NARRATIVE_FORESHADOW_TARGET_NOT_LATER', $codes);
+    $this->assertContains('DCV_NARRATIVE_RELATIONSHIP_DISCONTINUITY', $codes);
+    $this->assertContains('DCV_NARRATIVE_CONFLICT_RESOLVED_BEFORE_INTRODUCTION', $codes);
+  }
+
+  /**
+   * @covers ::analyzeStorylineNarrative
+   */
+  public function testAnalyzeStorylineNarrativeAllowsSingleSceneConflictWithoutEscalations(): void {
+    $service = $this->buildService();
+    $storyline = $this->buildNarrativeAnalysisFixture();
+    $storyline['metadata']['storyline_analysis']['conflicts'] = [[
+      'conflict_id' => 'tal-opening-fight',
+      'title' => 'The Opening Threat',
+      'actor_ids' => ['guide'],
+      'introduced_scene_id' => 'scene-two',
+      'escalation_scene_ids' => [],
+      'resolved_scene_id' => 'scene-two',
+      'status' => 'resolved',
+    ]];
+
+    $analysis = $service->analyzeStorylineNarrative($storyline);
+    $codes = array_column($analysis['findings'], 'code');
+
+    $this->assertNotContains('DCV_NARRATIVE_CONFLICT_RESOLUTION_OUT_OF_ORDER', $codes);
+  }
+
+  /**
+   * @covers ::analyzeStorylineNarrative
+   */
+  public function testAnalyzeStorylineNarrativeRejectsResolutionNotLaterThanEscalation(): void {
+    $service = $this->buildService();
+    $storyline = $this->buildNarrativeAnalysisFixture();
+    $storyline['metadata']['storyline_analysis']['conflicts'] = [[
+      'conflict_id' => 'tal-opening-fight',
+      'title' => 'The Opening Threat',
+      'actor_ids' => ['guide'],
+      'introduced_scene_id' => 'scene-one',
+      'escalation_scene_ids' => ['scene-two'],
+      'resolved_scene_id' => 'scene-two',
+      'status' => 'resolved',
+    ]];
+
+    $analysis = $service->analyzeStorylineNarrative($storyline);
+    $codes = array_column($analysis['findings'], 'code');
+
+    $this->assertContains('DCV_NARRATIVE_CONFLICT_RESOLUTION_OUT_OF_ORDER', $codes);
+  }
+
+  /**
+   * Project-authored fixture for narrative analysis behavior.
+   */
+  private function buildNarrativeAnalysisFixture(): array {
+    return [
+      'contacts' => [
+        ['entity_id' => 'guide', 'display_name' => 'Guide'],
+        ['entity_id' => 'rival', 'display_name' => 'Rival'],
+      ],
+      'chapters' => [[
+        'chapter_id' => 'chapter-one',
+        'name' => 'First Chapter',
+        'order' => 1,
+        'scenes' => [
+          [
+            'scene_id' => 'scene-one',
+            'name' => 'The Warning',
+            'order' => 1,
+            'quest_ids' => ['quest-one'],
+          ],
+          [
+            'scene_id' => 'scene-two',
+            'name' => 'The Choice',
+            'order' => 2,
+            'quest_ids' => ['quest-two'],
+          ],
+        ],
+      ]],
+      'metadata' => [
+        'storyline_analysis' => [
+          'scene_annotations' => [
+            'scene-one' => [
+              'character_ids' => ['guide', 'rival'],
+              'foreshadowing' => [[
+                'target_scene_id' => 'scene-two',
+                'description' => 'The warning predicts the choice.',
+              ]],
+              'relationship_changes' => [[
+                'source_actor_id' => 'guide',
+                'target_actor_id' => 'rival',
+                'before' => 0,
+                'after' => -20,
+                'reason' => 'The rival rejects the warning.',
+              ]],
+            ],
+            'scene-two' => [
+              'character_ids' => ['guide', 'rival'],
+              'foreshadowing' => [],
+              'relationship_changes' => [[
+                'source_actor_id' => 'guide',
+                'target_actor_id' => 'rival',
+                'before' => -20,
+                'after' => 15,
+                'reason' => 'They reconcile after the choice.',
+              ]],
+            ],
+          ],
+          'conflicts' => [[
+            'conflict_id' => 'loyalty-conflict',
+            'title' => 'Loyalty versus duty',
+            'actor_ids' => ['guide', 'rival'],
+            'introduced_scene_id' => 'scene-one',
+            'escalation_scene_ids' => [],
+            'resolved_scene_id' => 'scene-two',
+            'status' => 'resolved',
+          ]],
+        ],
+      ],
+    ];
   }
 
   /**

@@ -20,7 +20,11 @@ class StorylineController extends ControllerBase {
   protected RelationshipManagerService $relationshipManager;
   protected StorylineGenerationService $storylineGenerator;
 
-  public function __construct(StorylineManagerService $storyline_manager, RelationshipManagerService $relationship_manager, StorylineGenerationService $storyline_generator) {
+  public function __construct(
+    StorylineManagerService $storyline_manager,
+    RelationshipManagerService $relationship_manager,
+    StorylineGenerationService $storyline_generator,
+  ) {
     $this->storylineManager = $storyline_manager;
     $this->relationshipManager = $relationship_manager;
     $this->storylineGenerator = $storyline_generator;
@@ -145,18 +149,18 @@ class StorylineController extends ControllerBase {
 
     try {
       if (!empty($payload['template_id'])) {
-        $storyline = $this->storylineManager->instantiateStorylineTemplate(
-          $campaign_id,
-          (string) $payload['template_id'],
-          $payload + ['realize_storyline_assets' => TRUE]
-        );
+        return new JsonResponse([
+          'success' => FALSE,
+          'error' => 'Canonical storyline templates must be attached through Campaign Settings.',
+          'attachment_plan_endpoint' => sprintf('/api/campaign/%d/storylines/attachment-plan', $campaign_id),
+        ], 409);
       }
       else {
         $definition = is_array($payload['template'] ?? NULL) ? $payload['template'] : $payload;
         $storyline = $this->storylineManager->createCampaignStoryline(
           $campaign_id,
           $definition,
-          $payload + ['realize_storyline_assets' => TRUE]
+          $payload + ['realize_storyline_assets' => FALSE]
         );
       }
 
@@ -228,7 +232,7 @@ class StorylineController extends ControllerBase {
       $storyline = $this->storylineManager->createCampaignStoryline(
         $campaign_id,
         $package['storyline_definition'] ?? [],
-        $payload + ['realize_storyline_assets' => TRUE]
+        $payload + ['realize_storyline_assets' => FALSE]
       );
 
       $this->relationshipManager->seedLibraryRelationships($campaign_id);

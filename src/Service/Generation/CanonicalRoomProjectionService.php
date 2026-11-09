@@ -175,6 +175,12 @@ class CanonicalRoomProjectionService {
    */
   public function instantiatePublishedDungeonCampaignRooms(int $campaign_id, array $published, int $now): array {
     $this->requireDatabase();
+    $source_dungeon_id = trim((string) ($published['aggregate']['dungeon_id'] ?? ''));
+    if ($source_dungeon_id === '') {
+      throw new RuntimeGenerationException('campaign_source_room_instantiation_invalid', [
+        $this->finding('campaign_source_room_instantiation_invalid', '/dungeon_id', 'Published source dungeon id is required for H3 projection.'),
+      ]);
+    }
     $rooms = [];
     $rooms_by_placement_id = [];
     $footprints = [];
@@ -209,7 +215,11 @@ class CanonicalRoomProjectionService {
           $this->finding('campaign_source_room_version_not_found', '/room_versions_by_placement/' . $placement_id, 'Published room version was not resolved.'),
         ]);
       }
-      $source_room = $this->withAuthoritativeH3RoomHexes($source_room_id, $room_version['room']);
+      $source_room = $this->withAuthoritativeH3RoomHexes(
+        $source_dungeon_id,
+        $source_room_id,
+        $room_version['room']
+      );
       $runtime = $this->buildRuntimeRoom([
         'room_id' => $source_room_id,
         'room_version_id' => (string) ($placement['version_id'] ?? ''),
@@ -357,12 +367,13 @@ class CanonicalRoomProjectionService {
    *
    * @return array<string,mixed>
    */
-  private function withAuthoritativeH3RoomHexes(string $room_id, array $room): array {
+  private function withAuthoritativeH3RoomHexes(string $dungeon_id, string $room_id, array $room): array {
     $this->requireDatabase();
+    $dungeon_id = trim($dungeon_id);
     $room_id = trim($room_id);
-    if ($room_id === '') {
+    if ($dungeon_id === '' || $room_id === '') {
       throw new RuntimeGenerationException('campaign_source_room_instantiation_invalid', [
-        $this->finding('campaign_source_room_instantiation_invalid', '/room_id', 'Source room id is required for H3 projection.'),
+        $this->finding('campaign_source_room_instantiation_invalid', '/room_id', 'Source dungeon and room ids are required for H3 projection.'),
       ]);
     }
     $hexes = is_array($room['hexes'] ?? NULL) ? $room['hexes'] : [];
@@ -392,9 +403,16 @@ class CanonicalRoomProjectionService {
         $current = $h3_by_coordinate[((int) $hex['q']) . ':' . ((int) $hex['r'])] ?? '';
       }
       if ($current === '') {
-        throw new RuntimeGenerationException('campaign_source_room_instantiation_invalid', [
-          $this->finding('campaign_source_room_instantiation_invalid', '/hexes/' . $index, sprintf('room_id=%s hex q=%d r=%d is missing authoritative h3_index_res14.', $room_id, (int) $hex['q'], (int) $hex['r'])),
-        ]);
+        $lat_lng = H3SpatialHelper::projectAxialHexToLatLng(
+          $dungeon_id,
+          (int) $hex['q'],
+          (int) $hex['r']
+        );
+        $current = H3SpatialHelper::latLngToH3Index(
+          (float) $lat_lng['latitude'],
+          (float) $lat_lng['longitude'],
+          self::H3_ACTIVE_RESOLUTION
+        );
       }
       $hexes[$index]['h3_index_res14'] = $current;
       $hexes[$index]['h3_index'] = $current;
@@ -586,9 +604,10 @@ class CanonicalRoomProjectionService {
         'hazard' => 'hazards',
         default => throw new RuntimeGenerationException('campaign_source_room_instantiation_invalid', [$this->finding('campaign_source_room_instantiation_invalid', '/placements', sprintf('Unsupported contents family "%s".', $family))]),
       };
-      $contents[$bucket][] = [
+      $definition_id = (string) ($entity['definition_ref']['definition_id'] ?? '');
+      $entry = [
         'instance_id' => (string) ($entity['instance_id'] ?? ''),
-        'content_id' => (string) ($entity['definition_ref']['definition_id'] ?? ''),
+        'content_id' => $definition_id,
         'version' => (string) ($entity['definition_ref']['version'] ?? ''),
         'position' => is_array($entity['anchor_hex'] ?? NULL) ? $entity['anchor_hex'] : [],
         'orientation' => (int) ($entity['facing'] ?? 0),
@@ -596,8 +615,93 @@ class CanonicalRoomProjectionService {
         'state_defaults' => is_array($entity['state_defaults'] ?? NULL) ? $entity['state_defaults'] : [],
         'overrides' => is_array($entity['overrides'] ?? NULL) ? $entity['overrides'] : [],
       ];
+      if ($family === 'item' && $definition_id !== '') {
+        $entry = $this->hydrateProjectedItemPlacement($entry, $definition_id);
+      }
+      elseif ($family === 'actor' && $definition_id !== '') {
+        $entry = $this->hydrateProjectedActorPlacement($entry, $definition_id);
+      }
+      $contents[$bucket][] = $entry;
     }
     return $contents;
+  }
+
+  /**
+   * Hydrate projected item placements from canonical registry metadata.
+   */
+  private function hydrateProjectedItemPlacement(array $entry, string $definition_id): array {
+    if ($this->database === NULL) {
+      return $entry;
+    }
+    $row = $this->database->select('dungeoncrawler_content_registry', 'r')
+      ->fields('r', ['name', 'tags', 'schema_data'])
+      ->condition('content_type', 'item')
+      ->condition('content_id', $definition_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!is_array($row)) {
+      return $entry;
+    }
+    $schema_data = json_decode((string) ($row['schema_data'] ?? '{}'), TRUE);
+    if (!is_array($schema_data)) {
+      $schema_data = [];
+    }
+    $tags = json_decode((string) ($row['tags'] ?? '[]'), TRUE);
+    if (!is_array($tags)) {
+      $tags = is_array($schema_data['tags'] ?? NULL) ? $schema_data['tags'] : [];
+    }
+    $quest_association = trim((string) ($schema_data['quest_association'] ?? ''));
+    if ($quest_association !== '' && !in_array($quest_association, $tags, TRUE)) {
+      $tags[] = $quest_association;
+    }
+    $item_type = trim((string) ($schema_data['item_type'] ?? $schema_data['type'] ?? ''));
+    if ($item_type === 'collectible_item' && !in_array('collectible', $tags, TRUE)) {
+      $tags[] = 'collectible';
+    }
+    $entry['name'] = trim((string) ($row['name'] ?? $schema_data['name'] ?? $definition_id));
+    if ($item_type !== '') {
+      $entry['type'] = $item_type;
+    }
+    if (trim((string) ($schema_data['description'] ?? '')) !== '') {
+      $entry['description'] = trim((string) $schema_data['description']);
+    }
+    if ($quest_association !== '') {
+      $entry['quest_association'] = $quest_association;
+    }
+    if ($tags !== []) {
+      $entry['tags'] = array_values(array_unique(array_filter(array_map('strval', $tags))));
+    }
+    return $entry;
+  }
+
+  /**
+   * Hydrate projected actor placements with canonical room quests.
+   */
+  private function hydrateProjectedActorPlacement(array $entry, string $definition_id): array {
+    if (!empty($entry['quests']) && is_array($entry['quests'])) {
+      return $entry;
+    }
+    $default_quests = match ($definition_id) {
+      'tavern_keeper' => [
+        ['quest_id' => 'gather_wine', 'title' => 'Collect Wine Bottles', 'description' => 'Eldric needs wine bottles for the evening service'],
+        ['quest_id' => 'gather_torch_components', 'title' => 'Gather Torch Materials', 'description' => 'Help brighten the tavern by collecting torch components'],
+        ['quest_id' => 'tavern_storyline_leads', 'title' => 'Ask About Storyline Leads', 'description' => 'Get Eldric\'s latest actionable leads and choose which thread to pursue.'],
+      ],
+      'scholar_npc' => [
+        ['quest_id' => 'collect_spellbooks', 'title' => 'Recover Lost Spellbook', 'description' => 'Marta seeks a missing spellbook in the tavern'],
+        ['quest_id' => 'stabilize_arcane_resonance', 'title' => 'Stabilize Arcane Resonance', 'description' => 'Help Marta collect resonance samples and stabilize the codex\'s ambient magical feedback.'],
+      ],
+      'gribbles_rindsworth' => [
+        ['quest_id' => 'follow_the_whispers', 'title' => 'Follow the Whispers', 'description' => 'Track suspicious tavern rumors to identify who is moving contraband arcana through town.'],
+        ['quest_id' => 'recover_blackmail_ledger', 'title' => 'Recover Blackmail Ledger', 'description' => 'Retrieve Gribbles\' stolen ledger before rival brokers weaponize its secrets.'],
+      ],
+      default => [],
+    };
+    if ($default_quests !== []) {
+      $entry['quests'] = $default_quests;
+    }
+    return $entry;
   }
 
   private function assertCampaignRoomPersistencePayload(array $runtime_room, array $layout, array $contents): void {

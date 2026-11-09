@@ -27,14 +27,33 @@ dungeoncrawler_content.dashboard:
     _permission: 'access content overview'
 
 dungeoncrawler_content.editor_suite:
-  path: '/admin/content/dungeoncrawler/editors'
+  path: '/dungeoncrawler/editors'
   defaults:
     _controller: '\Drupal\dungeoncrawler_content\Controller\EditorSuiteController::page'
     _title: 'DungeonCrawler Editors'
   methods: [GET]
   requirements:
     _user_is_logged_in: 'TRUE'
-    _permission: 'access dungeoncrawler editor suite'
+
+dungeoncrawler_content.gm_storyline_builder:
+  path: '/game-master/storyline-builder'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GmStorylineBuilderController::page'
+    _title: 'GM Storyline Builder'
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'edit canonical dungeoncrawler storylines'
+
+dungeoncrawler_content.gm_storyline_builder_legacy:
+  path: '/admin/content/dungeoncrawler/gm-storyline-builder'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GmStorylineBuilderController::page'
+    _title: 'GM Storyline Builder'
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'edit canonical dungeoncrawler storylines'
 
 dungeoncrawler_content.editor_suite_summary:
   path: '/api/editor-suite/summary'
@@ -43,7 +62,6 @@ dungeoncrawler_content.editor_suite_summary:
   methods: [GET]
   requirements:
     _user_is_logged_in: 'TRUE'
-    _permission: 'access dungeoncrawler editor suite'
 
 dungeoncrawler_content.editor_suite_gm_describe:
   path: '/api/editor-suite/gm'
@@ -53,7 +71,6 @@ dungeoncrawler_content.editor_suite_gm_describe:
   methods: [GET]
   requirements:
     _user_is_logged_in: 'TRUE'
-    _permission: 'access dungeoncrawler editor suite'
 
 dungeoncrawler_content.editor_suite_gm_execute:
   path: '/api/editor-suite/gm'
@@ -63,27 +80,252 @@ dungeoncrawler_content.editor_suite_gm_execute:
   methods: [POST]
   requirements:
     _user_is_logged_in: 'TRUE'
-    _permission: 'access dungeoncrawler editor suite'
+
+dungeoncrawler_content.storyline_builder_gm_describe:
+  path: '/api/storyline-builder/drafts/{draft_id}/gm'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\EditorGmController::describe'
+    _surface: storyline_builder
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'edit canonical dungeoncrawler storylines'
+    draft_id: '[0-9a-f-]{36}'
+
+dungeoncrawler_content.storyline_builder_gm_execute:
+  path: '/api/storyline-builder/drafts/{draft_id}/gm'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\EditorGmController::execute'
+    _surface: storyline_builder
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _user_is_logged_in: 'TRUE'
+    _permission: 'edit canonical dungeoncrawler storylines'
+    draft_id: '[0-9a-f-]{36}'
+
+dungeoncrawler_content.module_manager:
+  path: '/dungeoncrawler/module-manager'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\ModuleManagerController::page'
+    _title: 'Module Manager'
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'access dungeoncrawler module manager'
+
+dungeoncrawler_content.module_explorer:
+  path: '/dungeoncrawler/module-explorer'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\ModuleExplorerController::page'
+    _title: 'Module Explorer'
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'access dungeoncrawler module manager'
+
+dungeoncrawler_content.module_explorer_archives:
+  path: '/api/module-explorer/archives'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\ModuleExplorerController::archives'
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'access dungeoncrawler module manager'
+
+dungeoncrawler_content.module_explorer_entries:
+  path: '/api/module-explorer/archives/{archive}/entries'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\ModuleExplorerController::entries'
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'access dungeoncrawler module manager'
+    archive: '[a-zA-Z0-9][a-zA-Z0-9._-]{0,199}\.zip'
+
+dungeoncrawler_content.module_explorer_file:
+  path: '/api/module-explorer/archives/{archive}/entries/{index}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\ModuleExplorerController::file'
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'access dungeoncrawler module manager'
+    archive: '[a-zA-Z0-9][a-zA-Z0-9._-]{0,199}\.zip'
+    index: '\d+'
+
+dungeoncrawler_content.module_explorer_text:
+  path: '/api/module-explorer/archives/{archive}/entries/{index}/text'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\ModuleExplorerController::text'
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'access dungeoncrawler module manager'
+    archive: '[a-zA-Z0-9][a-zA-Z0-9._-]{0,199}\.zip'
+    index: '\d+'
+
+dungeoncrawler_content.module_explorer_download:
+  path: '/api/module-explorer/archives/{archive}/download'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\ModuleExplorerController::download'
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'access dungeoncrawler module manager'
+    archive: '[a-zA-Z0-9][a-zA-Z0-9._-]{0,199}\.zip'
+
+dungeoncrawler_content.module_manager_catalog:
+  path: '/api/module-manager/catalog'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\ModuleManagerController::catalog'
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'access dungeoncrawler module manager'
+
+dungeoncrawler_content.module_manager_local_archives:
+  path: '/api/module-manager/local-archives'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\ModuleManagerController::localArchives'
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'access dungeoncrawler module manager'
+
+dungeoncrawler_content.module_manager_local_archive_overview:
+  path: '/api/module-manager/local-archive-overview'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\ModuleManagerController::localArchiveOverview'
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'access dungeoncrawler module manager'
+
+dungeoncrawler_content.module_manager_inspect:
+  path: '/api/module-manager/intake/inspect'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\ModuleManagerController::inspect'
+  methods: [POST]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'access dungeoncrawler module manager'
+
+dungeoncrawler_content.module_manager_generate_definition:
+  path: '/api/module-manager/intake/generate-definition'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\ModuleManagerController::generateDefinition'
+  methods: [POST]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'access dungeoncrawler module manager'
+
+dungeoncrawler_content.module_manager_releases:
+  path: '/api/module-manager/releases'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\ModuleManagerController::releases'
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'access dungeoncrawler module manager'
+
+dungeoncrawler_content.module_manager_release_coverage:
+  path: '/api/module-manager/releases/{release_id}/coverage'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\ModuleManagerController::releaseCoverage'
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'access dungeoncrawler module manager'
+    release_id: '[0-9a-f-]{36}'
+
+dungeoncrawler_content.module_manager_release_validation:
+  path: '/api/module-manager/releases/{release_id}/validation'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\ModuleManagerController::releaseValidation'
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'access dungeoncrawler module manager'
+    release_id: '[0-9a-f-]{36}'
+
+dungeoncrawler_content.module_manager_release_receipts:
+  path: '/api/module-manager/releases/{release_id}/receipts'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\ModuleManagerController::registerReceipts'
+  methods: [POST]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'access dungeoncrawler module manager'
+    release_id: '[0-9a-f-]{36}'
+
+dungeoncrawler_content.module_manager_bind_definition:
+  path: '/api/module-manager/releases/{release_id}/bind-definition'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\ModuleManagerController::bindDefinition'
+  methods: [POST]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'access dungeoncrawler module manager'
+    release_id: '[0-9a-f-]{36}'
+
+dungeoncrawler_content.module_manager_actor_placement_review:
+  path: '/api/module-manager/releases/{release_id}/actor-placement-review'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\ModuleManagerController::registerActorPlacementReview'
+  methods: [POST]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'access dungeoncrawler module manager'
+    release_id: '[0-9a-f-]{36}'
+
+dungeoncrawler_content.module_manager_release_publish:
+  path: '/api/module-manager/releases/{release_id}/publish'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\ModuleManagerController::publishRelease'
+  methods: [POST]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'access dungeoncrawler module manager'
+    release_id: '[0-9a-f-]{36}'
+
+dungeoncrawler_content.module_manager_release_execution:
+  path: '/api/module-manager/releases/{release_id}/execution'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\ModuleManagerController::registerExecutionStep'
+  methods: [POST]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'access dungeoncrawler module manager'
+    release_id: '[0-9a-f-]{36}'
+
+dungeoncrawler_content.module_manager_release_execution_run:
+  path: '/api/module-manager/releases/{release_id}/execution/run'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\ModuleManagerController::runExecution'
+  methods: [POST]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'access dungeoncrawler module manager'
+    release_id: '[0-9a-f-]{36}'
 
 dungeoncrawler_content.room_editor:
-  path: '/admin/content/dungeoncrawler/room-editor'
+  path: '/dungeoncrawler/room-editor'
   defaults:
     _controller: '\Drupal\dungeoncrawler_content\Controller\RoomEditorController::page'
     _title: 'Canonical Room Editor'
   methods: [GET]
   requirements:
     _user_is_logged_in: 'TRUE'
-    _permission: 'edit canonical dungeoncrawler rooms'
 
 dungeoncrawler_content.room_editor_edit:
-  path: '/admin/content/dungeoncrawler/room-editor/{room_id}'
+  path: '/dungeoncrawler/room-editor/{room_id}'
   defaults:
     _controller: '\Drupal\dungeoncrawler_content\Controller\RoomEditorController::page'
     _title: 'Canonical Room Editor'
   methods: [GET]
   requirements:
     _user_is_logged_in: 'TRUE'
-    _permission: 'edit canonical dungeoncrawler rooms'
     room_id: '[a-z0-9][a-z0-9_-]{0,99}'
 
 dungeoncrawler_content.room_editor_catalog:
@@ -93,7 +335,6 @@ dungeoncrawler_content.room_editor_catalog:
   methods: [GET]
   requirements:
     _user_is_logged_in: 'TRUE'
-    _permission: 'edit canonical dungeoncrawler rooms'
 
 dungeoncrawler_content.room_editor_catalog_entry:
   path: '/api/room-editor/catalog/{family}/{definition_id}'
@@ -102,7 +343,6 @@ dungeoncrawler_content.room_editor_catalog_entry:
   methods: [GET]
   requirements:
     _user_is_logged_in: 'TRUE'
-    _permission: 'edit canonical dungeoncrawler rooms'
     family: 'creature|actor|item|obstacle|trap|hazard'
     definition_id: '[a-zA-Z0-9][a-zA-Z0-9_-]{0,149}'
 
@@ -110,22 +350,20 @@ dungeoncrawler_content.room_editor_catalog_entry:
 # page, draft create/load/describe, and the published room library. Every
 # route is behind authentication and its own permission.
 dungeoncrawler_content.dungeon_editor:
-  path: '/admin/content/dungeoncrawler/dungeon-editor'
+  path: '/dungeoncrawler/dungeon-editor'
   defaults:
     _controller: '\Drupal\dungeoncrawler_content\Controller\DungeonEditorController::page'
     _title: 'Dungeon Editor'
   requirements:
     _user_is_logged_in: 'TRUE'
-    _permission: 'edit canonical dungeoncrawler dungeons'
 
 dungeoncrawler_content.dungeon_editor_edit:
-  path: '/admin/content/dungeoncrawler/dungeon-editor/{dungeon_id}'
+  path: '/dungeoncrawler/dungeon-editor/{dungeon_id}'
   defaults:
     _controller: '\Drupal\dungeoncrawler_content\Controller\DungeonEditorController::page'
     _title: 'Dungeon Editor'
   requirements:
     _user_is_logged_in: 'TRUE'
-    _permission: 'edit canonical dungeoncrawler dungeons'
     dungeon_id: '[a-z0-9][a-z0-9_-]{0,99}'
 
 dungeoncrawler_content.dungeon_editor_draft_create:
@@ -135,7 +373,6 @@ dungeoncrawler_content.dungeon_editor_draft_create:
   methods: [POST]
   requirements:
     _user_is_logged_in: 'TRUE'
-    _permission: 'edit canonical dungeoncrawler dungeons'
 
 dungeoncrawler_content.dungeon_editor_draft_get:
   path: '/api/dungeon-editor/drafts/{draft_id}'
@@ -144,7 +381,6 @@ dungeoncrawler_content.dungeon_editor_draft_get:
   methods: [GET]
   requirements:
     _user_is_logged_in: 'TRUE'
-    _permission: 'edit canonical dungeoncrawler dungeons'
     draft_id: '[0-9a-f-]{36}'
 
 dungeoncrawler_content.dungeon_editor_draft_describe:
@@ -154,7 +390,6 @@ dungeoncrawler_content.dungeon_editor_draft_describe:
   methods: [GET]
   requirements:
     _user_is_logged_in: 'TRUE'
-    _permission: 'edit canonical dungeoncrawler dungeons'
     draft_id: '[0-9a-f-]{36}'
 
 dungeoncrawler_content.dungeon_editor_draft_command:
@@ -164,7 +399,6 @@ dungeoncrawler_content.dungeon_editor_draft_command:
   methods: [POST]
   requirements:
     _user_is_logged_in: 'TRUE'
-    _permission: 'edit canonical dungeoncrawler dungeons'
     draft_id: '[0-9a-f-]{36}'
 
 dungeoncrawler_content.dungeon_editor_draft_simulate:
@@ -174,7 +408,6 @@ dungeoncrawler_content.dungeon_editor_draft_simulate:
   methods: [POST]
   requirements:
     _user_is_logged_in: 'TRUE'
-    _permission: 'edit canonical dungeoncrawler dungeons'
     draft_id: '[0-9a-f-]{36}'
 
 dungeoncrawler_content.dungeon_editor_draft_validate:
@@ -184,7 +417,6 @@ dungeoncrawler_content.dungeon_editor_draft_validate:
   methods: [GET]
   requirements:
     _user_is_logged_in: 'TRUE'
-    _permission: 'edit canonical dungeoncrawler dungeons'
     draft_id: '[0-9a-f-]{36}'
 
 dungeoncrawler_content.dungeon_editor_draft_publish_readiness:
@@ -194,7 +426,6 @@ dungeoncrawler_content.dungeon_editor_draft_publish_readiness:
   methods: [GET]
   requirements:
     _user_is_logged_in: 'TRUE'
-    _permission: 'edit canonical dungeoncrawler dungeons'
     draft_id: '[0-9a-f-]{36}'
 
 dungeoncrawler_content.dungeon_editor_draft_publish:
@@ -204,7 +435,6 @@ dungeoncrawler_content.dungeon_editor_draft_publish:
   methods: [POST]
   requirements:
     _user_is_logged_in: 'TRUE'
-    _permission: 'publish canonical dungeoncrawler dungeons'
     draft_id: '[0-9a-f-]{36}'
 
 dungeoncrawler_content.dungeon_editor_rooms:
@@ -214,51 +444,46 @@ dungeoncrawler_content.dungeon_editor_rooms:
   methods: [GET]
   requirements:
     _user_is_logged_in: 'TRUE'
-    _permission: 'edit canonical dungeoncrawler dungeons'
 
 # Canonical definition editors (19-definition-editor-spec.md). One
 # schema-driven form for all six families; no raw JSON control anywhere.
 dungeoncrawler_content.definition_index:
-  path: '/admin/content/dungeoncrawler/canonical-library'
+  path: '/dungeoncrawler/canonical-library'
   defaults:
     _controller: '\Drupal\dungeoncrawler_content\Controller\DefinitionEditorController::index'
     _title: 'Canonical Library'
   methods: [GET]
   requirements:
     _user_is_logged_in: 'TRUE'
-    _permission: 'edit canonical dungeoncrawler definitions'
 
 dungeoncrawler_content.definition_family:
-  path: '/admin/content/dungeoncrawler/canonical-library/{family}'
+  path: '/dungeoncrawler/canonical-library/{family}'
   defaults:
     _controller: '\Drupal\dungeoncrawler_content\Controller\DefinitionEditorController::family'
     _title_callback: '\Drupal\dungeoncrawler_content\Controller\DefinitionEditorController::familyTitle'
   methods: [GET]
   requirements:
     _user_is_logged_in: 'TRUE'
-    _permission: 'edit canonical dungeoncrawler definitions'
     family: 'creature|actor|item|obstacle|trap|hazard'
 
 dungeoncrawler_content.definition_create:
-  path: '/admin/content/dungeoncrawler/canonical-library/{family}/new'
+  path: '/dungeoncrawler/canonical-library/{family}/new'
   defaults:
     _form: '\Drupal\dungeoncrawler_content\Form\SchemaDrivenDefinitionForm'
     _title_callback: '\Drupal\dungeoncrawler_content\Form\SchemaDrivenDefinitionForm::title'
   methods: [GET, POST]
   requirements:
     _user_is_logged_in: 'TRUE'
-    _permission: 'edit canonical dungeoncrawler definitions'
     family: 'creature|actor|item|obstacle|trap|hazard'
 
 dungeoncrawler_content.definition_edit:
-  path: '/admin/content/dungeoncrawler/canonical-library/{family}/{definition_id}'
+  path: '/dungeoncrawler/canonical-library/{family}/{definition_id}'
   defaults:
     _form: '\Drupal\dungeoncrawler_content\Form\SchemaDrivenDefinitionForm'
     _title_callback: '\Drupal\dungeoncrawler_content\Form\SchemaDrivenDefinitionForm::title'
   methods: [GET, POST]
   requirements:
     _user_is_logged_in: 'TRUE'
-    _permission: 'edit canonical dungeoncrawler definitions'
     family: 'creature|actor|item|obstacle|trap|hazard'
     definition_id: '(?!new$)[a-zA-Z0-9][a-zA-Z0-9_-]{0,149}'
 
@@ -269,7 +494,6 @@ dungeoncrawler_content.definition_api_list:
   methods: [GET]
   requirements:
     _user_is_logged_in: 'TRUE'
-    _permission: 'edit canonical dungeoncrawler definitions'
     family: 'creature|actor|item|obstacle|trap|hazard'
 
 dungeoncrawler_content.definition_api_create:
@@ -279,7 +503,6 @@ dungeoncrawler_content.definition_api_create:
   methods: [POST]
   requirements:
     _user_is_logged_in: 'TRUE'
-    _permission: 'edit canonical dungeoncrawler definitions'
     family: 'creature|actor|item|obstacle|trap|hazard'
 
 dungeoncrawler_content.definition_api_schema:
@@ -289,7 +512,6 @@ dungeoncrawler_content.definition_api_schema:
   methods: [GET]
   requirements:
     _user_is_logged_in: 'TRUE'
-    _permission: 'edit canonical dungeoncrawler definitions'
     family: 'creature|actor|item|obstacle|trap|hazard'
 
 dungeoncrawler_content.definition_api_load:
@@ -299,7 +521,6 @@ dungeoncrawler_content.definition_api_load:
   methods: [GET]
   requirements:
     _user_is_logged_in: 'TRUE'
-    _permission: 'edit canonical dungeoncrawler definitions'
     family: 'creature|actor|item|obstacle|trap|hazard'
     definition_id: '(?!schema$)[a-zA-Z0-9][a-zA-Z0-9_-]{0,149}'
 
@@ -310,7 +531,6 @@ dungeoncrawler_content.definition_api_save:
   methods: [PUT]
   requirements:
     _user_is_logged_in: 'TRUE'
-    _permission: 'edit canonical dungeoncrawler definitions'
     family: 'creature|actor|item|obstacle|trap|hazard'
     definition_id: '(?!schema$)[a-zA-Z0-9][a-zA-Z0-9_-]{0,149}'
 
@@ -322,7 +542,6 @@ dungeoncrawler_content.definition_editor_gm_describe:
   methods: [GET]
   requirements:
     _user_is_logged_in: 'TRUE'
-    _permission: 'edit canonical dungeoncrawler definitions'
 
 dungeoncrawler_content.definition_editor_gm_execute:
   path: '/api/canonical-library/gm'
@@ -332,7 +551,6 @@ dungeoncrawler_content.definition_editor_gm_execute:
   methods: [POST]
   requirements:
     _user_is_logged_in: 'TRUE'
-    _permission: 'edit canonical dungeoncrawler definitions'
 
 dungeoncrawler_content.room_editor_draft_create:
   path: '/api/room-editor/drafts'
@@ -341,7 +559,6 @@ dungeoncrawler_content.room_editor_draft_create:
   methods: [POST]
   requirements:
     _user_is_logged_in: 'TRUE'
-    _permission: 'edit canonical dungeoncrawler rooms'
 
 dungeoncrawler_content.room_editor_draft_get:
   path: '/api/room-editor/drafts/{draft_id}'
@@ -350,7 +567,6 @@ dungeoncrawler_content.room_editor_draft_get:
   methods: [GET]
   requirements:
     _user_is_logged_in: 'TRUE'
-    _permission: 'edit canonical dungeoncrawler rooms'
     draft_id: '[0-9a-f-]{36}'
 
 dungeoncrawler_content.room_editor_command:
@@ -360,7 +576,6 @@ dungeoncrawler_content.room_editor_command:
   methods: [POST]
   requirements:
     _user_is_logged_in: 'TRUE'
-    _permission: 'edit canonical dungeoncrawler rooms'
     draft_id: '[0-9a-f-]{36}'
 
 dungeoncrawler_content.room_editor_validate:
@@ -370,7 +585,6 @@ dungeoncrawler_content.room_editor_validate:
   methods: [POST]
   requirements:
     _user_is_logged_in: 'TRUE'
-    _permission: 'edit canonical dungeoncrawler rooms'
     draft_id: '[0-9a-f-]{36}'
 
 dungeoncrawler_content.room_editor_publish:
@@ -380,7 +594,6 @@ dungeoncrawler_content.room_editor_publish:
   methods: [POST]
   requirements:
     _user_is_logged_in: 'TRUE'
-    _permission: 'publish canonical dungeoncrawler rooms'
     draft_id: '[0-9a-f-]{36}'
 
 dungeoncrawler_content.room_editor_gm_describe:
@@ -391,7 +604,6 @@ dungeoncrawler_content.room_editor_gm_describe:
   methods: [GET]
   requirements:
     _user_is_logged_in: 'TRUE'
-    _permission: 'edit canonical dungeoncrawler rooms'
     draft_id: '[0-9a-f-]{36}'
 
 dungeoncrawler_content.room_editor_gm_execute:
@@ -402,7 +614,6 @@ dungeoncrawler_content.room_editor_gm_execute:
   methods: [POST]
   requirements:
     _user_is_logged_in: 'TRUE'
-    _permission: 'edit canonical dungeoncrawler rooms'
     draft_id: '[0-9a-f-]{36}'
 
 dungeoncrawler_content.dungeon_editor_gm_describe:
@@ -413,7 +624,6 @@ dungeoncrawler_content.dungeon_editor_gm_describe:
   methods: [GET]
   requirements:
     _user_is_logged_in: 'TRUE'
-    _permission: 'edit canonical dungeoncrawler dungeons'
     draft_id: '[0-9a-f-]{36}'
 
 dungeoncrawler_content.dungeon_editor_gm_execute:
@@ -424,7 +634,6 @@ dungeoncrawler_content.dungeon_editor_gm_execute:
   methods: [POST]
   requirements:
     _user_is_logged_in: 'TRUE'
-    _permission: 'edit canonical dungeoncrawler dungeons'
     draft_id: '[0-9a-f-]{36}'
 
 dungeoncrawler_content.game_objects:
@@ -736,6 +945,36 @@ dungeoncrawler_content.campaigns:
   requirements:
     _permission: 'access dungeoncrawler characters'
 
+dungeoncrawler_content.storyline_management:
+  path: '/storylines'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\StorylineManagementController::listStorylines'
+    _title: 'Storyline Management'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+
+dungeoncrawler_content.storyline_management_create_from_template:
+  path: '/storylines/campaign/{campaign_id}/create/{template_id}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\StorylineManagementController::createFromTemplate'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    campaign_id: '\d+'
+    template_id: '[A-Za-z0-9._:-]+'
+
+dungeoncrawler_content.storyline_management_activate:
+  path: '/storylines/campaign/{campaign_id}/activate/{storyline_id}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\StorylineManagementController::activateStoryline'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+    campaign_id: '\d+'
+    storyline_id: '[A-Za-z0-9._:-]+'
+
 dungeoncrawler_content.campaign_create:
   path: '/campaigns/create'
   defaults:
@@ -794,6 +1033,24 @@ dungeoncrawler_content.analysis_explorer_items:
   defaults:
     _controller: '\Drupal\dungeoncrawler_content\Controller\AnalysisExplorerPageController::items'
     _title: 'Item Explorer'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+
+dungeoncrawler_content.analysis_explorer_spells:
+  path: '/analysis/explorer/spells'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\AnalysisExplorerPageController::spells'
+    _title: 'Spell Explorer'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+
+dungeoncrawler_content.analysis_explorer_feats:
+  path: '/analysis/explorer/feats'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\AnalysisExplorerPageController::feats'
+    _title: 'Feat Explorer'
   methods: [GET]
   requirements:
     _permission: 'access dungeoncrawler characters'
@@ -2433,6 +2690,140 @@ dungeoncrawler_content.api.storyline_templates_list:
   options:
     _format: json
 
+# Create a GM storyline builder authoring draft.
+dungeoncrawler_content.api.storyline_builder_draft_list:
+  path: '/api/storyline-builder/drafts'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\StorylineAuthoringDraftController::listDrafts'
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'edit canonical dungeoncrawler storylines'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.storyline_builder_draft_create:
+  path: '/api/storyline-builder/drafts'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\StorylineAuthoringDraftController::createDraft'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _user_is_logged_in: 'TRUE'
+    _permission: 'edit canonical dungeoncrawler storylines'
+  options:
+    _format: json
+
+# Create an owner-isolated derivative of a shared draft.
+dungeoncrawler_content.api.storyline_builder_draft_copy:
+  path: '/api/storyline-builder/drafts/{draft_id}/copy'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\StorylineAuthoringDraftController::copyDraft'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _user_is_logged_in: 'TRUE'
+    _permission: 'edit canonical dungeoncrawler storylines'
+    draft_id: '[0-9a-f-]{36}'
+  options:
+    _format: json
+
+# Load one GM storyline builder authoring draft.
+dungeoncrawler_content.api.storyline_builder_draft_get:
+  path: '/api/storyline-builder/drafts/{draft_id}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\StorylineAuthoringDraftController::getDraft'
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'edit canonical dungeoncrawler storylines'
+    draft_id: '[0-9a-f-]{36}'
+  options:
+    _format: json
+
+# List immutable revisions for one shared Storyline draft.
+dungeoncrawler_content.api.storyline_builder_draft_revision_list:
+  path: '/api/storyline-builder/drafts/{draft_id}/revisions'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\StorylineAuthoringDraftController::listDraftRevisions'
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'edit canonical dungeoncrawler storylines'
+    draft_id: '[0-9a-f-]{36}'
+  options:
+    _format: json
+
+# Load one immutable Storyline draft revision.
+dungeoncrawler_content.api.storyline_builder_draft_revision_get:
+  path: '/api/storyline-builder/drafts/{draft_id}/revisions/{revision}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\StorylineAuthoringDraftController::getDraftRevision'
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'edit canonical dungeoncrawler storylines'
+    draft_id: '[0-9a-f-]{36}'
+    revision: '\d+'
+  options:
+    _format: json
+
+# Save one GM storyline builder authoring draft revision.
+dungeoncrawler_content.api.storyline_builder_draft_save:
+  path: '/api/storyline-builder/drafts/{draft_id}/save'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\StorylineAuthoringDraftController::saveDraft'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _user_is_logged_in: 'TRUE'
+    _permission: 'edit canonical dungeoncrawler storylines'
+    draft_id: '[0-9a-f-]{36}'
+  options:
+    _format: json
+
+# Permanently delete one owner-bound Storyline draft and its private history.
+dungeoncrawler_content.api.storyline_builder_draft_delete:
+  path: '/api/storyline-builder/drafts/{draft_id}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\StorylineAuthoringDraftController::deleteDraft'
+  methods: [DELETE]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _user_is_logged_in: 'TRUE'
+    _permission: 'edit canonical dungeoncrawler storylines'
+    draft_id: '[0-9a-f-]{36}'
+  options:
+    _format: json
+
+# Publish one GM storyline builder draft to canonical template storage.
+dungeoncrawler_content.api.storyline_builder_draft_publish:
+  path: '/api/storyline-builder/drafts/{draft_id}/publish'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\StorylineAuthoringDraftController::publishDraft'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _user_is_logged_in: 'TRUE'
+    _permission: 'publish canonical dungeoncrawler storylines'
+    draft_id: '[0-9a-f-]{36}'
+  options:
+    _format: json
+
+# Validate one GM storyline builder draft revision against canonical contracts.
+dungeoncrawler_content.api.storyline_builder_draft_validate:
+  path: '/api/storyline-builder/drafts/{draft_id}/validate'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\StorylineAuthoringDraftController::validateDraft'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _user_is_logged_in: 'TRUE'
+    _permission: 'edit canonical dungeoncrawler storylines'
+    draft_id: '[0-9a-f-]{36}'
+  options:
+    _format: json
+
 # Import or update an authored storyline template.
 dungeoncrawler_content.api.storyline_templates_import:
   path: '/api/storylines/templates'
@@ -2462,6 +2853,32 @@ dungeoncrawler_content.api.storylines_create:
   path: '/api/campaign/{campaign_id}/storylines'
   defaults:
     _controller: '\Drupal\dungeoncrawler_content\Controller\StorylineController::createCampaignStoryline'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+# Preview canonical storyline attachment and conflict decisions without writes.
+dungeoncrawler_content.api.storylines_attachment_preview:
+  path: '/api/campaign/{campaign_id}/storylines/attachment-plan'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CampaignSettingsController::previewStorylineAttachment'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+# Apply a previously previewed, unchanged storyline attachment plan.
+dungeoncrawler_content.api.storylines_attachment_apply:
+  path: '/api/campaign/{campaign_id}/storylines/attachment-apply'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CampaignSettingsController::applyStorylineAttachment'
   methods: [POST]
   requirements:
     _csrf_request_header_mode: TRUE
@@ -3248,6 +3665,19 @@ dungeoncrawler_content.api.campaign_settings_mode:
   requirements:
     _csrf_request_header_mode: TRUE
     _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.campaign_settings_source:
+  path: '/api/campaign/{campaign_id}/settings/source'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CampaignSettingsController::setSource'
+    _title: 'Campaign Source Defaults'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _campaign_gm_access: 'TRUE'
     campaign_id: '\d+'
   options:
     _format: json

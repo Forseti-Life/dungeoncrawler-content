@@ -47,6 +47,12 @@
     if (!defaultTab) {
       return '';
     }
+    const requestedSettings = typeof window !== 'undefined'
+      ? String(new URLSearchParams(window.location.search).get('open_settings') || '').trim()
+      : '';
+    if (requestedSettings === 'storylines') {
+      return normalizeGameShellTab(shell, 'settings', defaultTab);
+    }
 
     if (storage && typeof storage.getItem === 'function') {
       const storedTab = storage.getItem(storageKey);

@@ -1,3 +1,7 @@
+.definition-editor {
+  color: var(--text, #e2e8f0);
+}
+
 .definition-editor__body {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
@@ -18,6 +22,71 @@
 
 .definition-editor__form-prefix .dc-definition-form {
   margin: 0;
+}
+
+.definition-editor .dc-definition-form__section,
+.definition-editor .dc-definition-form__meta,
+.definition-editor .dc-definition-form fieldset,
+.definition-editor .dc-definition-form details {
+  background: var(--panel-bg, rgba(15, 23, 42, 0.68));
+  border: 1px solid var(--panel-border, rgba(148, 163, 184, 0.24));
+  border-radius: var(--radius-lg, 8px);
+  padding: 0.9rem 1rem;
+  margin-bottom: 0.9rem;
+}
+
+.definition-editor .dc-definition-form details > summary {
+  cursor: pointer;
+  color: var(--text-bright, #f8fafc);
+  font-weight: 600;
+}
+
+.definition-editor .dc-definition-form label,
+.definition-editor .dc-definition-form legend,
+.definition-editor .dc-definition-form p,
+.definition-editor .dc-definition-form li {
+  color: var(--text, #e2e8f0);
+}
+
+.definition-editor .dc-definition-form input:not([type="checkbox"]):not([type="radio"]),
+.definition-editor .dc-definition-form select,
+.definition-editor .dc-definition-form textarea {
+  width: 100%;
+  background: var(--overlay-white-04, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--panel-border, rgba(148, 163, 184, 0.24));
+  border-radius: var(--radius-md, 6px);
+  color: var(--text, #e2e8f0);
+  padding: 0.45rem 0.55rem;
+}
+
+.definition-editor .dc-definition-form input::placeholder,
+.definition-editor .dc-definition-form textarea::placeholder {
+  color: var(--muted, #94a3b8);
+}
+
+.definition-editor .dc-definition-form table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.definition-editor .dc-definition-form th,
+.definition-editor .dc-definition-form td {
+  border-bottom: 1px solid var(--panel-border, rgba(148, 163, 184, 0.24));
+  padding: 0.55rem 0.45rem;
+  color: var(--text, #e2e8f0);
+}
+
+.definition-editor .dc-definition-form__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.definition-editor .dc-definition-form .button--primary {
+  background: var(--accent-strong, #38bdf8);
+  border: 1px solid var(--accent-strong, #38bdf8);
+  color: #0f172a;
+  border-radius: var(--radius-md, 6px);
+  font-weight: 600;
 }
 
 @media (max-width: 1100px) {

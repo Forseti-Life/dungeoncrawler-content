@@ -219,37 +219,45 @@ class RoomStateService implements ObjectStateProviderInterface {
 
     $state_payload = $this->normalizeRoomStatePayload($state);
     $this->assertValidRoomStatePayload($state_payload);
+    $previous_state = $record
+      ? json_decode((string) $record['fog_state'], TRUE, 512, JSON_THROW_ON_ERROR)
+      : [];
+    if (!is_array($previous_state)) {
+      throw new \UnexpectedValueException('Stored room state must be a JSON object.');
+    }
+    $first_discovery = !empty($state_payload['explored']) && empty($previous_state['explored']);
     $now = time();
     $is_cleared = !empty($state_payload['cleared']) ? 1 : 0;
     $fog_state = json_encode($state_payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
 
-    if ($record) {
-      $this->database->update('dc_campaign_room_states')
-        ->fields([
-          'is_cleared' => $is_cleared,
-          'fog_state' => $fog_state,
-          'last_visited' => $now,
-          'updated' => $now,
-        ])
-        ->condition('campaign_id', $campaign_id)
-        ->condition('room_id', $room_id)
-        ->execute();
-    }
-    else {
-      // Room is being discovered for the first time
-      $this->database->insert('dc_campaign_room_states')
-        ->fields([
-          'campaign_id' => $campaign_id,
-          'room_id' => $room_id,
-          'is_cleared' => $is_cleared,
-          'fog_state' => $fog_state,
-          'last_visited' => $now,
-          'updated' => $now,
-        ])
-        ->execute();
+    $transaction = $this->database->startTransaction();
+    try {
+      if ($record) {
+        $this->database->update('dc_campaign_room_states')
+          ->fields([
+            'is_cleared' => $is_cleared,
+            'fog_state' => $fog_state,
+            'last_visited' => $now,
+            'updated' => $now,
+          ])
+          ->condition('campaign_id', $campaign_id)
+          ->condition('room_id', $room_id)
+          ->execute();
+      }
+      else {
+        $this->database->insert('dc_campaign_room_states')
+          ->fields([
+            'campaign_id' => $campaign_id,
+            'room_id' => $room_id,
+            'is_cleared' => $is_cleared,
+            'fog_state' => $fog_state,
+            'last_visited' => $now,
+            'updated' => $now,
+          ])
+          ->execute();
+      }
 
-      // Dispatch room discovered event for first discovery
-      try {
+      if ($first_discovery) {
         $room = $this->database->select('dc_campaign_rooms', 'c')
           ->fields('c', ['name', 'description', 'environment_tags'])
           ->condition('campaign_id', $campaign_id)
@@ -257,35 +265,74 @@ class RoomStateService implements ObjectStateProviderInterface {
           ->range(0, 1)
           ->execute()
           ->fetchAssoc();
-
-        if ($room) {
-          $environment_tags = json_decode($room['environment_tags'] ?? '', TRUE);
-          if (!is_array($environment_tags)) {
-            $environment_tags = [];
-          }
-
-          $event = new RoomDiscoveredEvent(
-            $campaign_id,
-            $room_id,
-            $dungeon_id,
-            $room['name'] ?? 'Unknown Room',
-            $room['description'] ?? '',
-            $environment_tags,
-            (bool) $is_cleared
-          );
-
-          $this->eventDispatcher->dispatch($event, RoomDiscoveredEvent::NAME);
+        if (!is_array($room)) {
+          throw new \RuntimeException("Cannot discover missing campaign room {$room_id} in campaign {$campaign_id}.");
         }
+        $environment_tags = json_decode((string) ($room['environment_tags'] ?? '[]'), TRUE, 512, JSON_THROW_ON_ERROR);
+        if (!is_array($environment_tags)) {
+          throw new \UnexpectedValueException("Campaign room {$room_id} has invalid environment tags.");
+        }
+        $event = new RoomDiscoveredEvent(
+          $campaign_id, $room_id, $dungeon_id,
+          $room['name'] ?? 'Unknown Room', $room['description'] ?? '',
+          $environment_tags, (bool) $is_cleared
+        );
+        $this->eventDispatcher->dispatch($event, RoomDiscoveredEvent::NAME);
       }
-      catch (\Exception $e) {
-        $this->logger->error('Failed to dispatch room discovered event: @error', [
-          '@error' => $e->getMessage(),
-        ]);
-      }
-    }
 
-    // Return fresh combined view with static room data.
-    return $this->getState($campaign_id, $room_id);
+      return $this->getState($campaign_id, $room_id);
+    }
+    catch (\Throwable $e) {
+      $transaction->rollBack();
+      throw $e;
+    }
+  }
+
+  /**
+   * Precreated room-state rows do not count as room discovery.
+   */
+  public function isDiscovered(int $campaign_id, string $room_id): bool {
+    $json = $this->database->select('dc_campaign_room_states', 's')
+      ->fields('s', ['fog_state'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('room_id', $room_id)
+      ->range(0, 1)->execute()->fetchField();
+    if ($json === FALSE) {
+      return FALSE;
+    }
+    $state = json_decode((string) $json, TRUE, 512, JSON_THROW_ON_ERROR);
+    if (!is_array($state)) {
+      throw new \UnexpectedValueException('Stored room state must be a JSON object.');
+    }
+    return !empty($state['explored']);
+  }
+
+  /**
+   * Record an authoritative arrival without discarding existing room progress.
+   */
+  public function recordArrival(int $campaign_id, string $room_id, string $dungeon_id): void {
+    $row = $this->database->select('dc_campaign_room_states', 'r')
+      ->fields('r', ['fog_state', 'is_cleared'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('room_id', $room_id)
+      ->range(0, 1)->execute()->fetchAssoc();
+    $previous = $row
+      ? json_decode((string) $row['fog_state'], TRUE, 512, JSON_THROW_ON_ERROR)
+      : [];
+    if (!is_array($previous)) {
+      throw new \UnexpectedValueException("Campaign room {$room_id} has invalid fog state.");
+    }
+    $preserved = array_intersect_key($previous, array_fill_keys([
+      'explored_at', 'explored_by_party', 'looted', 'traps_disarmed',
+      'notes', 'visible_hex_ids',
+    ], TRUE));
+    $this->setState($campaign_id, $room_id, $dungeon_id, $preserved + [
+      'roomId' => $room_id,
+      'dungeonId' => $dungeon_id,
+      'explored' => TRUE,
+      'visibility' => 'visible',
+      'isCleared' => !empty($row['is_cleared']),
+    ], NULL);
   }
 
   /**

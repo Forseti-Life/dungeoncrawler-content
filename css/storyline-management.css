@@ -1,0 +1,77 @@
+.storyline-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 0.75rem;
+  margin: 0 0 1.25rem;
+}
+
+.storyline-metrics__card {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid rgba(186, 143, 76, 0.3);
+  border-radius: 10px;
+  background: rgba(8, 12, 20, 0.78);
+  color: rgba(255, 248, 230, 0.86);
+}
+
+.storyline-metrics__card strong {
+  color: #e7bd72;
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.storyline-metrics__card span {
+  font-size: 0.82rem;
+}
+
+.storyline-drafts details + details {
+  margin-top: 0.75rem;
+}
+
+.storyline-drafts summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.storyline-drafts__table-wrap {
+  margin-top: 0.75rem;
+  overflow-x: auto;
+}
+
+.storyline-drafts__table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.storyline-drafts__table th,
+.storyline-drafts__table td {
+  padding: 0.65rem;
+  border-bottom: 1px solid rgba(186, 143, 76, 0.2);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.storyline-drafts__actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.storyline-drafts__status {
+  min-height: 1.25rem;
+}
+
+.storyline-completeness-help {
+  margin: 0.25rem 0 0.75rem;
+  font-size: 0.92rem;
+  color: rgba(255, 248, 230, 0.86);
+}
+
+.storyline-completeness {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 0.4rem;
+  font-size: 0.85rem;
+  color: rgba(255, 248, 230, 0.82);
+}

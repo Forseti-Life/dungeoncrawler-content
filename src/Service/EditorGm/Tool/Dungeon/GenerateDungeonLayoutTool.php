@@ -19,7 +19,7 @@ final class GenerateDungeonLayoutTool implements EditorGmToolInterface {
     return new EditorGmToolDefinition(
       'generate_dungeon_layout',
       EditorGmToolDefinition::FAMILY_PLANNING,
-      'Generate an original dungeon layout as place_room/link_ports command_plan proposal using published room versions only.',
+      'Generate one continuous navigable site as a place_room/link_ports command_plan using published room versions only; locations separated by a travel hub require separate dungeons.',
       FALSE,
       'propose only; execution requires preview_command_plan/apply_dungeon_commands through DungeonEditorService',
       [

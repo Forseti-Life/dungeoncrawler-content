@@ -504,25 +504,27 @@
                 "cost": "none",
                 "primary_check": "none",
                 "secondary_casters": "none",
-                "description": "You hurl a compact bolt of force. The target takes 1d4 force damage plus your spellcasting ability modifier.",
-                "description_snippet": "You hurl a compact bolt of force, dealing 1d4 force damage plus your spellcasting ability modifier.",
+                "description": "You fire an unerring dart of force from your fingertips. It automatically hits and deals 1d4+1 force damage to the target.",
+                "description_snippet": "You fire an unerring dart of force that automatically hits for 1d4+1 force damage.",
                 "heightened": [
                     {
-                        "label": "none",
-                        "type": "none",
-                        "text": "No explicit heightened entry."
+                        "label": "+2",
+                        "type": "step",
+                        "step": 2,
+                        "text": "The damage increases by 1d4+1."
                     }
                 ],
                 "heightened_scaling": [
                     {
-                        "label": "none",
-                        "type": "none",
-                        "text": "No explicit heightened entry."
+                        "label": "+2",
+                        "type": "step",
+                        "step": 2,
+                        "text": "The damage increases by 1d4+1."
                     }
                 ],
                 "damage": [
                     {
-                        "formula": "1d4+mod",
+                        "formula": "1d4+1",
                         "type": "force",
                         "persistent": false
                     }

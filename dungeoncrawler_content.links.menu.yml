@@ -16,13 +16,6 @@ dungeoncrawler_content.dashboard:
   route_name: dungeoncrawler_content.dashboard
   parent: system.admin_content
 
-dungeoncrawler_content.menu.editor_suite:
-  title: 'Editors'
-  description: 'Room, dungeon, and canonical library editors with the GM assistant. The single entry point for the authoring suite.'
-  route_name: dungeoncrawler_content.editor_suite
-  parent: system.admin_content
-  weight: 6
-
 dungeoncrawler_content.game_objects:
   title: 'Game Objects'
   description: 'Review game objects and their attributes.'
@@ -86,12 +79,18 @@ dungeoncrawler_content.menu.campaigns:
   weight: 20
 
 dungeoncrawler_content.menu.storyline_explorer:
-  title: 'Explorer Hub'
-  description: 'Open explorer and analysis surfaces across storyline, dungeon, room, item, and actor layers'
-  route_name: dungeoncrawler_content.analysis_explorer_home
+  title: 'Storylines'
+  description: 'View and manage storyline generation, validation, and runtime progression.'
+  route_name: dungeoncrawler_content.storyline_management
   menu_name: main
-  expanded: true
   weight: 21
+
+dungeoncrawler_content.menu.storyline_home:
+  title: 'Storylines Home'
+  description: 'Return to the main storyline management page.'
+  route_name: dungeoncrawler_content.storyline_management
+  parent: dungeoncrawler_content.menu.storyline_explorer
+  weight: -1
 
 dungeoncrawler_content.menu.explorer_hub_home:
   title: 'Explorer Hub'
@@ -106,6 +105,13 @@ dungeoncrawler_content.menu.explorer_hub_storyline:
   route_name: dungeoncrawler_content.storyline_explorer
   parent: dungeoncrawler_content.menu.storyline_explorer
   weight: 1
+
+dungeoncrawler_content.menu.explorer_hub_gm_storyline_builder:
+  title: 'GM Storyline Builder'
+  description: 'Consolidated storyline generation flow with generation and validation tooling.'
+  route_name: dungeoncrawler_content.gm_storyline_builder
+  parent: dungeoncrawler_content.menu.storyline_explorer
+  weight: 20
 
 dungeoncrawler_content.menu.explorer_hub_dungeon_analysis:
   title: 'Dungeon Analysis'
@@ -128,31 +134,52 @@ dungeoncrawler_content.menu.explorer_hub_item_explorer:
   parent: dungeoncrawler_content.menu.storyline_explorer
   weight: 4
 
+dungeoncrawler_content.menu.explorer_hub_spell_explorer:
+  title: 'Spell Explorer'
+  description: 'Spell-layer canonical contract diagnostics'
+  route_name: dungeoncrawler_content.analysis_explorer_spells
+  parent: dungeoncrawler_content.menu.storyline_explorer
+  weight: 5
+
+dungeoncrawler_content.menu.explorer_hub_feat_explorer:
+  title: 'Feat Explorer'
+  description: 'Feat-layer canonical contract diagnostics'
+  route_name: dungeoncrawler_content.analysis_explorer_feats
+  parent: dungeoncrawler_content.menu.storyline_explorer
+  weight: 6
+
 dungeoncrawler_content.menu.explorer_hub_actor_explorer:
   title: 'Actor Explorer'
   description: 'Actor-layer validator surface and diagnostics'
   route_name: dungeoncrawler_content.analysis_explorer_actors
   parent: dungeoncrawler_content.menu.storyline_explorer
-  weight: 5
-
-dungeoncrawler_content.menu.explorer_hub_editor_suite:
-  title: 'Editor Suite'
-  description: 'Open the room, dungeon, and canonical library editor hub.'
-  route_name: dungeoncrawler_content.editor_suite
-  parent: dungeoncrawler_content.menu.storyline_explorer
-  weight: 6
+  weight: 7
 
 dungeoncrawler_content.menu.explorer_hub_room_authoring:
   title: 'Room Editor'
   description: 'Edit canonical room layout, terrain, ports, and placed objects.'
   route_name: dungeoncrawler_content.room_editor
   parent: dungeoncrawler_content.menu.storyline_explorer
-  weight: 7
+  weight: 30
 
 dungeoncrawler_content.menu.explorer_hub_dungeon_authoring:
   title: 'Dungeon Editor'
   description: 'Edit canonical dungeon topology, room links, and navigation.'
   route_name: dungeoncrawler_content.dungeon_editor
+  parent: dungeoncrawler_content.menu.storyline_explorer
+  weight: 31
+
+dungeoncrawler_content.menu.explorer_hub_module_manager:
+  title: 'Module Manager'
+  description: 'Inspect module catalogs and dry-run intake conversion plans.'
+  route_name: dungeoncrawler_content.module_manager
+  parent: dungeoncrawler_content.menu.storyline_explorer
+  weight: 22
+
+dungeoncrawler_content.menu.explorer_hub_module_explorer:
+  title: 'Module Explorer'
+  description: 'Inspect source module files, image dimensions, and archive structure.'
+  route_name: dungeoncrawler_content.module_explorer
   parent: dungeoncrawler_content.menu.storyline_explorer
   weight: 8
 
@@ -161,7 +188,7 @@ dungeoncrawler_content.menu.explorer_hub_definition_index:
   description: 'Edit canonical actors, creatures, items, obstacles, traps, and hazards.'
   route_name: dungeoncrawler_content.definition_index
   parent: dungeoncrawler_content.menu.storyline_explorer
-  weight: 9
+  weight: 23
 
 dungeoncrawler_content.menu.explorer_hub_definition_actors:
   title: 'Actor Definitions'
@@ -170,7 +197,7 @@ dungeoncrawler_content.menu.explorer_hub_definition_actors:
   route_parameters:
     family: actor
   parent: dungeoncrawler_content.menu.storyline_explorer
-  weight: 10
+  weight: 24
 
 dungeoncrawler_content.menu.explorer_hub_definition_creatures:
   title: 'Creature Definitions'
@@ -179,7 +206,7 @@ dungeoncrawler_content.menu.explorer_hub_definition_creatures:
   route_parameters:
     family: creature
   parent: dungeoncrawler_content.menu.storyline_explorer
-  weight: 11
+  weight: 25
 
 dungeoncrawler_content.menu.explorer_hub_definition_items:
   title: 'Item Definitions'
@@ -188,7 +215,7 @@ dungeoncrawler_content.menu.explorer_hub_definition_items:
   route_parameters:
     family: item
   parent: dungeoncrawler_content.menu.storyline_explorer
-  weight: 12
+  weight: 26
 
 dungeoncrawler_content.menu.explorer_hub_definition_obstacles:
   title: 'Obstacle Definitions'
@@ -197,7 +224,7 @@ dungeoncrawler_content.menu.explorer_hub_definition_obstacles:
   route_parameters:
     family: obstacle
   parent: dungeoncrawler_content.menu.storyline_explorer
-  weight: 13
+  weight: 27
 
 dungeoncrawler_content.menu.explorer_hub_definition_traps:
   title: 'Trap Definitions'
@@ -206,7 +233,7 @@ dungeoncrawler_content.menu.explorer_hub_definition_traps:
   route_parameters:
     family: trap
   parent: dungeoncrawler_content.menu.storyline_explorer
-  weight: 14
+  weight: 28
 
 dungeoncrawler_content.menu.explorer_hub_definition_hazards:
   title: 'Hazard Definitions'
@@ -215,7 +242,7 @@ dungeoncrawler_content.menu.explorer_hub_definition_hazards:
   route_parameters:
     family: hazard
   parent: dungeoncrawler_content.menu.storyline_explorer
-  weight: 15
+  weight: 29
 
 dungeoncrawler_content.menu.character_setup:
   title: 'Character Setup'
@@ -351,6 +378,13 @@ dungeoncrawler_content.menu.dc_administration_storyline_explorer:
   route_name: dungeoncrawler_content.storyline_explorer
   parent: dungeoncrawler_content.menu.dc_administration
   weight: 12
+
+dungeoncrawler_content.menu.dc_administration_gm_storyline_builder:
+  title: 'GM Storyline Builder'
+  description: 'Consolidated storyline generation process builder and tool map.'
+  route_name: dungeoncrawler_content.gm_storyline_builder
+  parent: dungeoncrawler_content.menu.dc_administration
+  weight: 13
 
 # ==============================================================================
 # FOOTER MENU LINKS

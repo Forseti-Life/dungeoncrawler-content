@@ -3,7 +3,7 @@
  * Drupal behavior bootstrap for the editor suite hub.
  */
 
-import { EditorSuiteShell } from './v2/editor/EditorSuiteShell.js';
+import { EditorSuiteShell } from './v2/editor/EditorSuiteShell.js?v=20261023-gm-chat-2';
 
 (function (Drupal, drupalSettings, once) {
   'use strict';

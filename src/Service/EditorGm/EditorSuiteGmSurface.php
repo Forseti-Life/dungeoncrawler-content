@@ -41,13 +41,13 @@ final class EditorSuiteGmSurface implements EditorGmSurfaceInterface {
       new SummarizeEditorSuiteTool(),
       new ListRecentDraftsTool(),
       new ListAttentionItemsTool(),
-      new ListRoomsTool(),
-      new ListDungeonsTool(),
-      new FindDungeonsUsingRoomTool(),
+      new ListRoomsTool($this->suite),
+      new ListDungeonsTool($this->suite),
+      new FindDungeonsUsingRoomTool($this->suite),
       new ListCatalogDefinitionsTool(),
       new InspectCatalogEntryTool(),
       new LoadCanonicalDefinitionTool(),
-      new RouteToEditorTool(),
+      new RouteToEditorTool($this->suite),
     ], [], NULL);
     $this->assembler = new EditorSuiteGmContextAssembler($this->registry, $intentParser);
   }

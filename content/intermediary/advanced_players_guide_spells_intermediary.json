@@ -580,7 +580,7 @@
             "content_type": "spell",
             "content_id": "agonizing_despair",
             "name": "Agonizing Despair",
-            "level": 1,
+            "level": 3,
             "rarity": "common",
             "tags": [
                 "arcane",
@@ -594,7 +594,7 @@
             "schema_data": {
                 "id": "agonizing_despair",
                 "name": "Agonizing Despair",
-                "rank": 1,
+                "rank": 3,
                 "is_cantrip": false,
                 "spell_type": "spell",
                 "school": "enchantment",
@@ -968,7 +968,7 @@
             "content_type": "spell",
             "content_id": "aqueous_orb",
             "name": "Aqueous Orb",
-            "level": 1,
+            "level": 3,
             "rarity": "common",
             "tags": [
                 "arcane",
@@ -979,7 +979,7 @@
             "schema_data": {
                 "id": "aqueous_orb",
                 "name": "Aqueous Orb",
-                "rank": 1,
+                "rank": 3,
                 "is_cantrip": false,
                 "spell_type": "spell",
                 "school": "conjuration",
@@ -1343,7 +1343,7 @@
             "content_type": "spell",
             "content_id": "cozy_cabin",
             "name": "Cozy Cabin",
-            "level": 1,
+            "level": 3,
             "rarity": "common",
             "tags": [
                 "arcane",
@@ -1354,7 +1354,7 @@
             "schema_data": {
                 "id": "cozy_cabin",
                 "name": "Cozy Cabin",
-                "rank": 1,
+                "rank": 3,
                 "is_cantrip": false,
                 "spell_type": "spell",
                 "school": "conjuration",
@@ -1436,7 +1436,7 @@
             "content_type": "spell",
             "content_id": "crashing_wave",
             "name": "Crashing Wave",
-            "level": 1,
+            "level": 3,
             "rarity": "common",
             "tags": [
                 "arcane",
@@ -1447,7 +1447,7 @@
             "schema_data": {
                 "id": "crashing_wave",
                 "name": "Crashing Wave",
-                "rank": 1,
+                "rank": 3,
                 "is_cantrip": false,
                 "spell_type": "spell",
                 "school": "evocation",
@@ -1991,7 +1991,7 @@
             "content_type": "spell",
             "content_id": "familiars_face",
             "name": "Familiar's Face",
-            "level": 1,
+            "level": 3,
             "rarity": "common",
             "tags": [
                 "arcane",
@@ -2004,7 +2004,7 @@
             "schema_data": {
                 "id": "familiars_face",
                 "name": "Familiar's Face",
-                "rank": 1,
+                "rank": 3,
                 "is_cantrip": false,
                 "spell_type": "spell",
                 "school": "divination",
@@ -3634,7 +3634,7 @@
             "content_type": "spell",
             "content_id": "safe_passage",
             "name": "Safe Passage",
-            "level": 1,
+            "level": 3,
             "rarity": "common",
             "tags": [
                 "abjuration",
@@ -3646,7 +3646,7 @@
             "schema_data": {
                 "id": "safe_passage",
                 "name": "Safe Passage",
-                "rank": 1,
+                "rank": 3,
                 "is_cantrip": false,
                 "spell_type": "spell",
                 "school": "abjuration",
@@ -3744,7 +3744,7 @@
             "content_type": "spell",
             "content_id": "sculpt_sound",
             "name": "Sculpt Sound",
-            "level": 1,
+            "level": 3,
             "rarity": "common",
             "tags": [
                 "illusion",
@@ -3754,7 +3754,7 @@
             "schema_data": {
                 "id": "sculpt_sound",
                 "name": "Sculpt Sound",
-                "rank": 1,
+                "rank": 3,
                 "is_cantrip": false,
                 "spell_type": "spell",
                 "school": "illusion",
@@ -4140,7 +4140,7 @@
             "content_type": "spell",
             "content_id": "threefold_aspect",
             "name": "Threefold Aspect",
-            "level": 1,
+            "level": 3,
             "rarity": "common",
             "tags": [
                 "occult",
@@ -4151,7 +4151,7 @@
             "schema_data": {
                 "id": "threefold_aspect",
                 "name": "Threefold Aspect",
-                "rank": 1,
+                "rank": 3,
                 "is_cantrip": false,
                 "spell_type": "spell",
                 "school": "transmutation",

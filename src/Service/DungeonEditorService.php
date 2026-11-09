@@ -94,7 +94,7 @@ class DungeonEditorService {
     $query->leftJoin('dungeoncrawler_content_dungeon_versions', 'v', 'v.version_id = d.published_version_id');
     $rows = $query
       ->fields('d', ['dungeon_id', 'name', 'publication_status', 'published_version_id'])
-      ->fields('v', ['version', 'dungeon_payload'])
+      ->fields('v', ['version', 'dungeon_payload', 'published_at'])
       ->orderBy('name')
       ->execute()
       ->fetchAll();
@@ -126,11 +126,43 @@ class DungeonEditorService {
         'publication_status' => $row->publication_status ?? 'unpublished',
         'published_version_id' => $row->published_version_id ?? NULL,
         'published_version' => $row->version ?? NULL,
+        'published_at' => (int) ($row->published_at ?? 0),
         'published_room_count' => $room_count,
         'metadata' => $metadata,
         'has_active_draft' => isset($active_drafts[(string) $row->dungeon_id]),
       ];
     }, $rows);
+  }
+
+  /**
+   * Latest published copy per displayed dungeon title for campaign selectors.
+   *
+   * Distinct editor identities can share a title (notably conversion validation
+   * runs). The selector shows only the newest published copy of each title.
+   *
+   * @return array<int,array<string,mixed>>
+   */
+  public function listLatestPublishedDungeons(): array {
+    $latest = [];
+    foreach ($this->listDungeons() as $dungeon) {
+      if (($dungeon['publication_status'] ?? '') !== 'published'
+        || trim((string) ($dungeon['published_version_id'] ?? '')) === ''
+        || ($dungeon['metadata']['module_conversion']['execution_mode'] ?? NULL) === 'original_scene_generation') {
+        continue;
+      }
+      $key = mb_strtolower(trim((string) $dungeon['name']));
+      if ($key === '') {
+        $key = (string) $dungeon['dungeon_id'];
+      }
+      $previous = $latest[$key] ?? NULL;
+      if ($previous === NULL
+        || (int) $dungeon['published_at'] > (int) $previous['published_at']
+        || ((int) $dungeon['published_at'] === (int) $previous['published_at']
+          && strcmp((string) $dungeon['dungeon_id'], (string) $previous['dungeon_id']) > 0)) {
+        $latest[$key] = $dungeon;
+      }
+    }
+    return array_values($latest);
   }
 
   /**
@@ -151,11 +183,16 @@ class DungeonEditorService {
     return array_map(static function (object $row): array {
       $dungeon = json_decode((string) $row->dungeon_payload, TRUE, 512, JSON_THROW_ON_ERROR);
       $pins = [];
-      foreach ($dungeon['placements'] ?? [] as $placement) {
+      foreach ($dungeon['room_placements'] ?? [] as $placement) {
         $pins[] = [
           'placement_id' => (string) $placement['placement_id'],
           'room_id' => (string) $placement['room_id'],
           'version_id' => (string) $placement['version_id'],
+          'label' => (string) ($placement['label'] ?? ''),
+          'origin' => $placement['origin'] ?? NULL,
+          'rotation_steps' => (int) ($placement['rotation_steps'] ?? 0),
+          'is_level_entrance' => (bool) ($placement['is_level_entrance'] ?? FALSE),
+          'tags' => array_values((array) ($placement['tags'] ?? [])),
         ];
       }
       return [
@@ -171,6 +208,86 @@ class DungeonEditorService {
         'updated_at' => (int) $row->updated_at,
       ];
     }, $query->execute()->fetchAll());
+  }
+
+  /**
+   * Finds current published and active-draft placements of one room.
+   */
+  public function roomUsage(string $room_id): array {
+    if (!preg_match(self::ID_PATTERN, $room_id)) {
+      throw new \InvalidArgumentException('room_id_invalid');
+    }
+
+    $published = [];
+    $query = $this->database->select('dungeoncrawler_content_dungeons', 'd');
+    $query->innerJoin('dungeoncrawler_content_dungeon_versions', 'v', 'v.version_id = d.published_version_id');
+    $rows = $query
+      ->fields('d', ['dungeon_id', 'name', 'publication_status', 'published_version_id'])
+      ->fields('v', ['version', 'dungeon_payload'])
+      ->execute()
+      ->fetchAll();
+    foreach ($rows as $row) {
+      $dungeon = json_decode((string) $row->dungeon_payload, TRUE, 512, JSON_THROW_ON_ERROR);
+      $placements = $this->matchingRoomPlacements($dungeon, $room_id);
+      if ($placements === []) {
+        continue;
+      }
+      $published[] = [
+        'dungeon_id' => (string) $row->dungeon_id,
+        'name' => (string) $row->name,
+        'publication_status' => (string) $row->publication_status,
+        'published_version_id' => (string) $row->published_version_id,
+        'published_version' => (string) $row->version,
+        'placements' => $placements,
+      ];
+    }
+
+    $drafts = [];
+    foreach ($this->listDrafts() as $draft) {
+      $placements = array_values(array_filter(
+        $draft['placement_pins'],
+        static fn(array $placement): bool => $placement['room_id'] === $room_id,
+      ));
+      if ($placements === []) {
+        continue;
+      }
+      $drafts[] = [
+        'draft_id' => $draft['draft_id'],
+        'dungeon_id' => $draft['dungeon_id'],
+        'name' => $draft['name'],
+        'revision' => $draft['revision'],
+        'base_version_id' => $draft['base_version_id'],
+        'placements' => $placements,
+      ];
+    }
+
+    return [
+      'published_dungeons' => $published,
+      'active_dungeon_drafts' => $drafts,
+    ];
+  }
+
+  /**
+   * Returns placements of one canonical room from a dungeon aggregate.
+   */
+  private function matchingRoomPlacements(array $dungeon, string $room_id): array {
+    $matches = [];
+    foreach ($dungeon['room_placements'] ?? [] as $placement) {
+      if (($placement['room_id'] ?? NULL) !== $room_id) {
+        continue;
+      }
+      $matches[] = [
+        'placement_id' => (string) $placement['placement_id'],
+        'room_id' => (string) $placement['room_id'],
+        'version_id' => (string) $placement['version_id'],
+        'label' => (string) ($placement['label'] ?? ''),
+        'origin' => $placement['origin'] ?? NULL,
+        'rotation_steps' => (int) ($placement['rotation_steps'] ?? 0),
+        'is_level_entrance' => (bool) ($placement['is_level_entrance'] ?? FALSE),
+        'tags' => array_values((array) ($placement['tags'] ?? [])),
+      ];
+    }
+    return $matches;
   }
 
   /**
@@ -216,9 +333,8 @@ class DungeonEditorService {
    * Creates an active draft from a published dungeon or a blank level.
    *
    * A dungeon that exists but has never been published through this editor
-   * cannot seed a draft: its legacy `dungeon_data` is generator output, not
-   * editor authority (09-data-model-and-versioning.md), and is never
-   * normalised into an aggregate.
+   * starts as a blank aggregate under the existing identity. Its legacy
+   * `dungeon_data` remains non-authoritative and is never imported.
    */
   public function createDraft(?string $dungeon_id = NULL): array {
     $uid = (int) $this->currentUser->id();
@@ -249,26 +365,49 @@ class DungeonEditorService {
     }
     else {
       $row = $this->database->select('dungeoncrawler_content_dungeons', 'd')
-        ->fields('d', ['dungeon_id', 'published_version_id'])
+        ->fields('d', ['dungeon_id', 'name', 'description', 'theme', 'published_version_id'])
         ->condition('dungeon_id', $dungeon_id)
         ->execute()
         ->fetchAssoc();
       if (!$row) {
-        throw new \OutOfBoundsException('dungeon_not_found');
+        $dungeon = $this->blankDungeon();
+        $dungeon['dungeon_id'] = $dungeon_id;
+        $dungeon['metadata']['provenance'] = [
+          'source' => 'dungeon_editor',
+          'new_canonical_identity' => TRUE,
+        ];
       }
-      $base_version_id = $row['published_version_id'] ?: NULL;
-      if ($base_version_id === NULL) {
-        throw new \DomainException('dungeon_not_published');
+      else {
+        $base_version_id = $row['published_version_id'] ?: NULL;
       }
-      $payload = $this->database->select('dungeoncrawler_content_dungeon_versions', 'v')
-        ->fields('v', ['dungeon_payload'])
-        ->condition('version_id', $base_version_id)
-        ->execute()
-        ->fetchField();
-      if (!$payload) {
-        throw new \RuntimeException('dungeon_version_missing:' . $base_version_id);
+      if ($row && $base_version_id === NULL) {
+        $dungeon = $this->blankDungeon();
+        $dungeon['dungeon_id'] = $dungeon_id;
+        if (trim((string) ($row['name'] ?? '')) !== '') {
+          $dungeon['name'] = trim((string) $row['name']);
+        }
+        if (trim((string) ($row['description'] ?? '')) !== '') {
+          $dungeon['description'] = trim((string) $row['description']);
+        }
+        if (trim((string) ($row['theme'] ?? '')) !== '') {
+          $dungeon['theme'] = trim((string) $row['theme']);
+        }
+        $dungeon['metadata']['provenance'] = [
+          'source' => 'dungeon_editor',
+          'legacy_identity_reauthored' => TRUE,
+        ];
       }
-      $dungeon = json_decode((string) $payload, TRUE, 512, JSON_THROW_ON_ERROR);
+      elseif ($row) {
+        $payload = $this->database->select('dungeoncrawler_content_dungeon_versions', 'v')
+          ->fields('v', ['dungeon_payload'])
+          ->condition('version_id', $base_version_id)
+          ->execute()
+          ->fetchField();
+        if (!$payload) {
+          throw new \RuntimeException('dungeon_version_missing:' . $base_version_id);
+        }
+        $dungeon = json_decode((string) $payload, TRUE, 512, JSON_THROW_ON_ERROR);
+      }
     }
 
     $draft_id = $this->uuid->generate();
@@ -597,6 +736,17 @@ class DungeonEditorService {
         'validated_at' => gmdate(DATE_RFC3339),
       ];
     }
+    if (!empty($validation['is_valid']) && $this->connectorProjection instanceof ConnectorProjectionService) {
+      try {
+        $this->connectorProjection->project($dungeon_id, $draft['dungeon']);
+      }
+      catch (DungeonEditorFindingsInterface $exception) {
+        $projection_findings = $exception->getFindings();
+        $validation['findings'] = array_values(array_merge($validation['findings'], $projection_findings));
+        $validation['counts']['error'] += count($projection_findings);
+        $validation['is_valid'] = FALSE;
+      }
+    }
     $campaign_blockers = $dungeon_id !== '' ? $this->activeCampaignBlockers($dungeon_id) : [];
     $blockers = array_values(array_merge(
       array_filter($validation['findings'], static fn(array $finding): bool => ($finding['severity'] ?? 'error') === 'error'),
@@ -712,19 +862,39 @@ class DungeonEditorService {
       }
       $projected_rows = $this->connectorProjection->project($dungeon_id, $dungeon);
 
-      $existing_version = $this->database->select('dungeoncrawler_content_dungeon_versions', 'v')
+      $encoded = $this->encodeDungeon($dungeon);
+      $hash = hash('sha256', $encoded);
+      $identical_version = $this->database->select('dungeoncrawler_content_dungeon_versions', 'v')
         ->fields('v', ['version_id'])
         ->condition('dungeon_id', $dungeon_id)
-        ->condition('version', $version)
+        ->condition('payload_hash', $hash)
+        ->execute()
+        ->fetchField();
+      if ($identical_version) {
+        throw new \DomainException('payload_already_published');
+      }
+
+      $latest_version = $this->database->select('dungeoncrawler_content_dungeon_versions', 'v')
+        ->fields('v', ['version'])
+        ->condition('dungeon_id', $dungeon_id)
+        ->orderBy('published_at', 'DESC')
         ->range(0, 1)
         ->execute()
         ->fetchField();
-      if ($existing_version) {
-        throw new \DomainException('publication_version_invalid');
+      if ($latest_version && version_compare($version, (string) $latest_version, '<=')) {
+        throw new \DomainException('version_must_increase');
       }
 
-      $encoded = $this->encodeDungeon($dungeon);
-      $hash = hash('sha256', $encoded);
+      $duplicate = $this->database->select('dungeoncrawler_content_dungeon_versions', 'v')
+        ->fields('v', ['version_id'])
+        ->condition('dungeon_id', $dungeon_id)
+        ->condition('version', $version)
+        ->execute()
+        ->fetchField();
+      if ($duplicate) {
+        throw new \DomainException('version_already_exists');
+      }
+
       $this->database->insert('dungeoncrawler_content_dungeon_versions')
         ->fields([
           'version_id' => $version_id,

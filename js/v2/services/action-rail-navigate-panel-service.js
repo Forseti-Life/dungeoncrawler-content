@@ -122,7 +122,7 @@ function collectNavigateExitGroups(panel, context) {
         connectionId: String(capability?.connection_id || ''),
         originQ: capability?.origin_hex?.q ?? '',
         originR: capability?.origin_hex?.r ?? '',
-        mapId: currentMapId,
+        mapId: String(capability?.destination_dungeon_id || currentMapId).trim(),
         dungeonLevelId: currentDungeonLevelId,
         questIds: questIds,
       };

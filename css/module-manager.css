@@ -1,0 +1,188 @@
+/**
+ * Module manager surface layout and status styling.
+ */
+
+.module-manager {
+  --mm-border: var(--panel-border, rgba(100, 116, 139, 0.32));
+  --mm-bg: var(--panel-bg, rgba(248, 250, 252, 0.98));
+  --mm-item-bg: rgba(255, 255, 255, 0.95);
+  --mm-text: var(--text-color, #0f172a);
+  color: var(--mm-text);
+}
+
+.module-manager__columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: var(--space-3, 12px);
+}
+
+.module-manager__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 8px);
+  padding: var(--space-3, 12px);
+  background: var(--mm-bg);
+  border: 1px solid var(--mm-border);
+  border-radius: var(--radius-md, 6px);
+  margin-bottom: var(--space-3, 12px);
+}
+
+.module-manager__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 8px);
+}
+
+.module-manager__textarea {
+  min-height: 5.5rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+.module-manager__checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+}
+
+.module-manager__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 8px);
+}
+
+.module-manager__item {
+  border: 1px solid var(--mm-border);
+  border-radius: var(--radius-md, 6px);
+  padding: var(--space-2, 8px);
+  background: var(--mm-item-bg);
+}
+
+.module-manager__item[data-access="credentials_required"] {
+  border-left: 4px solid var(--warning, #f59e0b);
+}
+
+.module-manager__item[data-severity="error"] {
+  border-left: 4px solid var(--danger, #ef4444);
+}
+
+.module-manager__item[data-severity="warning"] {
+  border-left: 4px solid var(--warning, #f59e0b);
+}
+
+.module-manager__item[data-status="published"] {
+  border-left: 4px solid #22c55e;
+}
+
+.module-manager__item[data-status="requires_authoring"] {
+  border-left: 4px solid var(--warning, #f59e0b);
+}
+
+.module-manager__item--overview {
+  border-left: 4px solid rgba(59, 130, 246, 0.8);
+}
+
+.module-manager__item--empty {
+  opacity: 0.75;
+}
+
+.module-manager__item-title {
+  margin: 0;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.module-manager__item-meta {
+  margin: 4px 0 0;
+  opacity: 0.8;
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+
+.module-manager__metrics {
+  font-size: 0.95em;
+  opacity: 0.9;
+}
+
+[data-module-manager-readiness-score] {
+  font-weight: 700;
+}
+
+[data-module-manager-readiness-score][data-state="gm_toolkit_compendium"],
+[data-module-manager-readiness-score][data-state="high_adaptation_required"] {
+  color: var(--warning, #f59e0b);
+}
+
+[data-module-manager-readiness-score][data-state="ready_for_validation"] {
+  color: #22c55e;
+}
+
+[data-module-manager-local-archives] .module-manager__item {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-2, 8px);
+}
+
+.module-manager__overview-score {
+  font-weight: 700;
+}
+
+.module-manager__overview-score[data-state="gm_toolkit_compendium"],
+.module-manager__overview-score[data-state="high_adaptation_required"] {
+  color: #b45309;
+}
+
+.module-manager__overview-score[data-state="ready_for_validation"] {
+  color: #166534;
+}
+
+.module-manager__advanced {
+  margin: var(--space-3, 12px) 0;
+  border: 1px solid var(--mm-border);
+  border-radius: var(--radius-md, 6px);
+  background: rgba(241, 245, 249, 0.75);
+  padding: var(--space-2, 8px);
+}
+
+.module-manager__advanced-summary {
+  font-weight: 700;
+  cursor: pointer;
+  margin: 0 0 var(--space-2, 8px);
+}
+
+.module-manager__inventory-wrap {
+  overflow-x: auto;
+}
+
+.module-manager__inventory-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: var(--space-2, 8px);
+  font-size: 0.9rem;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.module-manager__inventory-table th,
+.module-manager__inventory-table td {
+  border: 1px solid var(--mm-border);
+  padding: 6px 8px;
+  vertical-align: top;
+  text-align: left;
+}
+
+.module-manager__inventory-table th {
+  background: rgba(226, 232, 240, 0.8);
+  font-weight: 700;
+}
+
+.module-manager__json {
+  margin: 0;
+  padding: var(--space-3, 12px);
+  background: rgba(248, 250, 252, 1);
+  border: 1px solid var(--mm-border);
+  border-radius: var(--radius-md, 6px);
+  overflow: auto;
+  max-height: 40vh;
+}

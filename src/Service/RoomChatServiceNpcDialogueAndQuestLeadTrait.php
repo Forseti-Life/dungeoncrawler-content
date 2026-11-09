@@ -112,7 +112,29 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
     ]))));
 
     if ($this->looksLikeQuestTurnInHandoff($normalized)) {
-      return '"Thank you!"';
+      if ($character_id !== NULL && $character_id > 0 && $this->questTouchpointService !== NULL) {
+        $touchpoint_result = $this->applyConversationQuestTouchpoint(
+          $campaign_id,
+          (int) $character_id,
+          $room_id,
+          $entity_ref,
+          $display_name,
+          [],
+          $player_message
+        );
+        if (($touchpoint_result['decision'] ?? '') !== 'APPLY_PROGRESS') {
+          $available_quest_offer = $this->buildAvailableQuestgiverQuestDialogue($campaign_id, $entity_ref, $display_name, $room_id, $dungeon_data, $character_id, FALSE);
+          if ($available_quest_offer !== NULL) {
+            return '"You do not have what is needed to complete this handoff yet. ' . trim($available_quest_offer, " \t\n\r\0\x0B\"") . '"';
+          }
+          return '"You do not have what is needed to complete this handoff yet."';
+        }
+      }
+      return match ($attitude) {
+        'friendly', 'helpful' => '"Got it. I\'ll take those now and verify this handoff against the current objective."',
+        'unfriendly', 'hostile' => '"Fine. Leave them here. I\'ll verify the handoff against your current objective."',
+        default => '"Understood. Hand them over and I\'ll verify this handoff against your current objective."',
+      };
     }
 
     $asks_for_leads = $this->textContainsAny($normalized, [
@@ -124,8 +146,17 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
       $available_quest_offer = $this->buildAvailableQuestgiverQuestDialogue($campaign_id, $entity_ref, $display_name, $room_id, $dungeon_data, $character_id);
       if ($available_quest_offer !== NULL) {
         $this->applyDirectQuestgiverDialogueQuestState($campaign_id, $character_id, $entity_ref, $display_name, $room_id, $dungeon_data);
-        $refreshed_quest_offer = $this->buildAvailableQuestgiverQuestDialogue($campaign_id, $entity_ref, $display_name, $room_id, $dungeon_data, $character_id, FALSE);
-        return $refreshed_quest_offer ?? $available_quest_offer;
+        if ($this->isBrokeredStorylineNpcRef($entity_ref)) {
+          $brokered_leads = $this->buildBrokeredStorylineLeadDialogue($campaign_id, $entity_ref, $display_name, $player_message, $room_id, $dungeon_data, $character_id);
+          if ($brokered_leads !== NULL) {
+            $unquoted_quest = trim($available_quest_offer, " \t\n\r\0\x0B\"");
+            $unquoted_broker = trim($brokered_leads, " \t\n\r\0\x0B\"");
+            if ($unquoted_quest !== '' && $unquoted_broker !== '' && !str_contains($unquoted_quest, $unquoted_broker)) {
+              return '"' . $unquoted_quest . "\n\n" . $unquoted_broker . '"';
+            }
+          }
+        }
+        return $available_quest_offer;
       }
 
       $direct_entry_lead = $this->buildDirectEntryStorylineLeadDialogue($campaign_id, $entity_ref, $display_name, $player_message, $room_id, $dungeon_data, $character_id);
@@ -276,8 +307,11 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
    */
 
   protected function looksLikeQuestTurnInHandoff(string $normalized): bool {
-    return (bool) preg_match('/\b(?:here(?:\'?s| is| are)|i(?:\'?m| am)?\s*(?:bringing|brought)|turn(?:ing)?\s*in|hand(?:ing)?\s*(?:over|in)|deliver(?:ed|ing)?|for you)\b/u', $normalized)
-      && (bool) preg_match('/\b(?:item|items|component|components|material|materials|bottle|bottles|torch|wine|package|parcel|supplies|goods|book|books|spellbook|spellbooks|stuff)\b/u', $normalized);
+    if ((bool) preg_match('/\b(?:here\s+you\s+go|here\s+it\s+is|here\s+they\s+are|got\s+what\s+you\s+need(?:ed)?|have\s+what\s+you\s+need(?:ed)?)\b/u', $normalized)) {
+      return TRUE;
+    }
+    return (bool) preg_match('/\b(?:here(?:\'?s| is| are)|i(?:\'?m| am)?\s*(?:bringing|brought)|did\s+i\s+get|i\s+got|i\s+found|turn(?:ing)?\s*in|hand(?:ing)?\s*(?:over|in)|deliver(?:ed|ing)?|for you)\b/u', $normalized)
+      && (bool) preg_match('/\b(?:item|items|component|components|material|materials|bottle|bottles|torch|wine|package|parcel|supplies|goods|book|books|spellbook|spellbooks|sample|samples|resonance|resonance_sample|codex|tome|journal|stuff)\b/u', $normalized);
   }
 
   /**
@@ -604,7 +638,8 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
       if ($lead_location !== '') {
         $line .= ' at ' . $lead_location;
       }
-      $notes = trim((string) ($contact['lead_location']['notes'] ?? $contact['quest_giver']['relationship_state']['notes'] ?? $contact['synopsis'] ?? ''));
+      $raw_notes = trim((string) ($contact['lead_location']['notes'] ?? $contact['quest_giver']['relationship_state']['notes'] ?? $contact['synopsis'] ?? ''));
+      $notes = $this->sanitizeStorylineLeadNotesForDialogue($raw_notes);
       if ($notes !== '') {
         $line .= '. ' . $notes;
       }
@@ -656,25 +691,52 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
     $storyline_name = trim((string) ($selected_contact['name'] ?? ''));
     $quest_giver_name = trim((string) ($selected_contact['quest_giver']['display_name'] ?? ''));
     $lead_location = trim((string) ($selected_contact['lead_location']['label'] ?? ''));
-    $lead_notes = trim((string) ($selected_contact['quest_giver']['notes'] ?? $selected_contact['quest_giver']['relationship_state']['notes'] ?? $selected_contact['lead_location']['notes'] ?? ''));
+    $raw_notes = trim((string) (
+      $selected_contact['quest_giver']['notes']
+      ?? $selected_contact['quest_giver']['relationship_state']['notes']
+      ?? $selected_contact['lead_location']['notes']
+      ?? ''
+    ));
+    $lead_notes = $this->sanitizeStorylineLeadNotesForDialogue($raw_notes);
     if ($quest_giver_name === '' && $storyline_name === '') {
       return NULL;
     }
 
     $line = '';
     if ($storyline_name !== '') {
-      $line .= 'For ' . $storyline_name . ', ';
+      $line .= 'for ' . $storyline_name . ', ';
     }
     $line .= 'look for ' . ($quest_giver_name !== '' ? $quest_giver_name : 'my contact');
     if ($lead_location !== '') {
       $line .= ' at ' . $lead_location;
     }
     if ($lead_notes !== '') {
-      $line .= '; ' . $this->trimNpcDialogueClause($lead_notes);
+      $line .= ' — ' . $this->trimNpcDialogueClause($lead_notes);
+    }
+    else {
+      $line = ucfirst($line);
     }
 
-    $prefix = $display_name !== '' ? 'If you want work, ' : '';
-    return '"' . $prefix . $line . '."';
+    $prefix = $display_name !== '' ? 'If you want work outside the tavern, ' : '';
+    return '"' . $prefix . ($prefix === '' ? ucfirst($line) : $line) . '."';
+  }
+
+  /**
+   * Strip internal authoring metadata (Trigger:, Gate:, snake/kebab IDs) from spoken lead notes.
+   */
+  protected function sanitizeStorylineLeadNotesForDialogue(string $notes): string {
+    $notes = trim($notes);
+    if ($notes === '') {
+      return '';
+    }
+    // Strip trailing authoring metadata clauses starting with Trigger: or Gate:.
+    $notes = preg_replace('/\s*\b(?:Trigger|Gate)\s*:.*$/is', '', $notes) ?? $notes;
+    // Replace third-person authoring phrasing ("wants the party to") with natural second-person dialogue ("needs someone to").
+    $notes = preg_replace('/\bwants\s+the\s+party\s+to\b/i', 'needs someone to', $notes) ?? $notes;
+    $notes = preg_replace('/\bthe\s+party\b/i', 'you', $notes) ?? $notes;
+    // Strip raw kebab-case or snake_case quest/entity IDs if any remain.
+    $notes = preg_replace('/\b(?:quest|actor|room|scene)\s+[a-z0-9]+(?:[-_][a-z0-9]+)+\b/i', 'that task', $notes) ?? $notes;
+    return trim($notes);
   }
 
   /**
@@ -716,11 +778,12 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
     );
 
     $storyline_name = trim((string) ($selected_contact['name'] ?? ''));
-    $summary = trim((string) (
+    $raw_summary = trim((string) (
       $selected_contact['entry_point']['trigger_text']
       ?? $selected_contact['entry_point']['detail_summary']
       ?? ''
     ));
+    $summary = $this->sanitizeStorylineLeadNotesForDialogue($raw_summary);
     if ($storyline_name === '' && $summary === '') {
       return NULL;
     }
@@ -788,7 +851,8 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
       /** @var \Drupal\dungeoncrawler_content\Service\QuestGeneratorService $quest_generator */
       $quest_generator = \Drupal::service('dungeoncrawler_content.quest_generator');
       $canonical_room_id = trim((string) (
-        $selected_contact['lead_location']['scene_id']
+        $selected_contact['lead_location']['location_id']
+        ?? $selected_contact['lead_location']['scene_id']
         ?? $selected_contact['quest_giver']['relationship_state']['scene_id']
         ?? $selected_contact['lead_location']['chapter_id']
         ?? $this->resolveRoomSlugForQuery($campaign_id, $room_id, $dungeon_data)
@@ -1032,6 +1096,16 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
       return strcmp((string) ($a->quest_name ?? ''), (string) ($b->quest_name ?? ''));
     });
 
+    if ($rows !== [] && count($rows) > 1) {
+      $non_meta_rows = array_values(array_filter(
+        $rows,
+        static fn(object $row): bool => strtolower(trim((string) ($row->source_template_id ?? ''))) !== 'tavern_storyline_leads'
+      ));
+      if ($non_meta_rows !== []) {
+        $rows = $non_meta_rows;
+      }
+    }
+
     $lines = [];
     foreach ($rows as $row) {
       $line = $this->buildQuestgiverQuestDialogueLine($row, $display_name);
@@ -1058,7 +1132,7 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
     }, $lines);
     $lines = array_values(array_filter($lines, static fn(string $line): bool => $line !== ''));
 
-    return '"' . implode(' ', $lines) . '"';
+    return '"' . implode("\n\n", $lines) . '"';
   }
 
   /**
@@ -1085,17 +1159,30 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
       $dialogue_variables
     );
     $status = strtolower(trim((string) ($row->status ?? 'offered')));
+    $normalized_quest_name = strtolower(preg_replace('/[^a-z0-9\s]+/i', '', $quest_name) ?? $quest_name);
+    $normalized_objective = strtolower(preg_replace('/[^a-z0-9\s]+/i', '', $objective_hint) ?? $objective_hint);
+    $objective_repeats_title = $normalized_quest_name !== ''
+      && $normalized_objective !== ''
+      && (
+        str_starts_with($normalized_objective, $normalized_quest_name)
+        || str_starts_with($normalized_quest_name, $normalized_objective)
+        || similar_text($normalized_quest_name, $normalized_objective) / max(strlen($normalized_quest_name), 1) >= 0.72
+      );
 
     // TODO: Replace generic questgiver phrasing with an actor-specific dialogue tree subsystem.
     if ($status === 'active') {
       $line = "You're currently working on " . $quest_name . '.';
-      if ($objective_hint !== '') {
-        $line .= ' Start by ' . $this->trimNpcDialogueClause($objective_hint);
+      if ($objective_hint !== '' && !$objective_repeats_title) {
+        $line .= ' ' . $this->trimNpcDialogueClause($objective_hint);
       }
-      elseif ($description_hint !== '') {
-        $line .= ' A good place to begin is ' . $this->trimNpcDialogueClause($description_hint);
+      elseif ($description_hint !== '' && !$objective_repeats_title) {
+        $line .= ' ' . $this->trimNpcDialogueClause($description_hint);
       }
       return $line;
+    }
+
+    if ($objective_repeats_title && $objective_hint !== '') {
+      return 'I have an assignment for you: ' . $this->trimNpcDialogueClause($objective_hint);
     }
 
     $line = 'I have an assignment for you: ' . $quest_name . '.';
@@ -1273,10 +1360,33 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
 
     $associated_item_names = [];
     foreach ((array) ($contents['items'] ?? []) as $item) {
-      if (!is_array($item) || trim((string) ($item['quest_association'] ?? '')) !== $template_id) {
+      if (!is_array($item)) {
         continue;
       }
+      $quest_association = trim((string) ($item['quest_association'] ?? ''));
       $name = trim((string) ($item['name'] ?? ''));
+      $item_id = trim((string) ($item['content_id'] ?? $item['id'] ?? ''));
+      if (($quest_association === '' || $name === '' || $name === 'Unknown') && $item_id !== '') {
+        $reg_row = $this->database->select('dungeoncrawler_content_registry', 'r')
+          ->fields('r', ['name', 'schema_data'])
+          ->condition('content_type', 'item')
+          ->condition('content_id', $item_id)
+          ->range(0, 1)
+          ->execute()
+          ->fetchAssoc();
+        if (is_array($reg_row)) {
+          $reg_schema = json_decode((string) ($reg_row['schema_data'] ?? '{}'), TRUE);
+          if ($quest_association === '' && is_array($reg_schema)) {
+            $quest_association = trim((string) ($reg_schema['quest_association'] ?? ''));
+          }
+          if ($name === '' || $name === 'Unknown') {
+            $name = trim((string) ($reg_row['name'] ?? ($reg_schema['name'] ?? '')));
+          }
+        }
+      }
+      if ($quest_association !== $template_id) {
+        continue;
+      }
       if ($name !== '') {
         $associated_item_names[$name] = ($associated_item_names[$name] ?? 0) + 1;
       }
@@ -1453,6 +1563,14 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
         }
       }
       break;
+    }
+    if ($template_ids === []) {
+      $template_ids = match ($giver_content_id) {
+        'tavern_keeper' => ['gather_wine', 'gather_torch_components', 'tavern_storyline_leads'],
+        'scholar_npc' => ['collect_spellbooks', 'stabilize_arcane_resonance'],
+        'gribbles_rindsworth' => ['follow_the_whispers', 'recover_blackmail_ledger'],
+        default => [],
+      };
     }
 
     $template_ids = array_values(array_unique($template_ids));
@@ -2232,9 +2350,16 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
    * Find the first non-empty description in a nested objective tree.
    */
 
-  protected function findFirstObjectiveDescription(array $objectives): string {
+  protected function findFirstObjectiveDescription(array $objectives, bool $require_incomplete = TRUE): string {
     foreach ($objectives as $objective) {
       if (!is_array($objective)) {
+        continue;
+      }
+      if ($require_incomplete && !empty($objective['completed'])) {
+        $child_description = $this->findFirstObjectiveDescription((array) ($objective['children'] ?? []), TRUE);
+        if ($child_description !== '') {
+          return $child_description;
+        }
         continue;
       }
 
@@ -2243,10 +2368,14 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
         return $description;
       }
 
-      $child_description = $this->findFirstObjectiveDescription((array) ($objective['children'] ?? []));
+      $child_description = $this->findFirstObjectiveDescription((array) ($objective['children'] ?? []), $require_incomplete);
       if ($child_description !== '') {
         return $child_description;
       }
+    }
+
+    if ($require_incomplete) {
+      return $this->findFirstObjectiveDescription($objectives, FALSE);
     }
 
     return '';
