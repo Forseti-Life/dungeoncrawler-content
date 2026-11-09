@@ -891,6 +891,11 @@
   border-color: color-mix(in srgb, #b91c1c 55%, var(--panel-border));
 }
 
+.game-shell__sync-banner[data-runtime-sync-health="resyncing"] {
+  background: color-mix(in srgb, #2563eb 16%, var(--panel));
+  color: var(--text);
+}
+
 .game-shell__sync-banner[hidden] {
   display: none;
 }

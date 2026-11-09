@@ -316,6 +316,44 @@ function labelTextOf(banner) {
     );
   }
 
+  // --- Behavior: synchronization and independent event-stream waits --------
+  {
+    const dom = buildDom({ includeChatBanner: true });
+    const bus = makeBus();
+    const panel = new StatusPanel(dom.container, bus);
+    panel.init();
+    bus.emit('game:backend-request-start', { requestId: 'old-load', label: 'Hydrating encounter state...' });
+    bus.emit('runtime:sync-health-changed', { syncHealth: 'resyncing' });
+    assert(!dom.chatBanner.hidden && /resynchronize game state/.test(labelTextOf(dom.chatBanner)),
+      'background resync is visible and takes priority over an older hydration request');
+    assert(labelTextOf(dom.mapBanner) === labelTextOf(dom.chatBanner), 'sync status is identical in map and chat');
+    panel._backendRequests.get('runtime-sync-health').startedAt = 1;
+    bus.emit('runtime:sync-health-changed', { syncHealth: 'degraded' });
+    assert(panel._backendRequests.get('runtime-sync-health').startedAt === 1,
+      'continued synchronization preserves the slow-wait timer');
+    bus.emit('runtime:event-stream-health-changed', { eventStreamHealth: 'degraded' });
+    bus.emit('runtime:event-stream-health-changed', { eventStreamHealth: 'healthy' });
+    assert(/out of sync/.test(labelTextOf(dom.chatBanner)),
+      'event-stream recovery cannot clear an authoritative synchronization warning');
+    bus.emit('runtime:sync-health-changed', { syncHealth: 'read_only_desynced' });
+    assert(/actions are paused/.test(labelTextOf(dom.chatBanner)),
+      'read-only synchronization explicitly explains why actions are unavailable');
+    bus.emit('runtime:sync-health-changed', { syncHealth: 'degraded' });
+    bus.emit('game:backend-request-end', { requestId: 'old-load' });
+    assert(!dom.chatBanner.hidden && /out of sync/.test(labelTextOf(dom.chatBanner)),
+      'ordinary request completion cannot hide an unresolved synchronization notice');
+    bus.emit('runtime:event-stream-health-changed', { eventStreamHealth: 'degraded' });
+    bus.emit('game:backend-request-start', { requestId: 'other-load', label: 'Loading room...' });
+    bus.emit('runtime:sync-health-changed', { syncHealth: 'healthy' });
+    assert(!dom.chatBanner.hidden && /actor responses/.test(labelTextOf(dom.chatBanner)),
+      'actor/event-stream delays remain visible after authoritative state recovers');
+    bus.emit('runtime:event-stream-health-changed', { eventStreamHealth: 'healthy' });
+    assert(!dom.chatBanner.hidden && /Loading room/.test(labelTextOf(dom.chatBanner)),
+      'healthy synchronization preserves unrelated requests still waiting on the server');
+    bus.emit('game:backend-request-end', { requestId: 'other-load' });
+    assert(dom.chatBanner.hidden && dom.mapBanner.hidden, 'both banners clear when all independent waits recover');
+  }
+
   // --- Behavior: template markup missing (graceful degradation) -------------
   {
     const dom = buildDom({ includeChatBanner: false });

@@ -202,6 +202,114 @@ function baseResponse(overrides = {}) {
     assert(sent === false, 'no authoritative request is issued while blocked');
   })();
 
+  console.log('=== Visible synchronization and retry lifecycle ===');
+  (() => {
+    const banner = { hidden: true, textContent: '', dataset: {} };
+    const root = { querySelector: () => banner };
+    const shell = Object.create(GameShell.prototype);
+    shell.container = { querySelector: () => null, closest: () => root };
+    shell._renderRuntimeSyncBanner('resyncing');
+    assert(!banner.hidden && /Waiting on server/.test(banner.textContent),
+      'nested shell containers show a visible informational resync banner');
+    shell._renderRuntimeSyncBanner('healthy');
+    assert(banner.hidden && banner.textContent === '', 'committed healthy state clears the shell notice');
+  })();
+
+  (() => {
+    const events = [];
+    const coord = new GameCoordinator(849, { bus: { emit: (name, data) => events.push({ name, data }) } });
+    coord._wirePhaseEvents();
+    coord.runtimeStateStore.noteEventStreamFailure({ code: 'event_poll_failed' });
+    assert(events.some(e => e.name === 'runtime:event-stream-health-changed' && e.data.eventStreamHealth === 'degraded'),
+      'failed actor/event polls publish visible health instead of only logging');
+    coord.runtimeStateStore.noteEventStreamSuccess();
+    assert(events.some(e => e.name === 'runtime:event-stream-health-changed' && e.data.eventStreamHealth === 'healthy'),
+      'event-stream recovery publishes its own completion');
+    assert(coord.runtimeStateStore.getSyncHealth() === 'healthy', 'stream feedback does not alter authoritative health');
+  })();
+
+  await (async () => {
+    const events = [];
+    let resolveState;
+    const shell = Object.create(GameShell.prototype);
+    shell.bus = { emit: (name, data) => events.push({ name, data }) };
+    shell.resolveLaunchCharacterRuntimeContext = () => ({ instanceId: 'pc-1', characterId: 1 });
+    shell.gameCoordinator = {
+      api: { getState: () => new Promise(resolve => { resolveState = resolve; }) },
+      applyAuthoritativeUpdate() {},
+    };
+    const pending = shell.syncCoordinatorStateFromServer('crypt');
+    const key = shell._coordinatorStateSyncInFlightKey;
+    assert(events.some(e => e.name === 'game:backend-request-start' && /synchronize/.test(e.data.label)),
+      'room/actor reconciliation reports a server wait before the request completes');
+    assert(await shell.syncCoordinatorStateFromServer('crypt') === false
+      && shell._coordinatorStateSyncInFlightKey === key, 'a duplicate sync cannot release the active request lock');
+    resolveState({ success: true, active_room_id: 'crypt', action_contract: { actor_id: 'pc-1' } });
+    assert(await pending === true, 'the authoritative reconciliation still applies normally');
+    assert(events.filter(e => e.name === 'game:backend-request-end').length === 1,
+      'only the owning request clears its waiting status');
+    const older = shell.syncCoordinatorStateFromServer('lab');
+    const finishOlder = resolveState;
+    const newer = shell.syncCoordinatorStateFromServer('hall');
+    const finishNewer = resolveState;
+    const newerKey = shell._coordinatorStateSyncInFlightKey;
+    finishOlder({ success: true, active_room_id: 'lab' });
+    await older;
+    assert(shell._coordinatorStateSyncInFlightKey === newerKey,
+      'an older response cannot release the newer reconciliation request lock');
+    finishNewer({ success: true, active_room_id: 'crypt' });
+    assert(await newer === false && events.some(e => e.name === 'chat:system-message' && /older room state/.test(e.data.text)),
+      'a discarded stale response explains the retained view instead of silently appearing unresponsive');
+  })();
+
+  await (async () => {
+    const events = [];
+    let finishRetry;
+    let calls = 0;
+    const enc = Object.create(EncounterSystem.prototype);
+    enc._coordinatorActionLocks = new Map();
+    enc.bus = { emit: (name, data) => events.push({ name, data }) };
+    enc.shell = { guardGameplayMutation: () => false };
+    enc.announceGameState = () => {};
+    enc._refreshSystemLogView = () => {};
+    const coordinator = {
+      campaignId: 849,
+      phaseManager: { stateVersion: 7 },
+      runtimeStateStore: { setSyncHealth() {} },
+      applyAuthoritativeUpdate() {},
+      api: { sendAction: async () => {
+        calls++;
+        if (calls === 1) {
+          throw Object.assign(new Error('state version mismatch'), {
+            status: 422, payload: { error: 'state version mismatch', game_state: {} },
+          });
+        }
+        return new Promise(resolve => { finishRetry = resolve; });
+      } },
+    };
+    const pending = enc._sendCoordinatorActionWithResync(coordinator, 'strike', 'pc-1', {});
+    await Promise.resolve();
+    await Promise.resolve();
+    assert(events.some(e => e.name === 'game:backend-request-start' && /retry your action/.test(e.data.label)),
+      'state-version recovery explains the automatic retry while it is in flight');
+    finishRetry({ success: true });
+    assert((await pending).success && calls === 2, 'recovery still retries at most once');
+    assert(events.some(e => e.name === 'game:backend-request-end' && e.data.source === 'encounter-resync'),
+      'the action retry clears its own waiting status');
+    calls = 0;
+    coordinator.api.sendAction = async () => {
+      calls++;
+      throw Object.assign(new Error('state version mismatch'), {
+        status: 422, payload: { error: 'state version mismatch', game_state: {} },
+      });
+    };
+    const failure = await enc._sendCoordinatorActionWithResync(coordinator, 'strike', 'pc-1', {});
+    assert(failure.success === false && /state version mismatch/.test(failure.error) && calls === 2,
+      'a rejected retry remains an explicit failure rather than retrying indefinitely');
+    assert(events.filter(e => e.name === 'game:backend-request-end').length === 2,
+      'a failed retry also releases its own waiting status');
+  })();
+
   console.log('=== Finding 8: shell-owned projection reports each in-scope panel on commit ===');
   (() => {
     const shell = Object.create(GameShell.prototype);

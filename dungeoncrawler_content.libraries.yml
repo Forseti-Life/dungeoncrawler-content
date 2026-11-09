@@ -189,7 +189,7 @@ character-step-8:
 
 # Hex Map with PixiJS + ECS
 hexmap:
-  version: 20260616-gm-nonturn-prefix-2
+  version: 20261109-visible-runtime-sync-1
   js:
     # PixiJS CDN (version locked for stability)
     https://cdn.jsdelivr.net/npm/pixi.js@7.3.2/dist/pixi.min.js: { type: external, minified: true }
@@ -229,7 +229,7 @@ hexmap:
 # All js/v2/** modules are imported inside hexmap-v2.js (ES module imports);
 # only the entry point is listed here.
 hexmap-v2:
-  version: 20261109-runtime-snapshot-sync-1
+  version: 20261109-visible-runtime-sync-1
   js:
     # PixiJS CDN (version locked — same as hexmap library)
     https://cdn.jsdelivr.net/npm/pixi.js@7.3.2/dist/pixi.min.js: { type: external, minified: true }

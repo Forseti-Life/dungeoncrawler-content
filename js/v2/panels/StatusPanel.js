@@ -80,6 +80,8 @@ export class StatusPanel {
       this.bus.on('game:server-available',   () => { if (this._el.unavailBanner) this._el.unavailBanner.hidden = true; }),
       this.bus.on('game:backend-request-start', (d) => this.showBackendWait(d)),
       this.bus.on('game:backend-request-end',   (d) => this.hideBackendWait(d)),
+      this.bus.on('runtime:sync-health-changed', (d) => this.showRuntimeSyncStatus(d)),
+      this.bus.on('runtime:event-stream-health-changed', (d) => this.showEventStreamStatus(d)),
       this.bus.on('hex:hovered',             (d) => this.updateHoveredHex(d?.q ?? null, d?.r ?? null)),
       this.bus.on('hex:out',                 () => this.updateHoveredHex(null, null)),
       this.bus.on('hex:clicked',             (d) => this.updateSelectedHex(d?.q ?? 0, d?.r ?? 0)),
@@ -258,7 +260,8 @@ export class StatusPanel {
 
     this._backendRequests.set(requestId, {
       label: String(data?.label || 'Waiting for backend response...').trim() || 'Waiting for backend response...',
-      startedAt: Date.now(),
+      startedAt: this._backendRequests.get(requestId)?.startedAt ?? Date.now(),
+      priority: Number(data?.priority) || 0,
     });
     this._renderBackendWait();
   }
@@ -271,6 +274,35 @@ export class StatusPanel {
 
     this._backendRequests.delete(requestId);
     this._renderBackendWait();
+  }
+
+  showRuntimeSyncStatus({ syncHealth } = {}) {
+    const requestId = 'runtime-sync-health';
+    if (syncHealth === 'healthy') {
+      this.hideBackendWait({ requestId });
+      return;
+    }
+    const labels = {
+      resyncing: 'Waiting on server to resynchronize game state. Actor responses and actions may be delayed.',
+      degraded: 'Game state is out of sync. Waiting on server for an authoritative update; refresh if this persists.',
+      read_only_desynced: 'Game actions are paused. Waiting on server to restore synchronized state; refresh if this persists.',
+    };
+    if (labels[syncHealth]) {
+      this.showBackendWait({ requestId, label: labels[syncHealth], priority: 20 });
+    }
+  }
+
+  showEventStreamStatus({ eventStreamHealth } = {}) {
+    const requestId = 'runtime-event-stream';
+    if (eventStreamHealth === 'healthy') {
+      this.hideBackendWait({ requestId });
+    } else if (eventStreamHealth === 'degraded') {
+      this.showBackendWait({
+        requestId,
+        label: 'Waiting on server to reconnect actor responses and game updates. The transcript may be delayed.',
+        priority: 10,
+      });
+    }
   }
 
   /**
@@ -318,7 +350,8 @@ export class StatusPanel {
     }
 
     const oldest = active.reduce((carry, item) => (
-      !carry || item.startedAt < carry.startedAt ? item : carry
+      !carry || item.priority > carry.priority
+        || (item.priority === carry.priority && item.startedAt < carry.startedAt) ? item : carry
     ), null);
     const elapsed = Date.now() - oldest.startedAt;
     const isSlow = elapsed >= this._backendWaitThresholdMs;

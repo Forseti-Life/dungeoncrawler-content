@@ -1534,6 +1534,12 @@ export class EncounterSystem {
       if (!isStateVersionMismatch) {
         return fallbackResult;
       }
+      this.bus?.emit?.('game:backend-request-start', {
+        requestId: lockKey,
+        label: 'Waiting on server to resynchronize game state and retry your action...',
+        source: 'encounter-resync',
+        priority: 15,
+      });
       coordinator?.runtimeStateStore?.setSyncHealth?.('resyncing', {
         code: 'state_version_mismatch',
         actionType: type,
@@ -1614,6 +1620,7 @@ export class EncounterSystem {
         return this._toCoordinatorFailureResult(retryError);
       }
     } finally {
+      this.bus?.emit?.('game:backend-request-end', { requestId: lockKey, source: 'encounter-resync' });
       if (lockKey) {
         this._coordinatorActionLocks.delete(lockKey);
         this.bus?.emit?.('encounter:action-lock-changed', {

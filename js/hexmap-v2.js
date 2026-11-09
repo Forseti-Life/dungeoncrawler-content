@@ -15,7 +15,7 @@
  * During Phase 10 parallel testing it runs alongside the old hexmap library.
  */
 
-import { GameShell } from './v2/GameShell.js?v=20261025-search-narrator-1';
+import { GameShell } from './v2/GameShell.js?v=20261109-visible-runtime-sync-1';
 
 const HEXMAP_V2_ENTRY_VERSION = '20260828-v5-map-actor-portraits-1';
 

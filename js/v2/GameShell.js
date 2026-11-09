@@ -29,7 +29,7 @@ import { HexCanvas } from './canvas/HexCanvas.js?v=20261009-module-background-1'
 import { HexTokenRenderer } from './canvas/HexTokenRenderer.js';
 import { HexFogOfWar } from './canvas/HexFogOfWar.js';
 import { HexInputHandler } from './canvas/HexInputHandler.js';
-import { EncounterSystem } from './systems/EncounterSystem.js?v=20260909-tab-runtime-consistency-1';
+import { EncounterSystem } from './systems/EncounterSystem.js?v=20261109-visible-runtime-sync-1';
 import { NavigationSystem } from './systems/NavigationSystem.js?v=20261024-campaign-storylines-1';
 import { PlayerAutomation } from './systems/PlayerAutomation.js?v=20260608-v2-chat-persistence-dev-1';
 import { QuestSystem } from './systems/QuestSystem.js?v=20260608-v2-quest-summary-merge-2';
@@ -41,7 +41,7 @@ import { QuestPanel } from './panels/QuestPanel.js?v=20260723-v2-quest-storyline
 import { InventoryPanel } from './panels/InventoryPanel.js?v=20260909-tab-runtime-consistency-1';
 import { CharacterPanel } from './panels/CharacterPanel.js?v=20260909-tab-runtime-consistency-1';
 import { RoomViewPanel } from './panels/RoomViewPanel.js?v=20261009-module-background-1';
-import { StatusPanel } from './panels/StatusPanel.js?v=20260828-v4-chat-backend-wait-1';
+import { StatusPanel } from './panels/StatusPanel.js?v=20261109-visible-runtime-sync-1';
 import { normalizeInventoryState } from './utils/inventory-utils.js';
 import { normalizeQuestSummaryPayload } from './utils/quest-utils.js?v=20260607-quest-summary-const-4';
 import { normalizeAuthoritativeStateActorRef } from './utils/authoritative-state-utils.js';
@@ -51,7 +51,7 @@ import { GameShellTargetPickController } from './shell/GameShellTargetPickContro
 import { GameShellQuestCoordinator } from './shell/GameShellQuestCoordinator.js?v=20261024-campaign-storylines-1';
 import { GameShellRoomGenerationCoordinator } from './shell/GameShellRoomGenerationCoordinator.js';
 import { SpriteService } from '../SpriteService.js?v=20260828-v5-map-actor-portraits-1';
-import { GameCoordinator } from '../game-coordinator/GameCoordinator.js?v=20260909-tab-runtime-consistency-1';
+import { GameCoordinator } from '../game-coordinator/GameCoordinator.js?v=20261109-visible-runtime-sync-1';
 import {
   EntityManager,
   PositionComponent,
@@ -2415,6 +2415,8 @@ export class GameShell {
       return false;
     }
 
+    let requestId = null;
+    let syncKey = null;
     try {
       const fallbackRuntimeContext = this.resolveLaunchCharacterRuntimeContext?.() || {};
       const actorRef = String(
@@ -2427,7 +2429,7 @@ export class GameShell {
         || fallbackRuntimeContext?.characterId
         || 0
       ) || null;
-      const syncKey = [
+      syncKey = [
         String(expectedRoomId || this.resolveActiveRoomId?.() || this.activeRoomId || '').trim(),
         actorRef,
         String(characterId || ''),
@@ -2436,6 +2438,13 @@ export class GameShell {
         return false;
       }
       this._coordinatorStateSyncInFlightKey = syncKey;
+      requestId = `coordinator-sync-${syncKey}-${Date.now()}`;
+      this.bus?.emit?.('game:backend-request-start', {
+        requestId,
+        label: 'Waiting on server to synchronize this room and actor. Responses and actions may be delayed...',
+        source: 'runtime-sync',
+        priority: 10,
+      });
 
       const requestActorRef = normalizeAuthoritativeStateActorRef(actorRef, { runtimeContext: fallbackRuntimeContext });
       const state = await this.gameCoordinator.api.getState({
@@ -2461,6 +2470,10 @@ export class GameShell {
       ).trim();
       if (state?.success) {
         if (serverRoomId && canonicalExpectedRoomId && serverRoomId !== canonicalExpectedRoomId) {
+          this.bus?.emit?.('chat:system-message', {
+            kind: 'system',
+            text: 'Server synchronization returned an older room state. Your current view was kept; refresh if it remains out of sync.',
+          });
           console.warn('[GameShell] Skipping stale coordinator resync snapshot after runtime bundle apply', {
             expectedRoomId: canonicalExpectedRoomId,
             serverRoomId,
@@ -2468,6 +2481,10 @@ export class GameShell {
           return false;
         }
         if (actorRef && responseActorRef && responseActorRef !== actorRef) {
+          this.bus?.emit?.('chat:system-message', {
+            kind: 'system',
+            text: 'Server synchronization returned a different actor state. Your selected actor was kept; refresh if responses remain delayed.',
+          });
           console.warn('[GameShell] Skipping stale coordinator resync snapshot after actor context changed', {
             requestedActorRef: actorRef,
             responseActorRef,
@@ -2490,7 +2507,12 @@ export class GameShell {
       });
       console.warn('[GameShell] Failed to resync coordinator state after runtime bundle apply', error);
     } finally {
-      this._coordinatorStateSyncInFlightKey = null;
+      if (requestId) {
+        this.bus?.emit?.('game:backend-request-end', { requestId, source: 'runtime-sync' });
+        if (this._coordinatorStateSyncInFlightKey === syncKey) {
+          this._coordinatorStateSyncInFlightKey = null;
+        }
+      }
     }
     return false;
   }
@@ -4119,12 +4141,13 @@ export class GameShell {
    */
   _renderRuntimeSyncBanner(syncHealth) {
     const root = this.container?.querySelector?.('[data-game-shell]')
+      || this.container?.closest?.('[data-game-shell]')
       || (this.container?.matches?.('[data-game-shell]') ? this.container : null);
     if (!root || typeof document === 'undefined') {
       return;
     }
     let banner = root.querySelector('#game-shell-sync-banner');
-    if (syncHealth === 'healthy' || syncHealth === 'resyncing') {
+    if (syncHealth === 'healthy') {
       if (banner) {
         banner.hidden = true;
         banner.textContent = '';
@@ -4136,7 +4159,7 @@ export class GameShell {
       banner.id = 'game-shell-sync-banner';
       banner.className = 'game-shell__sync-banner';
       banner.setAttribute('role', 'status');
-      banner.setAttribute('aria-live', 'assertive');
+      banner.setAttribute('aria-live', 'polite');
       const tabs = root.querySelector('.game-shell__tabs');
       if (tabs && tabs.parentNode) {
         tabs.parentNode.insertBefore(banner, tabs.nextSibling);
@@ -4146,7 +4169,9 @@ export class GameShell {
     }
     banner.dataset.runtimeSyncHealth = syncHealth;
     banner.hidden = false;
-    banner.textContent = syncHealth === 'read_only_desynced'
+    banner.textContent = syncHealth === 'resyncing'
+      ? 'Waiting on server to resynchronize game state. Actor responses and actions may be delayed.'
+      : syncHealth === 'read_only_desynced'
       ? 'Runtime desynced: gameplay actions are blocked until authoritative server state resyncs. Tabs shown may be stale.'
       : 'Runtime sync degraded: waiting on authoritative server state. Some actions may be delayed until resync completes.';
   }

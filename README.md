@@ -22,6 +22,14 @@ Primary action entry point:
 
 Legacy combat mutation endpoints under `/api/combat/*` are non-canonical support surfaces; player action flow is coordinator-driven.
 
+Client/server resynchronization is visible in the shared map/chat waiting
+status and shell sync banner, including action retries and delayed actor/event
+updates. Sync notices take priority over ordinary loading, remain until the
+owning state/read recovers, and name the server dependency without treating
+transient recovery as a gameplay error. Authoritative state failures still
+retain their normal degraded/read-only protections; event-stream recovery does
+not falsely clear a state-sync failure.
+
 ### Character Setup Assistant
 
 `/charactersetup` uses a left-hand step/quicklink sidebar and a larger right

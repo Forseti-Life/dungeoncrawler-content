@@ -7,7 +7,7 @@
 import { EntityManager, PositionComponent, RenderComponent, IdentityComponent, EntityType, RenderSystem, MovementComponent, StatsComponent, MovementSystem, MovementMode, ActionsComponent, ActionType, ActionCost, CombatComponent, Team, TurnManagementSystem, CombatState, CombatSystem, AttackResult } from './ecs/index.js';
 import combatApi from './hexmap-api.js';
 import { HexmapStateSync } from './HexmapStateSync.js';
-import { GameCoordinator } from './game-coordinator/GameCoordinator.js?v=20260804-v2-action-bar-rca-logs-2';
+import { GameCoordinator } from './game-coordinator/GameCoordinator.js?v=20261109-visible-runtime-sync-1';
 import { ChatSessionApi } from './ChatSessionApi.js';
 import { SpriteService } from './SpriteService.js';
 

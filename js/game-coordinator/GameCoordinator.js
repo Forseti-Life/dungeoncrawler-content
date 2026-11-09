@@ -1203,6 +1203,12 @@ export class GameCoordinator {
    */
   _wirePhaseEvents() {
     this._unsubscribers.push(
+      this.runtimeStateStore.onEventStreamHealthChanged(({ eventStreamHealth, reason }) => {
+        this.hexmap?.bus?.emit?.('runtime:event-stream-health-changed', {
+          eventStreamHealth,
+          reason: reason || null,
+        });
+      }),
       this.runtimeStateStore.onSyncHealthChanged(({ syncHealth, reason }) => {
         this.hexmap?.stateManager?.set?.('runtimeSyncHealth', syncHealth);
         this.hexmap?.bus?.emit?.('runtime:sync-health-changed', {
