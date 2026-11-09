@@ -2,10 +2,18 @@
 
 namespace Drupal\dungeoncrawler_content\Service\GmSubsystem;
 
+use Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessManagementService;
+
 /**
  * Dedicated GM model invocation boundary.
  */
 class GmModelInvocationService {
+
+  protected AgentHarnessManagementService $harnessManagement;
+
+  public function __construct(?AgentHarnessManagementService $harnessManagement = NULL) {
+    $this->harnessManagement = $harnessManagement ?? new AgentHarnessManagementService();
+  }
 
   /**
    * Invoke the GM model through a stable policy boundary.
@@ -28,17 +36,22 @@ class GmModelInvocationService {
       $debug_meta['context_trim'] = $trim_meta;
     }
 
+    $execution_options = $this->harnessManagement->resolveExecutionOptions(
+      AgentHarnessManagementService::PROFILE_RUNTIME_DIALOGUE,
+      [
+        'system_prompt' => $system_prompt,
+        'max_tokens' => $max_tokens,
+        'skip_cache' => TRUE,
+      ],
+    );
+
     try {
       $result = $callbacks->invokeTimedModelCall(
         $prompt,
         'dungeoncrawler_content',
         $operation,
         $context_data,
-        [
-          'system_prompt' => $system_prompt,
-          'max_tokens' => $max_tokens,
-          'skip_cache' => TRUE,
-        ],
+        $execution_options,
         $debug_meta
       );
     }

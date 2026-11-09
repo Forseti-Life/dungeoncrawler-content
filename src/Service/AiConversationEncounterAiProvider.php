@@ -5,6 +5,7 @@ namespace Drupal\dungeoncrawler_content\Service;
 use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\ai_conversation\Service\AIApiService;
+use Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessManagementService;
 
 /**
  * Encounter AI provider backed by the ai_conversation integration layer.
@@ -36,17 +37,27 @@ class AiConversationEncounterAiProvider implements EncounterAiProviderInterface 
    */
   protected AiSessionManager $sessionManager;
   protected ActorDecisionContractService $decisionContractService;
+  protected AgentHarnessManagementService $harnessManagement;
 
   /**
    * Constructs provider.
    */
-  public function __construct(?AIApiService $ai_api_service, LoggerChannelFactoryInterface $logger_factory, ConfigFactoryInterface $config_factory, StubEncounterAiProvider $fallback_provider, AiSessionManager $session_manager, ?ActorDecisionContractService $decision_contract_service = NULL) {
+  public function __construct(
+    ?AIApiService $ai_api_service,
+    LoggerChannelFactoryInterface $logger_factory,
+    ConfigFactoryInterface $config_factory,
+    StubEncounterAiProvider $fallback_provider,
+    AiSessionManager $session_manager,
+    ?ActorDecisionContractService $decision_contract_service = NULL,
+    ?AgentHarnessManagementService $harness_management = NULL,
+  ) {
     $this->aiApiService = $ai_api_service;
     $this->loggerFactory = $logger_factory;
     $this->configFactory = $config_factory;
     $this->fallbackProvider = $fallback_provider;
     $this->sessionManager = $session_manager;
     $this->decisionContractService = $decision_contract_service ?? new ActorDecisionContractService();
+    $this->harnessManagement = $harness_management ?? new AgentHarnessManagementService();
   }
 
   /**
@@ -73,11 +84,14 @@ class AiConversationEncounterAiProvider implements EncounterAiProviderInterface 
       $prompt,
       'encounter_npc_recommendation',
       $this->buildContextData($context),
-      [
-        'max_tokens' => $this->getRecommendationMaxTokens(),
-        'skip_cache' => TRUE,
-        'system_prompt' => $this->buildRecommendationSystemPrompt(),
-      ]
+      $this->harnessManagement->resolveExecutionOptions(
+        AgentHarnessManagementService::PROFILE_TACTICAL_DECISION,
+        [
+          'max_tokens' => $this->getRecommendationMaxTokens(),
+          'skip_cache' => TRUE,
+          'system_prompt' => $this->buildRecommendationSystemPrompt(),
+        ],
+      )
     );
 
     if (empty($response['success'])) {
@@ -119,11 +133,15 @@ class AiConversationEncounterAiProvider implements EncounterAiProviderInterface 
       $this->buildNarrationPrompt($context),
       'encounter_narration',
       $this->buildContextData($context),
-      [
-        'max_tokens' => $this->getNarrationMaxTokens(),
-        'skip_cache' => TRUE,
-        'system_prompt' => $this->buildNarrationSystemPrompt(),
-      ]
+      $this->harnessManagement->resolveExecutionOptions(
+        AgentHarnessManagementService::PROFILE_RUNTIME_DIALOGUE,
+        [
+          'max_tokens' => $this->getNarrationMaxTokens(),
+          'skip_cache' => TRUE,
+          'system_prompt' => $this->buildNarrationSystemPrompt(),
+          'json_object' => TRUE,
+        ],
+      )
     );
 
     if (empty($response['success'])) {

@@ -300,6 +300,7 @@ services:
     arguments:
       - '@dungeoncrawler_content.gm_actor_runtime'
       - '@dungeoncrawler_content.gm_tool_execution'
+      - '@dungeoncrawler_content.agent_harness_management'
 
   dungeoncrawler_content.game_master_subsystem:
     class: Drupal\dungeoncrawler_content\Service\GameMasterSubsystemService
@@ -427,6 +428,7 @@ services:
       - '@dungeoncrawler_content.institution_membership'
       - '@dungeoncrawler_content.faction_generation'
       - '@?ai_conversation.ai_api_service'
+      - '@dungeoncrawler_content.agent_harness_management'
 
   dungeoncrawler_content.character_wizard_hardening:
     class: Drupal\dungeoncrawler_content\Service\CharacterWizardHardeningService
@@ -524,6 +526,17 @@ services:
       - ~
       - '@dungeoncrawler_content.connector_projection'
 
+  dungeoncrawler_content.agent_harness_management:
+    class: Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessManagementService
+
+  dungeoncrawler_content.agent_harness_registry:
+    class: Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessRegistry
+    arguments:
+      - - '@dungeoncrawler_content.editor_gm_harness'
+        - '@dungeoncrawler_content.gm_actor_harness'
+        - '@dungeoncrawler_content.player_agent_harness'
+        - '@dungeoncrawler_content.character_creation_gm'
+
   # Editor-embedded GM harness. Sibling of the runtime GM stack: it must never
   # depend on game_master_subsystem or gm_tool_execution, and RoomEditorService
   # must never depend on these services in return.
@@ -532,6 +545,7 @@ services:
     arguments:
       - '@?ai_conversation.ai_api_service'
       - '@logger.factory'
+      - '@dungeoncrawler_content.agent_harness_management'
 
   dungeoncrawler_content.canonical_generation:
     class: Drupal\dungeoncrawler_content\Service\Generation\CanonicalGenerationService
@@ -676,6 +690,7 @@ services:
       - '@dungeoncrawler_content.editor_gm_intent_parser'
       - '@?ai_conversation.ai_api_service'
       - '@logger.factory'
+      - '@dungeoncrawler_content.agent_harness_management'
 
   dungeoncrawler_content.content_query:
     class: Drupal\dungeoncrawler_content\Service\ContentQuery
@@ -801,6 +816,7 @@ services:
       - '@dungeoncrawler_content.player_agent_progress_tracker'
       - '@?dungeoncrawler_content.room_chat_service'
       - '@?dungeoncrawler_content.actor_process_flow_planner'
+      - '@dungeoncrawler_content.agent_harness_management'
 
   dungeoncrawler_content.sprite_generator:
     class: Drupal\dungeoncrawler_content\Service\SpriteGenerationService
@@ -919,6 +935,7 @@ services:
       - '@dungeoncrawler_content.encounter_ai_provider.stub'
       - '@dungeoncrawler_content.ai_session_manager'
       - '@dungeoncrawler_content.actor_decision_contract'
+      - '@dungeoncrawler_content.agent_harness_management'
 
   dungeoncrawler_content.encounter_ai_integration:
     class: Drupal\dungeoncrawler_content\Service\EncounterAiIntegrationService
@@ -1467,6 +1484,8 @@ services:
 
   dungeoncrawler_content.gm_model_invocation:
     class: Drupal\dungeoncrawler_content\Service\GmSubsystem\GmModelInvocationService
+    arguments:
+      - '@dungeoncrawler_content.agent_harness_management'
 
   dungeoncrawler_content.gm_prompt_budget:
     class: Drupal\dungeoncrawler_content\Service\GmSubsystem\GmPromptBudgetService

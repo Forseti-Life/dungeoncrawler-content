@@ -4,6 +4,7 @@ namespace Drupal\dungeoncrawler_content\Service\EditorGm;
 
 use Drupal\ai_conversation\Service\AIApiService;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
+use Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessManagementService;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -20,17 +21,20 @@ class EditorGmIntentParser {
 
   public const MODULE = 'dungeoncrawler_content';
   public const OPERATION = 'editor_gm_intent';
-  public const MODEL_MAX_TOKENS = 20000;
+  public const MODEL_MAX_TOKENS = 4096;
 
   private const MAX_UTTERANCE_LENGTH = 20000;
 
   protected LoggerInterface $logger;
+  protected AgentHarnessManagementService $harnessManagement;
 
   public function __construct(
     protected ?AIApiService $ai,
     LoggerChannelFactoryInterface $loggerFactory,
+    ?AgentHarnessManagementService $harnessManagement = NULL,
   ) {
     $this->logger = $loggerFactory->get('dungeoncrawler_content');
+    $this->harnessManagement = $harnessManagement ?? new AgentHarnessManagementService();
   }
 
   /**
@@ -83,18 +87,15 @@ class EditorGmIntentParser {
       throw new \RuntimeException('editor_gm_intent_parser_unavailable');
     }
 
+    $execution_options = $this->harnessManagement->selectIntentExecutionProfile($utterance, $surface_label);
+    $execution_options['system_prompt'] = $this->systemPrompt($surface_label);
+
     $result = $this->ai->invokeModelDirect(
-      $this->buildPrompt($utterance, $context_snapshot, $registry),
+      $this->buildPrompt($utterance, $context_snapshot, $registry, $surface_label),
       self::MODULE,
       self::OPERATION,
       ['draft_id' => (string) ($context_snapshot['draft']['draft_id'] ?? '')],
-      [
-        // Each turn depends on live draft state, so a cached completion would
-        // be a correctness bug rather than an optimization.
-        'skip_cache' => TRUE,
-        'max_tokens' => self::MODEL_MAX_TOKENS,
-        'system_prompt' => $this->systemPrompt($surface_label),
-      ],
+      $execution_options,
     );
 
     if (!is_array($result) || empty($result['success'])) {
@@ -198,10 +199,40 @@ class EditorGmIntentParser {
         'reasoning' => trim((string) ($decoded['reasoning'] ?? '')),
       ];
     }
+    if ($type === 'task_queue') {
+      $raw_tasks = $decoded['tasks'] ?? NULL;
+      if (!is_array($raw_tasks) || $raw_tasks === [] || count($raw_tasks) > 8) {
+        throw new \DomainException('editor_gm_intent_task_queue_invalid');
+      }
+      $validated_tasks = [];
+      foreach (array_values($raw_tasks) as $raw_task) {
+        if (!is_array($raw_task)) {
+          throw new \DomainException('editor_gm_intent_task_queue_item_invalid');
+        }
+        $validated_tasks[] = $this->validateToolCallPayload($raw_task, $registry);
+      }
+      $next_steps = array_values(array_filter(
+        (array) ($decoded['next_steps'] ?? []),
+        static fn($step): bool => is_string($step) && trim($step) !== '',
+      ));
+      return [
+        'type' => 'task_queue',
+        'tasks' => $this->harnessManagement->orderTaskQueue($validated_tasks),
+        'reasoning' => trim((string) ($decoded['reasoning'] ?? '')),
+        'next_steps' => array_map('trim', $next_steps),
+      ];
+    }
     if ($type !== 'tool_call') {
       throw new \DomainException('editor_gm_intent_type_unsupported');
     }
 
+    return $this->validateToolCallPayload($decoded, $registry);
+  }
+
+  /**
+   * Validates one tool_call payload against the surface registry.
+   */
+  private function validateToolCallPayload(array $decoded, EditorGmToolRegistry $registry): array {
     $tool_name = (string) ($decoded['tool_name'] ?? '');
     if (!$registry->has($tool_name)) {
       throw new \DomainException(sprintf('editor_gm_intent_tool_unsupported:%s', $tool_name));
@@ -220,6 +251,13 @@ class EditorGmIntentParser {
           $argument['name']
         ));
       }
+    }
+
+    if (
+      in_array($tool_name, ['plan_storyline_draft_operations', 'apply_storyline_draft_operations', 'plan_storyline_remediation', 'apply_storyline_remediation'], TRUE)
+      && is_array($arguments['operations'] ?? NULL)
+    ) {
+      $arguments['operations'] = $this->harnessManagement->orderStorylineDraftOperations($arguments['operations']);
     }
 
     $next_steps = array_values(array_filter(
@@ -405,7 +443,8 @@ Hard rules:
   executed result and produce the final response and next steps afterward.
 
 Response shapes:
-{"type":"tool_call","tool_name":"<registered tool>","arguments":{...},"reasoning":"<one short sentence>"}
+{"type":"tool_call","tool_name":"<registered tool>","arguments":{...},"reasoning":"<one short sentence>","next_steps":["<up to 3 concrete next steps>"]}
+{"type":"task_queue","tasks":[{"tool_name":"<registered tool>","arguments":{...},"reasoning":"<step summary>"}],"reasoning":"<overall summary>","next_steps":["<up to 3 concrete next steps>"]}
 {"type":"direct_response","focus":"status|validation_review|discussion","reasoning":"<one short sentence>"}
 {"type":"clarification","question":"<decision the author must make>","options":[{"label":"<short name>","description":"<concept, purpose, relationships, and progression effect>","tradeoff":"<benefit and cost>","selection":"<self-contained direction if selected>"}]}
 PROMPT, $surface_label, $mutation_rule);
@@ -414,41 +453,20 @@ PROMPT, $surface_label, $mutation_rule);
   /**
    * Builds the grounded prompt for one turn.
    */
-  private function buildPrompt(string $utterance, array $context_snapshot, EditorGmToolRegistry $registry): string {
+  private function buildPrompt(string $utterance, array $context_snapshot, EditorGmToolRegistry $registry, string $surface_label = ''): string {
     $manifest = $registry->manifest();
-    $tools = [];
-    foreach ($manifest['families'] as $family => $definitions) {
-      foreach ($definitions as $definition) {
-        $tools[] = [
-          'name' => $definition['name'],
-          'family' => $family,
-          'mutating' => $definition['mutating'],
-          'summary' => $definition['summary'],
-          'arguments' => $definition['arguments'],
-        ];
-      }
-    }
-
-    // Every surface snapshot carries these keys; the subject key (`room`,
-    // `dungeon`, ...) is whichever the surface assembler declared.
-    $grounding = ['draft' => $context_snapshot['draft'] ?? []];
-    foreach ($context_snapshot as $key => $value) {
-      if (!in_array($key, ['tool_id', 'draft', 'validation_summary', 'publication', 'authority_boundary', 'assistant', 'tools'], TRUE)) {
-        $grounding[$key] = $value;
-      }
-    }
-    $grounding['validation_summary'] = $context_snapshot['validation_summary'] ?? [];
-    $grounding['publication'] = $context_snapshot['publication'] ?? [];
+    $tools = $this->harnessManagement->filterToolsForNaturalLanguage($manifest, $surface_label);
+    $grounding = $this->harnessManagement->compactContextForIntent($context_snapshot, $surface_label);
 
     return implode("\n\n", [
       '## Grounded editor context',
-      json_encode($grounding, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+      $this->harnessManagement->encodeCompactJson($grounding),
       '## Registered toolset',
-      json_encode($tools, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+      $this->harnessManagement->encodeCompactJson($tools),
       '## Supported command types for planning',
       implode(', ', $manifest['supported_command_types']),
       '## Required payload keys per command type',
-      json_encode($manifest['command_payload_contracts'], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+      $this->harnessManagement->encodeCompactJson($manifest['command_payload_contracts']),
       '## Author request',
       $utterance,
       '## Your response (single JSON object)',

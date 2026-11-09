@@ -555,6 +555,7 @@ class NarrationEngine {
     $prompt = implode("\n", $prompt_parts);
 
     try {
+      $harness_manager = new \Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessManagementService();
       $result = $this->aiApiService->invokeModelDirect(
         $prompt,
         'dungeoncrawler_content',
@@ -564,11 +565,14 @@ class NarrationEngine {
           'character_id' => $character_id,
           'event_type' => 'speech',
         ],
-        [
-          'system_prompt' => $this->buildNarratorSystemPrompt('speech'),
-          'max_tokens' => 200,
-          'skip_cache' => TRUE,
-        ]
+        $harness_manager->resolveExecutionOptions(
+          \Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessManagementService::PROFILE_NARRATION_BEAT,
+          [
+            'system_prompt' => $this->buildNarratorSystemPrompt('speech'),
+            'max_tokens' => 200,
+            'skip_cache' => TRUE,
+          ],
+        )
       );
 
       if (!empty($result['success']) && !empty($result['response'])) {
@@ -718,6 +722,7 @@ class NarrationEngine {
     $prompt .= "\nIf an event description is partial or uncertain, preserve that uncertainty instead of resolving it.";
 
     try {
+      $harness_manager = new \Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessManagementService();
       $result = $this->aiApiService->invokeModelDirect(
         $prompt,
         'dungeoncrawler_content',
@@ -726,12 +731,14 @@ class NarrationEngine {
           'campaign_id' => $campaign_id,
           'character_id' => $character_id,
         ],
-        [
-          'system_prompt' => $this->buildNarratorSystemPrompt('scene_beat'),
-          'max_tokens' => 400,
-          'thinking' => 'disabled',
-          'skip_cache' => TRUE,
-        ]
+        $harness_manager->resolveExecutionOptions(
+          \Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessManagementService::PROFILE_NARRATION_BEAT,
+          [
+            'system_prompt' => $this->buildNarratorSystemPrompt('scene_beat'),
+            'max_tokens' => 400,
+            'skip_cache' => TRUE,
+          ],
+        )
       );
 
       if (!empty($result['success']) && !empty($result['response'])) {

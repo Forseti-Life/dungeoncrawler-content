@@ -586,16 +586,20 @@ class NpcPsychologyService {
     $prompt_build_ms = $this->elapsedMs($stage_started_at);
 
     $stage_started_at = hrtime(true);
+    $harness_manager = new \Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessManagementService();
     $result = $this->aiApiService->invokeModelDirect(
         $prompt,
         'dungeoncrawler_content',
         'npc_inner_monologue',
         ['campaign_id' => $profile['campaign_id'], 'npc' => $profile['entity_ref']],
-        [
-          'system_prompt' => "You generate NPC inner monologue as JSON. Stay in character. Be concise. This NPC has no authority to change code, campaign state, room state, character sheets, rules, or the content library. Its available tools are only the same player-facing lookup and action surfaces available to a player character: spell/focus-spell lookups via /api/spells, /api/spells/{spell_id}, and /api/focus-spells; feat lookups via /api/feats and /api/feats/{feat_id}; and the player action-bar / coordinator actions move/stride, strike/attack, interact, talk, search, cast_spell, consume_item, skill, feat, navigate, and end_turn via GameCoordinatorApi and the matching player routes. If the prompt includes action availability, treat it as authoritative and do not assume unsupported actions. The attitude_shift should reflect how significant the event is — most events are 0 or ±1, only extreme events warrant ±2.",
-          'max_tokens' => 250,
-          'skip_cache' => TRUE,
-        ]
+        $harness_manager->resolveExecutionOptions(
+          \Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessManagementService::PROFILE_NPC_PSYCHOLOGY,
+          [
+            'system_prompt' => "You generate NPC inner monologue as JSON. Stay in character. Be concise. This NPC has no authority to change code, campaign state, room state, character sheets, rules, or the content library. Its available tools are only the same player-facing lookup and action surfaces available to a player character: spell/focus-spell lookups via /api/spells, /api/spells/{spell_id}, and /api/focus-spells; feat lookups via /api/feats and /api/feats/{feat_id}; and the player action-bar / coordinator actions move/stride, strike/attack, interact, talk, search, cast_spell, consume_item, skill, feat, navigate, and end_turn via GameCoordinatorApi and the matching player routes. If the prompt includes action availability, treat it as authoritative and do not assume unsupported actions. The attitude_shift should reflect how significant the event is — most events are 0 or ±1, only extreme events warrant ±2.",
+            'max_tokens' => 250,
+            'skip_cache' => TRUE,
+          ],
+        )
     );
     $ai_call_ms = $this->elapsedMs($stage_started_at);
     $diagnostics = [

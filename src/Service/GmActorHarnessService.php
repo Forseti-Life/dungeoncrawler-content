@@ -2,19 +2,70 @@
 
 namespace Drupal\dungeoncrawler_content\Service;
 
+use Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessInterface;
+use Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessManagementService;
+
 /**
  * Entry harness for privileged GM actor orchestration.
  */
-class GmActorHarnessService {
+class GmActorHarnessService implements AgentHarnessInterface {
 
   protected const HARNESS_CONTRACT_VERSION = 'gm-actor-harness-v1';
 
   protected GmActorRuntimeService $runtime;
   protected GmToolExecutionService $toolExecution;
+  protected AgentHarnessManagementService $harnessManagement;
 
-  public function __construct(GmActorRuntimeService $runtime, GmToolExecutionService $tool_execution) {
+  public function __construct(
+    GmActorRuntimeService $runtime,
+    GmToolExecutionService $tool_execution,
+    ?AgentHarnessManagementService $harness_management = NULL,
+  ) {
     $this->runtime = $runtime;
     $this->toolExecution = $tool_execution;
+    $this->harnessManagement = $harness_management ?? new AgentHarnessManagementService();
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function agentId(): string {
+    return 'runtime_gm_actor';
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function label(): string {
+    return 'Runtime GM Actor Harness';
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function scope(): string {
+    return AgentHarnessInterface::SCOPE_CAMPAIGN_ROOM;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function defaultExecutionProfile(): string {
+    return AgentHarnessManagementService::PROFILE_RUNTIME_DIALOGUE;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function listAgentTools(string $profile = 'default'): array {
+    return $this->listTools();
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function describeToolCall(string $tool_name, array $arguments = []): array {
+    return $this->harnessManagement->describeToolCall($tool_name, $arguments);
   }
 
   /**
@@ -63,11 +114,13 @@ class GmActorHarnessService {
    * Execute one privileged GM tool call.
    */
   public function runTool(string $tool, array $payload, array $context = []): array {
+    $tool_call_status = $this->describeToolCall($tool, $payload);
     $result = $this->toolExecution->execute($tool, $payload, $context);
     if (!is_array($result)) {
       throw new \RuntimeException('GM tool execution returned invalid result payload.');
     }
     $result['harness_contract_version'] = self::HARNESS_CONTRACT_VERSION;
+    $result['tool_calls'] = [$tool_call_status];
 
     return $result;
   }

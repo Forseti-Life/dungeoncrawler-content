@@ -1648,6 +1648,7 @@ class StateValidationService {
     $prompt .= $payload_json;
 
     $cache_fingerprint = hash('sha256', json_encode($alignment_payload, JSON_UNESCAPED_SLASHES) ?: $room_id);
+    $harness_manager = new \Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessManagementService();
     $result = $this->aiApiService->invokeModelDirect(
       $prompt,
       'dungeoncrawler_content',
@@ -1656,12 +1657,15 @@ class StateValidationService {
         'room_id' => $room_id,
         'fingerprint' => $cache_fingerprint,
       ],
-      [
-        'provider' => 'deepseek',
-        'system_prompt' => 'You are a strict canonical data validator. Return only JSON. Do not include markdown.',
-        'max_tokens' => 450,
-        'skip_cache' => TRUE,
-      ]
+      $harness_manager->resolveExecutionOptions(
+        \Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessManagementService::PROFILE_SCHEMA_VALIDATION,
+        [
+          'provider' => 'deepseek',
+          'system_prompt' => 'You are a strict canonical data validator. Return only JSON. Do not include markdown.',
+          'max_tokens' => 450,
+          'skip_cache' => TRUE,
+        ],
+      )
     );
 
     if (empty($result['success'])) {

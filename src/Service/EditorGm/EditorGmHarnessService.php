@@ -4,6 +4,8 @@ namespace Drupal\dungeoncrawler_content\Service\EditorGm;
 
 use Drupal\ai_conversation\Service\AIApiService;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
+use Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessInterface;
+use Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessManagementService;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
@@ -17,7 +19,7 @@ use Psr\Log\NullLogger;
  * never touches editor state. Campaign runtime authority is deliberately
  * unreachable from here.
  */
-class EditorGmHarnessService {
+class EditorGmHarnessService implements AgentHarnessInterface {
 
   public const REQUEST_CONTRACT_VERSION = 'editor-gm-request-v1';
   public const RESPONSE_CONTRACT_VERSION = 'editor-gm-response-v1';
@@ -37,6 +39,7 @@ class EditorGmHarnessService {
    */
   private array $surfaces = [];
   private LoggerInterface $logger;
+  protected AgentHarnessManagementService $harnessManagement;
 
   /**
    * @param iterable<\Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmSurfaceInterface> $surfaces
@@ -47,8 +50,10 @@ class EditorGmHarnessService {
     protected EditorGmIntentParser $intentParser,
     protected ?AIApiService $ai = NULL,
     ?LoggerChannelFactoryInterface $loggerFactory = NULL,
+    ?AgentHarnessManagementService $harnessManagement = NULL,
   ) {
     $this->logger = $loggerFactory?->get('dungeoncrawler_content') ?? new NullLogger();
+    $this->harnessManagement = $harnessManagement ?? new AgentHarnessManagementService();
     foreach ($surfaces as $surface) {
       if (!$surface instanceof EditorGmSurfaceInterface) {
         throw new \LogicException('editor_gm_surface_invalid');
@@ -61,6 +66,45 @@ class EditorGmHarnessService {
     if ($this->surfaces === []) {
       throw new \LogicException('editor_gm_surfaces_required');
     }
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function agentId(): string {
+    return 'editor_gm';
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function label(): string {
+    return 'Editor GM Harness';
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function scope(): string {
+    return AgentHarnessInterface::SCOPE_DRAFT;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function defaultExecutionProfile(): string {
+    return AgentHarnessManagementService::PROFILE_INTENT_ROUTING;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function listAgentTools(string $profile = 'default'): array {
+    $tools_by_surface = [];
+    foreach ($this->surfaces as $surface_id => $surface) {
+      $tools_by_surface[$surface_id] = $surface->registry()->manifest();
+    }
+    return $tools_by_surface;
   }
 
   /**
@@ -176,6 +220,18 @@ class EditorGmHarnessService {
         (string) ($intent['reasoning'] ?? ''),
       );
     }
+    if ($intent['type'] === 'task_queue') {
+      return $this->executeTaskQueue(
+        $surface,
+        $draft_id,
+        $profile,
+        (array) ($intent['tasks'] ?? []),
+        (string) ($intent['reasoning'] ?? ''),
+        array_values((array) ($intent['next_steps'] ?? [])),
+        $scope,
+        $author_message,
+      );
+    }
 
     $definition = $surface->registry()->get($intent['tool_name'])->definition();
     if (!$definition->mutating) {
@@ -251,6 +307,71 @@ class EditorGmHarnessService {
       [],
       $tool_calls,
     );
+  }
+
+  /**
+   * Executes a dependency-ordered task queue serially with time-budget guarding.
+   */
+  private function executeTaskQueue(
+    EditorGmSurfaceInterface $surface,
+    ?string $draft_id,
+    string $profile,
+    array $tasks,
+    string $overall_reasoning,
+    array $overall_next_steps,
+    array $scope,
+    string $author_message,
+  ): array {
+    $ordered = $this->harnessManagement->orderTaskQueue($tasks);
+    $started_at = microtime(TRUE);
+    $accumulated_tool_calls = [
+      [
+        'tool' => 'task_queue_preprocessor',
+        'message' => sprintf('Now queuing %d ordered task(s) for serial execution…', count($ordered)),
+      ],
+    ];
+    $last_envelope = NULL;
+    $completed_count = 0;
+
+    foreach ($ordered as $index => $task) {
+      if ($index > 0 && (microtime(TRUE) - $started_at) >= AgentHarnessManagementService::DEFAULT_SERIAL_TIME_BUDGET_SECONDS) {
+        $remaining = count($ordered) - $index;
+        $accumulated_tool_calls[] = [
+          'tool' => 'task_queue_budget',
+          'message' => sprintf('Time budget reached after %d/%d task(s); %d task(s) deferred to next turn.', $completed_count, count($ordered), $remaining),
+        ];
+        break;
+      }
+
+      $task_tool_name = (string) ($task['tool_name'] ?? '');
+      $task_arguments = is_array($task['arguments'] ?? NULL) ? $task['arguments'] : [];
+      if ($surface->id() === StorylineBuilderGmSurface::ID && array_key_exists('expected_revision', $task_arguments)) {
+        $live_context = $this->createContext($surface, $draft_id, $profile, $scope);
+        $task_arguments['expected_revision'] = (int) ($live_context->draft()['revision'] ?? $task_arguments['expected_revision']);
+      }
+      $is_last = ($index === count($ordered) - 1);
+      $last_envelope = $this->executeTool(
+        $surface,
+        $draft_id,
+        $profile,
+        $task_tool_name,
+        $task_arguments,
+        FALSE,
+        (string) ($task['reasoning'] ?? $overall_reasoning),
+        $scope,
+        $is_last ? $overall_next_steps : array_values((array) ($task['next_steps'] ?? [])),
+        $is_last ? $author_message : '',
+        $accumulated_tool_calls,
+      );
+      $accumulated_tool_calls = array_values((array) ($last_envelope['tool_calls'] ?? $accumulated_tool_calls));
+      $completed_count++;
+    }
+
+    if ($last_envelope === NULL) {
+      throw new \RuntimeException('editor_gm_task_queue_empty');
+    }
+
+    return $last_envelope;
   }
 
   /**
@@ -474,84 +595,17 @@ class EditorGmHarnessService {
   }
 
   /**
-   * Builds a user-visible chat status line for an Editor GM tool call.
-   *
-   * @return array{tool: string, message: string}
+   * {@inheritdoc}
    */
   public function describeToolCall(string $tool_name, array $arguments = []): array {
-    return [
-      'tool' => $tool_name,
-      'message' => $this->describeToolCallMessage($tool_name, $arguments),
-    ];
+    return $this->harnessManagement->describeToolCall($tool_name, $arguments);
   }
 
   /**
    * Maps an Editor GM tool name and arguments to a human-readable "Now ..." line.
    */
   private function describeToolCallMessage(string $tool_name, array $arguments = []): string {
-    $family = trim((string) ($arguments['family'] ?? ''));
-    $definition_id = trim((string) ($arguments['definition_id'] ?? ''));
-    $room_id = trim((string) ($arguments['room_id'] ?? $arguments['room_slot_id'] ?? ''));
-
-    return match (TRUE) {
-      $tool_name === 'governing_harness_context' => 'Now looking up current editor context…',
-      $tool_name === 'clarification' => 'Now evaluating request options…',
-      $tool_name === 'route_to_editor' => 'Now looking up target editor route…',
-      $tool_name === 'generate_canonical_definition' => $family !== '' && $definition_id !== ''
-        ? sprintf("Now generating canonical %s definition '%s'…", $family, $definition_id)
-        : ($family !== '' ? sprintf('Now generating canonical %s definition…', $family) : 'Now generating canonical definition…'),
-      $tool_name === 'create_canonical_definition' => $family !== '' && $definition_id !== ''
-        ? sprintf("Now creating canonical %s definition '%s'…", $family, $definition_id)
-        : 'Now creating canonical definition…',
-      $tool_name === 'update_canonical_definition' => $family !== '' && $definition_id !== ''
-        ? sprintf("Now updating canonical %s definition '%s'…", $family, $definition_id)
-        : 'Now updating canonical definition…',
-      $tool_name === 'generate_room_layout' => $room_id !== ''
-        ? sprintf("Now generating room layout for '%s'…", $room_id)
-        : 'Now generating room layout…',
-      $tool_name === 'generate_dungeon_layout' => 'Now generating dungeon layout…',
-      str_starts_with($tool_name, 'generate_') => sprintf('Now generating %s…', $this->humanizeToolSuffix(substr($tool_name, 9))),
-      str_starts_with($tool_name, 'get_'),
-      str_starts_with($tool_name, 'load_'),
-      str_starts_with($tool_name, 'list_'),
-      str_starts_with($tool_name, 'find_'),
-      str_starts_with($tool_name, 'inspect_'),
-      str_starts_with($tool_name, 'describe_'),
-      str_starts_with($tool_name, 'summarize_') => sprintf('Now looking up %s…', $this->humanizeToolLookupTarget($tool_name, $arguments)),
-      str_starts_with($tool_name, 'validate_'),
-      str_starts_with($tool_name, 'check_') => sprintf('Now validating %s…', $this->humanizeToolLookupTarget($tool_name, $arguments)),
-      str_starts_with($tool_name, 'explain_'),
-      str_starts_with($tool_name, 'diff_') => sprintf('Now analyzing %s…', $this->humanizeToolLookupTarget($tool_name, $arguments)),
-      str_starts_with($tool_name, 'preview_') => sprintf('Now previewing %s…', $this->humanizeToolSuffix(substr($tool_name, 8))),
-      str_starts_with($tool_name, 'plan_') => sprintf('Now planning %s…', $this->humanizeToolSuffix(substr($tool_name, 5))),
-      str_starts_with($tool_name, 'apply_') => sprintf('Now applying %s…', $this->humanizeToolSuffix(substr($tool_name, 6))),
-      str_starts_with($tool_name, 'publish_') => sprintf('Now publishing %s…', $this->humanizeToolSuffix(substr($tool_name, 8))),
-      default => sprintf('Now running %s…', $this->humanizeToolSuffix($tool_name)),
-    };
-  }
-
-  /**
-   * Formats lookup/validation tool names into concise natural phrases.
-   */
-  private function humanizeToolLookupTarget(string $tool_name, array $arguments = []): string {
-    $stripped = preg_replace('/^(get|load|list|find|inspect|describe|summarize|validate|check|explain|diff)_/', '', $tool_name) ?? $tool_name;
-    $label = $this->humanizeToolSuffix($stripped);
-    $family = trim((string) ($arguments['family'] ?? ''));
-    $definition_id = trim((string) ($arguments['definition_id'] ?? ''));
-    if ($family !== '' && $definition_id !== '') {
-      return sprintf("%s (%s '%s')", $label, $family, $definition_id);
-    }
-    if ($family !== '') {
-      return sprintf('%s (%s)', $label, $family);
-    }
-    return $label;
-  }
-
-  /**
-   * Converts a snake_case tool suffix into readable lower-case words.
-   */
-  private function humanizeToolSuffix(string $suffix): string {
-    return trim(str_replace('_', ' ', $suffix));
+    return (new AgentHarnessManagementService())->describeToolCallMessage($tool_name, $arguments);
   }
 
   /**
@@ -624,6 +678,16 @@ class EditorGmHarnessService {
     array $context_snapshot,
     string $surface_label,
   ): array {
+    $deterministic = $this->harnessManagement->synthesizeDeterministicMutationResponse(
+      $tool_name,
+      $tool_result,
+      $context_snapshot,
+      $surface_label,
+    );
+    if ($deterministic !== NULL) {
+      return $deterministic;
+    }
+
     if ($this->ai === NULL) {
       throw new \RuntimeException('editor_gm_response_synthesizer_unavailable');
     }
@@ -641,6 +705,10 @@ class EditorGmHarnessService {
       'publication' => $context_snapshot['publication'] ?? [],
       'conversation_context' => $context_snapshot['conversation_context'] ?? '',
     ];
+    $execution_options = $this->harnessManagement->resolveExecutionOptions(
+      AgentHarnessManagementService::PROFILE_RESPONSE_SYNTHESIS,
+      ['system_prompt' => $this->responseSystemPrompt($surface_label)],
+    );
     $provider_result = $this->ai->invokeModelDirect(
       implode("\n\n", [
         '## Author request',
@@ -648,9 +716,9 @@ class EditorGmHarnessService {
         '## Selected tool',
         $tool_name,
         '## Authoritative tool result',
-        json_encode($evidence, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+        $this->harnessManagement->encodeCompactJson($evidence),
         '## Relevant grounded context',
-        json_encode($grounding, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+        $this->harnessManagement->encodeCompactJson($grounding),
         '## Your response (single JSON object)',
       ]),
       EditorGmIntentParser::MODULE,
@@ -659,11 +727,7 @@ class EditorGmHarnessService {
         'draft_id' => (string) ($context_snapshot['draft']['draft_id'] ?? ''),
         'tool_name' => $tool_name,
       ],
-      [
-        'skip_cache' => TRUE,
-        'max_tokens' => EditorGmIntentParser::MODEL_MAX_TOKENS,
-        'system_prompt' => $this->responseSystemPrompt($surface_label),
-      ],
+      $execution_options,
     );
 
     if (!is_array($provider_result) || empty($provider_result['success'])) {

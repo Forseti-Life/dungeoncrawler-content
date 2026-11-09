@@ -76,10 +76,13 @@ class EditorGmController extends ControllerBase {
       $scope = $session
         ? ['conversation_context' => $this->chatSessions->buildSessionContext((int) $session['id'], 20)]
         : [];
-      $data = $this->harness->handle($_surface, $draft_id, $body, $scope);
       $session ??= $this->conversationSession($_surface, $draft_id);
       if ($session) {
-        $this->persistConversationTurn($session, $body, $data);
+        $this->persistAuthorTurn($session, $body);
+      }
+      $data = $this->harness->handle($_surface, $draft_id, $body, $scope);
+      if ($session) {
+        $this->persistAssistantTurn($session, $data);
       }
       return new JsonResponse(['data' => $data]);
     }
@@ -109,9 +112,9 @@ class EditorGmController extends ControllerBase {
   }
 
   /**
-   * Persists one author request and its structured GM response.
+   * Persists the author's message prior to execution so failed turns do not lose user input.
    */
-  private function persistConversationTurn(array $session, array $request, array $response): void {
+  private function persistAuthorTurn(array $session, array $request): void {
     $intent = is_array($request['intent'] ?? NULL) ? $request['intent'] : [];
     $author_message = trim((string) ($intent['author_message'] ?? $intent['utterance'] ?? ''));
     if ($author_message !== '') {
@@ -128,7 +131,12 @@ class EditorGmController extends ControllerBase {
         FALSE,
       );
     }
+  }
 
+  /**
+   * Persists the structured GM assistant response turn.
+   */
+  private function persistAssistantTurn(array $session, array $response): void {
     $tool_result = is_array($response['tool_result'] ?? NULL) ? $response['tool_result'] : [];
     if (($tool_result['schema_version'] ?? '') === 'storyline-definition-preview-v1') {
       unset($tool_result['definition']);

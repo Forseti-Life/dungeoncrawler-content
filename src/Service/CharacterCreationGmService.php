@@ -7,11 +7,13 @@ use Drupal\Core\Database\Connection;
 use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\Component\Datetime\TimeInterface;
 use Drupal\ai_conversation\Service\AIApiService;
+use Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessInterface;
+use Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessManagementService;
 
 /**
  * Handles GM-style AI chat for character creation.
  */
-class CharacterCreationGmService {
+class CharacterCreationGmService implements AgentHarnessInterface {
 
   protected const GM_FACTION_CREATE_LABELS_FIELD = 'faction_refs_create_labels';
   protected const GM_FACTION_CREATE_ROLE_FIELD = 'faction_refs_create_role';
@@ -21,6 +23,8 @@ class CharacterCreationGmService {
   protected const GM_FACTION_CREATE_IDEOLOGY_TAGS_FIELD = 'faction_refs_create_ideology_tags';
   protected const GM_FACTION_CREATE_METHOD_TAGS_FIELD = 'faction_refs_create_method_tags';
   protected const GM_FACTION_CREATE_MEMBERSHIP_STYLE_FIELD = 'faction_refs_create_membership_style';
+
+  protected AgentHarnessManagementService $harnessManagement;
 
   /**
    * Constructs the service.
@@ -35,7 +39,57 @@ class CharacterCreationGmService {
     protected InstitutionMembershipService $institutionMembership,
     protected FactionGenerationService $factionGeneration,
     protected ?AIApiService $aiApiService = NULL,
-  ) {}
+    ?AgentHarnessManagementService $harnessManagement = NULL,
+  ) {
+    $this->harnessManagement = $harnessManagement ?? new AgentHarnessManagementService();
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function agentId(): string {
+    return 'character_creation_gm';
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function label(): string {
+    return 'Character Creation GM Harness';
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function scope(): string {
+    return AgentHarnessInterface::SCOPE_CHARACTER_DRAFT;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function defaultExecutionProfile(): string {
+    return AgentHarnessManagementService::PROFILE_CHARACTER_ASSISTANT;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function listAgentTools(string $profile = 'default'): array {
+    return [
+      'lookup_character_creation_context' => 'Look up character creation options and draft state.',
+      'apply_character_draft_updates' => 'Apply validated updates to the character draft.',
+      'generate_faction_details' => 'Generate canonical faction affiliation details.',
+      'configure_character_portrait' => 'Configure character portrait prompt and generation flags.',
+    ];
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function describeToolCall(string $tool_name, array $arguments = []): array {
+    return $this->harnessManagement->describeToolCall($tool_name, $arguments);
+  }
 
   /**
    * Process a GM chat message for a character draft.
@@ -51,6 +105,21 @@ class CharacterCreationGmService {
     $character_data = $this->loadCharacterData($record);
     $history = $this->getChatHistory($character_data);
 
+    // Pre-execution user turn persistence so user prompts are never lost on LLM error/timeout.
+    $timestamp = $this->time->getRequestTime();
+    $history_with_user = $history;
+    $history_with_user[] = [
+      'role' => 'user',
+      'content' => $message,
+      'timestamp' => $timestamp,
+    ];
+    $character_data['gm_chat'] = [
+      'messages' => array_slice($history_with_user, -20),
+      'last_updated' => date('c', $timestamp),
+    ];
+    $saved_character_id = $this->saveDraft($record, $character_data, $resolved_campaign_id);
+    $record = $this->loadOwnedDraft($saved_character_id);
+
     $prompt = $this->buildUserPrompt($message, $step, $character_data, $history, $resolved_campaign_id);
     $result = $this->aiApiService->invokeModelDirect(
       $prompt,
@@ -63,11 +132,14 @@ class CharacterCreationGmService {
         'step' => $step,
         'message_hash' => sha1($message),
       ],
-      [
-        'skip_cache' => TRUE,
-        'max_tokens' => 2400,
-        'system_prompt' => $this->buildSystemPrompt(),
-      ],
+      $this->harnessManagement->resolveExecutionOptions(
+        AgentHarnessManagementService::PROFILE_CHARACTER_ASSISTANT,
+        [
+          'skip_cache' => TRUE,
+          'max_tokens' => 2400,
+          'system_prompt' => $this->buildSystemPrompt(),
+        ],
+      ),
     );
 
     if (empty($result['success'])) {
@@ -80,28 +152,16 @@ class CharacterCreationGmService {
     $this->applyDerivedState($character_data);
 
     $tool_calls = [
-      [
-        'tool' => 'lookup_character_creation_context',
-        'message' => 'Now looking up character creation options and draft state…',
-      ],
+      $this->describeToolCall('lookup_character_creation_context'),
     ];
     if ($applied_updates !== []) {
-      $tool_calls[] = [
-        'tool' => 'apply_character_draft_updates',
-        'message' => sprintf('Now applying character draft updates (%s)…', implode(', ', array_keys($applied_updates))),
-      ];
+      $tool_calls[] = $this->describeToolCall('apply_character_draft_updates', ['fields' => array_keys($applied_updates)]);
     }
     if (!empty($applied_updates[self::GM_FACTION_CREATE_LABELS_FIELD])) {
-      $tool_calls[] = [
-        'tool' => 'generate_faction_details',
-        'message' => 'Now generating faction affiliation details…',
-      ];
+      $tool_calls[] = $this->describeToolCall('generate_faction_details');
     }
     if (!empty($applied_updates['portrait_generate']) || !empty($applied_updates['portrait_prompt'])) {
-      $tool_calls[] = [
-        'tool' => 'configure_character_portrait',
-        'message' => 'Now configuring character portrait generation…',
-      ];
+      $tool_calls[] = $this->describeToolCall('configure_character_portrait');
     }
 
     $resolved_step = $this->resolveDraftStep($character_data, max(1, min(8, $step)));
@@ -112,13 +172,7 @@ class CharacterCreationGmService {
       $reply = 'I updated your draft and saved the character sheet changes.';
     }
 
-    $timestamp = $this->time->getRequestTime();
-    $history[] = [
-      'role' => 'user',
-      'content' => $message,
-      'timestamp' => $timestamp,
-    ];
-    $history[] = [
+    $history_with_user[] = [
       'role' => 'assistant',
       'content' => $reply,
       'timestamp' => $timestamp,
@@ -126,7 +180,7 @@ class CharacterCreationGmService {
       'tool_calls' => $tool_calls,
     ];
     $character_data['gm_chat'] = [
-      'messages' => array_slice($history, -20),
+      'messages' => array_slice($history_with_user, -20),
       'last_updated' => date('c', $timestamp),
     ];
 

@@ -2,10 +2,13 @@
 
 namespace Drupal\dungeoncrawler_content\Service;
 
+use Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessInterface;
+use Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessManagementService;
+
 /**
  * Headless harness for running an in-character player agent.
  */
-class PlayerAgentHarnessService {
+class PlayerAgentHarnessService implements AgentHarnessInterface {
 
   protected PlayerAgentRuntimeAdapterInterface $runtimeAdapter;
 
@@ -19,13 +22,16 @@ class PlayerAgentHarnessService {
 
   protected ?ActorProcessFlowPlanner $actorProcessFlowPlanner;
 
+  protected AgentHarnessManagementService $harnessManagement;
+
   public function __construct(
     PlayerAgentRuntimeAdapterInterface $runtime_adapter,
     PlayerAgentExplorationPolicy $exploration_policy,
     PlayerAgentEncounterPolicy $encounter_policy,
     PlayerAgentProgressTracker $progress_tracker,
     ?RoomChatService $room_chat_service = NULL,
-    ?ActorProcessFlowPlanner $actor_process_flow_planner = NULL
+    ?ActorProcessFlowPlanner $actor_process_flow_planner = NULL,
+    ?AgentHarnessManagementService $harness_management = NULL,
   ) {
     $this->runtimeAdapter = $runtime_adapter;
     $this->explorationPolicy = $exploration_policy;
@@ -33,6 +39,51 @@ class PlayerAgentHarnessService {
     $this->progressTracker = $progress_tracker;
     $this->roomChatService = $room_chat_service;
     $this->actorProcessFlowPlanner = $actor_process_flow_planner;
+    $this->harnessManagement = $harness_management ?? new AgentHarnessManagementService();
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function agentId(): string {
+    return 'player_automation_actor';
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function label(): string {
+    return 'Player Automation Actor Harness';
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function scope(): string {
+    return AgentHarnessInterface::SCOPE_CAMPAIGN_ROOM;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function defaultExecutionProfile(): string {
+    return AgentHarnessManagementService::PROFILE_TACTICAL_DECISION;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function listAgentTools(string $profile = 'default'): array {
+    return [
+      'actions' => ['move', 'strike', 'interact', 'talk', 'search', 'cast_spell', 'consume_item', 'skill', 'feat', 'navigate', 'rest', 'end_turn'],
+    ];
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function describeToolCall(string $tool_name, array $arguments = []): array {
+    return $this->harnessManagement->describeToolCall($tool_name, $arguments);
   }
 
   /**

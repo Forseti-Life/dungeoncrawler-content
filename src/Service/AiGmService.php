@@ -267,12 +267,16 @@ class AiGmService {
     $this->enforceRateLimit($campaign_id);
 
     try {
+      $harness_manager = new \Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessManagementService();
       $response = $this->aiApiService->invokeModelDirect(
         $prompt,
         'dungeoncrawler_content',
         'ai_gm_npc_attitude_shift',
         ['trigger' => 'npc_attitude_shift', 'campaign_id' => $campaign_id],
-        ['max_tokens' => $this->getMaxTokens(), 'skip_cache' => TRUE, 'system_prompt' => $system]
+        $harness_manager->resolveExecutionOptions(
+          \Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessManagementService::PROFILE_NARRATION_BEAT,
+          ['max_tokens' => $this->getMaxTokens(), 'skip_cache' => TRUE, 'system_prompt' => $system],
+        )
       );
       if (!empty($response['success'])) {
         $text = $this->stripMarkdownFences(trim((string) ($response['response'] ?? '')));
@@ -332,12 +336,16 @@ class AiGmService {
     if ($this->aiApiService !== NULL) {
       $this->enforceRateLimit($campaign_id);
       try {
+        $harness_manager = new \Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessManagementService();
         $response = $this->aiApiService->invokeModelDirect(
           $prompt,
           'dungeoncrawler_content',
           'ai_gm_session_summary',
           ['trigger' => 'session_summary', 'campaign_id' => $campaign_id],
-          ['max_tokens' => 300, 'skip_cache' => TRUE, 'system_prompt' => $system]
+          $harness_manager->resolveExecutionOptions(
+            \Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessManagementService::PROFILE_NARRATION_BEAT,
+            ['max_tokens' => 300, 'skip_cache' => TRUE, 'system_prompt' => $system],
+          )
         );
         if (!empty($response['success'])) {
           $summary = $this->stripMarkdownFences(trim((string) ($response['response'] ?? '')));
@@ -693,6 +701,7 @@ class AiGmService {
     $max_tokens = $this->getMaxTokens();
 
     try {
+      $harness_manager = new \Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessManagementService();
       $response = $this->aiApiService->invokeModelDirect(
         $prompt,
         'dungeoncrawler_content',
@@ -702,11 +711,14 @@ class AiGmService {
           'campaign_context' => 'ai_gm_narration',
           'campaign_id' => $campaign_id,
         ],
-        [
-          'max_tokens' => $max_tokens,
-          'skip_cache' => TRUE,
-          'system_prompt' => $system_prompt,
-        ]
+        $harness_manager->resolveExecutionOptions(
+          \Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessManagementService::PROFILE_NARRATION_BEAT,
+          [
+            'max_tokens' => $max_tokens,
+            'skip_cache' => TRUE,
+            'system_prompt' => $system_prompt,
+          ],
+        )
       );
 
       if (!empty($response['success'])) {

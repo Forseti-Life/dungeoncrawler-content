@@ -403,16 +403,20 @@ class NpcSheetGenerationService {
     $prompt .= '  "spells": [string, ...]' . "\n";
     $prompt .= "}\n";
 
+    $harness_manager = new \Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessManagementService();
     $result = $this->aiApiService->invokeModelDirect(
       $prompt,
       'dungeoncrawler_content',
       'npc_character_sheet_generation',
       ['campaign_id' => $campaign_id, 'content_id' => $content_id],
-      [
-        'system_prompt' => 'You generate complete but concise Pathfinder 2e NPC sheets as strict JSON. Stay grounded in the provided seed data. Create nuanced, non-stigmatizing psychology using inner conflict, coping habits, stress responses, attachments, and insecurities. Do not assign clinical diagnoses unless the seed data explicitly requests one. Do not wrap the JSON in markdown fences.',
-        'max_tokens' => 1200,
-        'skip_cache' => TRUE,
-      ]
+      $harness_manager->resolveExecutionOptions(
+        \Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessManagementService::PROFILE_CANONICAL_GENERATION,
+        [
+          'system_prompt' => 'You generate complete but concise Pathfinder 2e NPC sheets as strict JSON. Stay grounded in the provided seed data. Create nuanced, non-stigmatizing psychology using inner conflict, coping habits, stress responses, attachments, and insecurities. Do not assign clinical diagnoses unless the seed data explicitly requests one. Do not wrap the JSON in markdown fences.',
+          'max_tokens' => 1200,
+          'skip_cache' => TRUE,
+        ],
+      )
     );
 
     $response = trim((string) ($result['response'] ?? ''));

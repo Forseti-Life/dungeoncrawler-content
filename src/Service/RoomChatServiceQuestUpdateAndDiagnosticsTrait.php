@@ -704,6 +704,10 @@ trait RoomChatServiceQuestUpdateAndDiagnosticsTrait {
     array $options,
     array $debug_meta = []
   ): array {
+    $harness_manager = new \Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessManagementService();
+    $profile = $harness_manager->resolveProfileForOperation($operation);
+    $options = $harness_manager->resolveExecutionOptions($profile, $options);
+
     $started_at = hrtime(true);
     $provider_started_at = hrtime(true);
     try {

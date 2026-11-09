@@ -66,15 +66,25 @@ class CanonicalGenerationService {
       if (mb_strlen($prompt) > self::MAX_PROMPT_CHARS) {
         throw $this->exception('generation_size_limit_exceeded', [$this->finding('generation_size_limit_exceeded', '/prompt', 'Generation prompt exceeds the 32768 character cap.')]);
       }
-      $result = $this->aiApiService->invokeModelDirect($prompt, 'dungeoncrawler_content', $operation, [
-        'seed' => $seed,
-        'attempt' => $attempt,
-        'tool' => $tool,
-      ], [
-        'skip_cache' => TRUE,
-        'max_tokens' => $max_tokens,
-        'thinking' => 'disabled',
-      ]);
+      $harness_manager = new \Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessManagementService();
+      $result = $this->aiApiService->invokeModelDirect(
+        $prompt,
+        'dungeoncrawler_content',
+        $operation,
+        [
+          'seed' => $seed,
+          'attempt' => $attempt,
+          'tool' => $tool,
+        ],
+        $harness_manager->resolveExecutionOptions(
+          \Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessManagementService::PROFILE_CANONICAL_GENERATION,
+          [
+            'skip_cache' => TRUE,
+            'max_tokens' => $max_tokens,
+            'thinking' => 'disabled',
+          ],
+        )
+      );
       if (!is_array($result) || empty($result['success'])) {
         $message = is_array($result) ? (string) ($result['error'] ?? 'Provider returned an unsuccessful completion.') : 'Provider returned a non-object result.';
         throw $this->exception('generation_provider_failed', [$this->finding('generation_provider_failed', '/provider', $message)], 500);

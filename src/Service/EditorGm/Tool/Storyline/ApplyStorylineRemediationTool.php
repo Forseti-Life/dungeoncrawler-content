@@ -52,6 +52,9 @@ final class ApplyStorylineRemediationTool implements EditorGmToolInterface {
       throw new \DomainException('storyline_draft_revision_conflict');
     }
 
+    $started_at = microtime(TRUE);
+    $time_budget_seconds = 45.0;
+    $deferred_tasks = [];
     $draft_receipt = NULL;
     $sub_tool_calls = [];
     if ($operations !== []) {
@@ -75,6 +78,10 @@ final class ApplyStorylineRemediationTool implements EditorGmToolInterface {
       $existing = $context->definitions->catalogEntry($family, $definition_id);
       if ($existing !== NULL) {
         $definition_receipts[] = ['family' => $family, 'definition_id' => $definition_id, 'created' => FALSE];
+        continue;
+      }
+      if ($definition_receipts !== [] && (microtime(TRUE) - $started_at) >= $time_budget_seconds) {
+        $deferred_tasks[] = ['kind' => 'definition', 'family' => $family, 'definition_id' => $definition_id];
         continue;
       }
       $sub_tool_calls[] = [
@@ -114,6 +121,10 @@ final class ApplyStorylineRemediationTool implements EditorGmToolInterface {
       $room_id = (string) $spec['room_id'];
       if ($this->roomEditor->publishedRoom($room_id) !== NULL) {
         $room_receipts[] = ['room_id' => $room_id, 'created' => FALSE];
+        continue;
+      }
+      if (($definition_receipts !== [] || $room_receipts !== []) && (microtime(TRUE) - $started_at) >= $time_budget_seconds) {
+        $deferred_tasks[] = ['kind' => 'room', 'room_id' => $room_id];
         continue;
       }
       $sub_tool_calls[] = [
@@ -165,6 +176,7 @@ final class ApplyStorylineRemediationTool implements EditorGmToolInterface {
       'definitions' => $definition_receipts,
       'rooms' => $room_receipts,
       'draft' => $draft_receipt,
+      'deferred_tasks' => $deferred_tasks,
       'tool_calls' => $sub_tool_calls,
       'validation' => [
         'valid' => (bool) ($validation['valid'] ?? FALSE),
