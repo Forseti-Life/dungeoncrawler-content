@@ -347,6 +347,14 @@
   border-left: 3px solid var(--warning, #f59e0b);
 }
 
+.room-editor__gm-message--tool {
+  border-left: 3px solid var(--accent-strong, #38bdf8);
+  color: var(--muted, #94a3b8);
+  font-style: italic;
+  font-size: var(--text-xs, 0.78em);
+  padding: 4px 10px;
+}
+
 .room-editor__gm-message--warning button {
   margin-top: 6px;
 }

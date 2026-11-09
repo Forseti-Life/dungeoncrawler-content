@@ -142,5 +142,32 @@ class EditorGmHarnessServiceTest extends UnitTestCase {
     $this->assertSame('ritual_ledger', $planned_defs[1]['definition_id']);
   }
 
+  /**
+   * Verifies describeToolCall emits human-readable tool call messages across surfaces.
+   */
+  public function testDescribeToolCallEmitsReadableActionDescriptions(): void {
+    $service = (new \ReflectionClass(EditorGmHarnessService::class))
+      ->newInstanceWithoutConstructor();
+    $method = new \ReflectionMethod($service, 'describeToolCallMessage');
+    $method->setAccessible(TRUE);
+
+    $this->assertSame(
+      'Now looking up canonical catalog (item)…',
+      $method->invoke($service, 'list_canonical_catalog', ['family' => 'item']),
+    );
+    $this->assertSame(
+      "Now generating canonical item definition 'ritual_ledger'…",
+      $method->invoke($service, 'generate_canonical_definition', ['family' => 'item', 'definition_id' => 'ritual_ledger']),
+    );
+    $this->assertSame(
+      'Now validating storyline draft…',
+      $method->invoke($service, 'validate_storyline_draft', []),
+    );
+    $this->assertSame(
+      'Now publishing storyline draft…',
+      $method->invoke($service, 'publish_storyline_draft', []),
+    );
+  }
+
 }
 

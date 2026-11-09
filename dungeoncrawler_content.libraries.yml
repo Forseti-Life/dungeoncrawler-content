@@ -74,7 +74,7 @@ character-creation-style:
     - dungeoncrawler_content/character-step-base
 
 character-creation-gm-chat:
-  version: 20261023-gm-chat-2
+  version: 20261024-tool-calls-1
   css:
     theme:
       css/character-creation-gm-chat.css: {}
@@ -99,7 +99,7 @@ character-setup-tabs:
     - core/drupalSettings
 
 gm-storyline-builder:
-  version: 20261024-object-editor-links-2
+  version: 20261024-tool-calls-1
   css:
     theme:
       css/gm-storyline-builder.css: {}
@@ -239,7 +239,7 @@ hexmap-v2:
     - core/once
 
 room-editor:
-  version: 20261026-canonical-def-tools-1
+  version: 20261024-tool-calls-1
   js:
     https://cdn.jsdelivr.net/npm/pixi.js@7.3.2/dist/pixi.min.js: { type: external, minified: true }
     js/room-editor.js: { attributes: { type: module } }
@@ -253,7 +253,7 @@ room-editor:
     - core/once
 
 editor-suite:
-  version: 20261023-gm-chat-2
+  version: 20261024-tool-calls-1
   js:
     js/editor-suite.js: { attributes: { type: module } }
   css:
@@ -293,7 +293,7 @@ module-explorer:
     - core/once
 
 dungeon-editor:
-  version: 20261023-gm-chat-3
+  version: 20261024-tool-calls-1
   js:
     https://cdn.jsdelivr.net/npm/pixi.js@7.3.2/dist/pixi.min.js: { type: external, minified: true }
     js/dungeon-editor.js: { attributes: { type: module } }
@@ -308,7 +308,7 @@ dungeon-editor:
     - core/once
 
 definition-editor:
-  version: 20261026-canonical-def-tools-1
+  version: 20261024-tool-calls-1
   js:
     js/definition-editor.js: { attributes: { type: module } }
   css:

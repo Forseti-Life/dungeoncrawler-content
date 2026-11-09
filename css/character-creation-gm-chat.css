@@ -78,6 +78,15 @@
   background: rgba(126, 97, 43, 0.34);
 }
 
+.character-creation-gm-chat__message--tool {
+  padding: 0.45rem 0.85rem;
+  border-left: 3px solid #f0c87a;
+  background: rgba(240, 200, 122, 0.1);
+  color: #f4e3bc;
+  font-size: 0.84rem;
+  font-style: italic;
+}
+
 .character-creation-gm-chat__message-role {
   margin-bottom: 0.3rem;
   font-size: 0.76rem;

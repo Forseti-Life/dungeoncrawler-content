@@ -79,6 +79,31 @@ class CharacterCreationGmService {
     $applied_updates = $this->applyUpdates($character_data, $sanitized_updates);
     $this->applyDerivedState($character_data);
 
+    $tool_calls = [
+      [
+        'tool' => 'lookup_character_creation_context',
+        'message' => 'Now looking up character creation options and draft state…',
+      ],
+    ];
+    if ($applied_updates !== []) {
+      $tool_calls[] = [
+        'tool' => 'apply_character_draft_updates',
+        'message' => sprintf('Now applying character draft updates (%s)…', implode(', ', array_keys($applied_updates))),
+      ];
+    }
+    if (!empty($applied_updates[self::GM_FACTION_CREATE_LABELS_FIELD])) {
+      $tool_calls[] = [
+        'tool' => 'generate_faction_details',
+        'message' => 'Now generating faction affiliation details…',
+      ];
+    }
+    if (!empty($applied_updates['portrait_generate']) || !empty($applied_updates['portrait_prompt'])) {
+      $tool_calls[] = [
+        'tool' => 'configure_character_portrait',
+        'message' => 'Now configuring character portrait generation…',
+      ];
+    }
+
     $resolved_step = $this->resolveDraftStep($character_data, max(1, min(8, $step)));
     $character_data['step'] = $resolved_step;
 
@@ -98,6 +123,7 @@ class CharacterCreationGmService {
       'content' => $reply,
       'timestamp' => $timestamp,
       'applied_updates' => array_keys($applied_updates),
+      'tool_calls' => $tool_calls,
     ];
     $character_data['gm_chat'] = [
       'messages' => array_slice($history, -20),
@@ -117,6 +143,7 @@ class CharacterCreationGmService {
       'step' => $resolved_step,
       'history' => $character_data['gm_chat']['messages'],
       'applied_updates' => $applied_updates,
+      'tool_calls' => $tool_calls,
       'reload_required' => !empty($applied_updates)
         || $resolved_step !== max(1, min(8, $step))
         || $saved_character_id !== $requested_character_id,

@@ -1,4 +1,4 @@
-import { shouldSubmitEditorGmKey } from './v2/editor/EditorGmChatClient.js?v=20261023-gm-chat-2';
+import { shouldSubmitEditorGmKey } from './v2/editor/EditorGmChatClient.js?v=20261024-tool-calls-1';
 
 (function (Drupal, once, drupalSettings) {
   'use strict';
@@ -22,10 +22,23 @@ import { shouldSubmitEditorGmKey } from './v2/editor/EditorGmChatClient.js?v=202
     }
 
     historyContainer.innerHTML = messages.map((entry) => {
+      if (entry.role === 'tool') {
+        return '<div class="character-creation-gm-chat__message character-creation-gm-chat__message--tool">' +
+          '<div class="character-creation-gm-chat__message-body">' + escapeHtml(entry.content || '') + '</div>' +
+        '</div>';
+      }
       const role = entry.role === 'user' ? 'user' : 'assistant';
       const label = role === 'user' ? 'You' : 'GM';
+      const toolCalls = Array.isArray(entry.tool_calls) ? entry.tool_calls : [];
+      const toolHtml = toolCalls.map((call) => {
+        const text = typeof call === 'string' ? call : (call?.message || '');
+        if (!text) return '';
+        return '<div class="character-creation-gm-chat__message character-creation-gm-chat__message--tool">' +
+          '<div class="character-creation-gm-chat__message-body">' + escapeHtml(text) + '</div>' +
+        '</div>';
+      }).join('');
       const body = escapeHtml(entry.content || '').replace(/\n/g, '<br>');
-      return '<div class="character-creation-gm-chat__message character-creation-gm-chat__message--' + role + '">' +
+      return toolHtml + '<div class="character-creation-gm-chat__message character-creation-gm-chat__message--' + role + '">' +
         '<div class="character-creation-gm-chat__message-role">' + label + '</div>' +
         '<div class="character-creation-gm-chat__message-body">' + body + '</div>' +
       '</div>';
@@ -82,6 +95,7 @@ import { shouldSubmitEditorGmKey } from './v2/editor/EditorGmChatClient.js?v=202
           sendButton.disabled = true;
           setStatus('GM is updating your draft...');
           messages.push({ role: 'user', content: message });
+          messages.push({ role: 'tool', content: 'Now looking up character creation options and draft state…' });
           renderMessages(historyContainer, messages);
           input.value = '';
 

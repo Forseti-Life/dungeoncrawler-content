@@ -1385,6 +1385,23 @@ import {
           assistantLog.scrollTop = assistantLog.scrollHeight;
         }
 
+        function pushAssistantToolCalls(toolCalls) {
+          if (!assistantLog || !Array.isArray(toolCalls) || toolCalls.length === 0) {
+            return;
+          }
+          const seen = new Set();
+          toolCalls.forEach((call) => {
+            const text = typeof call === 'string'
+              ? call.trim()
+              : String(call?.message || '').trim();
+            if (!text || seen.has(text)) {
+              return;
+            }
+            seen.add(text);
+            pushAssistantLog('status', text);
+          });
+        }
+
         function pushAssistantNextSteps(nextSteps) {
           const steps = Array.isArray(nextSteps)
             ? nextSteps.filter((step) => typeof step === 'string' && step.trim() !== '')
@@ -1583,6 +1600,7 @@ import {
             if (!result || typeof result !== 'object') {
               return;
             }
+            pushAssistantToolCalls(response?.tool_calls || result?.tool_calls || []);
             if (result.intent === 'clarification') {
               const options = Array.isArray(result.options) ? result.options : [];
               const lines = [String(result.question || 'Choose a direction.')];
@@ -1745,6 +1763,7 @@ import {
             });
             const result = payload?.data?.tool_result || {};
             const notes = payload?.data?.messages || [];
+            pushAssistantToolCalls(payload?.data?.tool_calls || result?.tool_calls || []);
             if (result?.intent === 'clarification') {
               showAssistantChoices(String(result.question || 'Choose a direction.'), result.options || []);
               setAssistantStatus('Waiting on your decision before the Game Master Agent continues.');
