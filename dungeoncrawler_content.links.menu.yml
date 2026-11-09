@@ -83,6 +83,7 @@ dungeoncrawler_content.menu.storyline_explorer:
   description: 'View and manage storyline generation, validation, and runtime progression.'
   route_name: dungeoncrawler_content.storyline_management
   menu_name: main
+  expanded: true
   weight: 21
 
 dungeoncrawler_content.menu.storyline_home:

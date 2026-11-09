@@ -41,7 +41,7 @@ class CharacterCreationGmService implements AgentHarnessInterface {
     protected ?AIApiService $aiApiService = NULL,
     ?AgentHarnessManagementService $harnessManagement = NULL,
   ) {
-    $this->harnessManagement = $harnessManagement ?? new AgentHarnessManagementService();
+    $this->harnessManagement = $harnessManagement ?? new AgentHarnessManagementService($this->aiApiService);
   }
 
   /**
@@ -81,6 +81,7 @@ class CharacterCreationGmService implements AgentHarnessInterface {
       'apply_character_draft_updates' => 'Apply validated updates to the character draft.',
       'generate_faction_details' => 'Generate canonical faction affiliation details.',
       'configure_character_portrait' => 'Configure character portrait prompt and generation flags.',
+      AgentHarnessManagementService::TOOL_SUBMIT_BACKLOG_SUGGESTION => 'Submit a system defect, bug report, user complaint, or feature suggestion into the project backlog.',
     ];
   }
 
@@ -162,6 +163,25 @@ class CharacterCreationGmService implements AgentHarnessInterface {
     }
     if (!empty($applied_updates['portrait_generate']) || !empty($applied_updates['portrait_prompt'])) {
       $tool_calls[] = $this->describeToolCall('configure_character_portrait');
+    }
+    $backlog_suggestion = is_array($payload['backlog_suggestion'] ?? NULL) ? $payload['backlog_suggestion'] : [];
+    $backlog_summary = trim((string) ($backlog_suggestion['summary'] ?? ''));
+    if ($backlog_summary !== '') {
+      $suggestion_args = [
+        'summary' => $backlog_summary,
+        'category' => trim((string) ($backlog_suggestion['category'] ?? 'technical_improvement')),
+        'original_message' => trim((string) ($backlog_suggestion['original_message'] ?? $message)),
+      ];
+      $tool_calls[] = $this->describeToolCall(
+        AgentHarnessManagementService::TOOL_SUBMIT_BACKLOG_SUGGESTION,
+        $suggestion_args,
+      );
+      $this->harnessManagement->submitBacklogSuggestion($suggestion_args, [
+        'agent_id' => $this->agentId(),
+        'character_id' => $saved_character_id,
+        'campaign_id' => $resolved_campaign_id,
+        'step' => $step,
+      ]);
     }
 
     $resolved_step = $this->resolveDraftStep($character_data, max(1, min(8, $step)));
@@ -258,8 +278,13 @@ Rules:
     "reply": "short conversational GM reply for the player",
     "updates": {
       "...field_name...": "value"
+    },
+    "backlog_suggestion": {
+      "summary": "1-3 sentence defect or feedback summary (include only when the player reports a bug/complaint/suggestion)",
+      "category": "technical_improvement"
     }
   }
+- Only include "backlog_suggestion" when the player explicitly reports a system bug, defect, complaint, or feature request to log to the backlog (categories: technical_improvement, content_update, safety_feature, community_initiative, partnership, general_feedback, other).
 - If you are only giving advice and should not change the draft, return an empty "updates" object.
 - Never invent IDs. Only use IDs from the provided option catalogs.
 - Prefer wizard-field updates over derived-stat edits.

@@ -8,6 +8,9 @@
     <div class="dc-sheet__nav-actions">
       <a href="{{ campaigns_url }}" class="dc-btn dc-btn-secondary">Campaigns</a>
       <a href="{{ storyline_explorer_url }}" class="dc-btn dc-btn-secondary">Storyline Explorer</a>
+      {% if archived_url %}
+        <a href="{{ archived_url }}" class="dc-btn dc-btn-secondary">Archived Storylines</a>
+      {% endif %}
       <a href="{{ builder_url }}" class="dc-btn dc-btn-primary">
         <span class="dc-btn__icon">+</span> Create New Storyline
       </a>
@@ -64,6 +67,9 @@
                   <td>{{ draft.updated }}</td>
                   <td class="storyline-drafts__actions">
                     <a href="{{ draft.edit_url }}" class="dc-btn dc-btn-secondary">Open</a>
+                    {% if draft.archive_url %}
+                      <a href="{{ draft.archive_url }}" class="dc-btn dc-btn-secondary" title="Archive {{ draft.title }}">🗄️ Archive</a>
+                    {% endif %}
                     <button type="button" class="dc-btn dc-btn-danger" data-storyline-draft-delete data-delete-url="{{ draft.delete_url }}" data-draft-title="{{ draft.title }}">Delete</button>
                   </td>
                 </tr>
@@ -115,6 +121,11 @@
       <div class="dc-character-grid">
         {% for storyline in my_storylines %}
           <div class="dc-character-card dc-character-card--{{ storyline.status|default('canonical') }}">
+            {% if storyline.archive_url %}
+              <a href="{{ storyline.archive_url }}" class="dc-character-card__archive-btn" title="Archive {{ storyline.name }}">
+                🗄️
+              </a>
+            {% endif %}
             <a href="{{ storyline.edit_url ?: builder_url }}" class="dc-character-card__main-link">
               <div class="dc-character-card__portrait">
                 <div class="dc-character-card__portrait-placeholder">
@@ -165,6 +176,11 @@
       <div class="dc-character-grid">
         {% for storyline in other_storylines %}
           <div class="dc-character-card dc-character-card--{{ storyline.status|default('canonical') }}">
+            {% if storyline.archive_url %}
+              <a href="{{ storyline.archive_url }}" class="dc-character-card__archive-btn" title="Archive {{ storyline.name }}">
+                🗄️
+              </a>
+            {% endif %}
             <a href="{{ storyline.edit_url ?: builder_url }}" class="dc-character-card__main-link">
               <div class="dc-character-card__portrait">
                 <div class="dc-character-card__portrait-placeholder">

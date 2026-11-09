@@ -40,6 +40,7 @@ class GmToolExecutionService {
     'query_campaign_database' => 'Query campaign-instance tables for grounded lore, geography, and history context.',
     'inspect_storyline_branches' => 'List current pending and resolved storyline decisions using canonical runtime state.',
     'resolve_storyline_branch' => 'Resolve an authored storyline decision through the canonical Storyline Manager authority.',
+    'submit_backlog_suggestion' => 'Submit a system defect, bug report, user complaint, or feature suggestion into the project backlog.',
   ];
 
   protected Connection $database;

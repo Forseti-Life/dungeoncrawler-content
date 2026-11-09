@@ -332,6 +332,16 @@ Cast coverage, motivations, knowledge boundaries, relationship arcs, and
 canonical actor selections contribute completion and continuity warnings; they
 do not gate publication.
 
+### Future Enhancement Seam: Party-Relative Actor Level & Retinue Scaling
+
+Party-relative actor level scaling (for example, scaling a named boss/leader to
+`highest_party_level` or `average_party_level`) and dynamic retinue/minion
+count scaling (`X` companion actors based on PF2E encounter XP budget remainder
+or party HD difference) are pinned as a future storyline mechanic enhancement.
+See [`docs/dungeoncrawler/STORYLINE_ACTOR_LEVEL_AND_RETINUE_SCALING_DESIGN.md`](docs/dungeoncrawler/STORYLINE_ACTOR_LEVEL_AND_RETINUE_SCALING_DESIGN.md)
+for the schema contracts (`level_scaling`, `retinue_scaling`), deterministic
+PF2E resolution math, and codebase integration seams.
+
 ## Stage 4: Dungeons, Rooms, and Traversal
 
 ### Decisions

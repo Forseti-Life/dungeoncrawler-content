@@ -44,6 +44,9 @@ class StorylineManagementController extends ControllerBase {
     $my_drafts = [];
     $shared_drafts = [];
     $can_edit_storylines = $this->currentUser()->hasPermission('edit canonical dungeoncrawler storylines');
+    $can_admin_storylines = $this->currentUser()->hasPermission('administer dungeoncrawler content')
+      || $this->currentUser()->hasPermission('publish canonical dungeoncrawler storylines');
+    $storylines_destination = Url::fromRoute('dungeoncrawler_content.storyline_management')->toString();
     try {
       foreach ($this->storylineManager->listTemplates() as $template) {
         $template_id = trim((string) ($template['template_id'] ?? ''));
@@ -65,6 +68,8 @@ class StorylineManagementController extends ControllerBase {
             $completeness = NULL;
           }
         }
+        $is_mine = $this->isTemplateAuthoredByCurrentUser($template, $uid);
+        $can_manage_template = $is_mine || $can_admin_storylines;
         $record = [
           'template_id' => $template_id,
           'name' => (string) ($template['name'] ?? $template_id),
@@ -83,10 +88,17 @@ class StorylineManagementController extends ControllerBase {
               ? ['draft_id' => (string) $latest_draft['draft_id']]
               : ['template_id' => $template_id],
           ])->toString(),
+          'archive_url' => $can_manage_template
+            ? Url::fromRoute('dungeoncrawler_content.storyline_template_archive', [
+              'template_id' => $template_id,
+            ], [
+              'query' => ['destination' => $storylines_destination],
+            ])->toString()
+            : '',
           'action_label' => $latest_draft !== NULL ? 'Open Latest Version' : 'Edit Storyline',
         ];
 
-        if ($this->isTemplateAuthoredByCurrentUser($template, $uid)) {
+        if ($is_mine) {
           $my_storylines[] = $record;
         }
         else {
@@ -104,6 +116,7 @@ class StorylineManagementController extends ControllerBase {
       'my_drafts' => 0,
       'shared_drafts' => 0,
       'my_editing_drafts' => 0,
+      'my_archived_drafts' => 0,
       'my_saved_versions' => 0,
     ];
     try {
@@ -127,6 +140,13 @@ class StorylineManagementController extends ControllerBase {
           'edit_url' => Url::fromRoute('dungeoncrawler_content.gm_storyline_builder', [], [
             'query' => ['draft_id' => $draft_id],
           ])->toString(),
+          'archive_url' => !empty($draft['is_owner'])
+            ? Url::fromRoute('dungeoncrawler_content.storyline_draft_archive', [
+              'draft_id' => $draft_id,
+            ], [
+              'query' => ['destination' => $storylines_destination],
+            ])->toString()
+            : '',
           'delete_url' => !empty($draft['is_owner'])
             ? Url::fromRoute('dungeoncrawler_content.api.storyline_builder_draft_delete', ['draft_id' => $draft_id])->toString()
             : '',
@@ -160,6 +180,7 @@ class StorylineManagementController extends ControllerBase {
       '#builder_url' => Url::fromRoute('dungeoncrawler_content.gm_storyline_builder')->toString(),
       '#storyline_explorer_url' => Url::fromRoute('dungeoncrawler_content.storyline_explorer')->toString(),
       '#campaigns_url' => Url::fromRoute('dungeoncrawler_content.campaigns')->toString(),
+      '#archived_url' => Url::fromRoute('dungeoncrawler_content.storylines_archived')->toString(),
       '#attached' => [
         'library' => [
           'dungeoncrawler_content/character-sheet',
@@ -172,6 +193,318 @@ class StorylineManagementController extends ControllerBase {
         'max-age' => 0,
       ],
     ];
+  }
+
+  /**
+   * Lists archived canonical storylines and archived storyline drafts.
+   */
+  public function listArchivedStorylines(): array {
+    $uid = (int) $this->currentUser()->id();
+    $can_edit_storylines = $this->currentUser()->hasPermission('edit canonical dungeoncrawler storylines');
+    $can_admin_storylines = $this->currentUser()->hasPermission('administer dungeoncrawler content')
+      || $this->currentUser()->hasPermission('publish canonical dungeoncrawler storylines');
+    $archived_destination = Url::fromRoute('dungeoncrawler_content.storylines_archived')->toString();
+
+    $archived_storylines = [];
+    try {
+      foreach ($this->storylineManager->listArchivedTemplates() as $template) {
+        $template_id = trim((string) ($template['template_id'] ?? ''));
+        if ($template_id === '') {
+          continue;
+        }
+        $is_mine = $this->isTemplateAuthoredByCurrentUser($template, $uid);
+        if (!$is_mine && !$can_admin_storylines) {
+          continue;
+        }
+        $template_data = is_array($template['template_data'] ?? NULL) ? $template['template_data'] : [];
+        $archived_ts = (int) ($template_data['_archive_meta']['archived_at'] ?? $template['updated_at'] ?? 0);
+        $archived_storylines[] = [
+          'template_id' => $template_id,
+          'name' => (string) ($template['name'] ?? $template_id),
+          'source' => (string) ($template['source'] ?? ''),
+          'goal' => (string) ($template['synopsis'] ?? ''),
+          'created' => !empty($template['created_at']) ? date('M j, Y', (int) $template['created_at']) : '',
+          'archived_at' => $archived_ts > 0 ? date('M j, Y', $archived_ts) : '',
+          'unarchive_url' => Url::fromRoute('dungeoncrawler_content.storyline_template_unarchive', [
+            'template_id' => $template_id,
+          ], [
+            'query' => ['destination' => $archived_destination],
+          ])->toString(),
+          'delete_url' => Url::fromRoute('dungeoncrawler_content.storyline_template_delete', [
+            'template_id' => $template_id,
+          ], [
+            'query' => ['destination' => $archived_destination],
+          ])->toString(),
+        ];
+      }
+    }
+    catch (\Throwable $e) {
+      $this->messenger()->addError($this->t('Unable to load archived storylines: %error', [
+        '%error' => $e->getMessage(),
+      ]));
+    }
+
+    $archived_drafts = [];
+    if ($can_edit_storylines) {
+      try {
+        foreach ($this->drafts->listArchivedDrafts() as $draft) {
+          $draft_id = (string) ($draft['draft_id'] ?? '');
+          if ($draft_id === '') {
+            continue;
+          }
+          $archived_ts = (int) ($draft['archived_at'] ?? $draft['updated_at'] ?? 0);
+          $archived_drafts[] = [
+            'draft_id' => $draft_id,
+            'title' => (string) ($draft['title'] ?? 'Untitled storyline'),
+            'revision' => (int) ($draft['revision'] ?? 1),
+            'revision_count' => (int) ($draft['revision_count'] ?? 1),
+            'created' => !empty($draft['created_at']) ? date('M j, Y', (int) $draft['created_at']) : '',
+            'archived_at' => $archived_ts > 0 ? date('M j, Y', $archived_ts) : '',
+            'unarchive_url' => Url::fromRoute('dungeoncrawler_content.storyline_draft_unarchive', [
+              'draft_id' => $draft_id,
+            ], [
+              'query' => ['destination' => $archived_destination],
+            ])->toString(),
+            'delete_url' => Url::fromRoute('dungeoncrawler_content.storyline_draft_delete', [
+              'draft_id' => $draft_id,
+            ], [
+              'query' => ['destination' => $archived_destination],
+            ])->toString(),
+          ];
+        }
+      }
+      catch (\Throwable $e) {
+        $this->messenger()->addError($this->t('Unable to load archived storyline drafts: %error', [
+          '%error' => $e->getMessage(),
+        ]));
+      }
+    }
+
+    return [
+      '#theme' => 'storyline_archived_list',
+      '#storylines' => $archived_storylines,
+      '#drafts' => $archived_drafts,
+      '#back_url' => Url::fromRoute('dungeoncrawler_content.storyline_management')->toString(),
+      '#delete_all_url' => Url::fromRoute('dungeoncrawler_content.storylines_archived_delete_all', [], [
+        'query' => ['destination' => $archived_destination],
+      ])->toString(),
+      '#attached' => [
+        'library' => [
+          'dungeoncrawler_content/character-sheet',
+          'dungeoncrawler_content/storyline-management',
+        ],
+      ],
+      '#cache' => [
+        'contexts' => ['user'],
+        'tags' => ['dc_canonical_storylines'],
+        'max-age' => 0,
+      ],
+    ];
+  }
+
+  /**
+   * Archive a canonical storyline template.
+   */
+  public function archiveTemplate(string $template_id): RedirectResponse {
+    $template = $this->storylineManager->getTemplate($template_id);
+    if ($template === NULL) {
+      throw new NotFoundHttpException();
+    }
+    $this->assertCanManageTemplate($template);
+
+    $result = $this->storylineManager->archiveTemplate($template_id, (int) $this->currentUser()->id());
+    $name = (string) ($template['name'] ?? $template_id);
+    if ($result['status'] === 'already_archived') {
+      $this->messenger()->addStatus($this->t('%name is already archived.', ['%name' => $name]));
+    }
+    else {
+      $this->messenger()->addStatus($this->t('%name archived. It is now hidden from your active storylines list.', ['%name' => $name]));
+    }
+
+    return $this->redirectToDestinationOrRoute('dungeoncrawler_content.storyline_management');
+  }
+
+  /**
+   * Unarchive a canonical storyline template.
+   */
+  public function unarchiveTemplate(string $template_id): RedirectResponse {
+    $template = $this->storylineManager->getTemplate($template_id);
+    if ($template === NULL) {
+      throw new NotFoundHttpException();
+    }
+    $this->assertCanManageTemplate($template);
+
+    $result = $this->storylineManager->unarchiveTemplate($template_id);
+    $name = (string) ($template['name'] ?? $template_id);
+    if ($result['status'] === 'not_archived') {
+      $this->messenger()->addStatus($this->t('%name is not archived.', ['%name' => $name]));
+    }
+    else {
+      $this->messenger()->addStatus($this->t('%name restored to active storylines.', ['%name' => $name]));
+    }
+
+    return $this->redirectToDestinationOrRoute('dungeoncrawler_content.storylines_archived');
+  }
+
+  /**
+   * Permanently delete a canonical storyline template.
+   */
+  public function deleteTemplate(string $template_id): RedirectResponse {
+    $template = $this->storylineManager->getTemplate($template_id);
+    if ($template === NULL) {
+      throw new NotFoundHttpException();
+    }
+    $this->assertCanManageTemplate($template);
+
+    $name = (string) ($template['name'] ?? $template_id);
+    $this->storylineManager->deleteTemplate($template_id);
+    $this->messenger()->addStatus($this->t('%name has been permanently deleted.', ['%name' => $name]));
+
+    return $this->redirectToDestinationOrRoute('dungeoncrawler_content.storylines_archived');
+  }
+
+  /**
+   * Archive an owner-bound storyline draft.
+   */
+  public function archiveDraft(string $draft_id): RedirectResponse {
+    try {
+      $result = $this->drafts->archiveDraft($draft_id);
+      $title = (string) ($result['draft']['payload']['title'] ?? $draft_id);
+      if ($result['status'] === 'already_archived') {
+        $this->messenger()->addStatus($this->t('Draft %title is already archived.', ['%title' => $title]));
+      }
+      else {
+        $this->messenger()->addStatus($this->t('Draft %title archived.', ['%title' => $title]));
+      }
+    }
+    catch (\OutOfBoundsException) {
+      throw new NotFoundHttpException();
+    }
+    catch (\UnexpectedValueException) {
+      throw new AccessDeniedHttpException();
+    }
+
+    return $this->redirectToDestinationOrRoute('dungeoncrawler_content.storyline_management');
+  }
+
+  /**
+   * Unarchive an owner-bound storyline draft.
+   */
+  public function unarchiveDraft(string $draft_id): RedirectResponse {
+    try {
+      $result = $this->drafts->unarchiveDraft($draft_id);
+      $title = (string) ($result['draft']['payload']['title'] ?? $draft_id);
+      if ($result['status'] === 'not_archived') {
+        $this->messenger()->addStatus($this->t('Draft %title is not archived.', ['%title' => $title]));
+      }
+      else {
+        $this->messenger()->addStatus($this->t('Draft %title restored to active drafts.', ['%title' => $title]));
+      }
+    }
+    catch (\OutOfBoundsException) {
+      throw new NotFoundHttpException();
+    }
+    catch (\UnexpectedValueException) {
+      throw new AccessDeniedHttpException();
+    }
+
+    return $this->redirectToDestinationOrRoute('dungeoncrawler_content.storylines_archived');
+  }
+
+  /**
+   * Permanently delete an owner-bound storyline draft from a page action.
+   */
+  public function deleteDraftPage(string $draft_id): RedirectResponse {
+    try {
+      $draft = $this->drafts->getDraft($draft_id);
+      $title = (string) ($draft['payload']['title'] ?? $draft_id);
+      $this->drafts->deleteDraft($draft_id);
+      $this->messenger()->addStatus($this->t('Draft %title has been permanently deleted.', ['%title' => $title]));
+    }
+    catch (\OutOfBoundsException) {
+      throw new NotFoundHttpException();
+    }
+    catch (\UnexpectedValueException) {
+      throw new AccessDeniedHttpException();
+    }
+
+    return $this->redirectToDestinationOrRoute('dungeoncrawler_content.storylines_archived');
+  }
+
+  /**
+   * Permanently delete all archived storylines and drafts owned/manageable by the current user.
+   */
+  public function deleteAllArchivedStorylines(): RedirectResponse {
+    $uid = (int) $this->currentUser()->id();
+    $can_edit_storylines = $this->currentUser()->hasPermission('edit canonical dungeoncrawler storylines');
+    $can_admin_storylines = $this->currentUser()->hasPermission('administer dungeoncrawler content')
+      || $this->currentUser()->hasPermission('publish canonical dungeoncrawler storylines');
+
+    $deleted_templates = 0;
+    foreach ($this->storylineManager->listArchivedTemplates() as $template) {
+      $template_id = trim((string) ($template['template_id'] ?? ''));
+      if ($template_id === '') {
+        continue;
+      }
+      if (!$this->isTemplateAuthoredByCurrentUser($template, $uid) && !$can_admin_storylines) {
+        continue;
+      }
+      if ($this->storylineManager->deleteTemplate($template_id)) {
+        $deleted_templates++;
+      }
+    }
+
+    $deleted_drafts = 0;
+    if ($can_edit_storylines) {
+      foreach ($this->drafts->listArchivedDrafts() as $draft) {
+        $draft_id = (string) ($draft['draft_id'] ?? '');
+        if ($draft_id === '') {
+          continue;
+        }
+        try {
+          $this->drafts->deleteDraft($draft_id);
+          $deleted_drafts++;
+        }
+        catch (\Throwable) {
+          // Skip drafts that cannot be deleted by current user.
+        }
+      }
+    }
+
+    if ($deleted_templates === 0 && $deleted_drafts === 0) {
+      $this->messenger()->addStatus($this->t('No archived storylines or drafts to delete.'));
+    }
+    else {
+      $this->messenger()->addStatus($this->t('Permanently deleted @templates archived storyline(s) and @drafts archived draft(s).', [
+        '@templates' => $deleted_templates,
+        '@drafts' => $deleted_drafts,
+      ]));
+    }
+
+    return $this->redirectToDestinationOrRoute('dungeoncrawler_content.storylines_archived');
+  }
+
+  /**
+   * Enforces ownership or administrative permission for template lifecycle actions.
+   */
+  private function assertCanManageTemplate(array $template): void {
+    $uid = (int) $this->currentUser()->id();
+    $can_admin = $this->currentUser()->hasPermission('administer dungeoncrawler content')
+      || $this->currentUser()->hasPermission('publish canonical dungeoncrawler storylines');
+    if (!$can_admin && !$this->isTemplateAuthoredByCurrentUser($template, $uid)) {
+      throw new AccessDeniedHttpException();
+    }
+  }
+
+  /**
+   * Redirects to a valid local destination query parameter or fallback route.
+   */
+  private function redirectToDestinationOrRoute(string $route_name): RedirectResponse {
+    $destination = trim((string) \Drupal::request()->query->get('destination', ''));
+    if ($destination !== '' && str_starts_with($destination, '/')) {
+      return new RedirectResponse(Url::fromUserInput($destination)->toString());
+    }
+    return new RedirectResponse(Url::fromRoute($route_name)->toString());
   }
 
   /**

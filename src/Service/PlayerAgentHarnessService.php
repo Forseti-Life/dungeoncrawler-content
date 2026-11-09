@@ -76,7 +76,22 @@ class PlayerAgentHarnessService implements AgentHarnessInterface {
   public function listAgentTools(string $profile = 'default'): array {
     return [
       'actions' => ['move', 'strike', 'interact', 'talk', 'search', 'cast_spell', 'consume_item', 'skill', 'feat', 'navigate', 'rest', 'end_turn'],
+      'tools' => [
+        AgentHarnessManagementService::TOOL_SUBMIT_BACKLOG_SUGGESTION => $this->harnessManagement->getBacklogSuggestionToolDescriptor(),
+      ],
     ];
+  }
+
+  /**
+   * Submits a defect, complaint, or suggestion from the player automation harness.
+   */
+  public function submitBacklogSuggestion(array $arguments, array $context = []): array {
+    $tool_call = $this->describeToolCall(AgentHarnessManagementService::TOOL_SUBMIT_BACKLOG_SUGGESTION, $arguments);
+    $result = $this->harnessManagement->submitBacklogSuggestion($arguments, [
+      'agent_id' => $this->agentId(),
+    ] + $context);
+    $result['tool_calls'] = [$tool_call];
+    return $result;
   }
 
   /**

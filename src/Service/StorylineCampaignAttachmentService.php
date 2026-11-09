@@ -889,6 +889,9 @@ final class StorylineCampaignAttachmentService {
         );
       }
 
+      // Future enhancement seam: initial party-relative actor level & retinue
+      // scaling materializes here with scaling_locked=false until room entry.
+      // @see /docs/dungeoncrawler/STORYLINE_ACTOR_LEVEL_AND_RETINUE_SCALING_DESIGN.md
       $actors = $this->storylineRealization->realizeStorylineNpcs(
         $campaign_id,
         $storyline,

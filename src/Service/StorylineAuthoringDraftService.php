@@ -351,13 +351,16 @@ class StorylineAuthoringDraftService {
   /**
    * Lists drafts every storyline editor may load, with ownership metadata.
    */
-  public function listDrafts(): array {
+  public function listDrafts(bool $include_archived = FALSE): array {
     $this->assertCanEdit();
     $uid = (int) $this->currentUser->id();
     $query = $this->database->select(self::TABLE, 'd');
     $query->leftJoin('users_field_data', 'u', 'u.uid = d.owner_uid AND u.default_langcode = 1');
     $query->fields('d', ['draft_id', 'owner_uid', 'source_draft_id', 'source_revision', 'source_template_id', 'published_template_id', 'revision', 'status', 'draft_payload', 'created_at', 'updated_at']);
     $query->addField('u', 'name', 'owner_name');
+    if (!$include_archived) {
+      $query->condition('d.status', 'archived', '<>');
+    }
     $rows = $query
       ->orderBy('d.updated_at', 'DESC')
       ->execute()
@@ -372,6 +375,7 @@ class StorylineAuthoringDraftService {
     }
     return array_map(function (array $row) use ($uid, $revision_counts): array {
       $payload = $this->decodePayload((string) $row['draft_payload']);
+      $archive_meta = is_array($payload['_archive_meta'] ?? NULL) ? $payload['_archive_meta'] : [];
       return [
         'draft_id' => (string) $row['draft_id'],
         'owner_uid' => (int) $row['owner_uid'],
@@ -392,8 +396,82 @@ class StorylineAuthoringDraftService {
         'storyline_id' => (string) ($payload['storyline_id'] ?? ''),
         'created_at' => (int) $row['created_at'],
         'updated_at' => (int) $row['updated_at'],
+        'archived_at' => isset($archive_meta['archived_at']) ? (int) $archive_meta['archived_at'] : NULL,
       ];
     }, $rows);
+  }
+
+  /**
+   * Lists only archived drafts owned by the current user.
+   */
+  public function listArchivedDrafts(): array {
+    return array_values(array_filter(
+      $this->listDrafts(TRUE),
+      static fn(array $draft): bool => !empty($draft['is_owner']) && (string) ($draft['status'] ?? '') === 'archived',
+    ));
+  }
+
+  /**
+   * Archives an owner-bound storyline draft.
+   */
+  public function archiveDraft(string $draft_id): array {
+    $draft = $this->getDraft($draft_id);
+    if ((string) ($draft['status'] ?? '') === 'archived') {
+      return ['status' => 'already_archived', 'draft' => $draft];
+    }
+    $now = $this->time->getRequestTime();
+    $payload = is_array($draft['payload'] ?? NULL) ? $draft['payload'] : [];
+    $payload['_archive_meta'] = [
+      'previous_status' => (string) ($draft['status'] ?? 'editing'),
+      'archived_at' => $now,
+    ];
+    $payload_json = $this->encodePayload($payload);
+    $this->database->update(self::TABLE)
+      ->fields([
+        'status' => 'archived',
+        'draft_payload' => $payload_json,
+        'updated_at' => $now,
+      ])
+      ->condition('draft_id', $draft_id)
+      ->condition('owner_uid', (int) $draft['owner_uid'])
+      ->execute();
+
+    return [
+      'status' => 'archived',
+      'draft' => $this->getDraft($draft_id),
+    ];
+  }
+
+  /**
+   * Unarchives an owner-bound storyline draft.
+   */
+  public function unarchiveDraft(string $draft_id): array {
+    $draft = $this->getDraft($draft_id);
+    if ((string) ($draft['status'] ?? '') !== 'archived') {
+      return ['status' => 'not_archived', 'draft' => $draft];
+    }
+    $now = $this->time->getRequestTime();
+    $payload = is_array($draft['payload'] ?? NULL) ? $draft['payload'] : [];
+    $previous_status = (string) ($payload['_archive_meta']['previous_status'] ?? 'editing');
+    if (!in_array($previous_status, ['editing', 'published'], TRUE)) {
+      $previous_status = 'editing';
+    }
+    unset($payload['_archive_meta']);
+    $payload_json = $this->encodePayload($payload);
+    $this->database->update(self::TABLE)
+      ->fields([
+        'status' => $previous_status,
+        'draft_payload' => $payload_json,
+        'updated_at' => $now,
+      ])
+      ->condition('draft_id', $draft_id)
+      ->condition('owner_uid', (int) $draft['owner_uid'])
+      ->execute();
+
+    return [
+      'status' => 'unarchived',
+      'draft' => $this->getDraft($draft_id),
+    ];
   }
 
   /**
@@ -558,17 +636,25 @@ class StorylineAuthoringDraftService {
       throw new \UnexpectedValueException('storyline_draft_auth_required');
     }
     $total = (int) $this->database->select(self::TABLE, 'd')
+      ->condition('status', 'archived', '<>')
       ->countQuery()
       ->execute()
       ->fetchField();
     $mine = (int) $this->database->select(self::TABLE, 'd')
       ->condition('owner_uid', $uid)
+      ->condition('status', 'archived', '<>')
       ->countQuery()
       ->execute()
       ->fetchField();
     $editing = (int) $this->database->select(self::TABLE, 'd')
       ->condition('owner_uid', $uid)
       ->condition('status', 'editing')
+      ->countQuery()
+      ->execute()
+      ->fetchField();
+    $archived = (int) $this->database->select(self::TABLE, 'd')
+      ->condition('owner_uid', $uid)
+      ->condition('status', 'archived')
       ->countQuery()
       ->execute()
       ->fetchField();
@@ -582,6 +668,7 @@ class StorylineAuthoringDraftService {
       'my_drafts' => $mine,
       'shared_drafts' => max(0, $total - $mine),
       'my_editing_drafts' => $editing,
+      'my_archived_drafts' => $archived,
       'my_saved_versions' => $versions,
     ];
   }
@@ -1796,6 +1883,9 @@ class StorylineAuthoringDraftService {
       $all_scene_rows[] = $scene;
     }
 
+    // Future enhancement seam: project authored $actor['level_scaling'] and
+    // $actor['retinue_scaling'] into runtime_materialization here.
+    // @see docs/dungeoncrawler/STORYLINE_ACTOR_LEVEL_AND_RETINUE_SCALING_DESIGN.md
     $contacts = [];
     foreach ($actors as $index => $actor) {
       $entity_id = trim((string) ($actor['actor_id'] ?? ''));

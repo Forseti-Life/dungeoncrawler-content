@@ -319,6 +319,11 @@ class StorylineRealizationService {
   /**
    * Materialize questgiver/boss storyline NPC references into real campaign NPCs.
    *
+   * Future enhancement seam: dynamic party-relative actor level scaling and
+   * retinue/rabble companion spawning (1..N) hook here and on lazy room entry.
+   *
+   * @see /docs/dungeoncrawler/STORYLINE_ACTOR_LEVEL_AND_RETINUE_SCALING_DESIGN.md
+   *
    * @return array<int, string>
    *   Entity refs realized during this pass.
    */
@@ -911,6 +916,11 @@ class StorylineRealizationService {
 
   /**
    * Build campaign NPC specs from storyline contacts and generated boss outline.
+   *
+   * Future enhancement seam: replace static $level_bounds['min'|'max'] assignment
+   * with StorylineScalingResolverService resolution against active campaign PCs.
+   *
+   * @see /docs/dungeoncrawler/STORYLINE_ACTOR_LEVEL_AND_RETINUE_SCALING_DESIGN.md
    *
    * @return array<int, array<string, mixed>>
    *   Normalized NPC specs keyed for canonical actor persistence.

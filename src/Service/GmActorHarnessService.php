@@ -115,6 +115,18 @@ class GmActorHarnessService implements AgentHarnessInterface {
    */
   public function runTool(string $tool, array $payload, array $context = []): array {
     $tool_call_status = $this->describeToolCall($tool, $payload);
+    if ($tool === AgentHarnessManagementService::TOOL_SUBMIT_BACKLOG_SUGGESTION) {
+      $result = $this->harnessManagement->submitBacklogSuggestion($payload, [
+        'agent_id' => $this->agentId(),
+        'campaign_id' => (int) ($payload['campaign_id'] ?? $context['campaign_id'] ?? 0),
+        'room_id' => (string) ($payload['room_id'] ?? $context['room_id'] ?? ''),
+      ]);
+      $result['contract_version'] = GmToolExecutionService::TOOL_CONTRACT_VERSION;
+      $result['harness_contract_version'] = self::HARNESS_CONTRACT_VERSION;
+      $result['tool_calls'] = [$tool_call_status];
+      return $result;
+    }
+
     $result = $this->toolExecution->execute($tool, $payload, $context);
     if (!is_array($result)) {
       throw new \RuntimeException('GM tool execution returned invalid result payload.');

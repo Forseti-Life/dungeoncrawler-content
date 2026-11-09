@@ -528,6 +528,8 @@ services:
 
   dungeoncrawler_content.agent_harness_management:
     class: Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessManagementService
+    arguments:
+      - '@?ai_conversation.ai_api_service'
 
   dungeoncrawler_content.agent_harness_registry:
     class: Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessRegistry
@@ -545,7 +547,6 @@ services:
     arguments:
       - '@?ai_conversation.ai_api_service'
       - '@logger.factory'
-      - '@dungeoncrawler_content.agent_harness_management'
 
   dungeoncrawler_content.canonical_generation:
     class: Drupal\dungeoncrawler_content\Service\Generation\CanonicalGenerationService
@@ -690,7 +691,6 @@ services:
       - '@dungeoncrawler_content.editor_gm_intent_parser'
       - '@?ai_conversation.ai_api_service'
       - '@logger.factory'
-      - '@dungeoncrawler_content.agent_harness_management'
 
   dungeoncrawler_content.content_query:
     class: Drupal\dungeoncrawler_content\Service\ContentQuery
@@ -1987,6 +1987,14 @@ services:
       - '@dungeoncrawler_content.quest_tracker'
       - '@database'
       - '@logger.factory'
+    tags:
+      - {name: event_subscriber}
+
+  dungeoncrawler_content.anonymous_navigation_redirect_subscriber:
+    class: Drupal\dungeoncrawler_content\EventSubscriber\AnonymousNavigationRedirectSubscriber
+    arguments:
+      - '@current_user'
+      - '@database'
     tags:
       - {name: event_subscriber}
 

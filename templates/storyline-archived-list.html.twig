@@ -1,0 +1,116 @@
+{#
+ # Archived Storylines — /storylines/archived page
+ # Browse, unarchive, or permanently delete archived storylines and drafts.
+ #}
+<div class="dc-character-list dc-character-list--storylines">
+  <div class="dc-character-list__header">
+    <h1 class="dc-character-list__title">🗄️ Archived Storylines</h1>
+    <div class="dc-sheet__nav-actions">
+      {% if storylines|length > 0 or drafts|length > 0 %}
+        <button
+          type="button"
+          class="dc-btn dc-btn-danger"
+          onclick="if (confirm('Permanently delete all archived storylines and drafts? This cannot be undone.')) { window.location.href='{{ delete_all_url|e('js') }}'; }"
+        >
+          ☠️ Delete All Archived
+        </button>
+      {% endif %}
+      <a href="{{ back_url }}" class="dc-btn dc-btn-secondary">← Back to Storylines</a>
+    </div>
+  </div>
+
+  {% if drafts|length > 0 %}
+    <div class="dc-sheet__section storyline-drafts">
+      <h2 class="dc-sheet__section-title">Archived Drafts ({{ drafts|length }})</h2>
+      <div class="storyline-drafts__table-wrap">
+        <table class="storyline-drafts__table">
+          <thead>
+            <tr><th>Draft</th><th>Latest</th><th>Versions</th><th>Created</th><th>Archived</th><th>Actions</th></tr>
+          </thead>
+          <tbody>
+            {% for draft in drafts %}
+              <tr>
+                <td>{{ draft.title }}</td>
+                <td>Revision {{ draft.revision }}</td>
+                <td>{{ draft.revision_count }}</td>
+                <td>{{ draft.created }}</td>
+                <td>{{ draft.archived_at }}</td>
+                <td class="storyline-drafts__actions">
+                  <a href="{{ draft.unarchive_url }}" class="dc-btn dc-btn-secondary dc-btn--sm" title="Restore this draft to active drafts">
+                    ♻️ Unarchive
+                  </a>
+                  <a
+                    href="{{ draft.delete_url }}"
+                    class="dc-btn dc-btn-danger dc-btn--sm"
+                    title="Permanently delete this draft"
+                    onclick="return confirm('Permanently delete draft {{ draft.title|e('js') }} and all its saved revisions?');"
+                  >
+                    ☠️ Delete Forever
+                  </a>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  {% endif %}
+
+  {% if storylines|length > 0 %}
+    <div class="dc-sheet__section dc-character-list__campaign-setup">
+      <h2 class="dc-sheet__section-title">Archived Canonical Storylines ({{ storylines|length }})</h2>
+      <div class="dc-character-grid">
+        {% for storyline in storylines %}
+          <div class="dc-character-card dc-character-card--archived">
+            <div class="dc-character-card__main-link dc-character-card__main-link--no-hover">
+              <div class="dc-character-card__portrait">
+                <div class="dc-character-card__portrait-placeholder dc-character-card__portrait-placeholder--archived">
+                  <span class="dc-character-card__initial">{{ storyline.name|first|upper }}</span>
+                </div>
+              </div>
+
+              <div class="dc-character-card__info">
+                <h3 class="dc-character-card__name">{{ storyline.name }}</h3>
+                <div class="dc-character-card__subtitle">
+                  {{ storyline.template_id }}
+                </div>
+                {% if storyline.goal %}
+                  <p class="dc-character-card__meta">{{ storyline.goal }}</p>
+                {% endif %}
+
+                <div class="dc-character-card__meta">
+                  {% if storyline.source %}<span>Source: {{ storyline.source }}</span>{% endif %}
+                  {% if storyline.created %}<span>Created {{ storyline.created }}</span>{% endif %}
+                  {% if storyline.archived_at %}<span>Archived {{ storyline.archived_at }}</span>{% endif %}
+                </div>
+
+                <div class="dc-character-card__actions">
+                  <a href="{{ storyline.unarchive_url }}" class="dc-btn dc-btn-secondary dc-btn--sm" title="Restore this storyline to active list">
+                    ♻️ Unarchive
+                  </a>
+                  <a
+                    href="{{ storyline.delete_url }}"
+                    class="dc-btn dc-btn-danger dc-btn--sm"
+                    title="Permanently delete this storyline"
+                    onclick="return confirm('Permanently delete storyline {{ storyline.name|e('js') }}? This cannot be undone.');"
+                  >
+                    ☠️ Delete Forever
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
+
+  {% if storylines|length == 0 and drafts|length == 0 %}
+    <div class="dc-character-list__empty">
+      <div class="dc-character-list__empty-icon">📦</div>
+      <h2>No Archived Storylines</h2>
+      <p>Storylines and drafts you archive from the main Storyline Management page will appear here. You can restore or permanently delete them.</p>
+      <a href="{{ back_url }}" class="dc-btn dc-btn-secondary">← Back to Storylines</a>
+    </div>
+  {% endif %}
+</div>

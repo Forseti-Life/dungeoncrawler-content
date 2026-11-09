@@ -24,6 +24,20 @@ function dungeoncrawler_content_form_user_login_form_alter(array &$form, FormSta
 }
 
 /**
+ * Implements hook_form_FORM_ID_alter() for user_register_form.
+ *
+ * Preserves the destination query parameter into the login link on the Create
+ * Account page so existing users who arrived via an unauthenticated nav menu
+ * click retain their target destination if they switch to Sign In.
+ */
+function dungeoncrawler_content_form_user_register_form_alter(array &$form, FormStateInterface $form_state, $form_id): void {
+  $destination = (string) \Drupal::request()->query->get('destination', '');
+  if ($destination !== '' && str_starts_with($destination, '/')) {
+    $form['#destination_url'] = $destination;
+  }
+}
+
+/**
  * Redirect successful logins to the campaigns page by default.
  */
 function dungeoncrawler_content_user_login_form_submit_redirect_campaigns(array &$form, FormStateInterface $form_state): void {
@@ -54,6 +68,83 @@ function dungeoncrawler_content_preprocess_html(array &$variables): void {
 }
 
 /**
+ * Implements hook_preprocess_menu__main().
+ *
+ * Ensures unauthenticated visitors see all player navigation links (Characters,
+ * Campaigns, Storylines + sub-items, World + sub-items) so they can click
+ * them and be directed to the Create Account (/user/register) page.
+ */
+function dungeoncrawler_content_preprocess_menu__main(array &$variables): void {
+  if (!\Drupal::currentUser()->isAnonymous()) {
+    return;
+  }
+
+  $menu_tree = \Drupal::service('menu.link_tree');
+  $parameters = $menu_tree->getCurrentRouteMenuTreeParameters('main');
+  $parameters->setMinDepth(1)->setMaxDepth(2);
+  $parameters->addExpandedParents([
+    '',
+    'dungeoncrawler_content.menu.storyline_explorer',
+    'dungeoncrawler_content.menu.world',
+  ]);
+
+  $tree = $menu_tree->load('main', $parameters);
+  $tree = _dungeoncrawler_content_mark_anonymous_main_menu_access($tree);
+  $tree = $menu_tree->transform($tree, [
+    ['callable' => 'menu.default_tree_manipulators:generateIndexAndSort'],
+  ]);
+  $built = $menu_tree->build($tree);
+
+  if (!empty($built['#items'])) {
+    $variables['items'] = $built['#items'];
+  }
+}
+
+/**
+ * Marks non-admin main menu links as accessible for anonymous navigation.
+ *
+ * Exposes all enabled non-admin navigation links in the main menu so
+ * unauthenticated visitors can see and click any navigation link and be
+ * directed to the Create Account page.
+ *
+ * @param \Drupal\Core\Menu\MenuLinkTreeElement[] $tree
+ *   The loaded menu tree.
+ *
+ * @return \Drupal\Core\Menu\MenuLinkTreeElement[]
+ *   The menu tree with access populated for anonymous rendering.
+ */
+function _dungeoncrawler_content_mark_anonymous_main_menu_access(array $tree): array {
+  $admin_prefixes = [
+    'dungeoncrawler_content.menu.dc_administration',
+    'dungeoncrawler_tester.',
+  ];
+  foreach ($tree as $key => $element) {
+    $plugin_id = (string) $element->link->getPluginId();
+    $parent_id = (string) $element->link->getParent();
+    $is_admin_item = FALSE;
+    foreach ($admin_prefixes as $prefix) {
+      if (str_starts_with($plugin_id, $prefix) || str_starts_with($parent_id, $prefix)) {
+        $is_admin_item = TRUE;
+        break;
+      }
+    }
+
+    if ($is_admin_item) {
+      $tree[$key]->access = \Drupal\Core\Access\AccessResult::forbidden()->addCacheContexts(['user.permissions']);
+      $tree[$key]->subtree = [];
+      continue;
+    }
+
+    $tree[$key]->access = \Drupal\Core\Access\AccessResult::allowed()->addCacheContexts(['user.permissions']);
+    if (!empty($tree[$key]->subtree)) {
+      $tree[$key]->subtree = _dungeoncrawler_content_mark_anonymous_main_menu_access($tree[$key]->subtree);
+    }
+  }
+
+  return $tree;
+}
+
+/**
  * Route names represented under the Storylines navigation subtree.
  *
  * @return string[]
@@ -62,6 +153,7 @@ function dungeoncrawler_content_preprocess_html(array &$variables): void {
 function dungeoncrawler_content_storylines_route_names(): array {
   return [
     'dungeoncrawler_content.storyline_management',
+    'dungeoncrawler_content.storylines_archived',
     'dungeoncrawler_content.analysis_explorer_home',
     'dungeoncrawler_content.storyline_explorer',
     'dungeoncrawler_content.gm_storyline_builder',
@@ -187,8 +279,19 @@ function dungeoncrawler_content_theme(array $existing, string $type, string $the
         'builder_url' => NULL,
         'storyline_explorer_url' => NULL,
         'campaigns_url' => NULL,
+        'archived_url' => NULL,
       ],
       'template' => 'storyline-management-list',
+      'path' => $path . '/templates',
+    ],
+    'storyline_archived_list' => [
+      'variables' => [
+        'storylines' => [],
+        'drafts' => [],
+        'back_url' => NULL,
+        'delete_all_url' => NULL,
+      ],
+      'template' => 'storyline-archived-list',
       'path' => $path . '/templates',
     ],
 

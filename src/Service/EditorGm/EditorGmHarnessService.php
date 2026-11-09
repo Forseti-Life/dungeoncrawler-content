@@ -53,7 +53,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     ?AgentHarnessManagementService $harnessManagement = NULL,
   ) {
     $this->logger = $loggerFactory?->get('dungeoncrawler_content') ?? new NullLogger();
-    $this->harnessManagement = $harnessManagement ?? new AgentHarnessManagementService();
+    $this->harnessManagement = $harnessManagement ?? new AgentHarnessManagementService($this->ai);
     foreach ($surfaces as $surface) {
       if (!$surface instanceof EditorGmSurfaceInterface) {
         throw new \LogicException('editor_gm_surface_invalid');
@@ -104,6 +104,9 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     foreach ($this->surfaces as $surface_id => $surface) {
       $tools_by_surface[$surface_id] = $surface->registry()->manifest();
     }
+    $tools_by_surface['shared_harness_tools'] = [
+      AgentHarnessManagementService::TOOL_SUBMIT_BACKLOG_SUGGESTION => $this->harnessManagement->getBacklogSuggestionToolDescriptor(),
+    ];
     return $tools_by_surface;
   }
 
@@ -229,6 +232,21 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         (string) ($intent['reasoning'] ?? ''),
         array_values((array) ($intent['next_steps'] ?? [])),
         $scope,
+        $author_message,
+      );
+    }
+
+    if ($intent['tool_name'] === AgentHarnessManagementService::TOOL_SUBMIT_BACKLOG_SUGGESTION) {
+      return $this->executeTool(
+        $surface,
+        $draft_id,
+        $profile,
+        $intent['tool_name'],
+        $intent['arguments'],
+        FALSE,
+        $intent['reasoning'],
+        $scope,
+        array_values((array) ($intent['next_steps'] ?? [])),
         $author_message,
       );
     }
@@ -390,6 +408,71 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     string $utterance = '',
     array $prior_tool_calls = [],
   ): array {
+    if ($tool_name === AgentHarnessManagementService::TOOL_SUBMIT_BACKLOG_SUGGESTION) {
+      $tool_calls = array_values($prior_tool_calls);
+      $tool_calls[] = $this->describeToolCall($tool_name, $arguments);
+      $context = $this->createContext($surface, $draft_id, $profile, $scope);
+      $snapshot = $surface->assembler()->assemble($context);
+      $conversation_context = trim((string) ($scope['conversation_context'] ?? ''));
+      if ($conversation_context !== '') {
+        $snapshot['conversation_context'] = $conversation_context;
+      }
+
+      if ($dry_run) {
+        return $this->envelope(
+          $surface,
+          'editor_management_response',
+          $snapshot,
+          [
+            'tool' => $tool_name,
+            'dry_run' => TRUE,
+            'would_mutate' => FALSE,
+            'authority' => 'AgentHarnessManagementService',
+            'tool_calls' => $tool_calls,
+          ],
+          $context->validation(),
+          [['level' => 'info', 'text' => sprintf('Dry run: %s was not executed.', $tool_name)]],
+          [],
+          $tool_calls,
+        );
+      }
+
+      $submission_args = $arguments;
+      if (trim((string) ($submission_args['original_message'] ?? '')) === '' && trim($utterance) !== '') {
+        $submission_args['original_message'] = trim($utterance);
+      }
+      $result = $this->harnessManagement->submitBacklogSuggestion($submission_args, [
+        'agent_id' => $this->agentId(),
+        'surface_id' => $surface->id(),
+        'surface_label' => $surface->label(),
+        'draft_id' => $draft_id ?? '',
+      ]);
+      $result['tool_calls'] = $tool_calls;
+      if ($reasoning !== '') {
+        $result['reasoning'] = $reasoning;
+      }
+      $response = $this->synthesizeGroundedResponse(
+        $utterance,
+        $tool_name,
+        $result,
+        $snapshot,
+        $surface->label(),
+      );
+      $result['assistant_response'] = $response['answer'];
+      $result['next_steps'] = $next_steps !== [] ? $next_steps : $response['next_steps'];
+
+      return $this->envelope(
+        $surface,
+        'editor_management_response',
+        $snapshot,
+        $result,
+        $context->validation(),
+        [['level' => 'success', 'text' => 'Logged defect/feedback to the project backlog.']],
+        [],
+        $tool_calls,
+      );
+    }
+
     $tool = $surface->registry()->get($tool_name);
     $definition = $tool->definition();
     $tool_calls = array_values($prior_tool_calls);

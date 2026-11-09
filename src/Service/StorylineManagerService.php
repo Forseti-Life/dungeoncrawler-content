@@ -143,7 +143,7 @@ class StorylineManagerService {
   /**
    * Returns all stored storyline templates.
    */
-  public function listTemplates(): array {
+  public function listTemplates(bool $include_archived = FALSE): array {
     $this->assertCanonicalStorylineStorageReady();
 
     $rows = $this->database->select(self::CANONICAL_STORYLINE_TABLE, 's')
@@ -152,7 +152,123 @@ class StorylineManagerService {
       ->execute()
       ->fetchAll(\PDO::FETCH_ASSOC);
 
-    return array_values(array_map(fn(array $row): array => $this->hydrateTemplateRow($row), $rows));
+    $hydrated = array_values(array_map(fn(array $row): array => $this->hydrateTemplateRow($row), $rows));
+    if ($include_archived) {
+      return $hydrated;
+    }
+
+    return array_values(array_filter(
+      $hydrated,
+      fn(array $template): bool => !$this->isTemplateArchived($template),
+    ));
+  }
+
+  /**
+   * Returns only archived canonical storyline templates.
+   */
+  public function listArchivedTemplates(): array {
+    return array_values(array_filter(
+      $this->listTemplates(TRUE),
+      fn(array $template): bool => $this->isTemplateArchived($template),
+    ));
+  }
+
+  /**
+   * Checks whether a hydrated canonical storyline template is archived.
+   */
+  public function isTemplateArchived(array $template): bool {
+    $template_data = is_array($template['template_data'] ?? NULL) ? $template['template_data'] : [];
+    $archive_meta = is_array($template_data['_archive_meta'] ?? NULL) ? $template_data['_archive_meta'] : [];
+    return !empty($archive_meta['archived']) || (($template_data['metadata']['status'] ?? '') === 'archived');
+  }
+
+  /**
+   * Archives a canonical storyline template so it is hidden from active lists.
+   */
+  public function archiveTemplate(string $template_id, int $archived_by_uid = 0): array {
+    $template = $this->getTemplate($template_id);
+    if ($template === NULL) {
+      throw new \OutOfBoundsException('storyline_template_not_found');
+    }
+    if ($this->isTemplateArchived($template)) {
+      return ['status' => 'already_archived', 'template' => $template];
+    }
+
+    $now = time();
+    $template_data = is_array($template['template_data'] ?? NULL) ? $template['template_data'] : [];
+    $template_data['_archive_meta'] = [
+      'archived' => TRUE,
+      'archived_at' => $now,
+      'archived_by_uid' => $archived_by_uid,
+      'previous_status' => (string) ($template_data['metadata']['status'] ?? 'canonical'),
+    ];
+    if (!is_array($template_data['metadata'] ?? NULL)) {
+      $template_data['metadata'] = [];
+    }
+    $template_data['metadata']['status'] = 'archived';
+
+    $this->database->update(self::CANONICAL_STORYLINE_TABLE)
+      ->fields([
+        'template_data' => json_encode($template_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'updated_at' => $now,
+      ])
+      ->condition('template_id', $template_id)
+      ->execute();
+
+    return [
+      'status' => 'archived',
+      'template' => $this->getTemplate($template_id) ?? $template,
+    ];
+  }
+
+  /**
+   * Unarchives a canonical storyline template back to active status.
+   */
+  public function unarchiveTemplate(string $template_id): array {
+    $template = $this->getTemplate($template_id);
+    if ($template === NULL) {
+      throw new \OutOfBoundsException('storyline_template_not_found');
+    }
+    if (!$this->isTemplateArchived($template)) {
+      return ['status' => 'not_archived', 'template' => $template];
+    }
+
+    $now = time();
+    $template_data = is_array($template['template_data'] ?? NULL) ? $template['template_data'] : [];
+    $previous_status = (string) ($template_data['_archive_meta']['previous_status'] ?? 'canonical');
+    unset($template_data['_archive_meta']);
+    if (is_array($template_data['metadata'] ?? NULL)) {
+      if ($previous_status !== '' && $previous_status !== 'archived') {
+        $template_data['metadata']['status'] = $previous_status;
+      }
+      else {
+        unset($template_data['metadata']['status']);
+      }
+    }
+
+    $this->database->update(self::CANONICAL_STORYLINE_TABLE)
+      ->fields([
+        'template_data' => json_encode($template_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'updated_at' => $now,
+      ])
+      ->condition('template_id', $template_id)
+      ->execute();
+
+    return [
+      'status' => 'unarchived',
+      'template' => $this->getTemplate($template_id) ?? $template,
+    ];
+  }
+
+  /**
+   * Permanently deletes a canonical storyline template.
+   */
+  public function deleteTemplate(string $template_id): bool {
+    $this->assertCanonicalStorylineStorageReady();
+    $deleted = $this->database->delete(self::CANONICAL_STORYLINE_TABLE)
+      ->condition('template_id', $template_id)
+      ->execute();
+    return $deleted > 0;
   }
 
   /**

@@ -954,6 +954,77 @@ dungeoncrawler_content.storyline_management:
   requirements:
     _permission: 'access dungeoncrawler characters'
 
+dungeoncrawler_content.storylines_archived:
+  path: '/storylines/archived'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\StorylineManagementController::listArchivedStorylines'
+    _title: 'Archived Storylines'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+
+dungeoncrawler_content.storylines_archived_delete_all:
+  path: '/storylines/archived/delete-all'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\StorylineManagementController::deleteAllArchivedStorylines'
+    _title: 'Delete Archived Storylines'
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+
+dungeoncrawler_content.storyline_template_archive:
+  path: '/storylines/template/{template_id}/archive'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\StorylineManagementController::archiveTemplate'
+    _title: 'Archive Storyline'
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    template_id: '[A-Za-z0-9._:-]+'
+
+dungeoncrawler_content.storyline_template_unarchive:
+  path: '/storylines/template/{template_id}/unarchive'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\StorylineManagementController::unarchiveTemplate'
+    _title: 'Unarchive Storyline'
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    template_id: '[A-Za-z0-9._:-]+'
+
+dungeoncrawler_content.storyline_template_delete:
+  path: '/storylines/template/{template_id}/delete'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\StorylineManagementController::deleteTemplate'
+    _title: 'Delete Storyline'
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    template_id: '[A-Za-z0-9._:-]+'
+
+dungeoncrawler_content.storyline_draft_archive:
+  path: '/storylines/draft/{draft_id}/archive'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\StorylineManagementController::archiveDraft'
+    _title: 'Archive Storyline Draft'
+  requirements:
+    _permission: 'edit canonical dungeoncrawler storylines'
+    draft_id: '[0-9a-fA-F-]{36}'
+
+dungeoncrawler_content.storyline_draft_unarchive:
+  path: '/storylines/draft/{draft_id}/unarchive'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\StorylineManagementController::unarchiveDraft'
+    _title: 'Unarchive Storyline Draft'
+  requirements:
+    _permission: 'edit canonical dungeoncrawler storylines'
+    draft_id: '[0-9a-fA-F-]{36}'
+
+dungeoncrawler_content.storyline_draft_delete:
+  path: '/storylines/draft/{draft_id}/delete'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\StorylineManagementController::deleteDraftPage'
+    _title: 'Delete Storyline Draft'
+  requirements:
+    _permission: 'edit canonical dungeoncrawler storylines'
+    draft_id: '[0-9a-fA-F-]{36}'
+
 dungeoncrawler_content.storyline_management_create_from_template:
   path: '/storylines/campaign/{campaign_id}/create/{template_id}'
   defaults:

@@ -34,7 +34,7 @@ class EditorGmIntentParser {
     ?AgentHarnessManagementService $harnessManagement = NULL,
   ) {
     $this->logger = $loggerFactory->get('dungeoncrawler_content');
-    $this->harnessManagement = $harnessManagement ?? new AgentHarnessManagementService();
+    $this->harnessManagement = $harnessManagement ?? new AgentHarnessManagementService($this->ai);
   }
 
   /**
@@ -234,12 +234,37 @@ class EditorGmIntentParser {
    */
   private function validateToolCallPayload(array $decoded, EditorGmToolRegistry $registry): array {
     $tool_name = (string) ($decoded['tool_name'] ?? '');
-    if (!$registry->has($tool_name)) {
-      throw new \DomainException(sprintf('editor_gm_intent_tool_unsupported:%s', $tool_name));
-    }
     $arguments = $decoded['arguments'] ?? [];
     if (!is_array($arguments)) {
       throw new \DomainException('editor_gm_intent_arguments_invalid');
+    }
+
+    if ($tool_name === AgentHarnessManagementService::TOOL_SUBMIT_BACKLOG_SUGGESTION) {
+      $definition_arguments = $this->harnessManagement->getBacklogSuggestionToolDescriptor()['arguments'] ?? [];
+      foreach ($definition_arguments as $argument) {
+        if (!empty($argument['required']) && !array_key_exists($argument['name'], $arguments)) {
+          throw new \DomainException(sprintf(
+            'editor_gm_intent_argument_missing:%s.%s',
+            $tool_name,
+            $argument['name']
+          ));
+        }
+      }
+      $next_steps = array_values(array_filter(
+        (array) ($decoded['next_steps'] ?? []),
+        static fn($step): bool => is_string($step) && trim($step) !== '',
+      ));
+      return [
+        'type' => 'tool_call',
+        'tool_name' => $tool_name,
+        'arguments' => $arguments,
+        'reasoning' => trim((string) ($decoded['reasoning'] ?? '')),
+        'next_steps' => array_map('trim', $next_steps),
+      ];
+    }
+
+    if (!$registry->has($tool_name)) {
+      throw new \DomainException(sprintf('editor_gm_intent_tool_unsupported:%s', $tool_name));
     }
 
     $definition = $registry->get($tool_name)->definition();
@@ -439,6 +464,12 @@ Hard rules:
   identity, purpose, defining content, and intended narrative effect. A
   missing draft-local id or optional scene, quest, owner, prerequisite, or
   reward does not make it underspecified.
+- When the author explicitly reports a system defect, bug, complaint, or
+  feature request to be logged to the project backlog (or confirms logging one),
+  select submit_backlog_suggestion with a concise 1-3 sentence summary,
+  category (technical_improvement for bugs/defects/complaints, content_update,
+  safety_feature, community_initiative, partnership, general_feedback, or
+  other), and original_message.
 - Tool selection does not answer the author. The agent harness will analyze the
   executed result and produce the final response and next steps afterward.
 

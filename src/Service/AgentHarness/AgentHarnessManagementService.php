@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Drupal\dungeoncrawler_content\Service\AgentHarness;
 
+use Drupal\ai_conversation\Service\AIApiService;
+
 /**
  * Shared agentic harness management service across all DungeonCrawler agents.
  *
@@ -15,8 +17,22 @@ namespace Drupal\dungeoncrawler_content\Service\AgentHarness;
  * - Multi-step task queue decomposition & dependency-ordered serial execution
  *   with time-budget guarding.
  * - Single-pass / deterministic grounded response synthesis after mutations.
+ * - Shared defect / complaint / backlog suggestion tool (`submit_backlog_suggestion`)
+ *   available to every harnessed agent.
  */
 class AgentHarnessManagementService {
+
+  public const TOOL_SUBMIT_BACKLOG_SUGGESTION = 'submit_backlog_suggestion';
+
+  public const SUGGESTION_CATEGORIES = [
+    'technical_improvement',
+    'content_update',
+    'safety_feature',
+    'community_initiative',
+    'partnership',
+    'general_feedback',
+    'other',
+  ];
 
   public const PROFILE_INTENT_ROUTING = 'intent_routing';
   public const PROFILE_CREATIVE_REASONING = 'creative_reasoning';
@@ -49,7 +65,123 @@ class AgentHarnessManagementService {
     'load_canonical_definition',
     'list_catalog_definitions',
     'route_to_editor',
+    self::TOOL_SUBMIT_BACKLOG_SUGGESTION,
   ];
+
+  public function __construct(
+    protected ?AIApiService $aiApiService = NULL,
+  ) {}
+
+  /**
+   * Returns the shared backlog defect/complaint/suggestion tool descriptor.
+   *
+   * @return array<string, mixed>
+   */
+  public function getBacklogSuggestionToolDescriptor(): array {
+    return [
+      'name' => self::TOOL_SUBMIT_BACKLOG_SUGGESTION,
+      'family' => 'context',
+      'mutating' => FALSE,
+      'summary' => 'Log a confirmed defect, bug report, complaint, or feature suggestion to the DungeonCrawler project backlog.',
+      'arguments' => [
+        [
+          'name' => 'summary',
+          'type' => 'string',
+          'required' => TRUE,
+          'description' => 'Concise 1-3 sentence implementation-ready summary of the defect, complaint, or suggestion.',
+        ],
+        [
+          'name' => 'category',
+          'type' => 'string',
+          'required' => FALSE,
+          'description' => 'One of: technical_improvement (default for defects/bugs/complaints), content_update, safety_feature, community_initiative, partnership, general_feedback, other.',
+        ],
+        [
+          'name' => 'original_message',
+          'type' => 'string',
+          'required' => FALSE,
+          'description' => 'Original user complaint, defect report, or feedback text.',
+        ],
+      ],
+    ];
+  }
+
+  /**
+   * Logs a defect, complaint, or feature suggestion via AIApiService::createBacklogSuggestion().
+   *
+   * @param string|array<string, mixed> $summary_or_arguments
+   *   Implementation-ready summary string, or an arguments array containing `summary`, `category`, and `original_message`.
+   * @param string|array<string, mixed> $original_message_or_context
+   *   Original user message string (when arg 1 is a string), or context array (when arg 1 is an arguments array).
+   * @param string $category
+   *   Suggestion category (defaults to 'technical_improvement' for defects/complaints).
+   * @param array<string, mixed> $context
+   *   Optional harness/surface/campaign/draft metadata.
+   *
+   * @return array<string, mixed>
+   *   Result envelope containing `logged`, `suggestion_nid`, `title`, `summary`, `category`.
+   */
+  public function submitBacklogSuggestion(
+    string|array $summary_or_arguments,
+    string|array $original_message_or_context = '',
+    string $category = 'technical_improvement',
+    array $context = [],
+  ): array {
+    if (is_array($summary_or_arguments)) {
+      $summary = trim((string) ($summary_or_arguments['summary'] ?? ''));
+      $category = trim((string) ($summary_or_arguments['category'] ?? $category));
+      $original_message = trim((string) ($summary_or_arguments['original_message'] ?? ''));
+      if (is_array($original_message_or_context)) {
+        $context = $original_message_or_context;
+      }
+    }
+    else {
+      $summary = trim($summary_or_arguments);
+      $original_message = is_string($original_message_or_context) ? trim($original_message_or_context) : '';
+    }
+    if ($summary === '') {
+      throw new \InvalidArgumentException('backlog_suggestion_summary_required');
+    }
+    $normalized_category = strtolower(trim($category));
+    if (!in_array($normalized_category, self::SUGGESTION_CATEGORIES, TRUE)) {
+      $normalized_category = 'technical_improvement';
+    }
+    $original_message = $original_message !== '' ? $original_message : $summary;
+
+    $ai = $this->resolveAiApiService();
+    $node = $ai?->createBacklogSuggestion($summary, $original_message, $normalized_category, $context);
+    $nid = $node !== NULL ? (int) $node->id() : NULL;
+    $title = mb_strlen($summary) > 100 ? mb_substr($summary, 0, 97) . '...' : $summary;
+
+    return [
+      'success' => $node !== NULL,
+      'logged' => $node !== NULL,
+      'tool' => self::TOOL_SUBMIT_BACKLOG_SUGGESTION,
+      'dry_run' => FALSE,
+      'suggestion_nid' => $nid,
+      'title' => $title,
+      'summary' => $summary,
+      'category' => $normalized_category,
+      'original_message' => $original_message,
+      'context' => $context,
+    ];
+  }
+
+  /**
+   * Resolves AIApiService from constructor injection or Drupal container.
+   */
+  private function resolveAiApiService(): ?AIApiService {
+    if ($this->aiApiService !== NULL) {
+      return $this->aiApiService;
+    }
+    if (class_exists('\Drupal') && \Drupal::hasContainer() && \Drupal::getContainer()->has('ai_conversation.ai_api_service')) {
+      $service = \Drupal::service('ai_conversation.ai_api_service');
+      if ($service instanceof AIApiService) {
+        return $service;
+      }
+    }
+    return NULL;
+  }
 
   /**
    * Returns canonical AIApiService invocation options for a harness task profile.
@@ -206,6 +338,7 @@ class AgentHarnessManagementService {
     $room_id = trim((string) ($arguments['room_id'] ?? $arguments['room_slot_id'] ?? ''));
 
     return match (TRUE) {
+      $tool_name === self::TOOL_SUBMIT_BACKLOG_SUGGESTION => 'Now logging defect or feedback to project backlog…',
       $tool_name === 'governing_harness_context' => 'Now looking up current editor context…',
       $tool_name === 'clarification' => 'Now evaluating request options…',
       $tool_name === 'route_to_editor' => 'Now looking up target editor route…',
@@ -338,6 +471,7 @@ class AgentHarnessManagementService {
   public function filterToolsForNaturalLanguage(array $manifest, string $surface_label): array {
     $tools = [];
     $allowlist = $surface_label === 'Storyline Builder' ? self::STORYLINE_NL_TOOLS : NULL;
+    $has_backlog_tool = FALSE;
 
     foreach ((array) ($manifest['families'] ?? []) as $family => $definitions) {
       foreach ((array) $definitions as $definition) {
@@ -348,6 +482,9 @@ class AgentHarnessManagementService {
         if ($allowlist !== NULL && !in_array($name, $allowlist, TRUE)) {
           continue;
         }
+        if ($name === self::TOOL_SUBMIT_BACKLOG_SUGGESTION) {
+          $has_backlog_tool = TRUE;
+        }
         $tools[] = [
           'name' => $name,
           'family' => $family,
@@ -356,6 +493,10 @@ class AgentHarnessManagementService {
           'arguments' => (array) ($definition['arguments'] ?? []),
         ];
       }
+    }
+
+    if (!$has_backlog_tool) {
+      $tools[] = $this->getBacklogSuggestionToolDescriptor();
     }
 
     return $tools;
@@ -498,6 +639,10 @@ class AgentHarnessManagementService {
     array $context_snapshot,
     string $surface_label,
   ): ?array {
+    if ($tool_name === self::TOOL_SUBMIT_BACKLOG_SUGGESTION) {
+      return $this->buildBacklogSuggestionSummary($tool_result, $context_snapshot);
+    }
+
     if ($surface_label !== 'Storyline Builder') {
       return NULL;
     }
@@ -519,6 +664,29 @@ class AgentHarnessManagementService {
     }
 
     return NULL;
+  }
+
+  /**
+   * Builds a deterministic confirmation response when a defect or complaint is logged.
+   */
+  private function buildBacklogSuggestionSummary(array $tool_result, array $context_snapshot): array {
+    $summary = trim((string) ($tool_result['summary'] ?? ''));
+    $category = trim((string) ($tool_result['category'] ?? 'technical_improvement'));
+    $nid = $tool_result['suggestion_nid'] ?? NULL;
+    $nid_suffix = $nid !== NULL ? sprintf(' (backlog item #%d)', (int) $nid) : '';
+
+    return [
+      'answer' => sprintf(
+        "Logged To Project Backlog\nRecorded your feedback under category '%s'%s:\n%s",
+        $category,
+        $nid_suffix,
+        $summary,
+      ),
+      'next_steps' => [
+        'Continue working on the current draft or session.',
+        'Provide any additional reproduction details if needed.',
+      ],
+    ];
   }
 
   /**
