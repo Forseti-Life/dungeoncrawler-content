@@ -9,7 +9,7 @@ use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\ExplainValidationFinding
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\ValidateDraftTool;
 
 /**
- * Character-specific tools on the shared, approval-aware editor GM harness.
+ * Character-specific tools on the shared, revision-safe editor GM harness.
  */
 final class CharacterCreationGmSurface implements EditorGmSurfaceInterface {
 

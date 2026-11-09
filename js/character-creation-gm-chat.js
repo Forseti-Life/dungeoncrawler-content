@@ -1,6 +1,6 @@
 import {
   appendEditorGmMessage, buildEditorGmRequest, renderEditorGmToolCalls,
-  restoreEditorGmConversation, renderEditorGmClarification, renderEditorGmProposal,
+  restoreEditorGmConversation, renderEditorGmClarification,
   shouldSubmitEditorGmKey,
 } from './v2/editor/EditorGmChatClient.js?v=20261024-tool-calls-1';
 
@@ -21,6 +21,11 @@ import {
         const setStatus = (message, error = false) => {
           status.textContent = message;
           status.classList.toggle('is-error', error);
+        };
+        const selectOption = (message) => {
+          if (pending) return;
+          input.value = message;
+          send();
         };
         const readResponse = async (response) => {
           const payload = await response.json();
@@ -59,7 +64,7 @@ import {
           showContext(payload.data);
           if (!restored) {
             restoreEditorGmConversation(history, payload.data.conversation || [], {
-              onSelectOption: (message) => { input.value = message; input.focus(); },
+              onSelectOption: selectOption,
             });
             restored = true;
           }
@@ -77,20 +82,20 @@ import {
           if (!payload.draft?.character_id) throw new Error('Draft creation response is missing the character ID.');
           settings().characterId = payload.draft.character_id;
           if (Drupal.characterCreationWorkspace) {
-            await Drupal.characterCreationWorkspace.refresh({ characterId: payload.draft.character_id });
+            await Drupal.characterCreationWorkspace.refresh({ characterId: payload.draft.character_id, saved: true });
           }
         };
         const execute = async (intent) => {
           if (pending) throw new Error('Waiting for the character GM to finish the current request.');
-          const applying = intent.tool_name === 'apply_character_draft_updates';
-          if (applying && (Drupal.characterCreationWorkspace?.isDirty() || Drupal.characterCreationWorkspace?.isBusy())) {
-            throw new Error('Save or discard editor changes and wait for the editor to finish before applying a GM plan.');
+          const maySave = intent.type === 'natural_language' || intent.tool_name === 'apply_character_draft_updates';
+          if (maySave && (Drupal.characterCreationWorkspace?.isDirty() || Drupal.characterCreationWorkspace?.isBusy())) {
+            throw new Error('Save or discard editor changes and wait for the editor to finish before asking the GM to edit your character.');
           }
           pending = true;
-          if (applying) Drupal.characterCreationWorkspace?.lock();
+          if (maySave) Drupal.characterCreationWorkspace?.lock();
           sendButton.disabled = true;
           root.setAttribute('aria-busy', 'true');
-          setStatus(applying ? 'Waiting for the server to validate and apply the approved plan...' : 'Waiting for the character GM to inspect your draft...');
+          setStatus('Waiting for the character GM. Valid requested edits will be saved automatically...');
           try {
             await ensureDraft();
             const payload = await readResponse(await fetch(endpoint(), {
@@ -106,33 +111,17 @@ import {
             renderEditorGmToolCalls(history, data.tool_calls || []);
             if (result.intent === 'clarification') {
               renderEditorGmClarification(history, result, {
-                onSelectOption: (message) => { input.value = message; input.focus(); },
+                onSelectOption: selectOption,
               });
             }
             else {
               appendEditorGmMessage(history, 'assistant', result.assistant_response || result.reasoning
                 || (result.blocking_errors?.length ? result.blocking_errors.map((issue) => issue.message).join('\n')
-                  : result.proposed_execution ? 'Review these proposed changes before applying them.' : 'Draft inspection complete.'));
-              let proposalItem;
-              proposalItem = renderEditorGmProposal(history, result, {
-                approveClass: 'btn btn-primary', rejectClass: 'btn btn-secondary',
-                onApprove: async (proposal) => {
-                  try {
-                    await execute({
-                      type: 'tool_call', tool_name: proposal.tool_name, arguments: proposal.arguments,
-                      author_message: 'I approve the proposed character draft changes.',
-                    });
-                    proposalItem.querySelector('button').textContent = 'Applied';
-                  }
-                  catch (error) {
-                    proposalItem.querySelector('button').disabled = false;
-                    setStatus(error.message, true);
-                  }
-                },
-              });
+                  : 'Draft inspection complete.'), result);
             }
             showContext(data);
-            if (applying && !result.dry_run) {
+            const saved = result.tool === 'apply_character_draft_updates' && !result.dry_run;
+            if (saved) {
               if (Drupal.characterCreationWorkspace) {
                 await Drupal.characterCreationWorkspace.refresh({ saved: true });
               }
@@ -141,10 +130,10 @@ import {
                 return;
               }
             }
-            setStatus(applying ? 'Approved changes saved. Your conversation and current step are preserved.' : 'GM response ready.');
+            setStatus(saved ? 'Changes saved. You can edit them again at any time.' : 'GM response ready.');
           }
           finally {
-            if (applying) Drupal.characterCreationWorkspace?.unlock();
+            if (maySave) Drupal.characterCreationWorkspace?.unlock();
             pending = false;
             sendButton.disabled = false;
             root.removeAttribute('aria-busy');

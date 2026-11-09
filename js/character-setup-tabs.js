@@ -48,7 +48,7 @@
         };
         const refresh = async ({ step = state.activeStep, characterId = state.characterId, saved = false, push = false } = {}) => {
           if (busy) throw new Error('Waiting for the server to finish refreshing the character editor.');
-          if (mutationPending && !saved) throw new Error('Waiting for the server to finish applying the approved GM changes.');
+          if (mutationPending && !saved) throw new Error('Waiting for the character GM to finish the current request.');
           if (!saved && isDirty()) {
             const message = 'Unsaved edits: save this step or discard edits before continuing.';
             setStatus(message, true);

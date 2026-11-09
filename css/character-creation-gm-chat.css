@@ -143,6 +143,14 @@
   cursor: progress;
 }
 
+.character-creation-gm-chat .room-editor__gm-message > button {
+  display: block;
+  width: 100%;
+  margin-top: 0.6rem;
+  text-align: left;
+  white-space: normal;
+}
+
 @media (max-width: 900px) {
   .character-creation-gm-chat {
     top: 0.5rem;

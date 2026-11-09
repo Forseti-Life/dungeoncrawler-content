@@ -32,16 +32,13 @@ async function main() {
     });
     await page.goto(drush('user:login', '--uid=1', '--no-browser'));
     await page.goto(base + '/charactersetup');
-    const created = await page.evaluate(async () => {
-      const settings = drupalSettings.dungeoncrawlerCharacterGm;
-      const response = await fetch(settings.createEndpoint, {
-        method: 'POST', headers: { 'X-CSRF-Token': settings.csrfToken },
-      });
-      if (!response.ok) throw new Error('Fixture creation failed: ' + response.status);
-      return response.json();
-    });
-    fixtureId = Number(created.draft.character_id);
+    await page.locator('#characterSetupGmInput').fill('Start my character draft with the name Original New Draft Fixture. Leave all other decisions for me.');
+    await page.locator('[data-gm-chat-send]').click();
+    await page.waitForFunction(() => drupalSettings.dungeoncrawlerCharacterGm.characterId > 0);
+    fixtureId = await page.evaluate(() => Number(drupalSettings.dungeoncrawlerCharacterGm.characterId));
     assert.ok(Number.isInteger(fixtureId) && fixtureId > 0);
+    await page.waitForFunction(() => !document.querySelector('[data-character-gm-chat]').hasAttribute('aria-busy'), null, { timeout: 120000 });
+    assert.equal(await page.locator('[data-gm-chat-summary-field="name"]').innerText(), 'Original New Draft Fixture', 'The GM must create and edit a new draft without a lock dead end.');
     await page.goto(base + '/charactersetup?character_id=' + fixtureId + '&step=1');
     await page.waitForFunction(() => !document.querySelector('[data-gm-chat-status]').classList.contains('is-error'));
     await page.locator('#characterSetupGmInput').fill('Keep this unsent question');
@@ -87,18 +84,52 @@ async function main() {
     await page.evaluate(() => Drupal.characterCreationWorkspace.refresh({ saved: true }));
     await page.locator('#characterSetupGmInput').fill("Change my character's name to Original GM Browser Fixture. Do not change any other fields.");
     await page.locator('[data-gm-chat-send]').click();
+    await page.locator('#characterSetupGmInput').fill('Keep this after saving');
     await page.waitForFunction(() => !document.querySelector('[data-character-gm-chat]').hasAttribute('aria-busy'), null, { timeout: 120000 });
-    const approve = page.getByRole('button', { name: 'Approve and run', exact: true });
-    await approve.waitFor({ timeout: 10000 });
-    await page.locator('#characterSetupGmInput').fill('Keep this after applying');
-    await approve.click();
-    await page.waitForFunction(() => document.querySelector('[data-gm-chat-summary-field="name"]').textContent === 'Original GM Browser Fixture', null, { timeout: 120000 });
+    assert.equal(await page.getByRole('button', { name: /approve and run/i }).count(), 0);
+    assert.equal(await page.locator('[data-gm-chat-summary-field="name"]').innerText(), 'Original GM Browser Fixture');
     await page.waitForFunction(() => !Drupal.characterCreationWorkspace.isBusy());
-    assert.equal(await page.locator('#characterSetupGmInput').inputValue(), 'Keep this after applying');
+    assert.equal(await page.locator('#characterSetupGmInput').inputValue(), 'Keep this after saving');
     assert.equal(await page.locator('form.character-creation-form [name="name"]').inputValue(), 'Original GM Browser Fixture');
     assert.equal(await page.evaluate(() => drupalSettings.dungeoncrawlerCharacterSetup.activeStep), 1);
+    drush('php:eval', `
+      $chat = \\Drupal::service('dungeoncrawler_content.chat_session_manager');
+      $session = $chat->ensureEditorGmSession('character_creation', '${fixtureId}', 'Original Option Fixture');
+      $chat->postMessage((int) $session['id'], 0, 'Game Master Agent', 'gm', '', 'Choose a name.', 'dialogue', 'private', [
+        'editor_gm_response' => ['tool_result' => [
+          'intent' => 'clarification', 'question' => 'Choose a name.',
+          'options' => [
+            ['label' => 'Original Option Fixture', 'description' => 'Use the first original fixture name.', 'tradeoff' => 'First choice.', 'selection' => 'Change only my character name to Original Option Fixture.'],
+            ['label' => 'Original Alternate Fixture', 'description' => 'Use the alternate original fixture name.', 'tradeoff' => 'Second choice.', 'selection' => 'Change only my character name to Original Alternate Fixture.'],
+          ],
+        ]],
+      ], FALSE);
+    `);
     await page.reload();
     await page.waitForFunction(() => document.querySelector('[data-gm-chat-history]').textContent.includes("Change my character's name"));
+    const firstOption = page.getByRole('button', { name: /^1\. Original Option Fixture/ });
+    const secondOption = page.getByRole('button', { name: /^2\. Original Alternate Fixture/ });
+    await firstOption.waitFor();
+    const firstBox = await firstOption.boundingBox();
+    const secondBox = await secondOption.boundingBox();
+    assert.ok(secondBox.y >= firstBox.y + firstBox.height, 'Numbered options must appear on separate list rows.');
+    await firstOption.click();
+    await page.waitForFunction(() => !document.querySelector('[data-character-gm-chat]').hasAttribute('aria-busy'), null, { timeout: 120000 });
+    assert.equal(await page.locator('form.character-creation-form [name="name"]').inputValue(), 'Original Option Fixture', 'Selecting an option must execute and save without another send or approval.');
+    assert.equal(await page.getByRole('button', { name: /approve and run/i }).count(), 0);
+    await page.locator('#characterSetupGmInput').fill('Set my ancestry to orc. Leave heritage, ancestry feat, and ability boosts for me to choose next. Do not change any other fields.');
+    await page.locator('[data-gm-chat-send]').click();
+    await page.waitForFunction(() => !document.querySelector('[data-character-gm-chat]').hasAttribute('aria-busy'), null, { timeout: 120000 });
+    assert.equal(await page.locator('[data-gm-chat-summary-field="ancestry"]').innerText(), 'orc');
+    const process = await page.evaluate(async () => {
+      const settings = drupalSettings.dungeoncrawlerCharacterGm;
+      const response = await fetch(settings.endpointTemplate.replace('/0/gm', '/' + settings.characterId + '/gm'));
+      if (!response.ok) throw new Error('Process inspection failed.');
+      return (await response.json()).data;
+    });
+    assert.equal(process.context_snapshot.process_flow.current_step, process.validation.next_step);
+    assert.ok(process.context_snapshot.process_flow.decision_points.some(issue => issue.field === 'heritage'), 'The flow must discover conditional ancestry choices before moving to later wizard steps.');
+    assert.ok(process.context_snapshot.process_flow.decision_points.every(issue => issue.step === 2));
     if (artifacts) {
       mkdirSync(artifacts, { recursive: true });
       await page.screenshot({ path: join(artifacts, 'character-workspace-desktop.png'), fullPage: true });
@@ -110,7 +141,7 @@ async function main() {
       writeFileSync(join(artifacts, 'character-workspace-browser-errors.json'), JSON.stringify(errors));
     }
     assert.deepEqual(errors, []);
-    console.log('PASS: explicit invalid-boost rejection, native save/errors, stable tabs/chat, dirty protection, real GM plan/approval, persisted history, responsive layout.');
+    console.log('PASS: new GM draft, explicit invalid-boost rejection, native save/errors, stable tabs/chat, dirty protection, immediate GM save, vertical one-click options, conditional wizard process, persisted history, responsive layout.');
   }
   catch (error) {
     console.error('Workspace:', await page.locator('[data-character-step-region]').innerText());

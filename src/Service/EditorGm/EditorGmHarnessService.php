@@ -166,6 +166,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         $intent['utterance'],
         $scope,
         $intent['author_message'],
+        $dry_run,
       );
     }
 
@@ -175,7 +176,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
   /**
    * Resolves an author utterance into a grounded tool call.
    *
-   * Storyline author requests execute through its revision-safe authority.
+   * Storyline and character requests execute through revision-safe authorities.
    * Other editor surfaces retain explicit approval for mutating tools.
    */
   private function handleUtterance(
@@ -185,6 +186,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     string $utterance,
     array $scope,
     string $author_message,
+    bool $dry_run,
   ): array {
     $context = $this->createContext($surface, $draft_id, $profile, $scope);
     $snapshot = $surface->assembler()->assemble($context);
@@ -233,6 +235,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         array_values((array) ($intent['next_steps'] ?? [])),
         $scope,
         $author_message,
+        $dry_run,
       );
     }
 
@@ -252,12 +255,15 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     }
 
     $definition = $surface->registry()->get($intent['tool_name'])->definition();
-    if ($surface->id() === CharacterCreationGmSurface::ID && $definition->name === 'apply_character_draft_updates') {
+    if ($surface->id() === CharacterCreationGmSurface::ID && in_array($definition->name, [
+      'plan_character_draft_updates', 'apply_character_draft_updates',
+    ], TRUE)) {
       return $this->executeTool(
-        $surface, $draft_id, $profile, 'plan_character_draft_updates',
-        ['updates' => $intent['arguments']['updates']], FALSE,
+        $surface, $draft_id, $profile, $definition->name,
+        $intent['arguments'], $dry_run,
         $intent['reasoning'], $scope,
         array_values((array) ($intent['next_steps'] ?? [])), $author_message,
+        apply_character_plan: TRUE,
       );
     }
     if (!$definition->mutating) {
@@ -347,6 +353,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     array $overall_next_steps,
     array $scope,
     string $author_message,
+    bool $dry_run = FALSE,
   ): array {
     $ordered = $this->harnessManagement->orderTaskQueue($tasks);
     $started_at = microtime(TRUE);
@@ -386,16 +393,17 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         $profile,
         $task_tool_name,
         $task_arguments,
-        FALSE,
+        $dry_run,
         (string) ($task['reasoning'] ?? $overall_reasoning),
         $scope,
         $is_last ? $overall_next_steps : array_values((array) ($task['next_steps'] ?? [])),
         $is_last ? $author_message : '',
         $accumulated_tool_calls,
+        apply_character_plan: TRUE,
       );
       $accumulated_tool_calls = array_values((array) ($last_envelope['tool_calls'] ?? $accumulated_tool_calls));
       $completed_count++;
-      if ($surface->id() === CharacterCreationGmSurface::ID && $task_tool_name === 'plan_character_draft_updates') {
+      if ($surface->id() === CharacterCreationGmSurface::ID && !empty($last_envelope['tool_result']['blocking_errors'])) {
         break;
       }
     }
@@ -422,6 +430,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     array $next_steps = [],
     string $utterance = '',
     array $prior_tool_calls = [],
+    bool $apply_character_plan = FALSE,
   ): array {
     if ($tool_name === AgentHarnessManagementService::TOOL_SUBMIT_BACKLOG_SUGGESTION) {
       $tool_calls = array_values($prior_tool_calls);
@@ -540,7 +549,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     }
     if ($surface->id() === CharacterCreationGmSurface::ID && !empty($result['blocking_errors'])) {
       $result['intent'] = 'validation_blocked';
-      $result['assistant_response'] = "Proposed changes failed validation; nothing was saved.\n"
+      $result['assistant_response'] = "These changes failed validation and were not saved.\n"
         . implode("\n", array_map(static fn(array $issue): string => 'Step ' . $issue['step'] . ', ' . $issue['field'] . ': ' . $issue['message'], $result['blocking_errors']));
       $result['next_steps'] = ['Review the listed fields and their native candidate choices.', 'Ask the GM to revise the proposal or choose valid replacements.'];
       return $this->envelope(
@@ -551,6 +560,29 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     $proposed_execution = is_array($result['proposed_execution'] ?? NULL)
       ? $result['proposed_execution']
       : [];
+    if ($surface->id() === CharacterCreationGmSurface::ID && $apply_character_plan
+      && $definition->name === 'plan_character_draft_updates' && !$dry_run) {
+      if (($proposed_execution['tool_name'] ?? '') !== 'apply_character_draft_updates'
+        || !is_array($proposed_execution['arguments'] ?? NULL)) {
+        throw new \LogicException('character_gm_plan_execution_invalid');
+      }
+      return $this->executeTool(
+        $surface, $draft_id, $profile, $proposed_execution['tool_name'],
+        $proposed_execution['arguments'], FALSE, $reasoning, $scope,
+        $next_steps, $utterance, $tool_calls,
+      );
+    }
+    if ($surface->id() === CharacterCreationGmSurface::ID
+      && $definition->name === 'plan_character_draft_updates' && $dry_run) {
+      $result['intent'] = 'preview';
+      $result['dry_run'] = TRUE;
+      $result['assistant_response'] = 'Preview only. These changes have not been saved.';
+      return $this->envelope(
+        $surface, self::ROUTE_FAMILY_BY_TOOL_FAMILY[$definition->family],
+        $snapshot, $result, $context->validation(),
+        [['level' => 'info', 'text' => $result['assistant_response']]], [], $tool_calls,
+      );
+    }
     if (
       $surface->id() === StorylineBuilderGmSurface::ID
       && !$definition->mutating
@@ -786,6 +818,15 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     array $context_snapshot,
     string $surface_label,
   ): array {
+    if ($surface_label === 'Character Creation' && $tool_name === 'apply_character_draft_updates') {
+      return [
+        'answer' => $tool_result['assistant_response'],
+        'next_steps' => array_map(
+          static fn(array $issue): string => 'Step ' . $issue['step'] . ': ' . $issue['message'],
+          array_slice($context_snapshot['process_flow']['decision_points'], 0, 3),
+        ),
+      ];
+    }
     $deterministic = $this->harnessManagement->synthesizeDeterministicMutationResponse(
       $tool_name,
       $tool_result,
@@ -810,6 +851,8 @@ class EditorGmHarnessService implements AgentHarnessInterface {
       'dungeon' => $context_snapshot['dungeon'] ?? [],
       'room' => $context_snapshot['room'] ?? [],
       'character' => $context_snapshot['character'] ?? [],
+      'process_flow' => $context_snapshot['process_flow'] ?? [],
+      'creation_contract' => $context_snapshot['creation_contract'] ?? [],
       'legacy_conversation' => $context_snapshot['legacy_conversation'] ?? [],
       'authority_boundary' => $context_snapshot['authority_boundary'] ?? [],
       'validation_summary' => $context_snapshot['validation_summary'] ?? [],
@@ -926,6 +969,14 @@ Hard rules:
 - If evidence is insufficient, say exactly what cannot yet be determined.
 - Distinguish schema validity from narrative completeness.
 - Preserve human authorship; do not make unstated creative choices.
+- On Character Creation, present available choices as a numbered list, with one
+  option per line. Requested valid edits are saved immediately; never ask for
+  approval or suggest an Approve and Run button. Read-only inspection does not
+  save anything. Players can revise saved choices later.
+- On Character Creation, follow process_flow: guide current_step decisions in
+  the native wizard order, using only their available choices. Do not jump to
+  later missing steps unless the player explicitly requests them. A completed
+  build awaits the wizard's final submission; never finalize it yourself.
 - On Storyline Builder, an object present in authored_objects.generation_specs
   is explicit intent to create that canonical id. Do not ask whether to repoint
   a missing asset when its exact id has an authored generation spec.

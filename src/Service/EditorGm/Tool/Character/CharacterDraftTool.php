@@ -29,7 +29,7 @@ final class CharacterDraftTool implements EditorGmToolInterface {
       $arguments[] = EditorGmToolDefinition::argument('updates', 'object', FALSE, 'Read-only candidate ancestry/background/class patch. Returns native conditional choices for that proposed object without saving or approving it.');
     }
     if ($applying) {
-      $arguments[] = EditorGmToolDefinition::argument('expected_revision', 'integer', TRUE, 'The revision from the inspected draft or approved plan.');
+      $arguments[] = EditorGmToolDefinition::argument('expected_revision', 'integer', TRUE, 'The revision from the inspected draft or validated plan.');
     }
     if ($planning || $applying) {
       $arguments[] = EditorGmToolDefinition::argument('updates', 'object', TRUE, 'Character field patch. Use only fields and IDs from get_character_creation_reference. Include dependent feat_selections, spells, and boosts. Never set step, completion, ownership, or campaign IDs.');
@@ -40,8 +40,8 @@ final class CharacterDraftTool implements EditorGmToolInterface {
       match ($this->operation) {
         'get_character_draft' => 'Inspect the canonical character object, current revision, and saved choices.',
         'get_character_creation_reference' => 'Inspect allowed fields and canonical character creation options.',
-        'plan_character_draft_updates' => 'Validate a proposed character patch without saving; return an approval-bound plan.',
-        'apply_character_draft_updates' => 'Apply an approved, valid patch only if the character revision still matches.',
+        'plan_character_draft_updates' => 'Validate a character patch and return a revision-bound plan. Read-only when called directly; the harness immediately applies valid plans requested in conversation.',
+        'apply_character_draft_updates' => 'Save a valid character patch immediately, only if the inspected character revision still matches. No separate approval is required.',
       },
       $applying,
       'CharacterCreationGmService',
@@ -53,12 +53,13 @@ final class CharacterDraftTool implements EditorGmToolInterface {
     $context = CharacterCreationGmToolContext::of($context);
     $draft = $context->draft();
     if ($this->operation === 'get_character_draft') {
-      return $draft;
+      return [...$draft, 'process_flow' => $context->processFlow()];
     }
     if ($this->operation === 'get_character_creation_reference') {
       $reference = [
         ...$context->drafts->getPathfinderCharacterCreationReference($draft['campaign_id']),
         'draft_revision' => $draft['revision'],
+        'process_flow' => $context->processFlow(),
         'current_step_choices' => $context->validation()['steps'],
       ];
       if (array_key_exists('updates', $arguments)) {

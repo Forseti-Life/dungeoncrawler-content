@@ -32,10 +32,19 @@ explicitly discarded.
 
 The character-specific `character_creation` surface runs on the shared Editor
 GM harness. Registered tools inspect the canonical draft/reference, validate,
-explain findings, plan patches, and apply approved revision-bound patches.
-Natural-language task queues stop at a validated proposal rather than applying
-changes automatically. GM tools never finalize characters or modify campaign
-runtime characters.
+explain findings, plan patches, and apply revision-bound patches. Valid changes
+requested in conversation are saved immediately, including serial task queues;
+there is no separate approval button. Choices appear as a vertical numbered
+list, and players can revise saved choices later. Direct planning/reference
+calls and dry runs remain read-only. GM tools never finalize characters or
+modify campaign runtime characters.
+
+The GM follows the native wizard's step order and conditional decision points.
+Its revision-bound `process_flow` is projected from the same eight-step native
+validation report on every inspection and save, so manual edits, revisits, and
+reloads cannot leave a separate agent cursor behind. Existing campaign-runtime
+process-flow stores and the LangGraph actor-testing runner do not own creation
+state; no campaign or second character object is created for this conversation.
 
 All mutation transports delegate to `CharacterCreationStepForm` for native
 validation and canonical persistence. Read-only inspection builds all eight

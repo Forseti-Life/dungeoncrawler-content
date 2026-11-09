@@ -61,10 +61,13 @@ try {
   $check(str_contains($reference_context->invoke($controller, $preview_session, (string) $id), 'VERIFIED CHARACTER CHOICES'), 'Native candidate choices must survive into the next conversational turn.');
   $parser = \Drupal::service('dungeoncrawler_content.editor_gm_intent_parser');
   $surface = $harness->surface('character_creation');
+  $flow = $call('get_character_draft')['tool_result']['process_flow'];
+  $check($flow['current_step'] === $report['next_step'] && count($flow['steps']) === 8, 'The GM must follow the actual eight-step wizard, not a second cursor.');
+  $check(array_unique(array_column($flow['decision_points'], 'step')) === [$report['next_step']], 'Current decisions must belong to the earliest unresolved native step.');
   $intent = $parser->parse('what needs review', $surface->assembler()->assemble($surface->createContext((string) $id, 'editing')), $surface->registry(), $surface->label());
   $check($intent['type'] === 'direct_response', 'Review requests must stay read-only rather than propose a build mutation.');
   $plan = $call('plan_character_draft_updates', ['updates' => ['name' => 'Original Workspace Fixture']]);
-  $check($plan['tool_result']['requires_approval'], 'Plans must require approval.');
+  $check(!$plan['tool_result']['requires_approval'], 'Character changes must not require a separate approval.');
   $check($before === $manager->loadCharacter($id)->character_data, 'Planning must not persist.');
   $proposal = $plan['tool_result']['proposed_execution'];
   $call($proposal['tool_name'], $proposal['arguments']);
@@ -83,6 +86,33 @@ try {
   }
   $call('apply_character_draft_updates', ['expected_revision' => $saved['revision'], 'updates' => ['name' => 'Dry Run']], TRUE);
   $check($drafts->getDraft($id)['revision'] === $saved['revision'], 'Dry runs must not mutate.');
+  $automatic_parser = new class(NULL, \Drupal::service('logger.factory')) extends \Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmIntentParser {
+    public array $nextIntent = [];
+    public function parse(string $utterance, array $context_snapshot, \Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolRegistry $registry, string $surface_label): array {
+      return $this->nextIntent;
+    }
+  };
+  $automatic_harness = new \Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmHarnessService([$surface], $automatic_parser);
+  $automatic_parser->nextIntent = [
+    'type' => 'tool_call', 'tool_name' => 'plan_character_draft_updates',
+    'arguments' => ['updates' => ['name' => 'Original Immediate Fixture']], 'reasoning' => '',
+  ];
+  $natural_request = [
+    'schema_version' => 'editor-gm-request-v1',
+    'tool_context' => ['tool_id' => 'character_creation', 'draft_id' => (string) $id, 'validation_profile' => 'editing'],
+    'intent' => ['type' => 'natural_language', 'utterance' => 'Change only my name.'],
+    'options' => ['dry_run' => TRUE],
+  ];
+  $automatic_harness->handle('character_creation', (string) $id, $natural_request);
+  $check($drafts->getDraft($id)['revision'] === $saved['revision'], 'Natural-language dry runs must not auto-apply a plan.');
+  $natural_request['options']['dry_run'] = FALSE;
+  $immediate = $automatic_harness->handle('character_creation', (string) $id, $natural_request);
+  $check($immediate['tool_result']['tool'] === 'apply_character_draft_updates' && !isset($immediate['tool_result']['proposed_execution']), 'Conversational plans must return the actual save, not an approval proposal.');
+  $check($drafts->getDraft($id)['revision'] === $saved['revision'] + 1, 'Conversational changes must save exactly once.');
+  $check($immediate['context_snapshot']['process_flow']['revision'] === $drafts->getDraft($id)['revision'], 'The flow must refresh from the saved canonical revision.');
+  $expected_step = $drafts->validateData($drafts->getDraft($id)['payload'])['next_step'];
+  $check(!empty($immediate['tool_result']['next_steps']) && str_starts_with($immediate['tool_result']['next_steps'][0], 'Step ' . $expected_step . ':'), 'After saving, guide the next native decision rather than skipping steps.');
+  $saved = $drafts->getDraft($id);
   $invalid = $call('plan_character_draft_updates', ['updates' => ['free_boosts' => ['strength']]]);
   $check($invalid['tool_result']['blocking_errors'] !== [], 'Populated invalid boost counts must be reported.');
   $check($invalid['tool_result']['proposed_execution'] === NULL, 'Invalid plans must not expose approval.');
@@ -98,9 +128,22 @@ try {
     ['id' => 'queued-change', 'tool_name' => 'apply_character_draft_updates',
       'arguments' => ['expected_revision' => $saved['revision'], 'updates' => ['name' => 'Queued Proposal']],
       'depends_on' => []],
+    ['id' => 'queued-concept', 'tool_name' => 'plan_character_draft_updates',
+      'arguments' => ['updates' => ['concept' => 'Original queued concept']],
+      'depends_on' => ['queued-change']],
   ], '', [], [], '');
-  $check($queued['tool_result']['intent'] === 'proposed_execution', 'Queued natural-language changes must stop for approval.');
-  $check($drafts->getDraft($id)['revision'] === $saved['revision'], 'Queued changes must not auto-apply.');
+  $check($queued['tool_result']['tool'] === 'apply_character_draft_updates', 'Queued character changes must save without approval.');
+  $check($drafts->getDraft($id)['revision'] === $saved['revision'] + 2, 'Each valid queued patch must use the freshly saved revision.');
+  $check($drafts->getDraft($id)['payload']['concept'] === 'Original queued concept', 'The queue must continue after a valid save.');
+  $saved = $drafts->getDraft($id);
+  $blocked_queue = $queue->invoke($harness, $surface, (string) $id, 'editing', [
+    ['id' => 'invalid-boost', 'tool_name' => 'plan_character_draft_updates',
+      'arguments' => ['updates' => ['free_boosts' => ['strength']]], 'depends_on' => []],
+    ['id' => 'dependent-name', 'tool_name' => 'plan_character_draft_updates',
+      'arguments' => ['updates' => ['name' => 'Must Not Be Saved']], 'depends_on' => ['invalid-boost']],
+  ], '', [], [], '');
+  $check($blocked_queue['tool_result']['intent'] === 'validation_blocked', 'Invalid queued choices must stop before dependent writes.');
+  $check($drafts->getDraft($id)['revision'] === $saved['revision'], 'Invalid queued changes and their dependents must not save.');
   $form = \Drupal::service('class_resolver')->getInstanceFromDefinition(CharacterCreationStepForm::class);
   $state = (new FormState())->set('step', 8)->set('character_id', $id)->setValues([
     'character_version' => $saved['revision'], 'roleplay_style' => 'balanced', 'portrait_generate' => 0,

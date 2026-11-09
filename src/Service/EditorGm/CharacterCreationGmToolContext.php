@@ -58,4 +58,29 @@ final class CharacterCreationGmToolContext extends EditorGmToolContext {
     $this->report = NULL;
   }
 
+  /**
+   * Projects the wizard's next decision, never a separately persisted cursor.
+   */
+  public function processFlow(): array {
+    $report = $this->validation();
+    $step = $report['steps'][$report['next_step'] - 1];
+    return [
+      'flow_id' => 'character_creation',
+      'authority' => 'CharacterCreationStepForm::validateDraft',
+      'revision' => $this->draft['revision'],
+      'current_step' => $step['number'],
+      'current_step_name' => $step['name'],
+      'state' => $report['ready'] ? 'awaiting_final_submission' : 'awaiting_player_decision',
+      'decision_points' => array_values(array_filter(
+        $report['player_review'],
+        static fn(array $issue): bool => $issue['step'] === $step['number'],
+      )),
+      'steps' => array_map(static fn(array $entry): array => [
+        'number' => $entry['number'], 'name' => $entry['name'], 'complete' => $entry['complete'],
+      ], $report['steps']),
+      'revisiting_completed_steps_allowed' => TRUE,
+      'finalization' => 'Explicit final wizard submission only.',
+    ];
+  }
+
 }

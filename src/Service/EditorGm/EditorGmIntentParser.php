@@ -366,9 +366,11 @@ class EditorGmIntentParser {
    * Returns the invariant behavioural contract for the parser.
    */
   private function systemPrompt(string $surface_label): string {
-    $mutation_rule = $surface_label === 'Storyline Builder'
-      ? 'For Storyline Builder, use plan_storyline_draft_operations for explicitly requested draft changes and plan_storyline_remediation only when the author explicitly asks to fix or create missing canonical assets; the harness may immediately apply that authorized plan through the owning authorities.'
-      : 'Prefer planning tools over execution tools. A mutating tool call is a proposal that the author must approve; it is never applied by you.';
+    $mutation_rule = match ($surface_label) {
+      'Storyline Builder' => 'For Storyline Builder, use plan_storyline_draft_operations for explicitly requested draft changes and plan_storyline_remediation only when the author explicitly asks to fix or create missing canonical assets; the harness may immediately apply that authorized plan through the owning authorities.',
+      'Character Creation' => 'For Character Creation, use plan_character_draft_updates for requested changes. The harness immediately saves valid patches through the revision-safe apply authority; no separate approval is required. Do not ask for approval. Present genuine unresolved player decisions as numbered choices, one option per line. Read-only inspection and reference lookups never save changes.',
+      default => 'Prefer planning tools over execution tools. A mutating tool call is a proposal that the author must approve; it is never applied by you.',
+    };
     return sprintf(<<<'PROMPT'
 You are the intent parser for the Dungeoncrawler canonical %s assistant.
 
@@ -395,9 +397,17 @@ Hard rules:
 - %s
 - Obey every nested argument shape in the selected tool definition exactly.
   For Character Creation, obey creation_contract and the native step choices.
+  Follow process_flow.current_step and its decision_points in wizard order;
+  revisit other steps only when the player requests it. Resolve only supplied
+  player decisions, save their valid partial changes, then use the refreshed
+  process state for the next decision. Never fill later steps merely because
+  they contain missing choices.
   Select exactly selection_count distinct boost IDs; never repeat an ability
-  or use two aliases for the same ability. Discover conditional choices with
-  get_character_creation_reference(updates) before planning a new build.
+  or use two aliases for the same ability. When the player supplies only a base
+  ancestry, background, or class choice, plan and save that valid partial patch
+  immediately; do not substitute a reference lookup for the requested edit.
+  Before selecting dependent IDs not already grounded, discover their choices
+  with get_character_creation_reference(updates).
   If conversation_context already contains matching VERIFIED CHARACTER
   CHOICES at the current draft revision, use them to plan instead of
   repeating that lookup. A valid partial patch is allowed; leave unresolved

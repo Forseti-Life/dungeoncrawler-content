@@ -181,7 +181,7 @@ class CharacterCreationGmService {
       'applied_fields' => array_keys($applied),
       'validation' => $validation,
       'blocking_errors' => $blocking_errors,
-      'requires_approval' => $blocking_errors === [],
+      'requires_approval' => FALSE,
       'proposed_execution' => $blocking_errors === [] ? [
         'tool_name' => 'apply_character_draft_updates',
         'authority' => 'CharacterCreationGmService::applyDraftUpdates',
@@ -193,7 +193,7 @@ class CharacterCreationGmService {
   public function applyDraftUpdates(int $character_id, int $expected_revision, array $updates): array {
     $record = $this->loadOwnedDraft($character_id);
     if ((int) ($record->version ?? 0) !== $expected_revision) {
-      throw new \RuntimeException('The character changed. Refresh the draft and review a new plan before applying.', 409);
+      throw new \RuntimeException('The character changed. Refresh the draft before retrying your changes.', 409);
     }
     $plan = $this->planUpdates($character_id, $updates);
     if ($plan['blocking_errors'] !== []) {
