@@ -31,6 +31,12 @@ sending. Conversation history remains in the character's `wizard.gm_chat`
 payload and is restored using `character_id` when returning to edit; it is not
 a browser-global conversation.
 
+Ability boost validation uses only the interactive selector, not compact score
+previews. Selection and submission share the server-provided boost limit, and
+submission waits for any in-flight selection validation. Revisiting an earlier
+step preserves unlocked progress. Reaching Step 8 opens review; only submitting
+Step 8 finalizes creation, with pending feature selections still blocking it.
+
 ### Campaign Creation Sources
 
 `/campaigns/create` supports two distinct starting sources:

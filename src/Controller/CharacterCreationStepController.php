@@ -216,16 +216,9 @@ class CharacterCreationStepController extends ControllerBase {
     
     $character_data = $result;
     $next_step = $this->getNextStep($step);
-    $character_data['step'] = $next_step; // Advance to next step
+    $pending_completion_grants = $this->collectPendingCreationSelectionGrants($character_data);
+    $character_data = $this->wizardHardening->advanceProgress($character_data, $step, $pending_completion_grants !== []);
     $character_data = $this->syncWizardDraftFromCharacterData($character_data);
-    $pending_completion_grants = [];
-    if ((int) ($character_data['step'] ?? 0) >= 8) {
-      $pending_completion_grants = $this->collectPendingCreationSelectionGrants($character_data);
-      $character_data['wizard_complete'] = $pending_completion_grants === [];
-    }
-    else {
-      $character_data['wizard_complete'] = FALSE;
-    }
     $character_data = CharacterManager::normalizePersistentCharacterPayload($character_data);
 
     $hit_points = is_array($character_data['hit_points'] ?? NULL) ? $character_data['hit_points'] : [];
@@ -250,6 +243,7 @@ class CharacterCreationStepController extends ControllerBase {
         'position_r' => (int) ($character_data['position']['r'] ?? 0),
         'last_room_id' => (string) ($character_data['position']['room_id'] ?? ''),
         'character_data' => json_encode($character_data, JSON_PRETTY_PRINT),
+        ...$this->wizardHardening->getCompletionFields($character_data, $resolved_campaign_id),
       ]);
     } else {
       $character_id = $this->createDraft($character_data, $campaign_id);
@@ -258,7 +252,6 @@ class CharacterCreationStepController extends ControllerBase {
     // Return JSON response with redirect URL
     if ($step >= 8) {
       if ($pending_completion_grants !== []) {
-        $this->characterManager->updateCharacter((int) $character_id, ['status' => 0]);
         $pending_selection_errors = array_values(array_map(static function (array $grant): string {
           $description = trim((string) ($grant['description'] ?? ''));
           if ($description !== '') {
@@ -279,8 +272,6 @@ class CharacterCreationStepController extends ControllerBase {
       if ($campaign_id !== NULL && $campaign_id !== '') {
         $this->ensureCampaignCharacterHasCanonicalSource((int) $character_id, (int) $campaign_id);
       }
-      // Mark as complete
-      $this->characterManager->updateCharacter($character_id, ['status' => 1]);
       $portrait_result = $this->portraitGenerator->generatePortrait(
         $character_data,
         (int) $character_id,
@@ -626,8 +617,7 @@ class CharacterCreationStepController extends ControllerBase {
         'character_data' => json_encode($character_data, JSON_PRETTY_PRINT),
         'default_locations' => NULL,
         'portrait' => NULL,
-        'lifecycle_state' => 'draft_library',
-        'status' => 0, // Draft
+        ...$this->wizardHardening->getCompletionFields($character_data, 0),
         'created' => $now,
         'changed' => $now,
       ])

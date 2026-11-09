@@ -78,11 +78,9 @@ assert(
 );
 
 assert(
-  formSource.includes("if ((int) ($character_data['step'] ?? 0) >= 8) {") &&
-  formSource.includes("$character_data['wizard_complete'] = $pending_completion_grants === [];") &&
-  controllerSource.includes("if ((int) ($character_data['step'] ?? 0) >= 8) {") &&
-  controllerSource.includes("$character_data['wizard_complete'] = $pending_completion_grants === [];"),
-  'Both save paths compute step-8 wizard_complete from pending completion grants before persistence'
+  formSource.includes('$this->wizardHardening->advanceProgress($character_data, (int) $step, $pending_completion_grants !== [])') &&
+  controllerSource.includes('$this->wizardHardening->advanceProgress($character_data, $step, $pending_completion_grants !== [])'),
+  'Both save paths delegate progress and explicit finalization to the shared policy before persistence'
 );
 
 assert(

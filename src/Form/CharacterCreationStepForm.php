@@ -3441,15 +3441,8 @@ class CharacterCreationStepForm extends FormBase {
     }
 
     $next_step = min(8, (int) $step + 1);
-    $character_data['step'] = $next_step;
-    $pending_completion_grants = [];
-    if ($next_step >= 8) {
-      $pending_completion_grants = $this->collectPendingCreationSelectionGrants($character_data);
-      $character_data['wizard_complete'] = $pending_completion_grants === [];
-    }
-    else {
-      $character_data['wizard_complete'] = FALSE;
-    }
+    $pending_completion_grants = $this->collectPendingCreationSelectionGrants($character_data);
+    $character_data = $this->wizardHardening->advanceProgress($character_data, (int) $step, $pending_completion_grants !== []);
 
     // Save to database
     $character_id = $this->saveCharacter($character_id, $character_data, $next_version, $campaign_id, $form_state, (int) $step);
@@ -3501,9 +3494,6 @@ class CharacterCreationStepForm extends FormBase {
       }
       if ($campaign_id) {
         $this->ensureCampaignCharacterHasCanonicalSource((int) $character_id, (int) $campaign_id);
-      }
-      if ($character_id) {
-        $this->characterManager->updateCharacter((int) $character_id, ['status' => 1]);
       }
       $portrait_result = $this->portraitGenerator->generatePortrait(
         $character_data,
@@ -4030,11 +4020,6 @@ class CharacterCreationStepForm extends FormBase {
       }
 
       $character_data = $this->syncWizardDraftFromCharacterData($character_data);
-      $pending_completion_grants = [];
-      if ((int) ($character_data['step'] ?? 0) >= 8) {
-        $pending_completion_grants = $this->collectPendingCreationSelectionGrants($character_data);
-      }
-      $character_data['wizard_complete'] = ((int) ($character_data['step'] ?? 0) >= 8) && $pending_completion_grants === [];
 
       $schema_data = $this->characterManager->canonicalizeCharacterData($character_data);
       if (empty($schema_data['created_at'])) {
@@ -4059,8 +4044,7 @@ class CharacterCreationStepForm extends FormBase {
             'position_r' => (int) ($schema_data['position']['r'] ?? 0),
             'last_room_id' => (string) ($schema_data['position']['room_id'] ?? ''),
             'character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
-            'status' => ((int) ($schema_data['step'] ?? 0) >= 8 && !empty($schema_data['wizard_complete'])) ? 1 : 0,
-            'lifecycle_state' => $resolved_campaign_id > 0 ? 'campaign_draft' : 'draft_library',
+            ...$this->wizardHardening->getCompletionFields($schema_data, $resolved_campaign_id),
             'version' => $next_version,
             'changed' => $now,
           ])
@@ -4099,8 +4083,7 @@ class CharacterCreationStepForm extends FormBase {
             'portrait' => trim((string) ($schema_data['portrait'] ?? '')) !== ''
               ? (string) $schema_data['portrait']
               : NULL,
-            'lifecycle_state' => $resolved_campaign_id > 0 ? 'campaign_draft' : 'draft_library',
-            'status' => 0,
+            ...$this->wizardHardening->getCompletionFields($schema_data, $resolved_campaign_id),
             'created' => $now,
             'changed' => $now,
           ])

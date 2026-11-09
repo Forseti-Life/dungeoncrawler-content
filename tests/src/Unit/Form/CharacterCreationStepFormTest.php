@@ -462,11 +462,13 @@ class CharacterCreationStepFormTest extends UnitTestCase {
   /**
    * @covers ::saveCharacter
    */
-  public function testSaveCharacterSyncsCampaignMembershipsForCampaignBoundRecord(): void {
+  #[\PHPUnit\Framework\Attributes\DataProvider('wizardCompletionStates')]
+  public function testSaveCharacterSyncsCampaignMembershipsForCampaignBoundRecord(int $campaign_id, bool $complete): void {
     $schema_data = [
       'name' => 'Meris',
       'level' => 1,
       'step' => 8,
+      'wizard_complete' => $complete,
       'class' => 'wizard',
       'government_ref' => 'institution_government_free-city',
       'position' => ['q' => 0, 'r' => 0, 'room_id' => ''],
@@ -474,8 +476,11 @@ class CharacterCreationStepFormTest extends UnitTestCase {
     $character_manager = $this->createMock(CharacterManager::class);
     $character_manager->expects($this->once())
       ->method('canonicalizeCharacterData')
-      ->with($schema_data)
-      ->willReturn($schema_data);
+      ->with($this->callback(static fn(array $input): bool =>
+        ($input['wizard_complete'] ?? NULL) === $complete
+        && ($input['wizard']['wizard_complete'] ?? NULL) === $complete
+        && ($input['step'] ?? NULL) === 8))
+      ->willReturnArgument(0);
     $character_manager->expects($this->once())
       ->method('extractHotColumnsFromData')
       ->with($this->callback(static function (array $input): bool {
@@ -492,7 +497,7 @@ class CharacterCreationStepFormTest extends UnitTestCase {
       ->method('loadCharacter')
       ->with(77)
       ->willReturn((object) [
-        'campaign_id' => 70,
+        'campaign_id' => $campaign_id,
         'instance_id' => 'pc-meris-77',
       ]);
 
@@ -500,10 +505,7 @@ class CharacterCreationStepFormTest extends UnitTestCase {
     $database->method('startTransaction')->willReturn(new class() {
       public function rollBack(): void {}
     });
-    $database->expects($this->once())
-      ->method('update')
-      ->with('dc_campaign_characters')
-      ->willReturn(new class() {
+    $update = new class() {
         public array $fields = [];
         public function fields(array $fields): self {
           $this->fields = $fields;
@@ -515,13 +517,17 @@ class CharacterCreationStepFormTest extends UnitTestCase {
         public function execute(): int {
           return 1;
         }
-      });
+      };
+    $database->expects($this->once())
+      ->method('update')
+      ->with('dc_campaign_characters')
+      ->willReturn($update);
 
     $institution_membership = $this->createMock(InstitutionMembershipService::class);
-    $institution_membership->expects($this->once())
+    $institution_membership->expects($campaign_id > 0 ? $this->once() : $this->never())
       ->method('syncCampaignCharacterMemberships')
       ->with(
-        70,
+        $campaign_id,
         'pc-meris-77',
         $this->callback(static function (array $input): bool {
           return ($input['name'] ?? NULL) === 'Meris'
@@ -534,7 +540,7 @@ class CharacterCreationStepFormTest extends UnitTestCase {
       $character_manager,
       $this->createMock(FeatLibraryService::class),
       $database,
-      70,
+      $campaign_id,
       $this->createMock(CampaignSubjectRegistryService::class),
       new InstitutionNormalizationService(),
       $this->createMock(FactionGenerationService::class),
@@ -544,9 +550,28 @@ class CharacterCreationStepFormTest extends UnitTestCase {
     $method = new \ReflectionMethod($form, 'saveCharacter');
     $method->setAccessible(TRUE);
 
-    $saved_character_id = $method->invoke($form, 77, $schema_data, 4, 70);
+    $saved_character_id = $method->invoke($form, 77, $schema_data, 4, $campaign_id);
 
     $this->assertSame(77, $saved_character_id);
+    $this->assertSame($complete ? 1 : 0, $update->fields['status']);
+    $this->assertSame(
+      $campaign_id > 0
+        ? ($complete ? 'campaign_runtime' : 'campaign_draft')
+        : ($complete ? 'ready_library' : 'draft_library'),
+      $update->fields['lifecycle_state']
+    );
+    $persisted = json_decode($update->fields['character_data'], TRUE);
+    $this->assertSame($complete, $persisted['wizard_complete']);
+    $this->assertSame($complete, $persisted['wizard']['wizard_complete']);
+  }
+
+  public static function wizardCompletionStates(): array {
+    return [
+      'campaign review' => [70, FALSE],
+      'campaign complete' => [70, TRUE],
+      'library review' => [0, FALSE],
+      'library complete' => [0, TRUE],
+    ];
   }
 
   /**

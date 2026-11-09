@@ -22,6 +22,35 @@ class CharacterWizardHardeningService {
   ) {}
 
   /**
+   * Preserve unlocked steps; reaching the review page is not final submission.
+   */
+  public function advanceProgress(array $character_data, int $submitted_step, bool $has_pending_selections): array {
+    if ($submitted_step < 1 || $submitted_step > 8) {
+      throw new \InvalidArgumentException('Character wizard submission step must be between 1 and 8.');
+    }
+    $was_complete = !empty($character_data['wizard_complete']);
+    $character_data['step'] = min(8, max((int) ($character_data['step'] ?? 1), $submitted_step + 1));
+    $character_data['wizard_complete'] = ($submitted_step === 8 || $was_complete) && !$has_pending_selections;
+    return $character_data;
+  }
+
+  /**
+   * Keep row readiness aligned with explicit wizard completion.
+   *
+   * @return array{status: int, lifecycle_state: string}
+   *   Persistence fields shared by the wizard save surfaces.
+   */
+  public function getCompletionFields(array $character_data, int $campaign_id): array {
+    $complete = !empty($character_data['wizard_complete']);
+    return [
+      'status' => $complete ? 1 : 0,
+      'lifecycle_state' => $campaign_id > 0
+        ? ($complete ? 'campaign_runtime' : 'campaign_draft')
+        : ($complete ? 'ready_library' : 'draft_library'),
+    ];
+  }
+
+  /**
    * Keep the nested wizard draft aligned with the latest top-level character data.
    */
   public function syncWizardDraftFromCharacterData(array $character_data): array {

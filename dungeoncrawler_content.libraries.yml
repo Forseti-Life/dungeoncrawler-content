@@ -118,6 +118,7 @@ gm-storyline-builder:
 
 # Pathbuilder-style ability score boost selector
 ability-boost-selector:
+  version: 20261109-wizard-boost-gate-1
   js:
     js/ability-boost-selector.js: {}
   dependencies:
