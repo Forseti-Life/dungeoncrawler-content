@@ -37,9 +37,6 @@ class ActorDocumentConverter {
   private const STORED_NAME_REPAIRS = [
     'spell' => [
       'comprehend languages' => 'comprehend-language',
-      // "Identify" is not a spell in this ruleset. Its function, learning
-      // whether an item is magical, is the Read Aura cantrip.
-      'identify' => 'read-aura',
     ],
   ];
 

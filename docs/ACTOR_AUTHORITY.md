@@ -83,7 +83,9 @@ Applied to the live database (update 10225): every actor row has a unique,
 required UUID allocated by the database; `level` is signed; the
 `dc_actor_revisions` and `dc_actor_command_receipts` tables exist.
 
-Preflight on 2026-11-14: all 852 rows convert and validate for save. Reviewed
+Preflight on 2026-11-14: 851 of 852 rows convert and validate for save. One NPC
+lists the spell Identify, which waits on the item-identification mechanic
+(see the ledger's `conversion_preflight.open`). Reviewed
 one-time repairs of stored values are listed in the ledger under
 `conversion_preflight.reviewed_repairs`. Spell lists stored without a tradition
 or casting type convert as drafts and stay unpublishable until authored.
