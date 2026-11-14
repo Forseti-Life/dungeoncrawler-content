@@ -71,14 +71,23 @@ reloads cannot leave a separate agent cursor behind. Existing campaign-runtime
 process-flow stores and the LangGraph actor-testing runner do not own creation
 state; no campaign or second character object is created for this conversation.
 
-All mutation transports delegate to `CharacterCreationStepForm` for native
-validation and canonical persistence. Read-only inspection builds all eight
-real forms without running submit handlers. Missing choices remain visible;
-invalid populated choices block their proposed changes. Final submission checks
-every step. Manual saves and GM patches also share the pure step projection for
-spell, feat, familiar, skill, and equipment payloads. Identity, ability/combat,
-and wizard mirrors share the form save authority, and writes use an atomic
-version condition.
+Character validation is owned by the existing validation subsystem:
+`StateValidationService::validateCharacterDraft()` delegates to
+`CharacterCreationValidationService`. The eight-step rules, conditional catalog
+choices, required values, lengths, and selection constraints were moved out of
+the form into this single core. Inspection uses an independent
+`CharacterCreationInput`, without building or processing Drupal forms or relying
+on their session/error state. The manual editor delegates its findings to this
+same validator; it owns access/revision transport checks, not character rules.
+Missing choices remain visible; invalid populated choices block their proposed
+changes. Explicit final submission checks every step.
+
+Manual saves and GM patches still share the existing pure step projection and
+canonical form save authority for spell, feat, familiar, skill, equipment,
+identity, ability/combat, and wizard mirrors. Writes use an atomic version
+condition. After every GM save, the persisted character is revalidated and the
+response includes actionable next steps, or final-review guidance when ready.
+All choices remain editable.
 
 The actor and character are the same canonical object. The shared
 `validate_draft` and `explain_validation_findings` tools expose creation-profile

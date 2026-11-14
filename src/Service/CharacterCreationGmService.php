@@ -39,6 +39,7 @@ class CharacterCreationGmService {
     protected CharacterWizardHardeningService $wizardHardening,
     protected FeatLibraryService $featLibrary,
     protected SpellCatalogService $spellCatalog,
+    protected StateValidationService $stateValidation,
   ) {}
 
   /**
@@ -147,8 +148,7 @@ class CharacterCreationGmService {
   }
 
   public function validateData(array $data, ?int $campaign_id = NULL, bool $include_option_details = FALSE): array {
-    $form = $this->classResolver->getInstanceFromDefinition(CharacterCreationStepForm::class);
-    return $form->validateDraft($data, $campaign_id, $include_option_details);
+    return $this->stateValidation->validateCharacterDraft($data, $campaign_id, $include_option_details);
   }
 
   /**
@@ -308,12 +308,16 @@ class CharacterCreationGmService {
         $data['wizard_complete'] = FALSE;
       }
       $this->saveDraft($record, $data, (int) ($record->campaign_id ?? 0));
+      $saved = $this->getDraft($character_id);
+      $validation = $this->validateData($saved['payload'], $saved['campaign_id']);
+      $next_steps = $this->validationNextSteps($validation);
       return [
-        'draft' => $this->getDraft($character_id),
+        'draft' => $saved,
         'inspected_revision' => $expected_revision,
         'applied_to_revision' => (int) $record->version,
         'applied_fields' => $plan['applied_fields'],
-        'validation' => $plan['validation'],
+        'validation' => $validation,
+        'next_steps' => $next_steps,
         'assistant_response' => 'Saved character changes: ' . implode(', ', $plan['applied_fields']) . '.',
       ];
     }
@@ -321,6 +325,19 @@ class CharacterCreationGmService {
       $transaction->rollBack();
       throw $exception;
     }
+  }
+
+  /**
+   * Guide from the saved object's findings, not the last rendered form.
+   */
+  public function validationNextSteps(array $validation): array {
+    if ($validation['ready']) {
+      return ['All character choices are complete. Review your character and use Create Legacy Character when you are ready; you can still edit any choice.'];
+    }
+    return array_map(
+      static fn(array $issue): string => 'Step ' . $issue['step'] . ': ' . $issue['message'],
+      array_slice($validation['steps'][$validation['next_step'] - 1]['issues'], 0, 3),
+    );
   }
 
   /**

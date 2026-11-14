@@ -16,6 +16,8 @@ use Drupal\dungeoncrawler_content\Service\AbilityScoreTracker;
 use Drupal\dungeoncrawler_content\Service\CampaignCharacterRuntimeResolverService;
 use Drupal\dungeoncrawler_content\Service\CampaignSubjectRegistryService;
 use Drupal\dungeoncrawler_content\Service\CharacterCreationGmService;
+use Drupal\dungeoncrawler_content\Service\CharacterCreationValidationService;
+use Drupal\dungeoncrawler_content\Service\Validation\CharacterCreationInput;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
 use Drupal\dungeoncrawler_content\Service\CharacterPortraitGenerationService;
 use Drupal\dungeoncrawler_content\Service\CharacterWizardHardeningService;
@@ -99,11 +101,10 @@ class CharacterCreationStepFormTest extends UnitTestCase {
       ],
     ]);
 
-    $method = new \ReflectionMethod($form, 'validateAdaptedCantripSelection');
-    $method->setAccessible(TRUE);
-    $method->invoke($form, $form_state, ['class' => 'wizard']);
+    $input = new CharacterCreationInput($form_state->getValues());
+    \Drupal::service('dungeoncrawler_content.character_creation_validation')->validateAdaptedCantripSelection($input, ['class' => 'wizard']);
 
-    $this->assertSame([], $form_state->getErrors());
+    $this->assertSame([], $input->getErrors());
   }
 
   /**
@@ -198,11 +199,10 @@ class CharacterCreationStepFormTest extends UnitTestCase {
       ],
     ]);
 
-    $method = new \ReflectionMethod($form, 'validateGeneralTrainingSelection');
-    $method->setAccessible(TRUE);
-    $method->invoke($form, $form_state);
+    $input = new CharacterCreationInput($form_state->getValues());
+    \Drupal::service('dungeoncrawler_content.character_creation_validation')->validateGeneralTrainingSelection($input);
 
-    $this->assertSame([], $form_state->getErrors());
+    $this->assertSame([], $input->getErrors());
   }
 
   /**
@@ -226,11 +226,10 @@ class CharacterCreationStepFormTest extends UnitTestCase {
       ],
     ]);
 
-    $method = new \ReflectionMethod($form, 'validateNaturalAmbitionSelection');
-    $method->setAccessible(TRUE);
-    $method->invoke($form, $form_state, 'fighter');
+    $input = new CharacterCreationInput($form_state->getValues());
+    \Drupal::service('dungeoncrawler_content.character_creation_validation')->validateNaturalAmbitionSelection($input, 'fighter');
 
-    $this->assertSame([], $form_state->getErrors());
+    $this->assertSame([], $input->getErrors());
   }
 
   /**
@@ -335,10 +334,10 @@ class CharacterCreationStepFormTest extends UnitTestCase {
     $form_state->set('campaign_id', 70);
     $form_state->set('character_id', 0);
 
-    $form_array = [];
-    $form->validateForm($form_array, $form_state);
+    $input = new CharacterCreationInput($form_state->getValues());
+    \Drupal::service('dungeoncrawler_content.character_creation_validation')->validateStructuredAffiliationSelections($input, 70);
 
-    $this->assertArrayHasKey('security_affiliation_refs', $form_state->getErrors());
+    $this->assertArrayHasKey('security_affiliation_refs', $input->getErrors());
   }
 
   /**
@@ -376,10 +375,10 @@ class CharacterCreationStepFormTest extends UnitTestCase {
     $form_state->set('campaign_id', 70);
     $form_state->set('character_id', 0);
 
-    $form_array = [];
-    $form->validateForm($form_array, $form_state);
+    $input = new CharacterCreationInput($form_state->getValues());
+    \Drupal::service('dungeoncrawler_content.character_creation_validation')->validateStructuredAffiliationSelections($input, 70);
 
-    $this->assertArrayHasKey('home_settlement_ref__create_labels', $form_state->getErrors());
+    $this->assertArrayHasKey('home_settlement_ref__create_labels', $input->getErrors());
   }
 
   /**
@@ -411,12 +410,12 @@ class CharacterCreationStepFormTest extends UnitTestCase {
     $form_state->set('campaign_id', 70);
     $form_state->set('character_id', 0);
 
-    $form_array = [];
-    $form->validateForm($form_array, $form_state);
+    $input = new CharacterCreationInput($form_state->getValues());
+    \Drupal::service('dungeoncrawler_content.character_creation_validation')->validateStructuredAffiliationSelections($input, 70);
 
-    $this->assertArrayNotHasKey('home_settlement_ref__create_labels', $form_state->getErrors());
-    $this->assertArrayNotHasKey('government_ref__create_labels', $form_state->getErrors());
-    $this->assertArrayNotHasKey('security_affiliation_refs__create_labels', $form_state->getErrors());
+    $this->assertArrayNotHasKey('home_settlement_ref__create_labels', $input->getErrors());
+    $this->assertArrayNotHasKey('government_ref__create_labels', $input->getErrors());
+    $this->assertArrayNotHasKey('security_affiliation_refs__create_labels', $input->getErrors());
   }
 
   /**
@@ -1167,11 +1166,21 @@ class CharacterCreationStepFormTest extends UnitTestCase {
     $request_stack->push(Request::create('/charactersetup', 'GET', ['campaign_id' => $campaign_id]));
     $container = new ContainerBuilder();
     $container->set('request_stack', $request_stack);
+    $feat_library ??= $this->createMock(FeatLibraryService::class);
+    $schema_loader = $this->createMock(SchemaLoader::class);
+    $image_generation = $this->createMock(ImageGenerationIntegrationService::class);
+    $rules = new CharacterCreationValidationService(
+      $character_manager, $schema_loader, $database, $ability_score_tracker,
+      $image_generation, $feat_library, $campaign_subject_registry,
+      $institution_normalization, $faction_generation,
+    );
+    $rules->setStringTranslation($this->getStringTranslationStub());
+    $container->set('dungeoncrawler_content.character_creation_validation', $rules);
     \Drupal::setContainer($container);
 
     $form = new CharacterCreationStepForm(
       $character_manager,
-      $this->createMock(SchemaLoader::class),
+      $schema_loader,
       $database,
       $uuid,
       $current_user,
@@ -1179,9 +1188,9 @@ class CharacterCreationStepFormTest extends UnitTestCase {
       $time,
       $this->createMock(CharacterPortraitGenerationService::class),
       $ability_score_tracker,
-      $this->createMock(ImageGenerationIntegrationService::class),
+      $image_generation,
       $this->createMock(CharacterCreationGmService::class),
-      $feat_library ?? $this->createMock(FeatLibraryService::class),
+      $feat_library,
       $this->createMock(CsrfTokenGenerator::class),
       $campaign_subject_registry,
       $institution_membership,

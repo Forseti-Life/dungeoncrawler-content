@@ -18,6 +18,7 @@
 | Action bar, panel interactions, button wiring | Action rail and panel interaction | `js/v2/panels/`, `js/v2/systems/EncounterSystem.js` |
 | Client execution of server actions, coordinator flows | Coordinator client bridge | `js/game-coordinator/`, `js/v2/systems/` |
 | Character creation, leveling, feats, sheet state | Character lifecycle | `src/Controller/Character*`, `src/Service/Character*` |
+| Character creation validation, missing/invalid wizard choices, GM next steps | Shared state validation | `StateValidationService::validateCharacterDraft()`, `src/Service/CharacterCreationValidationService.php` |
 | Campaign start/state, room transitions, dungeon state | Campaign and world state | `src/Service/Campaign*`, `src/Service/Room*`, `src/Service/Dungeon*` |
 | Quest generation/progress/rewards/objectives | Generation pipeline | `src/Service/Quest*`, `src/Controller/QuestTrackerController.php` |
 | NPC behavior, institution modeling, relationship state | NPC and institutions | `src/Service/Npc*`, `src/Service/Institution*`, `src/Service/RelationshipManagerService.php` |
@@ -36,6 +37,7 @@
 | HTTP/API surface | Define route contracts, controllers, forms, and access boundaries for web/API/admin traffic | `dungeoncrawler_content.routing.yml`, `src/Controller/*Controller.php`, `src/Form/*Form.php` |
 | Encounter and action engine | Run authoritative encounter phases and resolve player/NPC action outcomes | `src/Service/EncounterPhaseHandler.php`, `src/Service/GameplayActionProcessor.php`, `src/Service/GameCoordinatorService.php` |
 | Character lifecycle | Own canonical character creation, progression, resources, and runtime state | `src/Controller/Character*Controller.php`, `src/Form/Character*Form.php`, `src/Service/Character*Service.php` |
+| Shared state validation | Own character creation rules and findings independently of the editor; manual forms and GM tools delegate to the same core | `src/Service/StateValidationService.php`, `src/Service/CharacterCreationValidationService.php`, `src/Service/Validation/CharacterCreationInput.php` |
 | Campaign and world state | Maintain campaign clocks/state plus room/dungeon progression and transitions | `src/Service/Campaign*Service.php`, `src/Service/Room*Service.php`, `src/Service/Dungeon*Service.php` |
 | Generation pipeline | Generate dungeons, rooms, maps, quests, storylines, and seeded content contracts | `src/Service/DungeonGeneratorService.php`, `src/Service/RoomGeneratorService.php`, `src/Service/MapGeneratorService.php`, `src/Service/Quest*Service.php`, `src/Service/Storyline*Service.php` |
 | NPC and institutions | Manage NPC behavior and institution/relationship social-model state | `src/Service/Npc*Service.php`, `src/Service/Institution*Service.php`, `src/Service/RelationshipManagerService.php` |

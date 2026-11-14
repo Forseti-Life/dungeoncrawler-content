@@ -431,10 +431,20 @@ services:
       - '@dungeoncrawler_content.character_wizard_hardening'
       - '@dungeoncrawler_content.feat_library'
       - '@dungeoncrawler_content.spell_catalog'
+      - '@dungeoncrawler_content.state_validation_service'
 
-  dungeoncrawler_content.character_draft_form_validator:
-    parent: form_validator
-    class: Drupal\dungeoncrawler_content\Form\CharacterDraftFormValidator
+  dungeoncrawler_content.character_creation_validation:
+    class: Drupal\dungeoncrawler_content\Service\CharacterCreationValidationService
+    arguments:
+      - '@dungeoncrawler_content.character_manager'
+      - '@dungeoncrawler_content.schema_loader'
+      - '@database'
+      - '@dungeoncrawler_content.ability_score_tracker'
+      - '@dungeoncrawler_content.image_generation_integration'
+      - '@dungeoncrawler_content.feat_library'
+      - '@dungeoncrawler_content.campaign_subject_registry'
+      - '@dungeoncrawler_content.institution_normalization'
+      - '@dungeoncrawler_content.faction_generation'
 
   dungeoncrawler_content.character_wizard_hardening:
     class: Drupal\dungeoncrawler_content\Service\CharacterWizardHardeningService
@@ -1761,6 +1771,7 @@ services:
       - '@dungeoncrawler_content.canonical_action_registry'
       - '@dungeoncrawler_content.validation_profile_resolver'
       - '@dungeoncrawler_content.consumable_contract_validator'
+      - '@service_container'
 
   dungeoncrawler_content.rules_data_validator:
     class: Drupal\dungeoncrawler_content\Service\SpellFeatActionDataValidatorService

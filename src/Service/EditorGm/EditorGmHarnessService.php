@@ -821,10 +821,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     if ($surface_label === 'Character Creation' && $tool_name === 'apply_character_draft_updates') {
       return [
         'answer' => $tool_result['assistant_response'],
-        'next_steps' => array_map(
-          static fn(array $issue): string => 'Step ' . $issue['step'] . ': ' . $issue['message'],
-          array_slice($context_snapshot['process_flow']['decision_points'], 0, 3),
-        ),
+        'next_steps' => $tool_result['next_steps'],
       ];
     }
     $deterministic = $this->harnessManagement->synthesizeDeterministicMutationResponse(

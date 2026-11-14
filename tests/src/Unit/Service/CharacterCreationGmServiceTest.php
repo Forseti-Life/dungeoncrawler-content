@@ -16,6 +16,7 @@ use Drupal\dungeoncrawler_content\Service\FactionGenerationService;
 use Drupal\dungeoncrawler_content\Service\InstitutionMembershipService;
 use Drupal\dungeoncrawler_content\Service\FeatLibraryService;
 use Drupal\dungeoncrawler_content\Service\SpellCatalogService;
+use Drupal\dungeoncrawler_content\Service\StateValidationService;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -23,7 +24,7 @@ use PHPUnit\Framework\TestCase;
  */
 class CharacterCreationGmServiceTest extends TestCase {
 
-  private function service(?CharacterCreationStepForm $form = NULL, ?object $record = NULL, ?FactionGenerationService $factions = NULL, ?FeatLibraryService $feats = NULL): CharacterCreationGmService {
+  private function service(?CharacterCreationStepForm $form = NULL, ?object $record = NULL, ?FactionGenerationService $factions = NULL, ?FeatLibraryService $feats = NULL, ?StateValidationService $validation = NULL): CharacterCreationGmService {
     $manager = $this->createMock(CharacterManager::class);
     $manager->method('loadCharacter')->willReturn($record ?? (object) [
       'id' => 77, 'uid' => 7, 'version' => 3, 'campaign_id' => 0, 'status' => 0,
@@ -49,6 +50,7 @@ class CharacterCreationGmServiceTest extends TestCase {
       $this->createMock(CharacterWizardHardeningService::class),
       $feats ?? $this->createMock(FeatLibraryService::class),
       $this->createMock(SpellCatalogService::class),
+      $validation ?? $this->createMock(StateValidationService::class),
     );
   }
 
@@ -70,13 +72,15 @@ class CharacterCreationGmServiceTest extends TestCase {
     $this->assertSame('Stale Hero', $service->buildSummary(['wizard' => ['name' => 'Stale Hero']])['name']);
   }
 
-  public function testPlanUsesNativeValidationWithoutSavingAndBindsRevision(): void {
+  public function testPlanUsesValidationSubsystemWithoutFormValidationAndBindsRevision(): void {
     $form = $this->createMock(CharacterCreationStepForm::class);
-    $form->expects($this->exactly(2))->method('validateDraft')->willReturn([
+    $form->expects($this->never())->method('validateDraft');
+    $validation = $this->createMock(StateValidationService::class);
+    $validation->expects($this->exactly(2))->method('validateCharacterDraft')->willReturn([
       'errors' => [], 'warnings' => [['message' => 'Choose remaining fields']], 'ready' => FALSE, 'next_step' => 2,
     ]);
     $form->expects($this->never())->method('saveValidatedDraft');
-    $plan = $this->service($form)->planUpdates(77, ['name' => 'Revised Hero']);
+    $plan = $this->service($form, NULL, NULL, NULL, $validation)->planUpdates(77, ['name' => 'Revised Hero']);
     $this->assertSame('proposed_execution', $plan['intent']);
     $this->assertSame(3, $plan['proposed_execution']['arguments']['expected_revision']);
     $this->assertSame(['name' => 'Revised Hero'], $plan['proposed_execution']['arguments']['updates']);

@@ -66,7 +66,7 @@ final class CharacterCreationGmToolContext extends EditorGmToolContext {
     $step = $report['steps'][$report['next_step'] - 1];
     return [
       'flow_id' => 'character_creation',
-      'authority' => 'CharacterCreationStepForm::validateDraft',
+      'authority' => 'StateValidationService::validateCharacterDraft',
       'revision' => $this->draft['revision'],
       'current_step' => $step['number'],
       'current_step_name' => $step['name'],

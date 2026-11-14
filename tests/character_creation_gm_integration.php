@@ -28,6 +28,8 @@ try {
   $id = $draft['character_id'];
   $before = $manager->loadCharacter($id)->character_data;
   $report = $drafts->validateData($draft['payload']);
+  $state_validator = \Drupal::service('dungeoncrawler_content.state_validation_service');
+  $check($report === $state_validator->validateCharacterDraft($draft['payload']), 'The GM must use the existing state-validation subsystem.');
   $check($report['valid'] && !$report['ready'], 'Empty drafts must be editable but not ready.');
   $check(count($report['steps']) === 8, 'Validation must inspect all eight steps.');
   $check(isset($report['steps'][5]['choices']['general_feat']), 'Reference must include real conditional form choices.');
@@ -94,7 +96,8 @@ try {
   $check(!$plan['tool_result']['requires_approval'], 'Character changes must not require a separate approval.');
   $check($before === $manager->loadCharacter($id)->character_data, 'Planning must not persist.');
   $proposal = $plan['tool_result']['proposed_execution'];
-  $call($proposal['tool_name'], $proposal['arguments']);
+  $direct_save = $call($proposal['tool_name'], $proposal['arguments'])['tool_result'];
+  $check(!empty($direct_save['next_steps']) && str_starts_with($direct_save['next_steps'][0], 'Step 2:'), 'Direct tool saves must return validation-derived next steps, without requiring conversational synthesis.');
   $saved = $drafts->getDraft($id);
   $check($reference_context->invoke($controller, $preview_session, (string) $id) === '', 'Stale candidate choices must not be used after the canonical object changes.');
   $check($saved['revision'] === $draft['revision'] + 1, 'Apply must increment the revision.');
@@ -197,6 +200,11 @@ try {
   $before_projection = $manager->loadCharacter($id)->character_data;
   $wizard_plan = $drafts->planUpdates($id, $wizard_updates);
   $check($wizard_plan['blocking_errors'] === [], 'Conditional class selections must validate: ' . json_encode($wizard_plan['blocking_errors']));
+  $conditional_issues = array_filter(
+    array_merge($wizard_plan['validation']['errors'], $wizard_plan['validation']['warnings']),
+    static fn(array $issue): bool => str_contains($issue['field'], 'improved-familiar-attunement'),
+  );
+  $check($conditional_issues === [], 'Valid nested selections must not become phantom required fields under non-tree rendering containers.');
   $check($before_projection === $manager->loadCharacter($id)->character_data, 'Dependent payload planning must not persist.');
   $wizard = $drafts->applyDraftUpdates($id, $applied['draft']['revision'], $wizard_updates)['draft'];
   $check($wizard['payload']['familiar']['name'] === 'Original Companion', 'GM familiar choices must construct the canonical familiar.');
@@ -220,6 +228,105 @@ try {
   $fighter = $drafts->applyDraftUpdates($id, $equipped['revision'], ['class' => 'fighter', 'class_key_ability' => 'strength'])['draft'];
   $check(empty($fighter['payload']['familiar']), 'Changing to a class without a familiar must remove the dependent familiar.');
   $check($manager::getSelectedCantripIds($fighter['payload']) === [], 'Changing to a noncaster must remove stale class spells.');
+  $check(str_contains($drafts->validationNextSteps(['ready' => TRUE])[0], 'Create Legacy Character'), 'Ready characters still need an explicit review/final-submission next step.');
+
+  $base = [
+    'name' => 'Original Validation Fixture', 'ancestry' => 'human',
+    'background' => 'warrior', 'class' => 'fighter', 'roleplay_style' => 'balanced',
+  ];
+  $cases = [
+    'name maximum length' => [['name' => str_repeat('x', 51)], 'name'],
+    'unknown ancestry' => [['ancestry' => 'original-unknown'], 'ancestry'],
+    'wrong heritage' => [['heritage' => 'original-unknown'], 'heritage'],
+    'ineligible ancestry feat' => [['ancestry_feat' => 'original-unknown'], 'ancestry_feat'],
+    'ancestry boost count' => [['ancestry_boosts' => ['strength']], 'ancestry_boosts'],
+    'unknown background' => [['background' => 'original-unknown'], 'background'],
+    'background boost count' => [['background_boosts' => ['strength', 'dexterity', 'wisdom']], 'background_boosts'],
+    'unknown class' => [['class' => 'original-unknown'], 'class'],
+    'illegal key ability' => [['class_key_ability' => 'charisma'], 'class_key_ability'],
+    'ineligible class feat' => [['class_feat' => 'original-unknown'], 'class_feat'],
+    'unknown school' => [['class' => 'wizard', 'subclass' => 'original-unknown'], 'subclass'],
+    'unknown thesis' => [['class' => 'wizard', 'arcane_thesis' => 'original-unknown'], 'arcane_thesis'],
+    'wrong spell tradition' => [['class' => 'wizard', 'cantrips' => ['original-unknown']], 'cantrips'],
+    'unknown first-rank spell' => [['class' => 'wizard', 'spells_first' => ['original-unknown']], 'spells_first'],
+    'free boost count' => [['free_boosts' => ['strength']], 'free_boosts'],
+    'unknown ability ID' => [['free_boosts' => ['strength', 'dexterity', 'wisdom', 'original-unknown']], 'free_boosts'],
+    'repeated free boost' => [['free_boosts' => ['strength', 'strength', 'dexterity', 'wisdom']], 'free_boosts'],
+    'unknown skill ID' => [['trained_skills' => ['original-unknown']], 'trained_skills'],
+    'repeated trained skill' => [['trained_skills' => ['Arcana', 'Arcana', 'Arcana']], 'trained_skills'],
+    'repeated cantrip' => [['class' => 'wizard', 'cantrips' => array_fill(0, 5, $wizard_updates['cantrips'][0])], 'cantrips'],
+    'alignment option' => [['alignment' => 'original-unknown'], 'alignment'],
+    'general feat eligibility' => [['general_feat' => 'original-unknown'], 'general_feat'],
+    'unknown equipment' => [['weapons' => ['original-unknown']], 'weapons'],
+    'portrait prompt limit' => [['portrait_prompt' => str_repeat('x', 501)], 'portrait_prompt'],
+    'age text limit' => [['age' => str_repeat('x', 11)], 'age'],
+    'gender text limit' => [['gender' => str_repeat('x', 51)], 'gender'],
+    'roleplay option' => [['roleplay_style' => 'original-unknown'], 'roleplay_style'],
+    'monster hunter choice' => [['class' => 'ranger', 'class_feat' => 'monster-hunter'], 'feat_selections][monster-hunter][selected_monster_type'],
+    'staff nexus cantrip' => [['class' => 'wizard', 'class_feat' => 'staff-nexus'], 'feat_selections][staff-nexus][selected_cantrip'],
+    'staff nexus spell' => [['class' => 'wizard', 'class_feat' => 'staff-nexus'], 'feat_selections][staff-nexus][selected_spell'],
+    'rogue dedication' => [['class' => 'rogue', 'class_feat' => 'eldritch-trickster-racket'], 'feat_selections][eldritch-trickster-racket][selected_dedication'],
+    'rogue knowledge skill' => [['class' => 'rogue', 'class_feat' => 'mastermind-racket'], 'feat_selections][mastermind-racket][selected_skill'],
+    'animal companion species' => [['class' => 'ranger', 'class_feat' => 'animal-companion'], 'feat_selections][animal-companion][selected_companion_species'],
+    'familiar form' => [['class' => 'witch', 'feat_selections' => ['familiar-witch-class' => ['selected_familiar_type' => 'original-unknown']]], 'feat_selections][familiar-witch-class][selected_familiar_type'],
+    'familiar ability count' => [['class' => 'witch'], 'feat_selections][familiar-witch-class][selected_familiar_abilities'],
+    'repeated familiar ability' => [['class' => 'witch', 'feat_selections' => ['familiar-witch-class' => [
+      'selected_familiar_type' => 'cat', 'selected_familiar_abilities' => ['speech', 'speech'],
+    ]]], 'feat_selections][familiar-witch-class][selected_familiar_abilities'],
+    'familiar flight eligibility' => [['class' => 'witch', 'feat_selections' => ['familiar-witch-class' => [
+      'selected_familiar_type' => 'cat', 'selected_familiar_abilities' => ['flier', 'speech'],
+    ]]], 'feat_selections][familiar-witch-class][selected_familiar_abilities'],
+    'domain deity' => [['class' => 'cleric', 'class_feat' => 'domain-initiate', 'deity' => 'original-unknown'], 'deity'],
+    'adapted spell tradition' => [['class' => 'wizard', 'ancestry_feat' => 'adapted-cantrip'], 'feat_selections][adapted-cantrip][selected_tradition'],
+    'armor proficiency eligibility' => [['class' => 'fighter', 'general_feat' => 'armor-proficiency'], 'general_feat'],
+    'weapon proficiency eligibility' => [['class' => 'fighter', 'general_feat' => 'weapon-proficiency'], 'general_feat'],
+  ];
+  foreach ([
+    'first-world-magic' => 'selected_cantrip', 'otherworldly-magic' => 'selected_cantrip',
+    'general-training' => 'bonus_general_feat', 'elf-atavism' => 'selected_feat',
+    'multitalented' => 'selected_skill', 'mixed-heritage-adaptability' => 'selected_skill',
+    'orc-atavism' => 'selected_feat', 'draconic-ties' => 'damage_type',
+    'natural-skill' => 'skills', 'unconventional-weaponry' => 'selected_weapon_id',
+    'vengeful-hatred' => 'target_type', 'ancestral-longevity' => 'selected_skills',
+    'gnome-obsession' => 'selected_lore', 'natural-performer' => 'specialty',
+    'natural-ambition' => 'bonus_class_feat',
+  ] as $feat_id => $selection) {
+    $cases['ancestry feature ' . $feat_id] = [
+      ['ancestry_feat' => $feat_id], 'feat_selections][' . $feat_id . '][' . $selection,
+    ];
+  }
+  foreach (['specialty-crafting' => 'specialty', 'virtuosic-performer' => 'specialty',
+    'canny-acumen' => 'selected_proficiency', 'adopted-ancestry' => 'selected_ancestry'] as $feat_id => $selection) {
+    $cases['general feature ' . $feat_id] = [
+      ['general_feat' => $feat_id], 'feat_selections][' . $feat_id . '][' . $selection,
+    ];
+  }
+  foreach ($cases as $label => [$patch, $field]) {
+    $findings = $state_validator->validateCharacterDraft(array_replace($base, $patch));
+    $check(in_array($field, array_column(array_merge($findings['errors'], $findings['warnings']), 'field'), TRUE),
+      'Shared validation must preserve ' . $label . ': ' . $field);
+  }
+  $invalid_heritage = $state_validator->validateCharacterDraft(array_replace($base, ['heritage' => 'original-unknown']));
+  $check(in_array('heritage', array_column($invalid_heritage['errors'], 'field'), TRUE),
+    'Invalid saved selections must remain errors instead of being silently cleared by UI reconciliation.');
+  $complete = [
+    'name' => 'Original Ready Validation Fixture',
+    'ancestry' => 'orc', 'ancestry_feat' => 'orc-ferocity', 'ancestry_boosts' => ['dexterity'],
+    'background' => 'warrior', 'background_boosts' => ['constitution'],
+    'class' => 'fighter', 'class_key_ability' => 'strength', 'class_feat' => 'sudden-charge',
+    'free_boosts' => ['strength', 'dexterity', 'constitution', 'intelligence'],
+    'general_feat' => 'toughness', 'roleplay_style' => 'balanced', 'equipment_ids' => [],
+  ];
+  $options = $state_validator->validateCharacterDraft($complete)['steps'];
+  $complete['heritage'] = array_key_first(array_filter($options[1]['choices']['heritage']['options'], static fn($key): bool => $key !== '', ARRAY_FILTER_USE_KEY));
+  $complete['alignment'] = array_key_first(array_filter($options[5]['choices']['alignment']['options'], static fn($key): bool => $key !== '', ARRAY_FILTER_USE_KEY));
+  $complete['trained_skills'] = array_slice(array_keys($options[5]['choices']['trained_skills']['options']), 0, 4);
+  $ready_draft = $drafts->createDraft();
+  $ready_plan = $drafts->planUpdates($ready_draft['character_id'], $complete);
+  $check($ready_plan['validation']['ready'], 'A complete build must pass the shared validator: ' . json_encode($ready_plan['validation']['steps']));
+  $ready_save = $drafts->applyDraftUpdates($ready_draft['character_id'], $ready_draft['revision'], $complete);
+  $check($ready_save['validation']['ready'] && str_contains($ready_save['next_steps'][0], 'Create Legacy Character'),
+    'Saving a genuinely complete character must still return final-review guidance.');
   echo "PASS: $checks character framework integration checks; fixtures rolled back.\n";
 }
 finally {

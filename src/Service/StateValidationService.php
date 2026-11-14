@@ -7,6 +7,7 @@ use Drupal\Core\Database\Connection;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\dungeoncrawler_content\Support\H3SpatialHelper;
 use Psr\Log\LoggerInterface;
+use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
  * Validates state payloads against canonical contracts.
@@ -156,7 +157,8 @@ class StateValidationService {
     ?SpellFeatActionDataValidatorService $rules_data_validator = NULL,
     ?CanonicalActionRegistryService $canonical_action_registry = NULL,
     ?ValidationProfileResolverService $validation_profile_resolver = NULL,
-    ?ConsumableContractValidatorService $consumable_contract_validator = NULL
+    ?ConsumableContractValidatorService $consumable_contract_validator = NULL,
+    private ?ContainerInterface $container = NULL,
   ) {
     $this->logger = $logger_factory->get('dungeoncrawler');
     $this->database = $database;
@@ -310,6 +312,18 @@ class StateValidationService {
    */
   public function validateNpcSheet(array $sheet): array {
     return $this->validateAgainstContract($sheet, 'npc_sheet');
+  }
+
+  /**
+   * Inspect character creation through the same subsystem as other actor data.
+   */
+  public function validateCharacterDraft(array $character, ?int $campaign_id = NULL, bool $include_option_details = FALSE): array {
+    if ($this->container === NULL) {
+      throw new \LogicException('Character creation validation is not configured in StateValidationService.');
+    }
+    // Institution rule lookups depend on this subsystem; resolve only on use.
+    return $this->container->get('dungeoncrawler_content.character_creation_validation')
+      ->validate($character, $campaign_id, $include_option_details);
   }
 
   /**
