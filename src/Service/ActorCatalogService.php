@@ -163,6 +163,12 @@ class ActorCatalogService implements ActorReferenceCatalogInterface {
       $id = str_replace(' ', '-', $needle);
       return $this->has('item', $needle) ? $needle : ($this->has('item', $id) ? $id : NULL);
     }
+    // An exact id always wins over entries that merely share its name.
+    foreach ([$needle, str_replace(' ', '-', $needle)] as $candidate) {
+      if ($this->has($kind, $candidate)) {
+        return $candidate;
+      }
+    }
     if (!isset($this->names[$kind])) {
       $this->names[$kind] = [];
       foreach ($this->entries($kind) as $entry) {

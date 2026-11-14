@@ -31,7 +31,8 @@ class SpellEffectResolverService {
     int $cast_rank,
     int $spell_dc,
     int $spell_attack_modifier,
-    int $action_cost
+    int $action_cost,
+    ?int $spellcasting_ability_modifier = NULL
   ): array {
     $encounter = $this->encounterState->getState($encounter_id);
 
@@ -75,7 +76,8 @@ class SpellEffectResolverService {
         $cast_rank,
         $spell_dc,
         $spell_attack_modifier,
-        $action_cost
+        $action_cost,
+        $spellcasting_ability_modifier
       );
       $result['target_results'][] = $target_result;
       $result['damage'] += (int) ($target_result['damage'] ?? 0);
@@ -100,7 +102,8 @@ class SpellEffectResolverService {
     int $cast_rank,
     int $spell_dc,
     int $spell_attack_modifier,
-    int $action_cost
+    int $action_cost,
+    ?int $spellcasting_ability_modifier = NULL
   ): array {
     $target_ref = $this->participantEntityRef($target);
     $target_participant_id = (int) ($target['id'] ?? 0);
@@ -177,6 +180,12 @@ class SpellEffectResolverService {
         continue;
       }
       $amount = $this->rollHeightenedFormula($formula, $spell, $cast_rank);
+      if (($damage['ability_modifier'] ?? NULL) === 'spellcasting') {
+        if ($spellcasting_ability_modifier === NULL) {
+          throw new \InvalidArgumentException("Spell '{$spell_id}' adds the caster's spellcasting ability modifier, but the caster has none recorded.");
+        }
+        $amount += $spellcasting_ability_modifier;
+      }
       if ($this->isMagicMissile($spell_id)) {
         $missiles_per_action = 1 + max(0, (int) floor((max(1, $cast_rank) - 1) / 2));
         $amount = 0;

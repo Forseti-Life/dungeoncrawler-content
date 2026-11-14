@@ -7082,9 +7082,10 @@
                 ],
                 "damage": [
                     {
-                        "formula": "1d10 + your spellcasting ability modifier",
+                        "formula": "1d10",
                         "type": "deal",
-                        "persistent": false
+                        "persistent": false,
+                        "ability_modifier": "spellcasting"
                     }
                 ],
                 "damage_type": [
@@ -10180,9 +10181,10 @@
                 ],
                 "damage": [
                     {
-                        "formula": "2d8 + your spellcasting ability modifier",
+                        "formula": "2d8",
                         "type": "slashing",
-                        "persistent": false
+                        "persistent": false,
+                        "ability_modifier": "spellcasting"
                     }
                 ],
                 "damage_type": [
@@ -11711,9 +11713,10 @@
                 ],
                 "damage": [
                     {
-                        "formula": "1d6 + your spellcasting ability modifier",
+                        "formula": "1d6",
                         "type": "piercing",
-                        "persistent": false
+                        "persistent": false,
+                        "ability_modifier": "spellcasting"
                     }
                 ],
                 "damage_type": [

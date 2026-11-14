@@ -232,8 +232,10 @@ final class ActorDocumentValidator {
       }
     }
     $spellcasting = $document['build']['spellcasting'] ?? NULL;
-    if (is_array($spellcasting) && !isset($spellcasting['dc'])) {
-      $missing[] = '/build/spellcasting/dc';
+    foreach (is_array($spellcasting) ? ['tradition', 'type', 'dc'] : [] as $field) {
+      if (!isset($spellcasting[$field])) {
+        $missing[] = '/build/spellcasting/' . $field;
+      }
     }
 
     return $missing;

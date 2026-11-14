@@ -167,6 +167,11 @@ class SpellFeatActionDataValidatorService {
           if ($formula !== '' && $formula !== 'none' && preg_match('/^\d+d\d+(?:\s*[+-]\s*\d+)?$/', $formula) !== 1) {
             $errors[] = sprintf('Spell damage[%d].formula is invalid.', (int) $index);
           }
+          // Damage that adds the caster's spellcasting ability modifier
+          // declares it; the formula itself stays executable dice.
+          if (array_key_exists('ability_modifier', $damage) && $damage['ability_modifier'] !== 'spellcasting') {
+            $errors[] = sprintf('Spell damage[%d].ability_modifier must be "spellcasting" when provided.', (int) $index);
+          }
           if (($formula === '' || $formula === 'none') && $damage_type !== '' && $damage_type !== 'none') {
             $errors[] = sprintf('Spell damage[%d] declares a type without an executable formula.', (int) $index);
           }

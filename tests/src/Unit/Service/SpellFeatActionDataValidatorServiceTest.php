@@ -47,6 +47,33 @@ class SpellFeatActionDataValidatorServiceTest extends UnitTestCase {
   /**
    * @covers ::validateSpellDefinition
    */
+  public function testSpellDamageMayDeclareSpellcastingAbilityModifier(): void {
+    $spell = [
+      'id' => 'ember_dart',
+      'name' => 'Ember Dart',
+      'rank' => 0,
+      'traditions' => ['primal'],
+      'description' => 'A dart of embers deals 1d4 fire damage plus your spellcasting ability modifier.',
+      'cast_actions' => '2_actions',
+      'save_type' => 'basic_reflex',
+      'traits' => ['cantrip', 'fire'],
+      'conditions_caused' => ['none'],
+      'damage' => [['formula' => '1d4', 'type' => 'fire', 'ability_modifier' => 'spellcasting']],
+    ];
+    $validator = $this->buildIntegratedValidator();
+    $this->assertSame([], $validator->validateSpellDefinition($spell)['errors']);
+
+    $spell['damage'][0]['ability_modifier'] = 'strength';
+    $this->assertContains('Spell damage[0].ability_modifier must be "spellcasting" when provided.', $validator->validateSpellDefinition($spell)['errors']);
+
+    // The modifier is declared, never written into the dice formula.
+    $spell['damage'][0] = ['formula' => '1d4 + your spellcasting ability modifier', 'type' => 'fire'];
+    $this->assertContains('Spell damage[0].formula is invalid.', $validator->validateSpellDefinition($spell)['errors']);
+  }
+
+  /**
+   * @covers ::validateSpellDefinition
+   */
   public function testValidateSpellDefinitionRejectsUnsafeOrIncompletePayload(): void {
     $validator = $this->buildIntegratedValidator();
     $result = $validator->validateSpellDefinition([

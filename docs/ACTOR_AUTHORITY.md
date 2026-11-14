@@ -83,9 +83,15 @@ Applied to the live database (update 10225): every actor row has a unique,
 required UUID allocated by the database; `level` is signed; the
 `dc_actor_revisions` and `dc_actor_command_receipts` tables exist.
 
-Preflight on 2026-11-14: 664 of 852 rows convert and validate for save. The
-rest are blocked by spells or feats absent from the local catalog and by NPC
-spell lists stored without a tradition.
+Preflight on 2026-11-14: 846 of 852 rows convert and validate for save. The
+six blocked rows name a feat, spell, class, ancestry or background that is not
+in the local catalog. Spell lists stored without a tradition or casting type
+convert as drafts and stay unpublishable until authored.
+
+Spell damage that adds the caster's spellcasting ability modifier declares
+`"ability_modifier": "spellcasting"` beside an executable dice formula. The
+resolver adds the modifier from the caster's canonical state and fails
+explicitly when the caster records none.
 
 A familiar is its own actor (`identity.kind` = `companion`); the owner's
 `build.companions` records the selection that links to it.

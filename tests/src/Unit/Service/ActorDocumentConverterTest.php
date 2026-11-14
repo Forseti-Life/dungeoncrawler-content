@@ -34,9 +34,10 @@ class ActorDocumentConverterTest extends TestCase {
       ['stats' => ['ac' => 17, 'maxHp' => 24, 'currentHp' => 11, 'will' => 8], 'backstory' => 'Keeps the toll ledger.', 'resources' => ['hitPoints' => ['temporary' => 3]]],
     );
 
-    // A list of spells without a tradition cannot become spellcasting.
-    $this->assertSame([['/build/spellcasting/tradition', 'missing']], array_map(static fn(array $i): array => [$i['path'], $i['code']], $result['issues']));
+    $this->assertSame([], $result['issues']);
     $document = $result['document'];
+    // Stored spells survive; the unstored tradition and type await authoring.
+    $this->assertSame(['entries' => [['id' => 'ember-dart', 'spell_id' => 'ember-dart', 'rank' => 0]]], $document['build']['spellcasting']);
     $this->assertSame(['name' => 'Odalys Fenwick', 'kind' => 'npc', 'role' => 'quest_giver'], $document['identity']);
     $this->assertSame('authored_statblock', $document['build']['mechanics_model']);
     $this->assertArrayNotHasKey('class', $document['build']);
@@ -53,6 +54,8 @@ class ActorDocumentConverterTest extends TestCase {
     );
     $report = (new ActorDocumentValidator(new DefinitionSchemaValidator(), $this->catalog()))->validate($document, ActorDocumentValidator::PROFILE_AUTHORING);
     $this->assertTrue($report['valid_for_save'], json_encode($report['findings']));
+    $this->assertFalse($report['ready_for_publication']);
+    $this->assertContains('/build/spellcasting/tradition', array_column($report['findings'], 'path'));
   }
 
   public function testPlayerBuildResolvesCatalogIdsAndFeatSlots(): void {
@@ -62,7 +65,7 @@ class ActorDocumentConverterTest extends TestCase {
         'class' => 'Warden', 'ancestry' => 'fenfolk', 'background' => 'Ferry Hand',
         'ability_scores' => ['strength' => ['score' => 14, 'modifier' => 2]],
         'skills' => [['name' => 'Stealth', 'modifier' => 5, 'proficiency' => 'Trained'], ['name' => 'Athletics', 'modifier' => 2, 'proficiency' => 'untrained']],
-        'feats' => [['id' => 'steady-footing', 'name' => 'Steady Footing'], ['id' => 'familiar', 'name' => 'Familiar']],
+        'feats' => [['id' => 'steady-footing', 'name' => 'Steady Footing']],
         'familiar' => ['name' => 'Pip'],
         'spells' => ['tradition' => 'Primal', 'cantrips' => ['Ember Dart'], 'spellbook_size' => 5],
       ],

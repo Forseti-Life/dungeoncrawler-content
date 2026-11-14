@@ -294,9 +294,10 @@
                 ],
                 "damage": [
                     {
-                        "formula": "1d4 + your spellcasting modifier",
+                        "formula": "1d4",
                         "type": "negative",
-                        "persistent": false
+                        "persistent": false,
+                        "ability_modifier": "spellcasting"
                     }
                 ],
                 "damage_type": [
@@ -884,9 +885,10 @@
                 ],
                 "damage": [
                     {
-                        "formula": "1d4 + your spellcasting ability modifier",
+                        "formula": "1d4",
                         "type": "electricity",
-                        "persistent": false
+                        "persistent": false,
+                        "ability_modifier": "spellcasting"
                     }
                 ],
                 "damage_type": [
@@ -2255,9 +2257,10 @@
                         "persistent": true
                     },
                     {
-                        "formula": "1d4 + your spellcasting ability modifier",
+                        "formula": "1d4",
                         "type": "fire",
-                        "persistent": false
+                        "persistent": false,
+                        "ability_modifier": "spellcasting"
                     }
                 ],
                 "damage_type": [
@@ -2355,9 +2358,10 @@
                 ],
                 "damage": [
                     {
-                        "formula": "1d4 + your spellcasting ability modifier",
+                        "formula": "1d4",
                         "type": "cold",
-                        "persistent": false
+                        "persistent": false,
+                        "ability_modifier": "spellcasting"
                     }
                 ],
                 "damage_type": [
@@ -16969,9 +16973,10 @@
                 ],
                 "damage": [
                     {
-                        "formula": "1d4 + your spellcasting ability modifier",
+                        "formula": "1d4",
                         "type": "mental",
-                        "persistent": false
+                        "persistent": false,
+                        "ability_modifier": "spellcasting"
                     }
                 ],
                 "damage_type": [
@@ -19395,9 +19400,10 @@
                 ],
                 "damage": [
                     {
-                        "formula": "1d8 + your spellcasting ability modifier",
+                        "formula": "1d8",
                         "type": "force",
-                        "persistent": false
+                        "persistent": false,
+                        "ability_modifier": "spellcasting"
                     }
                 ],
                 "damage_type": [
@@ -36290,9 +36296,10 @@
                 ],
                 "damage": [
                     {
-                        "formula": "2d8 + your spellcasting ability modifier",
+                        "formula": "2d8",
                         "type": "force",
-                        "persistent": false
+                        "persistent": false,
+                        "ability_modifier": "spellcasting"
                     }
                 ],
                 "damage_type": [
@@ -48216,9 +48223,10 @@
                 ],
                 "damage": [
                     {
-                        "formula": "3d10 + your spellcasting ability modifier",
+                        "formula": "3d10",
                         "type": "force",
-                        "persistent": false
+                        "persistent": false,
+                        "ability_modifier": "spellcasting"
                     }
                 ],
                 "damage_type": [

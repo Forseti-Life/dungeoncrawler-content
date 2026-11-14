@@ -1031,6 +1031,7 @@ class EncounterActionExecutor {
       unset($game_state['turn']['metamagic_pending'][$actor_id]);
     }
 
+    $spellcasting_ability_modifier = self::spellcastingAbilityModifier($canonical_state);
     $is_innate_spell = !empty($params['is_innate_spell']);
     $spell_attack_mod = (int) ($edata_cs['spell_attack_modifier'] ?? $params['spell_attack_modifier'] ?? 0);
     $spell_dc = (int) ($edata_cs['spell_dc'] ?? $params['spell_dc'] ?? (10 + ($params['proficiency_bonus'] ?? 0) + ($params['key_ability_mod'] ?? 0)));
@@ -1079,7 +1080,8 @@ class EncounterActionExecutor {
           (string) $spell_name,
           max(1, $effective_level),
           (int) ($params['action_cost'] ?? 1),
-          $target_participant
+          $target_participant,
+          $spellcasting_ability_modifier
         );
         if (!empty($effect_resolution['error'])) {
           return ['cast' => FALSE, 'error' => (string) $effect_resolution['error'], 'mutations' => [], 'narration' => NULL];
@@ -1215,7 +1217,8 @@ class EncounterActionExecutor {
           (string) $spell_name,
           max(1, $cast_at_level > 0 ? $cast_at_level : $spell_level),
           (int) ($params['action_cost'] ?? 1),
-          $target_participant
+          $target_participant,
+          $spellcasting_ability_modifier
         );
         if (!empty($damage_resolution['error'])) {
           return [
@@ -1376,7 +1379,9 @@ class EncounterActionExecutor {
         (string) $spell_id,
         (string) $spell_name,
         (int) $slot_level,
-        (int) ($params['action_cost'] ?? 1)
+        (int) ($params['action_cost'] ?? 1),
+        NULL,
+        $spellcasting_ability_modifier
       );
       if (!empty($damage_resolution['error'])) {
         return [
@@ -1506,6 +1511,24 @@ class EncounterActionExecutor {
   }
 
   /**
+   * The caster's spellcasting ability modifier from canonical actor state.
+   *
+   * NULL when the actor records no casting ability or score for it; spells
+   * that add this modifier then fail explicitly instead of adding zero.
+   */
+  protected static function spellcastingAbilityModifier(?array $canonical_state): ?int {
+    $ability = strtolower(trim((string) ($canonical_state['spells']['casting_ability'] ?? '')));
+    $short = ['strength' => 'str', 'dexterity' => 'dex', 'constitution' => 'con', 'intelligence' => 'int', 'wisdom' => 'wis', 'charisma' => 'cha'];
+    $long = array_search($ability, $short, TRUE) ?: $ability;
+    if (!isset($short[$long])) {
+      return NULL;
+    }
+    $score = $canonical_state['abilities'][$long] ?? $canonical_state['abilities'][$short[$long]] ?? NULL;
+
+    return is_numeric($score) ? (int) floor(((int) $score - 10) / 2) : NULL;
+  }
+
+  /**
    * Resolve canonical spell effects through the shared effect resolver.
    */
   protected function resolveCanonicalSpellEffects(
@@ -1516,7 +1539,8 @@ class EncounterActionExecutor {
     string $spell_name,
     int $cast_rank,
     int $action_cost,
-    ?array $target_participant_hint = NULL
+    ?array $target_participant_hint = NULL,
+    ?int $spellcasting_ability_modifier = NULL
   ): array {
     if ($this->spellEffectResolver === NULL) {
       return ['error' => 'Canonical spell effect resolver is unavailable.'];
@@ -1535,16 +1559,23 @@ class EncounterActionExecutor {
       : [];
     $spell_dc = (int) ($source_data['spell_dc'] ?? 10);
     $spell_attack_modifier = (int) ($source_data['spell_attack_modifier'] ?? 0);
-    $resolution = $this->spellEffectResolver->resolve(
-      $encounter_id,
-      $source_actor_id,
-      $target_refs,
-      $spell,
-      $cast_rank,
-      $spell_dc,
-      $spell_attack_modifier,
-      $action_cost
-    );
+    try {
+      $resolution = $this->spellEffectResolver->resolve(
+        $encounter_id,
+        $source_actor_id,
+        $target_refs,
+        $spell,
+        $cast_rank,
+        $spell_dc,
+        $spell_attack_modifier,
+        $action_cost,
+        $spellcasting_ability_modifier
+      );
+    }
+    catch (\InvalidArgumentException $exception) {
+      // A contract failure stops the cast and is shown to the player.
+      return ['error' => $exception->getMessage()];
+    }
     $target_result = is_array($resolution['target_results'][0] ?? NULL) ? $resolution['target_results'][0] : [];
     $first_packet = is_array($resolution['damage_packets'][0] ?? NULL) ? $resolution['damage_packets'][0] : NULL;
 

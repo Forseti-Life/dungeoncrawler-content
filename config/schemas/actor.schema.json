@@ -659,10 +659,6 @@
     "spellcasting": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "tradition",
-        "type"
-      ],
       "properties": {
         "tradition": {
           "type": "string",

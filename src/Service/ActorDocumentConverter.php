@@ -29,6 +29,15 @@ class ActorDocumentConverter {
     'background_skill_feat' => 'background',
   ];
 
+  /**
+   * Reviewed one-time repairs of stored names that differ from the catalog.
+   *
+   * Each entry was checked against the local catalog; nothing is inferred.
+   */
+  private const STORED_NAME_REPAIRS = [
+    'spell' => ['comprehend languages' => 'comprehend-language'],
+  ];
+
   public function __construct(protected ActorCatalogService $catalog) {}
 
   /**
@@ -314,10 +323,6 @@ class ActorDocumentConverter {
     $feats = [];
     foreach ((array) ($source['feats'] ?? []) as $index => $feat) {
       $raw = is_array($feat) ? (string) ($feat['id'] ?? $feat['name'] ?? '') : (string) $feat;
-      // The stored "familiar" pseudo-feat is the companion selection above.
-      if ($raw === 'familiar' && $has_familiar) {
-        continue;
-      }
       $id = $this->catalog->resolveId('feat', $raw);
       if ($id === NULL) {
         $issue('/build/feats/' . $index, 'unknown_feat', $raw);
@@ -376,7 +381,7 @@ class ActorDocumentConverter {
     }
     $entries = [];
     foreach ($names as $index => [$name, $rank]) {
-      $id = $this->catalog->resolveId('spell', $name);
+      $id = $this->catalog->resolveId('spell', self::STORED_NAME_REPAIRS['spell'][mb_strtolower(trim($name))] ?? $name);
       if ($id === NULL) {
         $issue('/build/spellcasting/entries/' . $index, 'unknown_spell', $name);
         continue;
@@ -388,23 +393,20 @@ class ActorDocumentConverter {
       }
       $entries[$id] = ['id' => $id, 'spell_id' => $id, 'rank' => $rank];
     }
+    if ($entries === []) {
+      return;
+    }
+    $spellcasting = ['entries' => array_values($entries)];
     $tradition = strtolower((string) (array_is_list($spells) ? '' : ($spells['tradition'] ?? '')));
-    if ($entries === [] && $names === []) {
-      return;
+    if (in_array($tradition, ['arcane', 'divine', 'occult', 'primal'], TRUE)) {
+      $spellcasting['tradition'] = $tradition;
     }
-    if (!in_array($tradition, ['arcane', 'divine', 'occult', 'primal'], TRUE)) {
-      $issue('/build/spellcasting/tradition', 'missing', $tradition);
-      return;
+    // Only a spellbook proves prepared casting; otherwise tradition and type
+    // stay unset and the actor is not publishable until they are authored.
+    if (!array_is_list($spells) && isset($spells['spellbook_size'])) {
+      $spellcasting['type'] = 'prepared';
     }
-    $build['spellcasting'] = ['tradition' => $tradition, 'type' => 'prepared', 'entries' => array_values($entries)];
-    if (!array_is_list($spells)) {
-      // Casting type is not stored; prepared is asserted only for spellbook
-      // casters, everything else needs authoring.
-      if (!isset($spells['spellbook_size'])) {
-        unset($build['spellcasting']);
-        $issue('/build/spellcasting/type', 'needs_authoring', 'casting type is not stored');
-      }
-    }
+    $build['spellcasting'] = $spellcasting;
   }
 
   /**
