@@ -221,6 +221,38 @@ try {
     $check($tool_context->draft()['revision'] === 1 && $tool_context->draft()['payload']['backstory'] === 'Raised on the ferry.', 'The wizard draft sees the committed actor change.');
     $after = $registry->get('inspect_actor')->execute([], $tool_context);
     $check($after['history'][0]['command_type'] === 'actor.narrative.patch' && $after['history'][0]['changed_paths'] === ['/narrative/biography'], 'inspect_actor shows the change history.');
+    // Wizard choices are a typed, idempotent actor command.
+    $draft_uuid = (string) $database->query('SELECT uuid FROM {dc_campaign_characters} WHERE id = :id', [':id' => $draft_id])->fetchField();
+    $choices = [
+      'contract_version' => 'actor-command-v1', 'command_id' => \Drupal::service('uuid')->generate(),
+      'target' => ['scope' => 'draft', 'actor_uuid' => $draft_uuid], 'type' => 'actor.build.apply_choices',
+      'base_revision' => 1, 'payload' => ['choices' => ['concept' => 'A ferry pilot turned river warden.']],
+    ];
+    $chosen = $manager->executeActorCommand($choices, $owner);
+    $check($chosen['committed'] === TRUE && $chosen['command_type'] === 'actor.build.apply_choices' && $chosen['new_revision'] === 2 && in_array('concept', $chosen['applied_fields'], TRUE), 'Wizard choices commit as a typed command: ' . json_encode(array_diff_key($chosen, ['validation' => 1, 'changed' => 1])));
+    $check($manager->executeActorCommand($choices, $owner) == $chosen && (int) $database->query('SELECT version FROM {dc_campaign_characters} WHERE id = :id', [':id' => $draft_id])->fetchField() === 2, 'Replaying the choice command does not save twice.');
+    $history_types = $database->query('SELECT command_type FROM {dc_actor_revisions} WHERE actor_uuid = :u ORDER BY revision', [':u' => $draft_uuid])->fetchCol();
+    $check($history_types === ['actor.narrative.patch', 'actor.build.apply_choices'], 'History attributes the wizard save to its command: ' . json_encode($history_types));
+    $bad_choice = ['command_id' => \Drupal::service('uuid')->generate(), 'payload' => ['choices' => ['ancestry' => 'not-an-ancestry']]] + $choices;
+    $refused = $manager->executeActorCommand($bad_choice, $owner);
+    $check($refused['committed'] === FALSE && $refused['code'] === 'actor_choice_ineligible' && (int) $database->query('SELECT version FROM {dc_campaign_characters} WHERE id = :id', [':id' => $draft_id])->fetchField() === 2, 'An ineligible choice is refused and changes nothing: ' . json_encode($refused['code'] ?? NULL));
+
+    // New actors are created by the authority, which allocates identity.
+    $new = $manager->createPreparedActor('actor.draft.create', [
+      'campaign_id' => 0, 'name' => 'Pell Marrow', 'level' => 1, 'status' => 0, 'lifecycle_state' => 'draft_library',
+      'character_data' => json_encode(['name' => 'Pell Marrow', 'level' => 1, 'step' => 1]),
+    ], $owner);
+    $created_row = $database->query('SELECT uuid, instance_id, uid, version FROM {dc_campaign_characters} WHERE id = :id', [':id' => $new['actor_row_id']])->fetchAssoc();
+    $check($created_row === ['uuid' => $new['target']['actor_uuid'], 'instance_id' => $new['target']['actor_uuid'], 'uid' => (string) $owner_uid, 'version' => '0'], 'The authority allocates identity, owner and revision: ' . json_encode($created_row));
+    $check($database->query('SELECT command_type FROM {dc_actor_revisions} WHERE actor_uuid = :u', [':u' => $new['target']['actor_uuid']])->fetchCol() === ['actor.draft.create'], 'Creation is recorded in history.');
+    try {
+      $manager->createPreparedActor('actor.draft.create', ['campaign_id' => 0, 'name' => 'x', 'uuid' => 'forged'], $owner);
+      $check(FALSE, 'A caller-supplied identity must be rejected.');
+    }
+    catch (\LogicException $exception) {
+      $check(str_starts_with($exception->getMessage(), 'actor_prepared_create_invalid'), 'A caller cannot supply identity columns.');
+    }
+
     $rejected = $registry->get('apply_actor_changes')->execute(['type' => 'actor.narrative.patch', 'operations' => [['op' => 'set', 'path' => '/build/level', 'value' => 20]]], $tool_context);
     $check($rejected['committed'] === FALSE && $rejected['code'] === 'actor_contract_invalid', 'The tool cannot reach paths outside its command.');
   }

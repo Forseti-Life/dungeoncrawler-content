@@ -125,22 +125,29 @@ until rows store the canonical document directly, the processor writes each
 fact to the stored key it currently lives under and keeps duplicate copies
 equal.
 
-Checks: `drush php:script tests/actor_command_integration.php` (72 checks,
+Checks: `drush php:script tests/actor_command_integration.php` (79 checks,
 one original fixture, always rolled back).
 
 Routed through the authority so far:
 
 - The character archive and delete forms execute `actor.archive` and
   `actor.delete`. `CharacterManager::deleteCharacter()` is removed.
-- **Every character creation save**, manual or by the GM, is committed by
-  `CharacterManager::commitPreparedActorWrite()` (`actor.creation.save`). The
-  wizard still computes the stored values; the authority locks the row, checks
-  the revision, writes, requires the result to convert and validate under the
-  actor contract, and records history and a receipt. A save that would break
-  the contract fails and changes nothing.
+- **New characters** are created by `CharacterManager::createPreparedActor()`
+  (`actor.draft.create`). The authority allocates the UUID, owner and revision;
+  a caller cannot supply them.
+- **GM wizard choices** are the typed, idempotent command
+  `actor.build.apply_choices`. `CharacterCreationGmService::applyDraftUpdates()`
+  executes it; the creation rules (`applyValidatedChoices()`) still decide what
+  the choices mean, and their write is committed under the command's identity.
+- **Manual wizard saves** are committed by
+  `CharacterManager::commitPreparedActorWrite()` (`actor.creation.save`).
 
-Every other writer in the register is still direct, including the insert of a
-brand-new character row.
+In all three the authority locks the row, checks the revision, writes,
+requires the result to convert and validate under the actor contract, and
+records history and a receipt. A save that would break the contract fails and
+changes nothing.
+
+Every other writer in the register is still direct.
 
 ## GM harness tools
 
@@ -154,8 +161,8 @@ or persistence of their own:
 | `plan_actor_changes` | Preview one typed command: exact changed paths with before and after values. Read-only. |
 | `apply_actor_changes` | Execute one typed command immediately; returns the committed receipt with next steps, or a typed failure. |
 
-Wizard choices still go through `plan_character_draft_updates` /
-`apply_character_draft_updates`, which now commit through the same authority.
+Wizard choices go through `plan_character_draft_updates` /
+`apply_character_draft_updates`, which execute `actor.build.apply_choices`.
 
 The live validator resolves references against `ActorCatalogService`.
 

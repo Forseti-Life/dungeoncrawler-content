@@ -69,7 +69,8 @@
         "actor.narrative.patch",
         "actor.archive",
         "actor.restore",
-        "actor.delete"
+        "actor.delete",
+        "actor.build.apply_choices"
       ]
     },
     "base_revision": {
@@ -155,11 +156,39 @@
     }
   },
   "else": {
-    "properties": {
-      "payload": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {}
+    "if": {
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "const": "actor.build.apply_choices"
+        }
+      }
+    },
+    "then": {
+      "properties": {
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "choices"
+          ],
+          "properties": {
+            "choices": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
+    "else": {
+      "properties": {
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {}
+        }
       }
     }
   }

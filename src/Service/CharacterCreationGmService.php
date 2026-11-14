@@ -231,7 +231,41 @@ class CharacterCreationGmService {
     ];
   }
 
+  /**
+   * Save wizard choices through the typed actor command.
+   *
+   * Executes actor.build.apply_choices: the actor authority owns the command
+   * identity, idempotent receipt, revision and history; this service remains
+   * the owner of the creation rules that decide what the choices mean.
+   */
   public function applyDraftUpdates(int $character_id, int $expected_revision, array $updates): array {
+    $receipt = $this->actorCommand($character_id, 'actor.build.apply_choices', ['choices' => $updates], TRUE);
+    if (empty($receipt['committed'])) {
+      throw $receipt['code'] === 'actor_choice_ineligible'
+        ? new \InvalidArgumentException((string) $receipt['message'], 422)
+        : new \RuntimeException($receipt['code'] . ': ' . $receipt['message']);
+    }
+    $saved = $this->getDraft($character_id);
+
+    return [
+      'draft' => $saved,
+      'inspected_revision' => $expected_revision,
+      'applied_to_revision' => $receipt['applied_from_revision'],
+      'applied_fields' => $receipt['applied_fields'],
+      'validation' => $this->validateData($saved['payload'], $saved['campaign_id']),
+      'next_steps' => $receipt['next_steps'],
+      'assistant_response' => $receipt['assistant_response'],
+      'receipt' => ['command_id' => $receipt['command_id'], 'command_type' => $receipt['command_type'], 'new_revision' => $receipt['new_revision']],
+    ];
+  }
+
+  /**
+   * Creation rules for a choice patch; called by the actor authority only.
+   *
+   * Validates eligibility, applies the choices and their derived state, and
+   * hands the stored values to the authority to commit.
+   */
+  public function applyValidatedChoices(int $character_id, int $expected_revision, array $updates): array {
     $this->loadOwnedDraft($character_id);
     $transaction = $this->database->startTransaction();
     try {

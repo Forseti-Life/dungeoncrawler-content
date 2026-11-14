@@ -69,6 +69,20 @@ class ActorCommandProcessor {
     ],
   ];
 
+  /**
+   * Columns a domain rule owner may supply when creating a new actor row.
+   *
+   * uuid, instance_id, uid, character_id, version and timestamps are
+   * allocated by the authority and can never be supplied.
+   */
+  public const PREPARED_CREATES = [
+    'actor.draft.create' => [
+      'campaign_id', 'source_character_id', 'type', 'role', 'name', 'level', 'ancestry', 'class', 'hp_current',
+      'hp_max', 'armor_class', 'experience_points', 'position_q', 'position_r', 'last_room_id',
+      'character_data', 'default_locations', 'portrait', 'status', 'lifecycle_state',
+    ],
+  ];
+
   public const LIFECYCLE_COMMANDS = ['actor.archive', 'actor.restore', 'actor.delete'];
 
   private const STATUS_ARCHIVED = 2;
@@ -79,6 +93,13 @@ class ActorCommandProcessor {
   private const DUPLICATE_CONTAINERS = ['basicInfo', 'wizard'];
 
   private ?array $schema = NULL;
+
+  /**
+   * The typed command currently delegating to a domain rule owner, if any.
+   */
+  private ?array $activeCommand = NULL;
+
+  private ?array $lastPreparedReceipt = NULL;
 
   public function __construct(
     protected Connection $database,
@@ -126,7 +147,7 @@ class ActorCommandProcessor {
       'instance_state' => $converted['instance_state'],
       'conversion_issues' => $converted['issues'],
       'validation' => $converted['issues'] === [] ? $this->validation->validateActor($converted['document'], 'actor_authoring') : NULL,
-      'commands' => array_map('array_keys', self::PATHS) + array_fill_keys(self::LIFECYCLE_COMMANDS, []),
+      'commands' => array_map('array_keys', self::PATHS) + array_fill_keys(self::LIFECYCLE_COMMANDS, []) + ['actor.build.apply_choices' => ['wizard choice fields; see get_character_creation_reference']],
       'history' => array_map(static fn(array $entry): array => [
         'revision' => (int) $entry['revision'],
         'parent_revision' => (int) $entry['parent_revision'],
@@ -145,6 +166,30 @@ class ActorCommandProcessor {
    *   A plan, or a typed failure with committed FALSE.
    */
   public function preview(array $command, AccountInterface $principal): array {
+    if (($command['type'] ?? NULL) === 'actor.build.apply_choices') {
+      if (($envelope = $this->checkEnvelope($command)) !== NULL) {
+        return $envelope;
+      }
+      $located = $this->locate($command, $principal);
+      if (isset($located['failure'])) {
+        return $located['failure'];
+      }
+      $planned = $this->creationRules()->planUpdates((int) $located['row']['id'], $command['payload']['choices']);
+      if ($planned['blocking_errors'] !== []) {
+        return $this->failure($command, 'actor_choice_ineligible', 'These choices are not valid for this character.', FALSE, ['Review the listed choices and pick valid options.'], $planned['blocking_errors']);
+      }
+      return [
+        'contract' => self::RECEIPT_CONTRACT,
+        'intent' => 'preview',
+        'committed' => FALSE,
+        'command_id' => $command['command_id'],
+        'target' => $command['target'],
+        'applied_from_revision' => (int) $located['row']['version'],
+        'applied_fields' => $planned['applied_fields'],
+        'next_steps' => $this->creationRules()->validationNextSteps($planned['validation']),
+        'executable_command' => $command,
+      ];
+    }
     $plan = $this->plan($command, $principal, FALSE);
     if (isset($plan['failure'])) {
       return $plan['failure'];
@@ -195,6 +240,13 @@ class ActorCommandProcessor {
           : $this->failure($command, 'actor_command_id_reused', 'This command id was already used for a different request.', FALSE, ['Send the new request with a new command id.']);
       }
 
+      if ($command['type'] === 'actor.build.apply_choices') {
+        $receipt = $this->executeChoices($command, $principal);
+        if (!empty($receipt['committed'])) {
+          $this->storeReceipt($uid, $command['command_id'], $request_hash, $command['type'], $command['target']['actor_uuid'], $receipt, $this->time->getRequestTime());
+        }
+        return $receipt;
+      }
       $plan = $this->plan($command, $principal, TRUE);
       if (isset($plan['failure'])) {
         return $plan['failure'];
@@ -339,7 +391,9 @@ class ActorCommandProcessor {
       foreach (self::changedPaths($before['document'], $after['document']) as $path) {
         $changed[] = ['path' => $path, 'before' => self::get($before['document'], $path), 'after' => self::get($after['document'], $path)];
       }
-      $command = ['command_id' => $this->uuid->generate(), 'type' => $type];
+      // Inside a typed command, the write belongs to that command.
+      $command = $this->activeCommand ?? ['command_id' => $this->uuid->generate(), 'type' => $type];
+      $type = $command['type'];
       $this->appendRevision($actor_uuid, $new_revision, $expected_revision, $command, (int) $principal->id(), ['candidate' => $after['document'], 'changed' => $changed], $now);
       $receipt = [
         'contract' => self::RECEIPT_CONTRACT,
@@ -360,15 +414,10 @@ class ActorCommandProcessor {
         ],
         'next_steps' => $report['next_steps'],
       ];
-      $this->database->insert('dc_actor_command_receipts')->fields([
-        'principal_uid' => (int) $principal->id(),
-        'command_id' => $command['command_id'],
-        'request_hash' => 'sha256:' . hash('sha256', $type . ':' . $actor_uuid . ':' . $new_revision),
-        'command_type' => $type,
-        'actor_uuid' => $actor_uuid,
-        'receipt' => json_encode($receipt, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
-        'created' => $now,
-      ])->execute();
+      $this->lastPreparedReceipt = $receipt;
+      if ($this->activeCommand === NULL) {
+        $this->storeReceipt((int) $principal->id(), $command['command_id'], 'sha256:' . hash('sha256', $type . ':' . $actor_uuid . ':' . $new_revision), $type, $actor_uuid, $receipt, $now);
+      }
 
       return $receipt;
     }
@@ -376,6 +425,93 @@ class ActorCommandProcessor {
       $transaction->rollBack();
       throw $exception;
     }
+  }
+
+  /**
+   * Creates a new actor row from values prepared by a domain rule owner.
+   *
+   * The authority allocates the identity, owner and revision; the caller
+   * supplies only the stored values its type may write.
+   *
+   * @return array<string, mixed>
+   *   A committed receipt with actor_row_id and target.actor_uuid.
+   *
+   * @throws \InvalidArgumentException
+   *   `actor_contract_invalid` (422) when the new actor violates the contract.
+   */
+  public function createPrepared(string $type, array $fields, AccountInterface $principal): array {
+    $allowed = self::PREPARED_CREATES[$type] ?? NULL;
+    if ($allowed === NULL || ($unknown = array_diff(array_keys($fields), $allowed)) !== []) {
+      throw new \LogicException('actor_prepared_create_invalid:' . $type . ':' . implode(',', $unknown ?? []));
+    }
+    $transaction = $this->database->startTransaction();
+    try {
+      $now = $this->time->getRequestTime();
+      $actor_uuid = $this->uuid->generate();
+      $id = (int) $this->database->insert('dc_campaign_characters')->fields($fields + [
+        'uuid' => $actor_uuid,
+        'instance_id' => $actor_uuid,
+        'uid' => (int) $principal->id(),
+        'character_id' => 0,
+        'version' => 0,
+        'created' => $now,
+        'changed' => $now,
+      ])->execute();
+      $row = $this->database->select('dc_campaign_characters', 'c')->fields('c')->condition('id', $id)->execute()->fetchAssoc();
+      $created = $this->converter->convertRow($row, self::decode($row['character_data']) ?? [], self::decode($row['state_data']) ?? []);
+      if ($created['issues'] !== []) {
+        throw new \InvalidArgumentException('actor_contract_invalid: ' . implode('; ', array_map(static fn(array $issue): string => $issue['path'] . ' ' . $issue['code'] . ' ' . $issue['detail'], $created['issues'])), 422);
+      }
+      $report = $this->validation->validateActor($created['document'], 'actor_authoring');
+      if (!$report['valid_for_save']) {
+        $blocking = array_filter($report['findings'], static fn(array $finding): bool => $finding['blocking']);
+        throw new \InvalidArgumentException('actor_contract_invalid: ' . implode('; ', array_map(static fn(array $finding): string => $finding['path'] . ' ' . $finding['message'], $blocking)), 422);
+      }
+      $command = ['command_id' => $this->uuid->generate(), 'type' => $type];
+      $changed = [['path' => '/lifecycle/created', 'before' => FALSE, 'after' => TRUE]];
+      $this->appendRevision($actor_uuid, 0, 0, $command, (int) $principal->id(), ['candidate' => $created['document'], 'changed' => $changed], $now);
+      $scope = (int) $row['campaign_id'] > 0 ? 'campaign_instance' : ($row['lifecycle_state'] === 'draft_library' ? 'draft' : 'template');
+      $receipt = [
+        'contract' => self::RECEIPT_CONTRACT,
+        'committed' => TRUE,
+        'command_id' => $command['command_id'],
+        'command_type' => $type,
+        'target' => ['scope' => $scope, 'actor_uuid' => $actor_uuid] + ($scope === 'campaign_instance' ? ['campaign_id' => (int) $row['campaign_id']] : []),
+        'actor_row_id' => $id,
+        'new_revision' => 0,
+        'changed' => $changed,
+        'validation' => [
+          'profile' => $report['profile'],
+          'rules_version' => $report['rules_version'],
+          'valid_for_save' => TRUE,
+          'ready_for_publication' => $report['ready_for_publication'],
+          'checks' => $report['checks'],
+        ],
+        'next_steps' => $report['next_steps'],
+      ];
+      $this->storeReceipt((int) $principal->id(), $command['command_id'], 'sha256:' . hash('sha256', $type . ':' . $actor_uuid . ':0'), $type, $actor_uuid, $receipt, $now);
+
+      return $receipt;
+    }
+    catch (\Throwable $exception) {
+      $transaction->rollBack();
+      throw $exception;
+    }
+  }
+
+  /**
+   * Stores one idempotent command receipt.
+   */
+  private function storeReceipt(int $uid, string $command_id, string $request_hash, string $type, string $actor_uuid, array $receipt, int $now): void {
+    $this->database->insert('dc_actor_command_receipts')->fields([
+      'principal_uid' => $uid,
+      'command_id' => $command_id,
+      'request_hash' => $request_hash,
+      'command_type' => $type,
+      'actor_uuid' => $actor_uuid,
+      'receipt' => json_encode($receipt, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+      'created' => $now,
+    ])->execute();
   }
 
   /**
@@ -398,6 +534,84 @@ class ActorCommandProcessor {
     sort($paths);
 
     return $paths;
+  }
+
+  /**
+   * Resolves and authorizes the command target.
+   *
+   * @return array<string, mixed>
+   *   Either ['failure' => typed failure] or ['row' => array, 'scope' => string].
+   */
+  private function locate(array $command, AccountInterface $principal): array {
+    $target = $command['target'];
+    $row = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c')
+      ->condition('uuid', $target['actor_uuid'])
+      ->execute()->fetchAssoc();
+    $is_admin = $principal->hasPermission('administer dungeoncrawler content') || $principal->hasPermission('edit any dungeoncrawler characters');
+    $is_owner = $row && (int) $row['uid'] === (int) $principal->id();
+    // An unauthorized caller learns nothing about whether the actor exists.
+    if (!$row || (!$is_admin && !$is_owner)) {
+      return ['failure' => $this->failure($command, 'actor_not_found', 'No actor matches this reference for the current user.', FALSE, ['Inspect the actor again and use its exact reference.'])];
+    }
+    $scope = (int) $row['campaign_id'] > 0 ? 'campaign_instance' : ($row['lifecycle_state'] === 'draft_library' ? 'draft' : 'template');
+    if ($scope !== $target['scope'] || ($scope === 'campaign_instance' && (int) $row['campaign_id'] !== (int) $target['campaign_id'])) {
+      return ['failure' => $this->failure($command, 'actor_scope_mismatch', "This actor is a {$scope}; the command addressed a {$target['scope']}.", FALSE, ['Inspect the actor again and address its actual scope.'])];
+    }
+    $is_lifecycle = in_array($command['type'], self::LIFECYCLE_COMMANDS, TRUE);
+    if ((int) $row['status'] === self::STATUS_ARCHIVED && !$is_lifecycle) {
+      return ['failure' => $this->failure($command, 'actor_precondition_failed', 'Archived actors cannot be edited. Restore the actor first.', FALSE, ['Restore the actor, then repeat the edit.'])];
+    }
+
+    return ['row' => $row, 'scope' => $scope];
+
+  }
+
+  /**
+   * Executes wizard choices through the character creation rules owner.
+   *
+   * The rules owner validates eligibility and computes the stored values; its
+   * write is committed by commitPrepared() under this command's identity.
+   */
+  private function executeChoices(array $command, AccountInterface $principal): array {
+    $located = $this->locate($command, $principal);
+    if (isset($located['failure'])) {
+      return $located['failure'];
+    }
+    $this->activeCommand = ['command_id' => $command['command_id'], 'type' => $command['type']];
+    $this->lastPreparedReceipt = NULL;
+    try {
+      $result = $this->creationRules()->applyValidatedChoices((int) $located['row']['id'], (int) $command['base_revision'], $command['payload']['choices']);
+    }
+    catch (\InvalidArgumentException $exception) {
+      if ($exception->getCode() !== 422) {
+        throw $exception;
+      }
+      return $this->failure($command, 'actor_choice_ineligible', $exception->getMessage(), FALSE, ['Review the listed choices and pick valid options.']);
+    }
+    finally {
+      $this->activeCommand = NULL;
+    }
+    if ($this->lastPreparedReceipt === NULL) {
+      throw new \RuntimeException('actor_projection_invariant_failed: creation rules reported success without committing through the actor authority.');
+    }
+
+    return [
+      'command_id' => $command['command_id'],
+      'command_type' => $command['type'],
+      'target' => $command['target'],
+      'inspected_revision' => $command['base_revision'],
+      'applied_fields' => $result['applied_fields'],
+      'next_steps' => $result['next_steps'],
+      'assistant_response' => $result['assistant_response'],
+    ] + $this->lastPreparedReceipt;
+  }
+
+  /**
+   * The character creation rules owner, resolved on use to avoid a cycle.
+   */
+  private function creationRules(): \Drupal\dungeoncrawler_content\Service\CharacterCreationGmService {
+    return \Drupal::service('dungeoncrawler_content.character_creation_gm');
   }
 
   /**
@@ -429,25 +643,13 @@ class ActorCommandProcessor {
     if (!$envelope_checked && ($envelope = $this->checkEnvelope($command)) !== NULL) {
       return ['failure' => $envelope];
     }
-    $target = $command['target'];
-    $row = $this->database->select('dc_campaign_characters', 'c')
-      ->fields('c')
-      ->condition('uuid', $target['actor_uuid'])
-      ->execute()->fetchAssoc();
-    $is_admin = $principal->hasPermission('administer dungeoncrawler content') || $principal->hasPermission('edit any dungeoncrawler characters');
-    $is_owner = $row && (int) $row['uid'] === (int) $principal->id();
-    // An unauthorized caller learns nothing about whether the actor exists.
-    if (!$row || (!$is_admin && !$is_owner)) {
-      return ['failure' => $this->failure($command, 'actor_not_found', 'No actor matches this reference for the current user.', FALSE, ['Inspect the actor again and use its exact reference.'])];
+    $located = $this->locate($command, $principal);
+    if (isset($located['failure'])) {
+      return $located;
     }
-    $scope = (int) $row['campaign_id'] > 0 ? 'campaign_instance' : ($row['lifecycle_state'] === 'draft_library' ? 'draft' : 'template');
-    if ($scope !== $target['scope'] || ($scope === 'campaign_instance' && (int) $row['campaign_id'] !== (int) $target['campaign_id'])) {
-      return ['failure' => $this->failure($command, 'actor_scope_mismatch', "This actor is a {$scope}; the command addressed a {$target['scope']}.", FALSE, ['Inspect the actor again and address its actual scope.'])];
-    }
+    $row = $located['row'];
+    $scope = $located['scope'];
     $is_lifecycle = in_array($command['type'], self::LIFECYCLE_COMMANDS, TRUE);
-    if ((int) $row['status'] === self::STATUS_ARCHIVED && !$is_lifecycle) {
-      return ['failure' => $this->failure($command, 'actor_precondition_failed', 'Archived actors cannot be edited. Restore the actor first.', FALSE, ['Restore the actor, then repeat the edit.'])];
-    }
 
     $stored = ['character_data' => self::decode($row['character_data']), 'state_data' => self::decode($row['state_data'])];
     $before = $this->converter->convertRow($row, $stored['character_data'] ?? [], $stored['state_data'] ?? []);

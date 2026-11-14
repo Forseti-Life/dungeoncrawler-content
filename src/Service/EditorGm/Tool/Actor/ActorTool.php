@@ -37,6 +37,9 @@ final class ActorTool implements EditorGmToolInterface {
     }
     $applying = $this->operation === 'apply_actor_changes';
     $types = implode(', ', array_merge(array_keys(ActorCommandProcessor::PATHS), ['actor.archive', 'actor.restore']));
+    // Wizard choices are the typed command actor.build.apply_choices, which
+    // the dedicated character draft tools already execute with their own
+    // choice reference; it is not exposed twice here.
 
     return new EditorGmToolDefinition(
       $this->operation,

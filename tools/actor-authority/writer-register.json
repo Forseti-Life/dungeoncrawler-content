@@ -184,7 +184,6 @@
       "slice": "S2",
       "sites": {
         "literal_table_write:delete:dc_campaign_item_instances": 1,
-        "literal_table_write:insert:dc_campaign_characters": 1,
         "literal_table_write:insert:dc_campaign_item_instances": 1,
         "literal_table_write:update:dc_campaign_characters": 1
       }
@@ -212,6 +211,7 @@
       "slice": "authority",
       "sites": {
         "literal_table_write:delete:dc_campaign_characters": 1,
+        "literal_table_write:insert:dc_campaign_characters": 1,
         "literal_table_write:update:dc_campaign_characters": 2
       }
     },

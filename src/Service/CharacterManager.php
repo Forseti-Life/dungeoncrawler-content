@@ -11444,6 +11444,17 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
   }
 
   /**
+   * Creates a new actor row from values prepared by a domain rule owner.
+   *
+   * The actor authority allocates identity, owner and revision, validates the
+   * new actor against the actor contract and records history.
+   */
+  public function createPreparedActor(string $type, array $fields, ?AccountInterface $principal = NULL): array {
+    return \Drupal::service('dungeoncrawler_content.actor_command_processor')
+      ->createPrepared($type, $fields, $principal ?? $this->currentUser);
+  }
+
+  /**
    * Read-only inspection of an actor's canonical document and history.
    */
   public function inspectActor(string $actor_uuid, ?AccountInterface $principal = NULL): array {

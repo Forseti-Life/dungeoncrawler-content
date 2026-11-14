@@ -1806,38 +1806,32 @@ class CharacterCreationStepForm extends FormBase {
         }
       }
       else {
-        $instance_id = $this->uuid->generate();
-        $character_id = $this->database->insert('dc_campaign_characters')
-          ->fields([
-            'uuid' => $instance_id,
-            'campaign_id' => $resolved_campaign_id,
-            'character_id' => 0,
-            'source_character_id' => NULL,
-            'instance_id' => $instance_id,
-            'uid' => (int) $this->currentUser->id(),
-            'name' => $schema_data['name'] ?: 'Unnamed Character',
-            'level' => $schema_data['level'],
-            'ancestry' => $schema_data['ancestry'] ?? '',
-            'class' => $schema_data['class'] ?? '',
-            'hp_current' => $hot['hp_current'],
-            'hp_max' => $hot['hp_max'],
-            'armor_class' => $hot['armor_class'],
-            'experience_points' => (int) ($schema_data['experience_points'] ?? 0),
-            'position_q' => (int) ($schema_data['position']['q'] ?? 0),
-            'position_r' => (int) ($schema_data['position']['r'] ?? 0),
-            'last_room_id' => (string) ($schema_data['position']['room_id'] ?? ''),
-            'character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
-            'default_locations' => trim((string) ($schema_data['default_locations'] ?? '')) !== ''
-              ? (string) $schema_data['default_locations']
-              : NULL,
-            'portrait' => trim((string) ($schema_data['portrait'] ?? '')) !== ''
-              ? (string) $schema_data['portrait']
-              : NULL,
-            ...$this->wizardHardening->getCompletionFields($schema_data, $resolved_campaign_id),
-            'created' => $now,
-            'changed' => $now,
-          ])
-          ->execute();
+        // The actor authority allocates identity, owner and revision and
+        // validates the new actor before it exists.
+        $receipt = $this->characterManager->createPreparedActor('actor.draft.create', [
+          'campaign_id' => $resolved_campaign_id,
+          'name' => $schema_data['name'] ?: 'Unnamed Character',
+          'level' => $schema_data['level'],
+          'ancestry' => $schema_data['ancestry'] ?? '',
+          'class' => $schema_data['class'] ?? '',
+          'hp_current' => $hot['hp_current'],
+          'hp_max' => $hot['hp_max'],
+          'armor_class' => $hot['armor_class'],
+          'experience_points' => (int) ($schema_data['experience_points'] ?? 0),
+          'position_q' => (int) ($schema_data['position']['q'] ?? 0),
+          'position_r' => (int) ($schema_data['position']['r'] ?? 0),
+          'last_room_id' => (string) ($schema_data['position']['room_id'] ?? ''),
+          'character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
+          'default_locations' => trim((string) ($schema_data['default_locations'] ?? '')) !== ''
+            ? (string) $schema_data['default_locations']
+            : NULL,
+          'portrait' => trim((string) ($schema_data['portrait'] ?? '')) !== ''
+            ? (string) $schema_data['portrait']
+            : NULL,
+          ...$this->wizardHardening->getCompletionFields($schema_data, $resolved_campaign_id),
+        ]);
+        $character_id = $receipt['actor_row_id'];
+        $instance_id = $receipt['target']['actor_uuid'];
       }
 
       if ($resolved_campaign_id > 0 && $instance_id !== '') {
