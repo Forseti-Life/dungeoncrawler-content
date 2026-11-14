@@ -90,7 +90,7 @@ class CharacterArchiveForm extends ConfirmFormBase {
    */
   public function buildForm(array $form, FormStateInterface $form_state, ?int $character_id = NULL) {
     $this->character = $this->database->select('dc_campaign_characters', 'c')
-      ->fields('c', ['id', 'name', 'uid', 'status', 'character_data'])
+      ->fields('c', ['id', 'uuid', 'name', 'uid', 'status', 'campaign_id', 'lifecycle_state', 'version'])
       ->condition('id', (int) $character_id)
       ->execute()
       ->fetchObject() ?: NULL;
@@ -122,24 +122,25 @@ class CharacterArchiveForm extends ConfirmFormBase {
       return;
     }
 
-    $character_data = json_decode((string) ($this->character->character_data ?? '{}'), TRUE);
-    if (!is_array($character_data)) {
-      $character_data = [];
+    $campaign_id = (int) $this->character->campaign_id;
+    $receipt = \Drupal::service('dungeoncrawler_content.character_manager')->executeActorCommand([
+      'contract_version' => 'actor-command-v1',
+      'command_id' => \Drupal::service('uuid')->generate(),
+      'target' => ['actor_uuid' => $this->character->uuid] + ($campaign_id > 0
+        ? ['scope' => 'campaign_instance', 'campaign_id' => $campaign_id]
+        : ['scope' => $this->character->lifecycle_state === 'draft_library' ? 'draft' : 'template']),
+      'type' => 'actor.archive',
+      'base_revision' => (int) $this->character->version,
+      'payload' => [],
+    ]);
+    if (empty($receipt['committed'])) {
+      $this->messenger()->addError($this->t('%name was not archived: @reason', [
+        '%name' => $this->character->name,
+        '@reason' => (string) $receipt['message'],
+      ]));
+      $form_state->setRedirectUrl($this->getCancelUrl());
+      return;
     }
-
-    $character_data['_archive_meta'] = [
-      'previous_status' => (int) $this->character->status,
-      'archived_at' => $this->time->getRequestTime(),
-    ];
-
-    $this->database->update('dc_campaign_characters')
-      ->fields([
-        'status' => 2,
-        'character_data' => json_encode($character_data, JSON_UNESCAPED_UNICODE),
-        'changed' => $this->time->getRequestTime(),
-      ])
-      ->condition('id', (int) $this->character->id)
-      ->execute();
 
     $this->messenger()->addStatus($this->t('%name archived. It is now hidden from your character roster.', [
       '%name' => $this->character->name,

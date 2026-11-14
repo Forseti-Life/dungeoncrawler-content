@@ -41,6 +41,14 @@ class ActorDocumentConverter {
   ];
 
   /**
+   * Stored spell-list entries that are not spells in this game.
+   *
+   * Identifying a magic item is the Identify Magic skill activity (Board
+   * decision 2026-11-14), so a stored "Identify" spell is dropped.
+   */
+  private const NOT_SPELLS = ['identify'];
+
+  /**
    * Stored labels that were written as fabricated defaults, not chosen.
    *
    * CharacterManager::canonicalizeCharacterData() filled an empty background
@@ -403,6 +411,9 @@ class ActorDocumentConverter {
     }
     $entries = [];
     foreach ($names as $index => [$name, $rank]) {
+      if (in_array(mb_strtolower(trim($name)), self::NOT_SPELLS, TRUE)) {
+        continue;
+      }
       $id = $this->catalog->resolveId('spell', self::STORED_NAME_REPAIRS['spell'][mb_strtolower(trim($name))] ?? $name);
       if ($id === NULL) {
         $issue('/build/spellcasting/entries/' . $index, 'unknown_spell', $name);

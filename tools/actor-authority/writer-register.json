@@ -13,8 +13,8 @@
     "none": "no actor-reaching site in this file"
   },
   "totals": {
-    "files": 113,
-    "write_sites": 335
+    "files": 112,
+    "write_sites": 334
   },
   "files": {
     "dungeoncrawler_content.install": {
@@ -171,12 +171,6 @@
       "sites": {
         "dynamic_table_write:delete:$table": 1,
         "literal_table_write:delete:dc_campaign_characters": 1,
-        "literal_table_write:update:dc_campaign_characters": 1
-      }
-    },
-    "src/Form/CharacterArchiveForm.php": {
-      "slice": "S4",
-      "sites": {
         "literal_table_write:update:dc_campaign_characters": 1
       }
     },

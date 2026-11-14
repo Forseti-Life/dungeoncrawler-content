@@ -53,6 +53,10 @@ class ActorCommandProcessor {
     ],
   ];
 
+  public const LIFECYCLE_COMMANDS = ['actor.archive', 'actor.restore'];
+
+  private const STATUS_ARCHIVED = 2;
+
   /**
    * Stored containers that may hold a duplicate of a stored key.
    */
@@ -142,8 +146,8 @@ class ActorCommandProcessor {
             $fields[$column] = json_encode($plan['stored'][$column], JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
           }
         }
-        if (array_key_exists('name', $plan['columns'])) {
-          $fields['name'] = $plan['columns']['name'];
+        foreach ($plan['columns'] as $column => $value) {
+          $fields[$column] = $value;
         }
         $updated = $this->database->update('dc_campaign_characters')
           ->fields($fields)
@@ -222,7 +226,7 @@ class ActorCommandProcessor {
       ->condition('uuid', $target['actor_uuid'])
       ->execute()->fetchAssoc();
     $is_admin = $principal->hasPermission('administer dungeoncrawler content') || $principal->hasPermission('edit any dungeoncrawler characters');
-    $is_owner = $row && (int) $row['uid'] === (int) $principal->id() && $principal->hasPermission('edit own dungeoncrawler characters');
+    $is_owner = $row && (int) $row['uid'] === (int) $principal->id();
     // An unauthorized caller learns nothing about whether the actor exists.
     if (!$row || (!$is_admin && !$is_owner)) {
       return ['failure' => $this->failure($command, 'actor_not_found', 'No actor matches this reference for the current user.', FALSE, ['Inspect the actor again and use its exact reference.'])];
@@ -231,7 +235,8 @@ class ActorCommandProcessor {
     if ($scope !== $target['scope'] || ($scope === 'campaign_instance' && (int) $row['campaign_id'] !== (int) $target['campaign_id'])) {
       return ['failure' => $this->failure($command, 'actor_scope_mismatch', "This actor is a {$scope}; the command addressed a {$target['scope']}.", FALSE, ['Inspect the actor again and address its actual scope.'])];
     }
-    if ((int) $row['status'] === 2) {
+    $is_lifecycle = in_array($command['type'], self::LIFECYCLE_COMMANDS, TRUE);
+    if ((int) $row['status'] === self::STATUS_ARCHIVED && !$is_lifecycle) {
       return ['failure' => $this->failure($command, 'actor_precondition_failed', 'Archived actors cannot be edited. Restore the actor first.', FALSE, ['Restore the actor, then repeat the edit.'])];
     }
 
@@ -241,12 +246,15 @@ class ActorCommandProcessor {
       return ['failure' => $this->failure($command, 'actor_migration_blocked', 'This actor has stored values that do not map to the actor contract and must be repaired first.', FALSE, ['Repair the listed stored values, then repeat the edit.'], $before['issues'])];
     }
 
-    $paths = self::PATHS[$command['type']];
+    $paths = self::PATHS[$command['type']] ?? [];
     $candidate = $before['document'];
     $changed = [];
     $columns = [];
     $seen = [];
-    foreach ($command['payload']['operations'] as $index => $operation) {
+    if ($is_lifecycle && ($problem = $this->planLifecycle($command['type'], $row, $stored, $columns, $changed)) !== NULL) {
+      return ['failure' => $this->failure($command, 'actor_precondition_failed', $problem, FALSE, ['An operator must set the status this actor returns to before it can be restored.'])];
+    }
+    foreach ($command['payload']['operations'] ?? [] as $index => $operation) {
       $path = $operation['path'];
       if (!isset($paths[$path]) || isset($seen[$path])) {
         $reason = isset($seen[$path]) ? 'is addressed more than once' : 'cannot be changed by ' . $command['type'];
@@ -293,6 +301,33 @@ class ActorCommandProcessor {
         ? array_merge(['Nothing changed: the actor already has these values.'], $report['next_steps'])
         : $report['next_steps'],
     ];
+  }
+
+  /**
+   * Plans archive or restore; archiving remembers the status to return to.
+   *
+   * @return string|null
+   *   A precondition problem, or NULL when the plan is valid.
+   */
+  private function planLifecycle(string $type, array $row, array &$stored, array &$columns, array &$changed): ?string {
+    $status = (int) $row['status'];
+    $meta = is_array($stored['character_data']['_archive_meta'] ?? NULL) ? $stored['character_data']['_archive_meta'] : NULL;
+    if ($type === 'actor.archive' && $status !== self::STATUS_ARCHIVED) {
+      $stored['character_data'] ??= [];
+      $stored['character_data']['_archive_meta'] = ['previous_status' => $status, 'archived_at' => $this->time->getRequestTime()];
+      $columns['status'] = self::STATUS_ARCHIVED;
+      $changed[] = ['path' => '/lifecycle/archived', 'before' => FALSE, 'after' => TRUE];
+    }
+    elseif ($type === 'actor.restore' && $status === self::STATUS_ARCHIVED) {
+      if (!is_int($meta['previous_status'] ?? NULL) || $meta['previous_status'] === self::STATUS_ARCHIVED) {
+        return 'This archived actor does not record the status it should return to.';
+      }
+      unset($stored['character_data']['_archive_meta']);
+      $columns['status'] = $meta['previous_status'];
+      $changed[] = ['path' => '/lifecycle/archived', 'before' => TRUE, 'after' => FALSE];
+    }
+
+    return NULL;
   }
 
   /**

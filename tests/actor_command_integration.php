@@ -132,6 +132,43 @@ try {
   $data = json_decode($load()['character_data'], TRUE);
   $check($removed['committed'] === TRUE && !isset($data['backstory']) && !isset($data['basicInfo']['backstory']), 'Unset removes every stored copy.');
 
+  // Lifecycle: archive blocks edits, restore returns the previous status.
+  $lifecycle = static fn(string $type): array => ['payload' => []] + $command([], $type);
+  $archived = $manager->executeActorCommand($lifecycle('actor.archive'), $owner);
+  $row = $load();
+  $meta = json_decode($row['character_data'], TRUE)['_archive_meta'] ?? NULL;
+  $check($archived['committed'] === TRUE && (int) $row['status'] === 2 && ($meta['previous_status'] ?? NULL) === 0, 'Archive sets the status and remembers the previous one: ' . json_encode($archived));
+  $check($archived['changed'] === [['path' => '/lifecycle/archived', 'before' => FALSE, 'after' => TRUE]], 'Archive reports its change.');
+  $again = $manager->executeActorCommand($lifecycle('actor.archive'), $owner);
+  $check($again['committed'] === TRUE && $again['changed'] === [] && $again['new_revision'] === $archived['new_revision'], 'Archiving an archived actor changes nothing.');
+  $blocked = $manager->executeActorCommand($command([['op' => 'set', 'path' => '/narrative/fears', 'value' => 'Deep water.']]), $owner);
+  $check($blocked['code'] === 'actor_precondition_failed', 'Archived actors cannot be edited.');
+  $check($manager->executeActorCommand($lifecycle('actor.archive') + ['x' => 1], $owner)['code'] === 'actor_contract_invalid', 'Lifecycle envelope stays strict.');
+  $with_ops = $command([['op' => 'set', 'path' => '/narrative/fears', 'value' => 'x']], 'actor.restore');
+  $check($manager->executeActorCommand($with_ops, $owner)['code'] === 'actor_contract_invalid', 'Lifecycle commands accept no operations.');
+  $restored = $manager->executeActorCommand($lifecycle('actor.restore'), $owner);
+  $row = $load();
+  $check($restored['committed'] === TRUE && (int) $row['status'] === 0 && !isset(json_decode($row['character_data'], TRUE)['_archive_meta']), 'Restore returns the previous status and clears the marker.');
+  $check($manager->executeActorCommand($command([['op' => 'set', 'path' => '/narrative/fears', 'value' => 'Deep water.']]), $owner)['committed'] === TRUE, 'A restored actor can be edited again.');
+
+  // The archive confirmation form writes through the command authority.
+  $switcher = \Drupal::service('account_switcher');
+  $switcher->switchTo($owner);
+  try {
+    $revision_before = (int) $load()['version'];
+    $form_state = new \Drupal\Core\Form\FormState();
+    $form_state->addBuildInfo('args', [$id]);
+    \Drupal::formBuilder()->submitForm(\Drupal\dungeoncrawler_content\Form\CharacterArchiveForm::class, $form_state);
+    $check($form_state->getErrors() === [], 'Archive form submits without errors: ' . json_encode($form_state->getErrors()));
+  }
+  finally {
+    $switcher->switchBack();
+  }
+  $row = $load();
+  $check((int) $row['status'] === 2 && (int) $row['version'] === $revision_before + 1, 'Archive form archives and advances the revision.');
+  $last = $database->select('dc_actor_revisions', 'h')->fields('h', ['command_type', 'principal_uid'])->condition('actor_uuid', $actor_uuid)->orderBy('id', 'DESC')->range(0, 1)->execute()->fetchAssoc();
+  $check($last === ['command_type' => 'actor.archive', 'principal_uid' => (string) $owner_uid], 'Archive form leaves a command history record: ' . json_encode($last));
+
   echo "PASS: {$checks} actor command integration checks; fixture rolled back.\n";
 }
 finally {

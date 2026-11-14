@@ -400,10 +400,8 @@
     "date": "2026-11-14",
     "tool": "tools/actor-authority/conversion-preflight.php (read-only)",
     "rows": 852,
-    "convert_and_validate_for_save": 851,
-    "blocked_rows": {
-      "spell Identify is not in the catalog (row 1665, NPC Marta the Scholar)": 1
-    },
+    "convert_and_validate_for_save": 852,
+    "blocked_rows": {},
     "history": "664 initially; 749 after importing 14 spells whose damage adds the spellcasting ability modifier; 846 after exact-id precedence and draft spellcasting; 852 after adding Quick Coercion and Dubious Knowledge and the reviewed repairs below.",
     "reviewed_repairs": [
       {
@@ -425,9 +423,13 @@
         "stored": "row 5411 type pc, class informant, ancestry Humanoid",
         "repair": "type npc, role informant (update 10226)",
         "basis": "archived evidence fixture, not a player character"
+      },
+      {
+        "stored": "spell Identify (row 1665)",
+        "repair": "dropped from the spell list",
+        "basis": "Board decision 2026-11-14: identifying a magic item is the Identify Magic skill activity, not a spell"
       }
     ],
-    "note": "Spell lists stored without tradition or casting type convert as drafts and are not publishable until authored.",
-    "open": "Identify (learn the capabilities of an unknown magic item) is a wanted game mechanic. The engine has only dice math for Identify Magic inside the deprecated exploration handler: no unidentified item state, no action in the active runtime, no catalog spell. Row 1665 stays blocked until the mechanic and its spell exist; it is not substituted with Read Aura."
+    "note": "Spell lists stored without tradition or casting type convert as drafts and are not publishable until authored."
   }
 }

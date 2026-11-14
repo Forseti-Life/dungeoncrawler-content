@@ -83,12 +83,12 @@ Applied to the live database (update 10225): every actor row has a unique,
 required UUID allocated by the database; `level` is signed; the
 `dc_actor_revisions` and `dc_actor_command_receipts` tables exist.
 
-Preflight on 2026-11-14: 851 of 852 rows convert and validate for save. One NPC
-lists the spell Identify, which waits on the item-identification mechanic
-(see the ledger's `conversion_preflight.open`). Reviewed
+Preflight on 2026-11-14: all 852 rows convert and validate for save. Reviewed
 one-time repairs of stored values are listed in the ledger under
 `conversion_preflight.reviewed_repairs`. Spell lists stored without a tradition
 or casting type convert as drafts and stay unpublishable until authored.
+Identify is the Identify Magic skill activity, not a spell; a stored "Identify"
+spell entry is dropped.
 
 Spell damage that adds the caster's spellcasting ability modifier declares
 `"ability_modifier": "spellcasting"` beside an executable dice formula. The
@@ -114,6 +114,7 @@ as the validated candidate. A failure returns a typed code with
 |---|---|
 | `actor.identity.patch` | `/identity/name`, `/identity/alignment`, `/identity/personal/{age,gender,deity,concept}` |
 | `actor.narrative.patch` | `/narrative/{description,appearance,personality,biography,fears,bonds}` |
+| `actor.archive`, `actor.restore` | Empty payload. Archiving records the status to return to; archived actors accept no edits until restored. |
 
 Behaviour: an older inspected revision still applies to the latest row and
 preserves unrelated fields; replaying a command id returns the original
@@ -123,10 +124,11 @@ until rows store the canonical document directly, the processor writes each
 fact to the stored key it currently lives under and keeps duplicate copies
 equal.
 
-Checks: `drush php:script tests/actor_command_integration.php` (48 checks,
+Checks: `drush php:script tests/actor_command_integration.php` (59 checks,
 one original fixture, always rolled back).
 
-No form, tool or gameplay writer calls the commands yet.
+Routed through commands so far: the character archive form
+(`CharacterArchiveForm`). Every other writer in the register is still direct.
 
 The live validator resolves references against `ActorCatalogService`.
 

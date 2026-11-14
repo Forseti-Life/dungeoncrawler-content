@@ -66,7 +66,9 @@
       "type": "string",
       "enum": [
         "actor.identity.patch",
-        "actor.narrative.patch"
+        "actor.narrative.patch",
+        "actor.archive",
+        "actor.restore"
       ]
     },
     "base_revision": {
@@ -74,61 +76,90 @@
       "minimum": 0
     },
     "payload": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "operations"
-      ],
-      "properties": {
-        "operations": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 50,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "op",
-              "path"
-            ],
-            "properties": {
-              "op": {
-                "type": "string",
-                "enum": [
-                  "set",
-                  "unset"
-                ]
-              },
-              "path": {
-                "type": "string",
-                "pattern": "^(/[A-Za-z0-9_]+)+$",
-                "maxLength": 200
-              },
-              "value": {}
-            },
-            "if": {
-              "required": [
-                "op"
-              ],
-              "properties": {
-                "op": {
-                  "const": "set"
-                }
-              }
-            },
-            "then": {
-              "required": [
-                "value"
-              ]
-            }
-          }
-        }
-      }
+      "type": "object"
     },
     "reason": {
       "type": "string",
       "minLength": 1,
       "maxLength": 500
+    }
+  },
+  "if": {
+    "required": [
+      "type"
+    ],
+    "properties": {
+      "type": {
+        "enum": [
+          "actor.identity.patch",
+          "actor.narrative.patch"
+        ]
+      }
+    }
+  },
+  "then": {
+    "properties": {
+      "payload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operations"
+        ],
+        "properties": {
+          "operations": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 50,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "op",
+                "path"
+              ],
+              "properties": {
+                "op": {
+                  "type": "string",
+                  "enum": [
+                    "set",
+                    "unset"
+                  ]
+                },
+                "path": {
+                  "type": "string",
+                  "pattern": "^(/[A-Za-z0-9_]+)+$",
+                  "maxLength": 200
+                },
+                "value": {}
+              },
+              "if": {
+                "required": [
+                  "op"
+                ],
+                "properties": {
+                  "op": {
+                    "const": "set"
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "value"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "else": {
+    "properties": {
+      "payload": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      }
     }
   }
 }
