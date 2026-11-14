@@ -382,5 +382,13 @@
         ]
       }
     }
-  }
+  },
+  "conversions_applied": [
+    {
+      "update": "dungeoncrawler_content_update_10225",
+      "date": "2026-11-14",
+      "rows": "D01, D03",
+      "effect": "784 actor rows received a database-allocated UUID (852 distinct); uuid is NOT NULL, unique and defaults to UUID(); level is signed; dc_actor_revisions and dc_actor_command_receipts created."
+    }
+  ]
 }

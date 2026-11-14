@@ -1311,7 +1311,8 @@ function dungeoncrawler_content_schema() {
       'uuid' => [
         'type' => 'varchar',
         'length' => 36,
-        'not null' => FALSE,
+        'not null' => TRUE,
+        'description' => 'Immutable actor identity. The database allocates one when an insert omits it.',
       ],
       'campaign_id' => [
         'type' => 'int',
@@ -1339,9 +1340,9 @@ function dungeoncrawler_content_schema() {
       ],
       'level' => [
         'type' => 'int',
-        'unsigned' => TRUE,
         'not null' => TRUE,
         'default' => 1,
+        'description' => 'Signed: authored-statblock actors may be level -1.',
       ],
       'ancestry' => [
         'type' => 'varchar',
@@ -4461,9 +4462,14 @@ function dungeoncrawler_content_schema() {
     ],
   ];
 
+  $schema += _dungeoncrawler_content_actor_authority_tables();
+
   return $schema;
 }
 function dungeoncrawler_content_install() {
+  // Expression defaults are not expressible in hook_schema().
+  \Drupal::database()->query('ALTER TABLE {dc_campaign_characters} MODIFY uuid VARCHAR(36) NOT NULL DEFAULT (UUID())');
+
   \Drupal::messenger()->addMessage(t('Dungeon Crawler Content module has been installed.'));
   try {
     $type = \Drupal\node\Entity\NodeType::load('ancestry');
@@ -6562,4 +6568,92 @@ function _dungeoncrawler_content_room_editor_legacy_ports(array $records, string
     ];
   }
   return $ports;
+}
+
+/**
+ * Actor command-authority support tables (DC-ACTOR-AUTHORITY-20261114 A6).
+ *
+ * History and idempotency records only. Neither table holds current actor
+ * state.
+ */
+function _dungeoncrawler_content_actor_authority_tables(): array {
+  return [
+    'dc_actor_revisions' => [
+      'description' => 'Append-only actor revision history.',
+      'fields' => [
+        'id' => ['type' => 'serial', 'size' => 'big', 'unsigned' => TRUE, 'not null' => TRUE],
+        'actor_uuid' => ['type' => 'varchar', 'length' => 36, 'not null' => TRUE],
+        'revision' => ['type' => 'int', 'size' => 'big', 'unsigned' => TRUE, 'not null' => TRUE],
+        'parent_revision' => ['type' => 'int', 'size' => 'big', 'unsigned' => TRUE, 'not null' => TRUE],
+        'command_id' => ['type' => 'varchar', 'length' => 36, 'not null' => TRUE],
+        'command_type' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE],
+        'principal_uid' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE],
+        'changed_paths' => ['type' => 'text', 'size' => 'medium', 'not null' => TRUE],
+        'document' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE],
+        'content_hash' => ['type' => 'varchar', 'length' => 71, 'not null' => TRUE],
+        'published' => ['type' => 'int', 'size' => 'tiny', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0],
+        'created' => ['type' => 'int', 'not null' => TRUE],
+      ],
+      'primary key' => ['id'],
+      'unique keys' => ['actor_revision' => ['actor_uuid', 'revision']],
+      'indexes' => ['command_id' => ['command_id'], 'published' => ['actor_uuid', 'published']],
+    ],
+    'dc_actor_command_receipts' => [
+      'description' => 'Idempotent actor command receipts.',
+      'fields' => [
+        'id' => ['type' => 'serial', 'size' => 'big', 'unsigned' => TRUE, 'not null' => TRUE],
+        'principal_uid' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE],
+        'command_id' => ['type' => 'varchar', 'length' => 36, 'not null' => TRUE],
+        'request_hash' => ['type' => 'varchar', 'length' => 71, 'not null' => TRUE],
+        'command_type' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE],
+        'actor_uuid' => ['type' => 'varchar', 'length' => 36, 'not null' => TRUE],
+        'receipt' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE],
+        'created' => ['type' => 'int', 'not null' => TRUE],
+      ],
+      'primary key' => ['id'],
+      'unique keys' => ['principal_command' => ['principal_uid', 'command_id']],
+      'indexes' => ['actor_uuid' => ['actor_uuid']],
+    ],
+  ];
+}
+
+/**
+ * Give every actor row an immutable UUID, sign the level, add history tables.
+ */
+function dungeoncrawler_content_update_10225(): string {
+  $database = \Drupal::database();
+  $schema = $database->schema();
+
+  $backfilled = (int) $database->update('dc_campaign_characters')
+    ->expression('uuid', 'UUID()')
+    ->isNull('uuid')
+    ->execute();
+  $invalid = (int) $database->select('dc_campaign_characters', 'c')
+    ->where('c.uuid IS NULL OR CHAR_LENGTH(c.uuid) <> 36')
+    ->countQuery()->execute()->fetchField();
+  $duplicates = (int) $database->query('SELECT COUNT(*) FROM (SELECT uuid FROM {dc_campaign_characters} GROUP BY uuid HAVING COUNT(*) > 1) d')->fetchField();
+  if ($invalid > 0 || $duplicates > 0) {
+    throw new \RuntimeException("actor_migration_blocked: {$invalid} malformed and {$duplicates} duplicated actor UUIDs.");
+  }
+
+  // The Schema API cannot express an expression default. Identity allocation
+  // stays in the database until every insert goes through the actor facade.
+  $database->query('ALTER TABLE {dc_campaign_characters} MODIFY uuid VARCHAR(36) NOT NULL DEFAULT (UUID())');
+  if (!$schema->indexExists('dc_campaign_characters', 'actor_uuid')) {
+    $schema->addUniqueKey('dc_campaign_characters', 'actor_uuid', ['uuid']);
+  }
+  $schema->changeField('dc_campaign_characters', 'level', 'level', [
+    'type' => 'int',
+    'not null' => TRUE,
+    'default' => 1,
+    'description' => 'Signed: authored-statblock actors may be level -1.',
+  ]);
+
+  foreach (_dungeoncrawler_content_actor_authority_tables() as $table => $definition) {
+    if (!$schema->tableExists($table)) {
+      $schema->createTable($table, $definition);
+    }
+  }
+
+  return "Allocated {$backfilled} actor UUIDs; actor UUID is now required and unique; level is signed.";
 }
