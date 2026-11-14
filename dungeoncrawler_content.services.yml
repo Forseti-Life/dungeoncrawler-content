@@ -453,6 +453,7 @@ services:
       - '@dungeoncrawler_content.actor_document_converter'
       - '@dungeoncrawler_content.state_validation_service'
       - '@datetime.time'
+      - '@uuid'
 
   dungeoncrawler_content.actor_document_validator:
     class: Drupal\dungeoncrawler_content\Service\Validation\ActorDocumentValidator

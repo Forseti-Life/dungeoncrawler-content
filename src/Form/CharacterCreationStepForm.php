@@ -1774,8 +1774,16 @@ class CharacterCreationStepForm extends FormBase {
       $hot = $this->characterManager->extractHotColumnsFromData($schema_data);
 
       if ($character_id) {
-        $affected = $this->database->update('dc_campaign_characters')
-          ->fields([
+        if (!$existing_record) {
+          throw new \RuntimeException('revision_conflict', 409);
+        }
+        // The creation rules prepare the stored values; the actor authority
+        // commits them: lock, revision check, contract validation, history.
+        $this->characterManager->commitPreparedActorWrite(
+          (string) $existing_record->uuid,
+          $next_version - 1,
+          'actor.creation.save',
+          [
             'campaign_id' => $resolved_campaign_id,
             'name' => $schema_data['name'] ?: 'Unnamed Character',
             'level' => $schema_data['level'],
@@ -1790,15 +1798,8 @@ class CharacterCreationStepForm extends FormBase {
             'last_room_id' => (string) ($schema_data['position']['room_id'] ?? ''),
             'character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
             ...$this->wizardHardening->getCompletionFields($schema_data, $resolved_campaign_id),
-            'version' => $next_version,
-            'changed' => $now,
-          ])
-          ->condition('id', $character_id)
-          ->condition('version', $next_version - 1)
-          ->execute();
-        if ((int) $affected !== 1) {
-          throw new \RuntimeException('revision_conflict', 409);
-        }
+          ],
+        );
 
         if ($resolved_campaign_id > 0 && $existing_record) {
           $this->syncCanonicalSourceRowFromCampaignRecord($existing_record, $schema_data, $hot, $now);

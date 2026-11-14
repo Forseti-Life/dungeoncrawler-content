@@ -146,6 +146,35 @@ class CharacterCreationGmService {
     ];
   }
 
+  /**
+   * Canonical actor view of this draft: document, revision, findings, history.
+   */
+  public function inspectActor(int $character_id): array {
+    return $this->characterManager->inspectActor((string) $this->loadOwnedDraft($character_id)->uuid);
+  }
+
+  /**
+   * Plan or execute a typed actor command addressed to this draft.
+   */
+  public function actorCommand(int $character_id, string $type, array $payload, bool $execute): array {
+    $record = $this->loadOwnedDraft($character_id);
+    $campaign_id = (int) ($record->campaign_id ?? 0);
+    $command = [
+      'contract_version' => 'actor-command-v1',
+      'command_id' => $this->uuid->generate(),
+      'target' => ['actor_uuid' => (string) $record->uuid] + ($campaign_id > 0
+        ? ['scope' => 'campaign_instance', 'campaign_id' => $campaign_id]
+        : ['scope' => ($record->lifecycle_state ?? '') === 'draft_library' ? 'draft' : 'template']),
+      'type' => $type,
+      'base_revision' => (int) ($record->version ?? 0),
+      'payload' => $payload,
+    ];
+
+    return $execute
+      ? $this->characterManager->executeActorCommand($command)
+      : $this->characterManager->previewActorCommand($command);
+  }
+
   public function validateData(array $data, ?int $campaign_id = NULL, bool $include_option_details = FALSE): array {
     return $this->stateValidation->validateCharacterDraft($data, $campaign_id, $include_option_details);
   }

@@ -54,6 +54,11 @@ its latest state, and save through the same atomic native authority. An older
 inspected revision is retained for audit rather than presented as a conflict;
 requested fields win and unrelated newer saved fields remain intact.
 
+Every creation save, manual or by the GM, is committed by the actor command
+authority, which validates the result against the actor contract and records
+revision history. The GM also has `inspect_actor`, `plan_actor_changes` and
+`apply_actor_changes` for typed actor commands.
+
 Catalog lookups are owned by the shared `ActorCatalogService`, which actor
 validation also uses to resolve exact local references (see
 `docs/ACTOR_AUTHORITY.md`).

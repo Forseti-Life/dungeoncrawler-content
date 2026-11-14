@@ -11433,6 +11433,25 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
   }
 
   /**
+   * Commits an actor row write prepared by a domain rule owner.
+   *
+   * The actor authority locks the row, compares the revision, writes,
+   * validates the result against the actor contract and records history.
+   */
+  public function commitPreparedActorWrite(string $actor_uuid, int $expected_revision, string $type, array $fields, ?AccountInterface $principal = NULL): array {
+    return \Drupal::service('dungeoncrawler_content.actor_command_processor')
+      ->commitPrepared($actor_uuid, $expected_revision, $type, $fields, $principal ?? $this->currentUser);
+  }
+
+  /**
+   * Read-only inspection of an actor's canonical document and history.
+   */
+  public function inspectActor(string $actor_uuid, ?AccountInterface $principal = NULL): array {
+    return \Drupal::service('dungeoncrawler_content.actor_command_processor')
+      ->inspect($actor_uuid, $principal ?? $this->currentUser);
+  }
+
+  /**
    * Plans a typed actor command without writing anything.
    */
   public function previewActorCommand(array $command, ?AccountInterface $principal = NULL): array {

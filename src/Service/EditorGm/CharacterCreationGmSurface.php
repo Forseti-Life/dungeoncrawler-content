@@ -4,6 +4,7 @@ namespace Drupal\dungeoncrawler_content\Service\EditorGm;
 
 use Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService;
 use Drupal\dungeoncrawler_content\Service\CharacterCreationGmService;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Actor\ActorTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Character\CharacterDraftTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Character\CharacterCatalogTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\ExplainValidationFindingsTool;
@@ -33,6 +34,9 @@ final class CharacterCreationGmSurface implements EditorGmSurfaceInterface {
       new CharacterDraftTool('apply_character_draft_updates'),
       new ValidateDraftTool(),
       new ExplainValidationFindingsTool(),
+      new ActorTool('inspect_actor'),
+      new ActorTool('plan_actor_changes'),
+      new ActorTool('apply_actor_changes'),
     ], [], NULL);
     $this->assembler = new CharacterCreationGmContextAssembler($this->registry, $intentParser);
   }

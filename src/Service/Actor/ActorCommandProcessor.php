@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Drupal\dungeoncrawler_content\Service\Actor;
 
 use Drupal\Component\Datetime\TimeInterface;
+use Drupal\Component\Uuid\UuidInterface;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Session\AccountInterface;
 use Drupal\dungeoncrawler_content\Service\ActorDocumentConverter;
@@ -53,6 +54,21 @@ class ActorCommandProcessor {
     ],
   ];
 
+  /**
+   * Row writes a domain rule owner may prepare for the authority to commit.
+   *
+   * The owner (for example the character creation rules) computes the stored
+   * values; the authority locks, compares the revision, writes, validates the
+   * result against the actor contract, and records history and a receipt.
+   */
+  public const PREPARED_WRITES = [
+    'actor.creation.save' => [
+      'campaign_id', 'name', 'level', 'ancestry', 'class', 'hp_current', 'hp_max', 'armor_class',
+      'experience_points', 'position_q', 'position_r', 'last_room_id', 'character_data', 'status',
+      'lifecycle_state',
+    ],
+  ];
+
   public const LIFECYCLE_COMMANDS = ['actor.archive', 'actor.restore', 'actor.delete'];
 
   private const STATUS_ARCHIVED = 2;
@@ -70,7 +86,57 @@ class ActorCommandProcessor {
     protected ActorDocumentConverter $converter,
     protected StateValidationService $validation,
     protected TimeInterface $time,
+    protected UuidInterface $uuid,
   ) {}
+
+  /**
+   * Read-only inspection of one actor's canonical document and history.
+   *
+   * Never creates, repairs or converts stored data.
+   *
+   * @return array<string, mixed>
+   *   The actor reference, revision, canonical document, campaign-instance
+   *   state, conversion issues, validation report and recent history.
+   *
+   * @throws \InvalidArgumentException
+   *   `actor_not_found` (404) when no actor matches for this principal.
+   */
+  public function inspect(string $actor_uuid, AccountInterface $principal, int $history_limit = 5): array {
+    $row = $this->database->select('dc_campaign_characters', 'c')->fields('c')
+      ->condition('uuid', $actor_uuid)->execute()->fetchAssoc();
+    $is_admin = $principal->hasPermission('administer dungeoncrawler content') || $principal->hasPermission('edit any dungeoncrawler characters');
+    if (!$row || (!$is_admin && (int) $row['uid'] !== (int) $principal->id())) {
+      throw new \InvalidArgumentException('actor_not_found', 404);
+    }
+    $converted = $this->converter->convertRow($row, self::decode($row['character_data']) ?? [], self::decode($row['state_data']) ?? []);
+    $scope = (int) $row['campaign_id'] > 0 ? 'campaign_instance' : ($row['lifecycle_state'] === 'draft_library' ? 'draft' : 'template');
+    $history = $this->database->select('dc_actor_revisions', 'h')
+      ->fields('h', ['revision', 'parent_revision', 'command_type', 'principal_uid', 'changed_paths', 'created'])
+      ->condition('actor_uuid', $actor_uuid)
+      ->orderBy('revision', 'DESC')
+      ->range(0, max(1, min(25, $history_limit)))
+      ->execute()->fetchAll(\PDO::FETCH_ASSOC);
+
+    return [
+      'contract' => 'actor-inspection-v1',
+      'target' => ['scope' => $scope, 'actor_uuid' => $actor_uuid] + ($scope === 'campaign_instance' ? ['campaign_id' => (int) $row['campaign_id']] : []),
+      'revision' => (int) $row['version'],
+      'archived' => (int) $row['status'] === self::STATUS_ARCHIVED,
+      'document' => $converted['document'],
+      'instance_state' => $converted['instance_state'],
+      'conversion_issues' => $converted['issues'],
+      'validation' => $converted['issues'] === [] ? $this->validation->validateActor($converted['document'], 'actor_authoring') : NULL,
+      'commands' => array_map('array_keys', self::PATHS) + array_fill_keys(self::LIFECYCLE_COMMANDS, []),
+      'history' => array_map(static fn(array $entry): array => [
+        'revision' => (int) $entry['revision'],
+        'parent_revision' => (int) $entry['parent_revision'],
+        'command_type' => $entry['command_type'],
+        'principal_uid' => (int) $entry['principal_uid'],
+        'changed_paths' => json_decode($entry['changed_paths'], TRUE),
+        'created' => (int) $entry['created'],
+      ], $history),
+    ];
+  }
 
   /**
    * Validates and plans a command without writing anything.
@@ -207,6 +273,131 @@ class ActorCommandProcessor {
       $transaction->rollBack();
       throw $exception;
     }
+  }
+
+  /**
+   * Commits a write prepared by a domain rule owner.
+   *
+   * @param string $actor_uuid
+   *   Actor to change.
+   * @param int $expected_revision
+   *   Revision the owner prepared against; a mismatch is a conflict.
+   * @param string $type
+   *   One of the PREPARED_WRITES keys.
+   * @param array $fields
+   *   Stored column values, limited to the columns that type may write.
+   * @param \Drupal\Core\Session\AccountInterface $principal
+   *   Authenticated principal.
+   *
+   * @return array<string, mixed>
+   *   A committed receipt.
+   *
+   * @throws \RuntimeException
+   *   `revision_conflict` (409) when the actor changed since it was prepared.
+   * @throws \InvalidArgumentException
+   *   `actor_contract_invalid` (422) when the result violates the contract.
+   */
+  public function commitPrepared(string $actor_uuid, int $expected_revision, string $type, array $fields, AccountInterface $principal): array {
+    $allowed = self::PREPARED_WRITES[$type] ?? NULL;
+    if ($allowed === NULL || ($unknown = array_diff(array_keys($fields), $allowed)) !== []) {
+      throw new \LogicException('actor_prepared_write_invalid:' . $type . ':' . implode(',', $unknown ?? []));
+    }
+    $transaction = $this->database->startTransaction();
+    try {
+      $row = $this->database->select('dc_campaign_characters', 'c')->fields('c')
+        ->condition('uuid', $actor_uuid)->forUpdate()->execute()->fetchAssoc();
+      $is_admin = $principal->hasPermission('administer dungeoncrawler content') || $principal->hasPermission('edit any dungeoncrawler characters');
+      if (!$row || (!$is_admin && (int) $row['uid'] !== (int) $principal->id())) {
+        throw new \InvalidArgumentException('actor_not_found', 404);
+      }
+      if ((int) $row['version'] !== $expected_revision) {
+        throw new \RuntimeException('revision_conflict', 409);
+      }
+      $before = $this->converter->convertRow($row, self::decode($row['character_data']) ?? [], self::decode($row['state_data']) ?? []);
+      $now = $this->time->getRequestTime();
+      $new_revision = $expected_revision + 1;
+      $updated = $this->database->update('dc_campaign_characters')
+        ->fields($fields + ['version' => $new_revision, 'changed' => $now])
+        ->condition('id', (int) $row['id'])
+        ->condition('version', $expected_revision)
+        ->execute();
+      if ($updated !== 1) {
+        throw new \RuntimeException('revision_conflict', 409);
+      }
+      $reloaded = $this->database->select('dc_campaign_characters', 'c')->fields('c')
+        ->condition('id', (int) $row['id'])->execute()->fetchAssoc();
+      $after = $this->converter->convertRow($reloaded, self::decode($reloaded['character_data']) ?? [], self::decode($reloaded['state_data']) ?? []);
+      if ($after['issues'] !== []) {
+        throw new \InvalidArgumentException('actor_contract_invalid: ' . implode('; ', array_map(static fn(array $issue): string => $issue['path'] . ' ' . $issue['code'] . ' ' . $issue['detail'], $after['issues'])), 422);
+      }
+      $report = $this->validation->validateActor($after['document'], 'actor_authoring');
+      if (!$report['valid_for_save']) {
+        $blocking = array_filter($report['findings'], static fn(array $finding): bool => $finding['blocking']);
+        throw new \InvalidArgumentException('actor_contract_invalid: ' . implode('; ', array_map(static fn(array $finding): string => $finding['path'] . ' ' . $finding['message'], $blocking)), 422);
+      }
+      $changed = [];
+      foreach (self::changedPaths($before['document'], $after['document']) as $path) {
+        $changed[] = ['path' => $path, 'before' => self::get($before['document'], $path), 'after' => self::get($after['document'], $path)];
+      }
+      $command = ['command_id' => $this->uuid->generate(), 'type' => $type];
+      $this->appendRevision($actor_uuid, $new_revision, $expected_revision, $command, (int) $principal->id(), ['candidate' => $after['document'], 'changed' => $changed], $now);
+      $receipt = [
+        'contract' => self::RECEIPT_CONTRACT,
+        'committed' => TRUE,
+        'command_id' => $command['command_id'],
+        'command_type' => $type,
+        'target' => ['actor_uuid' => $actor_uuid],
+        'inspected_revision' => $expected_revision,
+        'applied_from_revision' => $expected_revision,
+        'new_revision' => $new_revision,
+        'changed' => $changed,
+        'validation' => [
+          'profile' => $report['profile'],
+          'rules_version' => $report['rules_version'],
+          'valid_for_save' => TRUE,
+          'ready_for_publication' => $report['ready_for_publication'],
+          'checks' => $report['checks'],
+        ],
+        'next_steps' => $report['next_steps'],
+      ];
+      $this->database->insert('dc_actor_command_receipts')->fields([
+        'principal_uid' => (int) $principal->id(),
+        'command_id' => $command['command_id'],
+        'request_hash' => 'sha256:' . hash('sha256', $type . ':' . $actor_uuid . ':' . $new_revision),
+        'command_type' => $type,
+        'actor_uuid' => $actor_uuid,
+        'receipt' => json_encode($receipt, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+        'created' => $now,
+      ])->execute();
+
+      return $receipt;
+    }
+    catch (\Throwable $exception) {
+      $transaction->rollBack();
+      throw $exception;
+    }
+  }
+
+  /**
+   * Leaf pointers whose value differs between two documents.
+   *
+   * @return array<int, string>
+   *   Sorted RFC 6901 pointers. A list is compared as one value.
+   */
+  private static function changedPaths(array $before, array $after, string $prefix = ''): array {
+    $paths = [];
+    foreach (array_unique(array_merge(array_keys($before), array_keys($after))) as $key) {
+      $left = $before[$key] ?? NULL;
+      $right = $after[$key] ?? NULL;
+      if ($left === $right) {
+        continue;
+      }
+      $both_maps = is_array($left) && is_array($right) && !array_is_list($left) && !array_is_list($right);
+      $paths = array_merge($paths, $both_maps ? self::changedPaths($left, $right, $prefix . '/' . $key) : [$prefix . '/' . $key]);
+    }
+    sort($paths);
+
+    return $paths;
   }
 
   /**

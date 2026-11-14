@@ -199,6 +199,35 @@ try {
   $last = $database->select('dc_actor_revisions', 'h')->fields('h', ['command_type', 'revision', 'document'])->condition('actor_uuid', $actor_uuid)->orderBy('id', 'DESC')->range(0, 1)->execute()->fetchAssoc();
   $check($last['command_type'] === 'actor.delete' && (int) $last['revision'] === $final_revision + 1 && json_decode($last['document'], TRUE)['identity']['name'] === 'Odalys Fenwick-Marr', 'History keeps the deleted actor\'s final document.');
 
+  // Shared actor tools on the character creation GM surface.
+  $switcher->switchTo($owner);
+  try {
+    $draft_id = (int) $database->insert('dc_campaign_characters')->fields([
+      'campaign_id' => 0, 'character_id' => 0, 'uid' => $owner_uid, 'type' => 'pc', 'role' => 'player', 'name' => 'Tamsin Oarwright',
+      'level' => 1, 'lifecycle_state' => 'draft_library', 'status' => 0, 'version' => 0,
+      'character_data' => json_encode(['name' => 'Tamsin Oarwright', 'step' => 1, 'level' => 1]), 'created' => 1, 'changed' => 1,
+    ])->execute();
+    $surface = \Drupal::service('dungeoncrawler_content.editor_gm_surface.character_creation');
+    $tool_context = $surface->createContext((string) $draft_id, 'editing');
+    $registry = $surface->registry();
+    $view = $registry->get('inspect_actor')->execute([], $tool_context);
+    $check($view['target']['scope'] === 'draft' && $view['document']['identity'] === ['name' => 'Tamsin Oarwright', 'kind' => 'pc'] && $view['revision'] === 0, 'inspect_actor returns the canonical view: ' . json_encode($view['target']));
+    $check(in_array('/narrative/biography', $view['commands']['actor.narrative.patch'], TRUE), 'inspect_actor lists the paths each command accepts.');
+    $operations = [['op' => 'set', 'path' => '/narrative/biography', 'value' => 'Raised on the ferry.']];
+    $planned = $registry->get('plan_actor_changes')->execute(['type' => 'actor.narrative.patch', 'operations' => $operations], $tool_context);
+    $check($planned['intent'] === 'preview' && (int) $database->query('SELECT version FROM {dc_campaign_characters} WHERE id = :id', [':id' => $draft_id])->fetchField() === 0, 'plan_actor_changes previews without writing.');
+    $applied = $registry->get('apply_actor_changes')->execute(['type' => 'actor.narrative.patch', 'operations' => $operations], $tool_context);
+    $check($applied['committed'] === TRUE && $applied['new_revision'] === 1 && $applied['next_steps'] !== [], 'apply_actor_changes commits with next steps: ' . json_encode($applied));
+    $check($tool_context->draft()['revision'] === 1 && $tool_context->draft()['payload']['backstory'] === 'Raised on the ferry.', 'The wizard draft sees the committed actor change.');
+    $after = $registry->get('inspect_actor')->execute([], $tool_context);
+    $check($after['history'][0]['command_type'] === 'actor.narrative.patch' && $after['history'][0]['changed_paths'] === ['/narrative/biography'], 'inspect_actor shows the change history.');
+    $rejected = $registry->get('apply_actor_changes')->execute(['type' => 'actor.narrative.patch', 'operations' => [['op' => 'set', 'path' => '/build/level', 'value' => 20]]], $tool_context);
+    $check($rejected['committed'] === FALSE && $rejected['code'] === 'actor_contract_invalid', 'The tool cannot reach paths outside its command.');
+  }
+  finally {
+    $switcher->switchBack();
+  }
+
   echo "PASS: {$checks} actor command integration checks; fixture rolled back.\n";
 }
 finally {

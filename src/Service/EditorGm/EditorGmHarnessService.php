@@ -280,6 +280,16 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         $author_message,
       );
     }
+    // Typed actor commands save immediately: the actor authority validates
+    // and records them, and a failed contract changes nothing.
+    if ($surface->id() === CharacterCreationGmSurface::ID && $definition->name === 'apply_actor_changes') {
+      return $this->executeTool(
+        $surface, $draft_id, $profile, $definition->name,
+        $intent['arguments'], FALSE,
+        $intent['reasoning'], $scope,
+        array_values((array) ($intent['next_steps'] ?? [])), $author_message,
+      );
+    }
     if ($surface->id() === StorylineBuilderGmSurface::ID) {
       if (!in_array($definition->name, [
         'publish_storyline_draft',

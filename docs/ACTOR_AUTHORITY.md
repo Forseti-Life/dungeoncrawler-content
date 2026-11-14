@@ -125,12 +125,37 @@ until rows store the canonical document directly, the processor writes each
 fact to the stored key it currently lives under and keeps duplicate copies
 equal.
 
-Checks: `drush php:script tests/actor_command_integration.php` (65 checks,
+Checks: `drush php:script tests/actor_command_integration.php` (72 checks,
 one original fixture, always rolled back).
 
-Routed through commands so far: the character archive and delete forms.
-`CharacterManager::deleteCharacter()` is removed. Every other writer in the
-register is still direct.
+Routed through the authority so far:
+
+- The character archive and delete forms execute `actor.archive` and
+  `actor.delete`. `CharacterManager::deleteCharacter()` is removed.
+- **Every character creation save**, manual or by the GM, is committed by
+  `CharacterManager::commitPreparedActorWrite()` (`actor.creation.save`). The
+  wizard still computes the stored values; the authority locks the row, checks
+  the revision, writes, requires the result to convert and validate under the
+  actor contract, and records history and a receipt. A save that would break
+  the contract fails and changes nothing.
+
+Every other writer in the register is still direct, including the insert of a
+brand-new character row.
+
+## GM harness tools
+
+The Character Creation surface registers three shared actor tools
+(`src/Service/EditorGm/Tool/Actor/ActorTool.php`), thin adapters with no rules
+or persistence of their own:
+
+| Tool | Effect |
+|---|---|
+| `inspect_actor` | Read-only canonical view: document, revision, scope, validation checks, the paths each command accepts, recent history. |
+| `plan_actor_changes` | Preview one typed command: exact changed paths with before and after values. Read-only. |
+| `apply_actor_changes` | Execute one typed command immediately; returns the committed receipt with next steps, or a typed failure. |
+
+Wizard choices still go through `plan_character_draft_updates` /
+`apply_character_draft_updates`, which now commit through the same authority.
 
 The live validator resolves references against `ActorCatalogService`.
 
