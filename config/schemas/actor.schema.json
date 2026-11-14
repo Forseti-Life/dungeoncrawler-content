@@ -1194,7 +1194,6 @@
             "required": [
               "id",
               "name",
-              "type",
               "attack_bonus",
               "damage",
               "damage_type"

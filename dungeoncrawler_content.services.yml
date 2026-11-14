@@ -440,6 +440,11 @@ services:
       - '@dungeoncrawler_content.character_creation_validation'
       - '@dungeoncrawler_content.canonical_definitions'
 
+  dungeoncrawler_content.actor_document_converter:
+    class: Drupal\dungeoncrawler_content\Service\ActorDocumentConverter
+    arguments:
+      - '@dungeoncrawler_content.actor_catalog'
+
   dungeoncrawler_content.actor_document_validator:
     class: Drupal\dungeoncrawler_content\Service\Validation\ActorDocumentValidator
     arguments:

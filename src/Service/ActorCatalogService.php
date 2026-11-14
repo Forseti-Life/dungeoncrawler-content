@@ -25,6 +25,13 @@ class ActorCatalogService implements ActorReferenceCatalogInterface {
    */
   private array $ids = [];
 
+  /**
+   * Lower-cased id and name => matching ids, per kind.
+   *
+   * @var array<string, array<string, array<string, true>>>
+   */
+  private array $names = [];
+
   public function __construct(
     protected FeatLibraryService $featLibrary,
     protected SpellCatalogService $spellCatalog,
@@ -135,6 +142,69 @@ class ActorCatalogService implements ActorReferenceCatalogInterface {
       ];
     }
     return $entries;
+  }
+
+  /**
+   * Resolves an exact id or exact (case-insensitive) name to one catalog id.
+   *
+   * Used by one-time conversion of stored names. Returns NULL when nothing or
+   * more than one entry matches; it never picks a near match.
+   */
+  public function resolveId(string $kind, string $id_or_name): ?string {
+    $needle = mb_strtolower(trim($id_or_name));
+    if ($needle === '') {
+      return NULL;
+    }
+    if ($kind === 'skill') {
+      $id = str_replace([' ', '_'], '-', $needle);
+      return $this->has('skill', $id) ? $id : NULL;
+    }
+    if ($kind === 'item') {
+      $id = str_replace(' ', '-', $needle);
+      return $this->has('item', $needle) ? $needle : ($this->has('item', $id) ? $id : NULL);
+    }
+    if (!isset($this->names[$kind])) {
+      $this->names[$kind] = [];
+      foreach ($this->entries($kind) as $entry) {
+        $entry_id = (string) $entry['id'];
+        foreach (array_unique([mb_strtolower($entry_id), mb_strtolower((string) $entry['name'])]) as $key) {
+          $this->names[$kind][$key][$entry_id] = TRUE;
+        }
+      }
+    }
+    $matches = array_keys($this->names[$kind][$needle] ?? $this->names[$kind][str_replace(' ', '-', $needle)] ?? []);
+
+    return count($matches) === 1 ? (string) $matches[0] : NULL;
+  }
+
+  /**
+   * The catalog's own slot kind for a feat: ancestry, class, general or skill.
+   */
+  public function featType(string $feat_id): ?string {
+    foreach ($this->entries('feat') as $feat) {
+      if ((string) $feat['id'] === $feat_id) {
+        $type = (string) ($feat['type'] ?? '');
+        return in_array($type, ['ancestry', 'class', 'general', 'skill'], TRUE) ? $type : NULL;
+      }
+    }
+
+    return NULL;
+  }
+
+  /**
+   * The catalog's base rank for a spell (0 for cantrips).
+   */
+  public function spellRank(string $spell_id): ?int {
+    foreach ($this->entries('spell') as $spell) {
+      if ((string) $spell['id'] === $spell_id) {
+        if (!empty($spell['is_cantrip'])) {
+          return 0;
+        }
+        return is_numeric($spell['rank'] ?? NULL) ? (int) $spell['rank'] : NULL;
+      }
+    }
+
+    return NULL;
   }
 
   /**

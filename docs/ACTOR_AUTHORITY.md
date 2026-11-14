@@ -76,6 +76,20 @@ Those sites appear as `dynamic_*` findings and need a reviewed disposition.
 
 | `src/Service/ActorCatalogService.php` | The single local catalog authority (ancestry, heritage, background, class, feat, spell, equipment, familiar ability, item, skill). The character GM's catalog tools delegate to it; their previous private copy was removed. |
 
+| `src/Service/ActorDocumentConverter.php` | Pure one-time conversion of a stored actor row into the actor document and the campaign-instance state document. Unmappable values are reported as blocking issues, never guessed. |
+| `tools/actor-authority/conversion-preflight.php` | Read-only full-table conversion and validation report (`drush php:script`). |
+
+Applied to the live database (update 10225): every actor row has a unique,
+required UUID allocated by the database; `level` is signed; the
+`dc_actor_revisions` and `dc_actor_command_receipts` tables exist.
+
+Preflight on 2026-11-14: 664 of 852 rows convert and validate for save. The
+rest are blocked by spells or feats absent from the local catalog and by NPC
+spell lists stored without a tradition.
+
+A familiar is its own actor (`identity.kind` = `companion`); the owner's
+`build.companions` records the selection that links to it.
+
 The live validator resolves references against `ActorCatalogService`.
 
 Not wired yet: no caller uses `validateActor()`. Player-build choice

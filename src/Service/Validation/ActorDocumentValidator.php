@@ -226,6 +226,11 @@ final class ActorDocumentValidator {
         $missing[] = $pointer;
       }
     }
+    foreach ((array) ($document['build']['strikes'] ?? []) as $index => $strike) {
+      if (!isset($strike['type'])) {
+        $missing[] = '/build/strikes/' . $index . '/type';
+      }
+    }
     $spellcasting = $document['build']['spellcasting'] ?? NULL;
     if (is_array($spellcasting) && !isset($spellcasting['dc'])) {
       $missing[] = '/build/spellcasting/dc';

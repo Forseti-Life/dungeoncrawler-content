@@ -390,5 +390,27 @@
       "rows": "D01, D03",
       "effect": "784 actor rows received a database-allocated UUID (852 distinct); uuid is NOT NULL, unique and defaults to UUID(); level is signed; dc_actor_revisions and dc_actor_command_receipts created."
     }
-  ]
+  ],
+  "conversion_preflight": {
+    "date": "2026-11-14",
+    "tool": "tools/actor-authority/conversion-preflight.php (read-only)",
+    "rows": 852,
+    "convert_and_validate_for_save": 664,
+    "by_kind_clean_of_total": {
+      "companion": "70/70",
+      "creature": "84/84",
+      "npc_library": "109/109",
+      "npc_instance": "366/444",
+      "pc_library": "30/67",
+      "pc_instance": "5/78"
+    },
+    "blocked_rows_by_cause": {
+      "spell id absent from the local catalog (electric-arc, chill-touch and three stored names)": 131,
+      "NPC spell list with no tradition stored": 78,
+      "feat id absent from the catalog or familiar pseudo-feat without a familiar record": 19,
+      "casting type not stored": 6,
+      "unknown class/ancestry/background label": 3
+    },
+    "note": "Blocked rows are not converted by guessing. They need a catalog entry or an authored value."
+  }
 }
