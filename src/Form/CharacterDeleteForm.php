@@ -70,11 +70,23 @@ class CharacterDeleteForm extends ConfirmFormBase {
   }
 
   public function submitForm(array &$form, FormStateInterface $form_state) {
-    $deleted = $this->characterManager->deleteCharacter((int) $this->character->id);
+    $campaign_id = (int) $this->character->campaign_id;
+    $receipt = $this->characterManager->executeActorCommand([
+      'contract_version' => 'actor-command-v1',
+      'command_id' => \Drupal::service('uuid')->generate(),
+      'target' => ['actor_uuid' => $this->character->uuid] + ($campaign_id > 0
+        ? ['scope' => 'campaign_instance', 'campaign_id' => $campaign_id]
+        : ['scope' => $this->character->lifecycle_state === 'draft_library' ? 'draft' : 'template']),
+      'type' => 'actor.delete',
+      'base_revision' => (int) $this->character->version,
+      'payload' => [],
+    ]);
 
-    if (!$deleted) {
-      $this->messenger()->addError($this->t('Unable to delete %name.', [
+    if (empty($receipt['committed'])) {
+      $this->messenger()->addError($this->t('Unable to delete %name: @reason @next', [
         '%name' => $this->character->name,
+        '@reason' => (string) $receipt['message'],
+        '@next' => (string) ($receipt['next_steps'][0] ?? ''),
       ]));
       $form_state->setRedirectUrl($this->getCancelUrl());
       return;

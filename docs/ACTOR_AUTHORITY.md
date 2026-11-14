@@ -115,6 +115,7 @@ as the validated candidate. A failure returns a typed code with
 | `actor.identity.patch` | `/identity/name`, `/identity/alignment`, `/identity/personal/{age,gender,deity,concept}` |
 | `actor.narrative.patch` | `/narrative/{description,appearance,personality,biography,fears,bonds}` |
 | `actor.archive`, `actor.restore` | Empty payload. Archiving records the status to return to; archived actors accept no edits until restored. |
+| `actor.delete` | Empty payload. Only an unreferenced library actor; a campaign actor or a library actor that is the source of campaign actors must be archived instead. The final document stays in `dc_actor_revisions`. |
 
 Behaviour: an older inspected revision still applies to the latest row and
 preserves unrelated fields; replaying a command id returns the original
@@ -124,11 +125,12 @@ until rows store the canonical document directly, the processor writes each
 fact to the stored key it currently lives under and keeps duplicate copies
 equal.
 
-Checks: `drush php:script tests/actor_command_integration.php` (59 checks,
+Checks: `drush php:script tests/actor_command_integration.php` (65 checks,
 one original fixture, always rolled back).
 
-Routed through commands so far: the character archive form
-(`CharacterArchiveForm`). Every other writer in the register is still direct.
+Routed through commands so far: the character archive and delete forms.
+`CharacterManager::deleteCharacter()` is removed. Every other writer in the
+register is still direct.
 
 The live validator resolves references against `ActorCatalogService`.
 

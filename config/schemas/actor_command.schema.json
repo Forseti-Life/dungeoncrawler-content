@@ -68,7 +68,8 @@
         "actor.identity.patch",
         "actor.narrative.patch",
         "actor.archive",
-        "actor.restore"
+        "actor.restore",
+        "actor.delete"
       ]
     },
     "base_revision": {

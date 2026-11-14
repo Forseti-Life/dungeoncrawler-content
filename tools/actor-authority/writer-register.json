@@ -13,8 +13,8 @@
     "none": "no actor-reaching site in this file"
   },
   "totals": {
-    "files": 112,
-    "write_sites": 334
+    "files": 111,
+    "write_sites": 333
   },
   "files": {
     "dungeoncrawler_content.install": {
@@ -189,12 +189,6 @@
         "literal_table_write:update:dc_campaign_characters": 2
       }
     },
-    "src/Form/CharacterDeleteForm.php": {
-      "slice": "S4",
-      "sites": {
-        "mutation_entry_call:call:characterManager->deleteCharacter": 1
-      }
-    },
     "src/Form/DungeonCrawlerTableRowEditForm.php": {
       "slice": "S4",
       "sites": {
@@ -217,6 +211,7 @@
     "src/Service/Actor/ActorCommandProcessor.php": {
       "slice": "authority",
       "sites": {
+        "literal_table_write:delete:dc_campaign_characters": 1,
         "literal_table_write:update:dc_campaign_characters": 1
       }
     },
@@ -329,7 +324,6 @@
     "src/Service/CharacterManager.php": {
       "slice": "S2",
       "sites": {
-        "literal_table_write:delete:dc_campaign_characters": 1,
         "literal_table_write:insert:dc_campaign_characters": 3,
         "literal_table_write:update:dc_campaign_characters": 4,
         "mutation_entry_call:call:this->createCharacter": 1,
@@ -883,10 +877,6 @@
       "reason": "replace with typed actor command"
     },
     "src/Form/CharacterCreateForm.php|characterManager->createCharacter": {
-      "disposition": "actor_authority",
-      "reason": "replace with typed actor command"
-    },
-    "src/Form/CharacterDeleteForm.php|characterManager->deleteCharacter": {
       "disposition": "actor_authority",
       "reason": "replace with typed actor command"
     },

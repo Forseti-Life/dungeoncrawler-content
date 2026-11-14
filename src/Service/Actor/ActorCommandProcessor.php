@@ -53,7 +53,7 @@ class ActorCommandProcessor {
     ],
   ];
 
-  public const LIFECYCLE_COMMANDS = ['actor.archive', 'actor.restore'];
+  public const LIFECYCLE_COMMANDS = ['actor.archive', 'actor.restore', 'actor.delete'];
 
   private const STATUS_ARCHIVED = 2;
 
@@ -138,7 +138,18 @@ class ActorCommandProcessor {
       $new_revision = $revision;
       $now = $this->time->getRequestTime();
 
-      if ($plan['changed'] !== []) {
+      if ($command['type'] === 'actor.delete') {
+        $new_revision = $revision + 1;
+        $deleted = $this->database->delete('dc_campaign_characters')
+          ->condition('id', (int) $row['id'])
+          ->condition('version', $revision)
+          ->execute();
+        if ($deleted !== 1) {
+          throw new \RuntimeException('actor_projection_invariant_failed: delete affected ' . $deleted . ' rows.');
+        }
+        $this->appendRevision($row['uuid'], $new_revision, $revision, $command, $uid, $plan, $now);
+      }
+      elseif ($plan['changed'] !== []) {
         $new_revision = $revision + 1;
         $fields = ['version' => $new_revision, 'changed' => $now, 'updated' => $now];
         foreach (['character_data', 'state_data'] as $column) {
@@ -164,19 +175,7 @@ class ActorCommandProcessor {
         if ($persisted['issues'] !== [] || $persisted['document'] != $plan['candidate']) {
           throw new \RuntimeException('actor_projection_invariant_failed: the stored actor does not read back as the validated candidate.');
         }
-        $document_json = json_encode($plan['candidate'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        $this->database->insert('dc_actor_revisions')->fields([
-          'actor_uuid' => $row['uuid'],
-          'revision' => $new_revision,
-          'parent_revision' => $revision,
-          'command_id' => $command['command_id'],
-          'command_type' => $command['type'],
-          'principal_uid' => $uid,
-          'changed_paths' => json_encode(array_column($plan['changed'], 'path'), JSON_THROW_ON_ERROR),
-          'document' => $document_json,
-          'content_hash' => 'sha256:' . hash('sha256', $document_json),
-          'created' => $now,
-        ])->execute();
+        $this->appendRevision($row['uuid'], $new_revision, $revision, $command, $uid, $plan, $now);
       }
 
       $receipt = [
@@ -211,6 +210,25 @@ class ActorCommandProcessor {
   }
 
   /**
+   * Appends the immutable history record for one changed revision.
+   */
+  private function appendRevision(string $actor_uuid, int $revision, int $parent, array $command, int $uid, array $plan, int $now): void {
+    $document_json = json_encode($plan['candidate'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    $this->database->insert('dc_actor_revisions')->fields([
+      'actor_uuid' => $actor_uuid,
+      'revision' => $revision,
+      'parent_revision' => $parent,
+      'command_id' => $command['command_id'],
+      'command_type' => $command['type'],
+      'principal_uid' => $uid,
+      'changed_paths' => json_encode(array_column($plan['changed'], 'path'), JSON_THROW_ON_ERROR),
+      'document' => $document_json,
+      'content_hash' => 'sha256:' . hash('sha256', $document_json),
+      'created' => $now,
+    ])->execute();
+  }
+
+  /**
    * Resolves, authorizes, applies and validates a command in memory.
    *
    * @return array<string, mixed>
@@ -242,7 +260,8 @@ class ActorCommandProcessor {
 
     $stored = ['character_data' => self::decode($row['character_data']), 'state_data' => self::decode($row['state_data'])];
     $before = $this->converter->convertRow($row, $stored['character_data'] ?? [], $stored['state_data'] ?? []);
-    if ($before['issues'] !== []) {
+    // Deleting needs no valid document; every other command does.
+    if ($before['issues'] !== [] && $command['type'] !== 'actor.delete') {
       return ['failure' => $this->failure($command, 'actor_migration_blocked', 'This actor has stored values that do not map to the actor contract and must be repaired first.', FALSE, ['Repair the listed stored values, then repeat the edit.'], $before['issues'])];
     }
 
@@ -251,7 +270,20 @@ class ActorCommandProcessor {
     $changed = [];
     $columns = [];
     $seen = [];
-    if ($is_lifecycle && ($problem = $this->planLifecycle($command['type'], $row, $stored, $columns, $changed)) !== NULL) {
+    if ($command['type'] === 'actor.delete') {
+      if ($scope === 'campaign_instance') {
+        return ['failure' => $this->failure($command, 'actor_precondition_failed', 'A campaign actor cannot be deleted; its campaign state would be orphaned.', FALSE, ['Archive the actor instead.'])];
+      }
+      $instances = (int) $this->database->select('dc_campaign_characters', 'i')
+        ->condition('source_character_id', (int) $row['id'])
+        ->condition('id', (int) $row['id'], '<>')
+        ->countQuery()->execute()->fetchField();
+      if ($instances > 0) {
+        return ['failure' => $this->failure($command, 'actor_precondition_failed', "This actor is the source of {$instances} campaign actor(s) and cannot be deleted.", FALSE, ['Archive the actor instead.'])];
+      }
+      $changed[] = ['path' => '/lifecycle/deleted', 'before' => FALSE, 'after' => TRUE];
+    }
+    elseif ($is_lifecycle && ($problem = $this->planLifecycle($command['type'], $row, $stored, $columns, $changed)) !== NULL) {
       return ['failure' => $this->failure($command, 'actor_precondition_failed', $problem, FALSE, ['An operator must set the status this actor returns to before it can be restored.'])];
     }
     foreach ($command['payload']['operations'] ?? [] as $index => $operation) {
@@ -278,7 +310,10 @@ class ActorCommandProcessor {
     }
 
     $report = $this->validation->validateActor($candidate, 'actor_authoring');
-    if (!$report['valid_for_save']) {
+    if ($command['type'] === 'actor.delete') {
+      $report['next_steps'] = ['The actor was deleted. Its final state is kept in the revision history.'];
+    }
+    elseif (!$report['valid_for_save']) {
       $blocking = array_values(array_filter($report['findings'], static fn(array $finding): bool => $finding['blocking']));
       return ['failure' => $this->failure($command, 'actor_contract_invalid', 'The requested change does not satisfy the actor contract.', FALSE, $report['next_steps'], $blocking)];
     }
@@ -293,7 +328,7 @@ class ActorCommandProcessor {
       'validation' => [
         'profile' => $report['profile'],
         'rules_version' => $report['rules_version'],
-        'valid_for_save' => TRUE,
+        'valid_for_save' => $report['valid_for_save'],
         'ready_for_publication' => $report['ready_for_publication'],
         'checks' => $report['checks'],
       ],

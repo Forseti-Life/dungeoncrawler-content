@@ -56,7 +56,7 @@ try {
     'base_revision' => 2,
     'payload' => ['operations' => $operations],
   ];
-  $load = static fn(): array => $database->select('dc_campaign_characters', 'c')->fields('c')->condition('id', $id)->execute()->fetchAssoc();
+  $load = static fn(): array|false => $database->select('dc_campaign_characters', 'c')->fields('c')->condition('id', $id)->execute()->fetchAssoc();
   $unchanged = static function () use ($load): bool {
     $row = $load();
     return (int) $row['version'] === 4 && str_contains($row['character_data'], 'Keeps the toll ledger.');
@@ -168,6 +168,36 @@ try {
   $check((int) $row['status'] === 2 && (int) $row['version'] === $revision_before + 1, 'Archive form archives and advances the revision.');
   $last = $database->select('dc_actor_revisions', 'h')->fields('h', ['command_type', 'principal_uid'])->condition('actor_uuid', $actor_uuid)->orderBy('id', 'DESC')->range(0, 1)->execute()->fetchAssoc();
   $check($last === ['command_type' => 'actor.archive', 'principal_uid' => (string) $owner_uid], 'Archive form leaves a command history record: ' . json_encode($last));
+
+  // Delete: only an unreferenced library actor; history keeps the final state.
+  $manager->executeActorCommand($lifecycle('actor.restore'), $owner);
+  $instance_uuid = \Drupal::service('uuid')->generate();
+  $instance_id = (int) $database->insert('dc_campaign_characters')->fields([
+    'uuid' => $instance_uuid, 'campaign_id' => 987650, 'character_id' => 0, 'uid' => $owner_uid, 'type' => 'npc', 'role' => 'contact',
+    'name' => 'Odalys (campaign)', 'level' => 2, 'lifecycle_state' => 'campaign_npc', 'status' => 0, 'version' => 0,
+    'source_character_id' => $id, 'instance_id' => 'odalys-fixture', 'character_data' => '{}', 'created' => 1, 'changed' => 1,
+  ])->execute();
+  $referenced = $manager->executeActorCommand($lifecycle('actor.delete'), $owner);
+  $check($referenced['code'] === 'actor_precondition_failed' && str_contains($referenced['message'], '1 campaign actor'), 'A library actor with campaign instances cannot be deleted: ' . json_encode($referenced));
+  $instance_delete = ['payload' => []] + $command([], 'actor.delete', ['scope' => 'campaign_instance', 'actor_uuid' => $instance_uuid, 'campaign_id' => 987650]);
+  $check($manager->executeActorCommand($instance_delete, $owner)['code'] === 'actor_precondition_failed', 'A campaign actor cannot be deleted.');
+  $check($manager->executeActorCommand($lifecycle('actor.delete'), $stranger)['code'] === 'actor_not_found', 'Another user cannot delete the actor.');
+  $database->delete('dc_campaign_characters')->condition('id', $instance_id)->execute();
+  $final_revision = (int) $load()['version'];
+  // Through the real delete confirmation form.
+  $switcher->switchTo($owner);
+  try {
+    $form_state = new \Drupal\Core\Form\FormState();
+    $form_state->addBuildInfo('args', [$id]);
+    \Drupal::formBuilder()->submitForm(\Drupal\dungeoncrawler_content\Form\CharacterDeleteForm::class, $form_state);
+    $check($form_state->getErrors() === [], 'Delete form submits without errors.');
+  }
+  finally {
+    $switcher->switchBack();
+  }
+  $check($load() === FALSE, 'The delete form deletes an unreferenced library actor.');
+  $last = $database->select('dc_actor_revisions', 'h')->fields('h', ['command_type', 'revision', 'document'])->condition('actor_uuid', $actor_uuid)->orderBy('id', 'DESC')->range(0, 1)->execute()->fetchAssoc();
+  $check($last['command_type'] === 'actor.delete' && (int) $last['revision'] === $final_revision + 1 && json_decode($last['document'], TRUE)['identity']['name'] === 'Odalys Fenwick-Marr', 'History keeps the deleted actor\'s final document.');
 
   echo "PASS: {$checks} actor command integration checks; fixture rolled back.\n";
 }

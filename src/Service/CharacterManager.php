@@ -11467,18 +11467,6 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
   }
 
   /**
-   * Delete a character.
-   */
-  public function deleteCharacter(int $id): bool {
-    $deleted = $this->database->delete('dc_campaign_characters')
-      ->condition('id', $id)
-      ->condition('uid', (int) $this->currentUser->id())
-      ->execute();
-
-    return (bool) $deleted;
-  }
-
-  /**
    * Grants ancestry-specific starting equipment after character creation.
    *
    * Dwarves receive one free Clan Dagger per PF2e rules.
