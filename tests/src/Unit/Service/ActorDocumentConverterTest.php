@@ -82,6 +82,32 @@ class ActorDocumentConverterTest extends TestCase {
     $this->assertSame([['id' => 'ember-dart', 'spell_id' => 'ember-dart', 'rank' => 0]], $build['spellcasting']['entries']);
   }
 
+  public function testReviewedRepairsForStoredFeatsAndFabricatedDefaults(): void {
+    $result = $this->converter()->convertRow(
+      ['type' => 'pc', 'role' => 'player', 'name' => 'Brannoch', 'level' => 1, 'campaign_id' => 0],
+      [
+        'class' => 'warden',
+        'background' => 'Ferry Hand',
+        'feats' => [['id' => 'assurance-stealth'], ['id' => 'steady-footing']],
+      ],
+      [],
+    );
+    $this->assertSame([], $result['issues']);
+    $this->assertSame([
+      ['id' => 'assurance-stealth', 'feat_id' => 'assurance', 'slot' => 'background', 'level_gained' => 1, 'choices' => ['skill' => 'stealth']],
+      ['id' => 'steady-footing', 'feat_id' => 'steady-footing', 'slot' => 'ancestry', 'level_gained' => 1],
+    ], $result['document']['build']['feats']);
+
+    // A background the old code invented when none was chosen is no choice.
+    $result = $this->converter()->convertRow(
+      ['type' => 'pc', 'role' => 'player', 'name' => 'Unnamed', 'level' => 1, 'campaign_id' => 0],
+      ['background' => 'Wanderer'],
+      [],
+    );
+    $this->assertSame([], $result['issues']);
+    $this->assertArrayNotHasKey('background', $result['document']['build']);
+  }
+
   public function testUnmappableValuesBlockInsteadOfBeingGuessed(): void {
     $result = $this->converter()->convertRow(
       ['type' => 'pc', 'role' => 'player', 'name' => 'Edda', 'level' => 1, 'campaign_id' => 0],
@@ -108,7 +134,10 @@ class ActorDocumentConverterTest extends TestCase {
 
   private function catalog(): ActorCatalogService {
     $feats = $this->createMock(FeatLibraryService::class);
-    $feats->method('getFeats')->willReturn([['id' => 'steady-footing', 'name' => 'Steady Footing', 'type' => 'ancestry']]);
+    $feats->method('getFeats')->willReturn([
+      ['id' => 'steady-footing', 'name' => 'Steady Footing', 'type' => 'ancestry'],
+      ['id' => 'assurance', 'name' => 'Assurance', 'type' => 'skill'],
+    ]);
     $spells = $this->createMock(SpellCatalogService::class);
     $spells->method('getSpells')->willReturn([['id' => 'ember-dart', 'name' => 'Ember Dart', 'rank' => 1, 'is_cantrip' => TRUE]]);
 
@@ -118,7 +147,7 @@ class ActorDocumentConverterTest extends TestCase {
         return match ($family) {
           'class' => [['id' => 'warden', 'name' => 'Warden']],
           'ancestry' => [['id' => 'fenfolk', 'name' => 'Fenfolk']],
-          'background' => [['id' => 'ferry-hand', 'name' => 'Ferry Hand']],
+          'background' => [['id' => 'ferry-hand', 'name' => 'Ferry Hand', 'feat' => 'Assurance (Stealth)']],
           default => parent::entries($family),
         };
       }

@@ -389,21 +389,47 @@
       "date": "2026-11-14",
       "rows": "D01, D03",
       "effect": "784 actor rows received a database-allocated UUID (852 distinct); uuid is NOT NULL, unique and defaults to UUID(); level is signed; dc_actor_revisions and dc_actor_command_receipts created."
+    },
+    {
+      "update": "dungeoncrawler_content_update_10226",
+      "date": "2026-11-14",
+      "effect": "Reclassified one archived evidence fixture (row 5411) from pc to npc."
     }
   ],
   "conversion_preflight": {
     "date": "2026-11-14",
     "tool": "tools/actor-authority/conversion-preflight.php (read-only)",
     "rows": 852,
-    "convert_and_validate_for_save": 846,
-    "blocked_rows": {
-      "feat id absent from the catalog (assurance-athletics, quick-coercion, dubious-knowledge)": 3,
-      "unknown background label (Wanderer)": 1,
-      "spell absent from the catalog (Identify)": 1,
-      "unknown class label (informant)": 1,
-      "unknown ancestry label (Humanoid)": 1
-    },
-    "history": "664 before the spell catalog repair; 749 after importing 14 spells whose damage adds the spellcasting ability modifier; 846 after exact-id precedence and keeping incomplete spellcasting as a draft.",
-    "note": "Blocked rows are not converted by guessing. Spell lists stored without tradition or casting type convert as drafts and are not publishable until authored."
+    "convert_and_validate_for_save": 852,
+    "blocked_rows": {},
+    "history": "664 initially; 749 after importing 14 spells whose damage adds the spellcasting ability modifier; 846 after exact-id precedence and draft spellcasting; 852 after adding Quick Coercion and Dubious Knowledge and the reviewed repairs below.",
+    "reviewed_repairs": [
+      {
+        "stored": "feat assurance-athletics",
+        "repair": "feat assurance with choices.skill=athletics, slot background (granted by Farmhand)",
+        "basis": "Assurance is taken once per trained skill"
+      },
+      {
+        "stored": "spell Comprehend Languages",
+        "repair": "comprehend-language",
+        "basis": "catalog name is singular"
+      },
+      {
+        "stored": "spell Identify",
+        "repair": "read-aura",
+        "basis": "Identify is not a spell in the ruleset; learning whether an item is magical is the Read Aura cantrip"
+      },
+      {
+        "stored": "background Wanderer / Resident",
+        "repair": "unset",
+        "basis": "fabricated by CharacterManager::canonicalizeCharacterData() when no background was chosen"
+      },
+      {
+        "stored": "row 5411 type pc, class informant, ancestry Humanoid",
+        "repair": "type npc, role informant (update 10226)",
+        "basis": "archived evidence fixture, not a player character"
+      }
+    ],
+    "note": "Spell lists stored without tradition or casting type convert as drafts and are not publishable until authored."
   }
 }

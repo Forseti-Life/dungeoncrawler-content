@@ -74,4 +74,51 @@ class RecallKnowledgeService {
     ];
   }
 
+  /**
+   * Resolves what the actor learns from a Recall Knowledge degree of success.
+   *
+   * Single outcome authority for exploration and encounter play.
+   *
+   * @param string $degree
+   *   critical_success|success|failure|critical_failure.
+   * @param array $params
+   *   known_info, bonus_detail and false_info supplied by the GM layer.
+   * @param bool $dubious_knowledge
+   *   TRUE when the actor has the Dubious Knowledge feat.
+   *
+   * @return array{player_facing_message: string, info: mixed, bonus_detail: mixed, dubious: bool}
+   *   The player-facing outcome. A critical failure presents false
+   *   information as truthful.
+   */
+  public static function resolveOutcome(string $degree, array $params, bool $dubious_knowledge = FALSE): array {
+    $known = $params['known_info'] ?? NULL;
+    $false = $params['false_info'] ?? NULL;
+    switch ($degree) {
+      case 'critical_success':
+        return ['player_facing_message' => 'You recall detailed information about the subject.', 'info' => $known, 'bonus_detail' => $params['bonus_detail'] ?? NULL, 'dubious' => FALSE];
+
+      case 'success':
+        return ['player_facing_message' => 'You recall accurate information about the subject.', 'info' => $known, 'bonus_detail' => NULL, 'dubious' => FALSE];
+
+      case 'failure':
+        if ($dubious_knowledge) {
+          // Both answers are returned in a stable order that does not reveal
+          // which is true: sorted, not "true first".
+          $answers = array_values(array_filter([$known, $false], static fn(mixed $answer): bool => $answer !== NULL && $answer !== ''));
+          usort($answers, static fn(mixed $a, mixed $b): int => strcmp(json_encode($a), json_encode($b)));
+          return [
+            'player_facing_message' => 'You recall two things about the subject, but you cannot tell which of them is true.',
+            'info' => $answers,
+            'bonus_detail' => NULL,
+            'dubious' => TRUE,
+          ];
+        }
+        return ['player_facing_message' => 'You fail to recall anything useful.', 'info' => NULL, 'bonus_detail' => NULL, 'dubious' => FALSE];
+
+      case 'critical_failure':
+        return ['player_facing_message' => 'You recall information about the subject.', 'info' => $false, 'bonus_detail' => NULL, 'dubious' => FALSE];
+    }
+    throw new \InvalidArgumentException('recall_knowledge_degree_invalid:' . $degree);
+  }
+
 }

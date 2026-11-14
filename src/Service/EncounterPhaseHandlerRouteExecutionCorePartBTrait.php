@@ -756,32 +756,14 @@ trait EncounterPhaseHandlerRouteExecutionCorePartBTrait {
     }
     $game_state['recall_knowledge_attempts'][$attempt_key] = TRUE;
 
-    switch ($degree) {
-      case 'critical_success':
-        $player_msg = 'You recall detailed information about the subject.';
-        $info = $params['known_info'] ?? NULL;
-        $bonus_detail = $params['bonus_detail'] ?? NULL;
-        break;
-
-      case 'success':
-        $player_msg = 'You recall accurate information about the subject.';
-        $info = $params['known_info'] ?? NULL;
-        $bonus_detail = NULL;
-        break;
-
-      case 'failure':
-        $player_msg = 'You fail to recall anything useful.';
-        $info = NULL;
-        $bonus_detail = NULL;
-        break;
-
-      case 'critical_failure':
-      default:
-        $player_msg = 'You recall information about the subject.';
-        $info = $params['false_info'] ?? NULL;
-        $bonus_detail = NULL;
-        break;
-    }
+    $outcome = RecallKnowledgeService::resolveOutcome(
+      $degree,
+      $params,
+      $actor_id !== NULL && $this->characterStateService->getFeatOverrides($actor_id, 'recall_knowledge') !== []
+    );
+    $player_msg = $outcome['player_facing_message'];
+    $info = $outcome['info'];
+    $bonus_detail = $outcome['bonus_detail'];
 
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
     $result = [
@@ -793,6 +775,7 @@ trait EncounterPhaseHandlerRouteExecutionCorePartBTrait {
       'player_facing_message' => $player_msg,
       'info' => $info,
       'bonus_detail' => $bonus_detail,
+      'dubious_knowledge' => $outcome['dubious'],
       'secret' => TRUE,
     ];
     $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(

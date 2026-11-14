@@ -2215,6 +2215,13 @@ class DowntimePhaseHandler implements MutationContextPhaseHandlerInterface {
   protected function processCoerce(string $actor_id, array $params, array &$game_state, string $campaign_id): array {
     $degree    = $params['degree'] ?? 'failure';
     $target_id = $params['target_id'] ?? '';
+    // Coerce needs 1 minute of conversation; Quick Coercion needs 1 round.
+    $conversation_rounds = 10;
+    foreach ($this->characterStateService->getFeatOverrides($actor_id, 'coerce', (int) $campaign_id ?: NULL) as $override) {
+      if (($override['type'] ?? '') === 'conversation_time') {
+        $conversation_rounds = min($conversation_rounds, (int) $override['rounds']);
+      }
+    }
 
     // Check 7-day immunity.
     $immune_key = 'coerce_immune_' . $actor_id . '_' . $target_id;
@@ -2224,6 +2231,7 @@ class DowntimePhaseHandler implements MutationContextPhaseHandlerInterface {
         'compliant'       => FALSE,
         'compliance_days' => 0,
         'immune'          => TRUE,
+        'conversation_rounds' => $conversation_rounds,
       ];
     }
 
@@ -2273,6 +2281,7 @@ class DowntimePhaseHandler implements MutationContextPhaseHandlerInterface {
       'compliant'       => $compliant,
       'compliance_days' => $compliance_days,
       'immune'          => FALSE,
+      'conversation_rounds' => $conversation_rounds,
     ];
   }
 

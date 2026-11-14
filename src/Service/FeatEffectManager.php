@@ -5909,6 +5909,30 @@ class FeatEffectManager {
           break;
         }
 
+        case 'quick-coercion':
+          // Coerce needs 1 round of conversation instead of 1 minute. It is
+          // still unavailable in combat or without a conversation.
+          $effects['feat_overrides']['coerce'][] = [
+            'type' => 'conversation_time',
+            'rounds' => 1,
+            'source' => 'quick-coercion',
+          ];
+          $effects['notes'][] = 'Quick Coercion: Coerce after 1 round of conversation instead of 1 minute.';
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'dubious-knowledge':
+          // A failed (not critically failed) Recall Knowledge yields the
+          // correct answer and an erroneous one, undifferentiated.
+          $effects['feat_overrides']['recall_knowledge'][] = [
+            'type' => 'failure_outcome',
+            'outcome' => 'correct_and_erroneous',
+            'source' => 'dubious-knowledge',
+          ];
+          $effects['notes'][] = 'Dubious Knowledge: a failed Recall Knowledge gives a correct and an erroneous answer you cannot tell apart.';
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
         case 'cat-fall':
         case 'charming-liar':
         case 'combat-climber':

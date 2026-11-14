@@ -14,7 +14,7 @@
   },
   "totals": {
     "files": 113,
-    "write_sites": 334
+    "write_sites": 335
   },
   "files": {
     "dungeoncrawler_content.install": {
@@ -26,7 +26,7 @@
         "dynamic_table_write:update:$table": 3,
         "literal_table_write:delete:dungeoncrawler_content_definition_quarantine": 1,
         "literal_table_write:merge:dungeoncrawler_content_definition_quarantine": 1,
-        "literal_table_write:update:dc_campaign_characters": 1,
+        "literal_table_write:update:dc_campaign_characters": 2,
         "literal_table_write:update:dungeoncrawler_content_registry": 1,
         "raw_sql_write:ALTER TABLE:dc_campaign_characters": 2
       }

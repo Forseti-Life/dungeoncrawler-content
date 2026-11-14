@@ -6657,3 +6657,21 @@ function dungeoncrawler_content_update_10225(): string {
 
   return "Allocated {$backfilled} actor UUIDs; actor UUID is now required and unique; level is signed.";
 }
+
+/**
+ * Reclassify one archived evidence fixture stored as a player character.
+ *
+ * "R7 Evidence Cistern Informant" carries the role label "informant" as its
+ * class and the trait "Humanoid" as its ancestry. It is a non-player actor.
+ */
+function dungeoncrawler_content_update_10226(): string {
+  $updated = \Drupal::database()->update('dc_campaign_characters')
+    ->fields(['type' => 'npc', 'role' => 'informant'])
+    ->condition('id', 5411)
+    ->condition('name', 'R7 Evidence Cistern Informant')
+    ->condition('type', 'pc')
+    ->condition('status', 2)
+    ->execute();
+
+  return "Reclassified {$updated} archived evidence fixture as a non-player actor.";
+}

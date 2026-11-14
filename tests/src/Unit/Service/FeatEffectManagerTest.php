@@ -65,6 +65,19 @@ class FeatEffectManagerTest extends UnitTestCase {
     ], $extra_character);
   }
 
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testQuickCoercionAndDubiousKnowledgeDeclareTheirOverrides(): void {
+    $effects = $this->manager->buildEffectState($this->buildCharacterWithFeat('quick-coercion'));
+    $this->assertSame([['type' => 'conversation_time', 'rounds' => 1, 'source' => 'quick-coercion']], $effects['feat_overrides']['coerce']);
+    $this->assertContains('quick-coercion', $effects['applied_feats']);
+
+    $effects = $this->manager->buildEffectState($this->buildCharacterWithFeat('dubious-knowledge'));
+    $this->assertSame([['type' => 'failure_outcome', 'outcome' => 'correct_and_erroneous', 'source' => 'dubious-knowledge']], $effects['feat_overrides']['recall_knowledge']);
+    $this->assertContains('dubious-knowledge', $effects['applied_feats']);
+  }
+
   // ---------------------------------------------------------------------------
   // TC-FEAT-01: Battle Medicine — at_will action registered with correct shape
   // ---------------------------------------------------------------------------

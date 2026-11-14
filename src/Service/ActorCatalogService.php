@@ -198,6 +198,20 @@ class ActorCatalogService implements ActorReferenceCatalogInterface {
   }
 
   /**
+   * The feat id a background grants, when the catalog names one.
+   */
+  public function backgroundGrantedFeat(string $background_id): ?string {
+    foreach ($this->entries('background') as $background) {
+      if ((string) $background['id'] === $background_id) {
+        $name = trim((string) preg_replace('/\s*\(.+\)$/', '', (string) ($background['feat'] ?? '')));
+        return $name === '' ? NULL : $this->resolveId('feat', $name);
+      }
+    }
+
+    return NULL;
+  }
+
+  /**
    * The catalog's base rank for a spell (0 for cantrips).
    */
   public function spellRank(string $spell_id): ?int {

@@ -43,6 +43,28 @@ class CharacterStateService {
   }
 
   /**
+   * Feat overrides of one kind for an actor, from its effective state.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Override records; empty when the actor has no such feat.
+   */
+  public function getFeatOverrides(string $actor_id, string $override, ?int $campaign_id = NULL): array {
+    try {
+      $state = $this->getState($actor_id, $campaign_id);
+    }
+    catch (\InvalidArgumentException $exception) {
+      // An actor with no character sheet (a room creature) has no feats.
+      if (str_starts_with($exception->getMessage(), 'Character not found:')) {
+        return [];
+      }
+      throw $exception;
+    }
+    $overrides = $state['features']['featEffects']['feat_overrides'][$override] ?? [];
+
+    return is_array($overrides) ? array_values($overrides) : [];
+  }
+
+  /**
    * Get current character state.
    * 
    * @param string $character_id

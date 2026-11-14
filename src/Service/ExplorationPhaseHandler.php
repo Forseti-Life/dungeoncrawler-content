@@ -701,33 +701,14 @@ class ExplorationPhaseHandler implements MutationContextPhaseHandlerInterface {
         $total_rk = $d20_rk + $skill_bonus_rk;
         $degree_rk = $this->calculateDegreeOfSuccess($total_rk, $dc_rk, $d20_rk);
 
-        switch ($degree_rk) {
-          case 'critical_success':
-            $player_msg_rk = 'You recall detailed information about the subject.';
-            $info_rk = $params['known_info'] ?? NULL;
-            $bonus_rk = $params['bonus_detail'] ?? NULL;
-            break;
-
-          case 'success':
-            $player_msg_rk = 'You recall accurate information about the subject.';
-            $info_rk = $params['known_info'] ?? NULL;
-            $bonus_rk = NULL;
-            break;
-
-          case 'failure':
-            $player_msg_rk = 'You fail to recall anything useful.';
-            $info_rk = NULL;
-            $bonus_rk = NULL;
-            break;
-
-          case 'critical_failure':
-          default:
-            // REQ 1594: Crit fail returns false info presented as truthful.
-            $player_msg_rk = 'You recall information about the subject.';
-            $info_rk = $params['false_info'] ?? NULL;
-            $bonus_rk = NULL;
-            break;
-        }
+        $outcome_rk = RecallKnowledgeService::resolveOutcome(
+          $degree_rk,
+          $params,
+          $actor_id !== NULL && $this->characterStateService->getFeatOverrides((string) $actor_id, 'recall_knowledge') !== []
+        );
+        $player_msg_rk = $outcome_rk['player_facing_message'];
+        $info_rk = $outcome_rk['info'];
+        $bonus_rk = $outcome_rk['bonus_detail'];
 
         $result = [
           'degree' => $degree_rk,
@@ -738,6 +719,7 @@ class ExplorationPhaseHandler implements MutationContextPhaseHandlerInterface {
           'player_facing_message' => $player_msg_rk,
           'info' => $info_rk,
           'bonus_detail' => $bonus_rk,
+          'dubious_knowledge' => $outcome_rk['dubious'],
           'secret' => TRUE,
         ];
         $events[] = GameEventLogger::buildEvent('recall_knowledge', 'exploration', $actor_id, ['skill_used' => $skill_used_rk, 'degree' => $degree_rk], NULL, $target_id);

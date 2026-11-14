@@ -83,10 +83,10 @@ Applied to the live database (update 10225): every actor row has a unique,
 required UUID allocated by the database; `level` is signed; the
 `dc_actor_revisions` and `dc_actor_command_receipts` tables exist.
 
-Preflight on 2026-11-14: 846 of 852 rows convert and validate for save. The
-six blocked rows name a feat, spell, class, ancestry or background that is not
-in the local catalog. Spell lists stored without a tradition or casting type
-convert as drafts and stay unpublishable until authored.
+Preflight on 2026-11-14: all 852 rows convert and validate for save. Reviewed
+one-time repairs of stored values are listed in the ledger under
+`conversion_preflight.reviewed_repairs`. Spell lists stored without a tradition
+or casting type convert as drafts and stay unpublishable until authored.
 
 Spell damage that adds the caster's spellcasting ability modifier declares
 `"ability_modifier": "spellcasting"` beside an executable dice formula. The

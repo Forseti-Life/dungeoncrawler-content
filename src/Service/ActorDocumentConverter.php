@@ -35,7 +35,22 @@ class ActorDocumentConverter {
    * Each entry was checked against the local catalog; nothing is inferred.
    */
   private const STORED_NAME_REPAIRS = [
-    'spell' => ['comprehend languages' => 'comprehend-language'],
+    'spell' => [
+      'comprehend languages' => 'comprehend-language',
+      // "Identify" is not a spell in this ruleset. Its function, learning
+      // whether an item is magical, is the Read Aura cantrip.
+      'identify' => 'read-aura',
+    ],
+  ];
+
+  /**
+   * Stored labels that were written as fabricated defaults, not chosen.
+   *
+   * CharacterManager::canonicalizeCharacterData() filled an empty background
+   * with these names. They state no selection, so the field converts as unset.
+   */
+  private const FABRICATED_DEFAULTS = [
+    'background' => ['wanderer', 'resident'],
   ];
 
   public function __construct(protected ActorCatalogService $catalog) {}
@@ -280,7 +295,7 @@ class ActorDocumentConverter {
   private function playerBuild(array &$build, array $source, callable $issue): void {
     foreach (['class' => 'class', 'subclass' => NULL, 'ancestry' => 'ancestry', 'heritage' => 'heritage', 'background' => 'background'] as $field => $kind) {
       $value = trim((string) ($source[$field] ?? ''));
-      if ($value === '') {
+      if ($value === '' || in_array(strtolower($value), self::FABRICATED_DEFAULTS[$field] ?? [], TRUE)) {
         continue;
       }
       if ($kind === NULL) {
@@ -324,18 +339,28 @@ class ActorDocumentConverter {
     foreach ((array) ($source['feats'] ?? []) as $index => $feat) {
       $raw = is_array($feat) ? (string) ($feat['id'] ?? $feat['name'] ?? '') : (string) $feat;
       $id = $this->catalog->resolveId('feat', $raw);
+      $entry = ['id' => (string) $id, 'feat_id' => (string) $id];
+      // Assurance is taken once per skill and was stored as assurance-<skill>.
+      if ($id === NULL && preg_match('/^assurance-([a-z-]+)$/', strtolower($raw), $match)
+        && ($skill = $this->catalog->resolveId('skill', $match[1])) !== NULL && $this->catalog->has('feat', 'assurance')) {
+        $id = 'assurance';
+        $entry = ['id' => 'assurance-' . $skill, 'feat_id' => 'assurance', 'choices' => ['skill' => $skill]];
+      }
       if ($id === NULL) {
         $issue('/build/feats/' . $index, 'unknown_feat', $raw);
         continue;
       }
-      // An explicit creation field wins; otherwise the catalog's own feat
-      // type states which slot kind the feat occupies.
-      $slot = $slots[$raw] ?? $slots[$id] ?? $this->catalog->featType($id);
+      // An explicit creation field wins, then the background's own grant,
+      // then the catalog's feat type states which slot kind it occupies.
+      $slot = $slots[$raw] ?? $slots[$id]
+        ?? (isset($build['background']) && $this->catalog->backgroundGrantedFeat($build['background']) === $id ? 'background' : NULL)
+        ?? $this->catalog->featType($id);
       if ($slot === NULL) {
         $issue('/build/feats/' . $index, 'feat_slot_unknown', $id);
         continue;
       }
-      $feats[$id] = ['id' => $id, 'feat_id' => $id, 'slot' => $slot, 'level_gained' => 1];
+      $feats[$entry['id']] = ['id' => $entry['id'], 'feat_id' => $entry['feat_id'], 'slot' => $slot, 'level_gained' => 1]
+        + (isset($entry['choices']) ? ['choices' => $entry['choices']] : []);
     }
     if ($feats !== []) {
       $build['feats'] = array_values($feats);

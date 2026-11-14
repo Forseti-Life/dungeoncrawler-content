@@ -10258,6 +10258,53 @@
                 "type": "skill"
             },
             "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "dubious-knowledge",
+            "name": "Dubious Knowledge",
+            "level": 1,
+            "schema_data": {
+                "id": "dubious-knowledge",
+                "name": "Dubious Knowledge",
+                "level": 1,
+                "traits": [
+                    "General",
+                    "Skill"
+                ],
+                "skill": "none",
+                "prerequisites": "Trained in a skill with the Recall Knowledge action",
+                "benefit": "When you fail a Recall Knowledge check with any skill, without critically failing, you learn the correct answer and an erroneous answer, with no way to tell which is which.",
+                "feat_id": "dubious-knowledge",
+                "content_id": "dubious-knowledge",
+                "type": "skill",
+                "special": {
+                    "skill_scope": "recall_knowledge"
+                }
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "quick-coercion",
+            "name": "Quick Coercion",
+            "level": 1,
+            "schema_data": {
+                "id": "quick-coercion",
+                "name": "Quick Coercion",
+                "level": 1,
+                "traits": [
+                    "General",
+                    "Skill"
+                ],
+                "skill": "Intimidation",
+                "prerequisites": "Trained in Intimidation",
+                "benefit": "You can Coerce a creature after 1 round of conversation instead of 1 minute. You still can't Coerce a creature during combat or without engaging it in conversation.",
+                "feat_id": "quick-coercion",
+                "content_id": "quick-coercion",
+                "type": "skill"
+            },
+            "version": "character-manager-bootstrap-v1"
         }
     ],
     "version": "character-manager-bootstrap-v1"
