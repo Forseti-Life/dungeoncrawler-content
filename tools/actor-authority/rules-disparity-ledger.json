@@ -1,7 +1,7 @@
 {
   "contract": "actor-rules-disparity-ledger-v1",
   "work_item": "DC-ACTOR-AUTHORITY-20261114",
-  "gate": "S0 (R1). Every row must be status=decided before the S1 contract freeze. needs_decision rows block S1 for the fields they cover.",
+  "gate": "S0 (R1). All rows are decided. Open items named on rows D02/D22 are conversion preconditions for S3/S4, not S1 blockers.",
   "sources": {
     "character": "config/schemas/character.schema.json",
     "canonical_actor": "config/schemas/canonical_actor.schema.json",
@@ -255,9 +255,8 @@
       "observed": {
         "canonical_actor": "actor_type=party with state_data.party_size 1..12 (2 live rows)"
       },
-      "target_rule": "A party is a group of actors, not an actor. Recommendation: convert each to an encounter/group template that references member actor publications.",
-      "status": "needs_decision",
-      "blocks": "S3 conversion of the 2 party rows only; not S1.",
+      "target_rule": "A party is a group of actors, not an actor. Convert each party definition to a group template that references member actor publications; party_size becomes the member count.",
+      "status": "decided",
       "slice": "S3"
     },
     {
@@ -282,12 +281,12 @@
         "runtime_table": "dc_campaign_actor_runtime_state (1758 rows, 368 campaigns) entity_payload.state repeats character_data (638), inventory, equipment, resources, currency, conditions, hit_points, spell_slots, focus_points, is_defeated; entity_payload.placement holds room_id, hex, facing, h3_index_res14.",
         "reader": "CharacterStateService::getState() reads HP and AC from the instance row hot columns (CharacterStateService.php:147-158), overlays the campaign row state_data (:205), and merges default_character_data under character_data through alias chains. Its persistence path writes state_data and the hot columns together (:1699-1790). The coordinator separately persists dc_campaign_actor_runtime_state through ActorRuntimeMutationService. So the instance row is today's effective home for sheet state, and the runtime table is a second instance-level store."
       },
-      "target_rule": "Board directive: per-campaign actor state belongs to the campaign instance of the actor. The instance is the aggregate for its own state; a template never holds it and a template edit never resets it. Each instance fact still has exactly one physical home. Recommendation: instance row character_data = pinned authored snapshot; instance-scoped mutable facts (current HP, resources, expended slots, defeated/flags, XP, campaign role) = one typed instance-state document; placement = one placement record; inventory/effects/psychology keep their domain stores keyed by the instance. Hot columns and the duplicate copies become projections or are removed.",
-      "status": "needs_decision",
-      "blocks": "S1 freeze of instance-scoped fields and all of S4. Requires the measured per-field map of which store wins today (instance row state_data vs hot columns vs runtime payload) before choosing each physical home.",
+      "target_rule": "Board directive: per-campaign actor state belongs to the campaign instance of the actor; a template never holds it and a template edit never resets it. Decision (CEO, 2026-11-14): the campaign-instance row is the single home. character_data = pinned canonical actor document. state_data = one typed instance-state document (resources: current/temporary HP, hero points, expended slots, focus, feat resources; progression: XP; flags; campaign role). The row placement columns are the one placement record. Inventory, effects, psychology and social facts keep their domain stores keyed by the instance. hp_current/hp_max/armor_class/level/name/class/ancestry/experience_points columns become same-transaction projections verified equal to their owner. dc_campaign_actor_runtime_state stops owning actor facts: rows that are actors convert to instance rows through explicit migration, rows that are room objects move to the room-state lane, and the table is retired as an actor store. This supersedes the 2026-07-27 choice of that table as actor runtime write authority for actor facts; typed writes, pure reads and no dungeon-blob authority remain binding.",
+      "status": "decided",
       "data_impact": "Measured 2026-11-14. Only 295 of 675 instance rows join a runtime-state row on (campaign_id, instance_id); 1463 of 1758 runtime rows match no instance row. Among joined rows: runtime HP differs from the instance hot column in 25 NPC rows, runtime placement H3 differs from position_h3 in 205 rows and room in 16; instance state_data HP differs from the hot column in 3 rows. Authored copies largely agree (3 name differences, no level or backstory differences).",
       "slice": "S0 map, S4 conversion",
-      "recommendation_basis": "The instance row is the store the effective-state reader trusts and the only one reliably keyed to an actor row. The runtime table is weakly linked and already divergent, so it should not be chosen as a home for any fact without first reconciling its identity key."
+      "recommendation_basis": "The instance row is the store the effective-state reader trusts and the only one reliably keyed to an actor row. The runtime table is weakly linked and already divergent, so it should not be chosen as a home for any fact without first reconciling its identity key.",
+      "open_item": "Classify the 1463 runtime rows that match no instance row (actor needing a row, room object, or orphan of a deleted campaign) before S4 conversion."
     },
     {
       "id": "D23",
@@ -355,6 +354,33 @@
       "joined_runtime_room_differs": 16,
       "state_data_hp_differs_from_hot_column": 3,
       "state_data_name_differs": 3
+    },
+    "references_and_scenarios": {
+      "dc_canonical_storyline_actors": {
+        "rows": 17,
+        "unresolved_in_dc_canonical_actors": 0,
+        "without_library_actor_row": 10
+      },
+      "dc_canonical_objective_actor_refs": {
+        "rows": 24,
+        "unresolved_in_dc_canonical_actors": 0
+      },
+      "library_npc_rows": {
+        "rows": 110,
+        "with_canonical_definition": 7
+      },
+      "burasco": {
+        "actor_rows_named_burasco": 89,
+        "assets": [
+          "config/harness/burasco-script-v1.json",
+          "scripts/langgraph_actor_harness/",
+          "scripts/langgraph-actor-harness-run.py",
+          "src/Commands/ActorHarnessLangGraphCommands.php",
+          "tests/test_island_burasco_scenario.py",
+          "tests/langgraph_actor_harness_contract_test.js",
+          "content/npc_psychology.json"
+        ]
+      }
     }
   }
 }

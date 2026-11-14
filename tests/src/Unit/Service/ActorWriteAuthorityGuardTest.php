@@ -196,6 +196,35 @@ PHP);
   }
 
   /**
+   * Every source field has exactly one owner; an unmapped field blocks.
+   */
+  public function testFieldMapCoversSchemasAndObservedStores(): void {
+    $map = json_decode((string) file_get_contents($this->modulePath('tools/actor-authority/field-map.json')), TRUE, 512, JSON_THROW_ON_ERROR);
+    $fields = $map['fields'];
+    foreach ($fields as $key => $field) {
+      $this->assertMatchesRegularExpression('/^(document:(identity|build|narrative|defaults|provenance)|instance:(state|placement)|row:|domain:|derived$|remove:transport$)/', $field['target'], $key);
+    }
+
+    $schema_properties = [];
+    $schemas = [
+      'character.schema.json' => [[]],
+      'creature.schema.json' => [[]],
+      'canonical_actor.schema.json' => [[], ['definitions', 'state_data']],
+    ];
+    foreach ($schemas as $file => $pointers) {
+      $schema = json_decode((string) file_get_contents($this->modulePath('config/schemas/' . $file)), TRUE, 512, JSON_THROW_ON_ERROR);
+      foreach ($pointers as $pointer) {
+        $node = array_reduce($pointer, static fn(array $carry, string $key): array => $carry[$key], $schema);
+        $schema_properties = array_merge($schema_properties, array_keys($node['properties']));
+      }
+    }
+    $observed = array_merge(...array_values($map['observed_keys']));
+    $unmapped = array_values(array_diff(array_unique(array_merge($schema_properties, $observed)), array_keys($fields)));
+
+    $this->assertSame([], $unmapped, 'Actor fields without an owner in tools/actor-authority/field-map.json.');
+  }
+
+  /**
    * @return array<string, mixed>
    */
   private function register(): array {

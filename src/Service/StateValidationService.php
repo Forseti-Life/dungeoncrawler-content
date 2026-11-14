@@ -327,6 +327,21 @@ class StateValidationService {
   }
 
   /**
+   * Validate a canonical actor document under a server-selected profile.
+   *
+   * Single validation entry for every actor (player characters, NPCs and
+   * creatures share one schema and rule set). Returns an
+   * actor-validation-report-v1 report whose checks state what actually ran.
+   */
+  public function validateActor(array $document, string $profile): array {
+    if ($this->container === NULL) {
+      throw new \LogicException('Actor validation is not configured in StateValidationService.');
+    }
+    return $this->container->get('dungeoncrawler_content.actor_document_validator')
+      ->validate($document, $profile);
+  }
+
+  /**
    * Validate a canonical item definition against the contract schema.
    */
   public function validateItemDefinition(array $item): array {

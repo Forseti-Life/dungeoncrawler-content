@@ -1,0 +1,1305 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.forseti.life/schemas/actor.schema.json",
+  "title": "Canonical actor document",
+  "description": "One document contract for every actor: player characters, NPCs, creatures and companions (DC-ACTOR-AUTHORITY-20261114, R1). Authored identity, build, narrative and instantiation defaults only. Campaign-instance state, inventory, effects, placement, mutable psychology and quest progress are owned elsewhere and never appear here. Drafts may be incomplete; completeness is a validation-profile rule, not a schema rule.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "identity",
+    "build"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "actor-document-v1"
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "kind"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "pc",
+            "npc",
+            "creature",
+            "companion"
+          ]
+        },
+        "taxonomy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "creature_type": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,99}$"
+            },
+            "family": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,99}$"
+            },
+            "rarity": {
+              "type": "string",
+              "enum": [
+                "common",
+                "uncommon",
+                "rare",
+                "unique"
+              ]
+            },
+            "traits": {
+              "type": "array",
+              "maxItems": 60,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              }
+            }
+          }
+        },
+        "size": {
+          "type": "string",
+          "enum": [
+            "tiny",
+            "small",
+            "medium",
+            "large",
+            "huge",
+            "gargantuan"
+          ]
+        },
+        "alignment": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "role": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 150
+        },
+        "personal": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "age": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 50
+            },
+            "gender": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "deity": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "concept": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            }
+          }
+        }
+      }
+    },
+    "build": {
+      "type": "object",
+      "required": [
+        "mechanics_model"
+      ],
+      "properties": {
+        "mechanics_model": {
+          "type": "string",
+          "enum": [
+            "pc_build",
+            "authored_statblock"
+          ]
+        }
+      },
+      "if": {
+        "required": [
+          "mechanics_model"
+        ],
+        "properties": {
+          "mechanics_model": {
+            "const": "pc_build"
+          }
+        }
+      },
+      "then": {
+        "$ref": "#/definitions/pc_build"
+      },
+      "else": {
+        "$ref": "#/definitions/authored_statblock"
+      }
+    },
+    "narrative": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 5000
+        },
+        "appearance": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "personality": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "biography": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 5000
+        },
+        "motivations": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "fears": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "bonds": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "personality_traits": {
+          "type": "array",
+          "maxItems": 30,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          }
+        },
+        "facts": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "text",
+              "visibility"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_-]{0,99}$"
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              },
+              "visibility": {
+                "type": "string",
+                "enum": [
+                  "public",
+                  "actor_private",
+                  "gm_only"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "loadout": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "items": {
+              "type": "array",
+              "maxItems": 200,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "item_id",
+                  "quantity"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9_-]{0,99}$"
+                  },
+                  "item_id": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9_-]{0,99}$"
+                  },
+                  "quantity": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9999
+                  },
+                  "equipped": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            },
+            "currency_cp": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 999999999
+            }
+          }
+        },
+        "psychology": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "attitude": {
+              "type": "string",
+              "enum": [
+                "hostile",
+                "unfriendly",
+                "indifferent",
+                "friendly",
+                "helpful"
+              ]
+            },
+            "seed": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "inner_conflict": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "coping_mechanism": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "stress_response": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "insecurity": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "secret": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "desire": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "need": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "trigger": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "anchor": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                }
+              }
+            },
+            "speech": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "dialect": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "verbal_tics": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "formality": {
+                  "type": "string",
+                  "enum": [
+                    "crude",
+                    "casual",
+                    "formal",
+                    "archaic",
+                    "alien"
+                  ]
+                },
+                "catchphrases": {
+                  "type": "array",
+                  "maxItems": 20,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  }
+                }
+              }
+            },
+            "combat": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "aggression": {
+                  "type": "string",
+                  "enum": [
+                    "pacifist",
+                    "defensive",
+                    "cautious",
+                    "aggressive",
+                    "berserk"
+                  ]
+                },
+                "tactics": {
+                  "type": "string",
+                  "enum": [
+                    "mindless",
+                    "instinctive",
+                    "basic",
+                    "tactical",
+                    "strategic",
+                    "genius"
+                  ]
+                },
+                "morale": {
+                  "type": "string",
+                  "enum": [
+                    "cowardly",
+                    "cautious",
+                    "steady",
+                    "brave",
+                    "fanatical"
+                  ]
+                },
+                "flee_threshold_hp_percent": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "preferred_range": {
+                  "type": "string",
+                  "enum": [
+                    "melee",
+                    "ranged",
+                    "mixed",
+                    "flee"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "spawn": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "spawn_type": {
+              "type": "string",
+              "enum": [
+                "permanent",
+                "respawning",
+                "wandering",
+                "boss",
+                "quest",
+                "summoned"
+              ]
+            },
+            "respawn_cooldown_hours": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000
+            },
+            "wander_radius_rooms": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 50
+            },
+            "patrol_route": {
+              "type": "array",
+              "maxItems": 100,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              }
+            }
+          }
+        },
+        "media": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "portrait_asset_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source_module": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "generated_by": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tool",
+            "model",
+            "prompt_hash",
+            "seed",
+            "generated_at"
+          ],
+          "properties": {
+            "tool": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "model": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "provider": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "prompt_hash": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "seed": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "generated_at": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        },
+        "converted_from": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "store",
+            "source_id",
+            "source_hash"
+          ],
+          "properties": {
+            "store": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "source_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 191
+            },
+            "source_hash": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "abilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "str": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30
+        },
+        "dex": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30
+        },
+        "con": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30
+        },
+        "int": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30
+        },
+        "wis": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30
+        },
+        "cha": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30
+        }
+      }
+    },
+    "speed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "land"
+      ],
+      "properties": {
+        "land": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 120
+        },
+        "fly": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 200
+        },
+        "swim": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "climb": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "burrow": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60
+        }
+      }
+    },
+    "damage_modifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "value"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "value": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      }
+    },
+    "spellcasting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tradition",
+        "type"
+      ],
+      "properties": {
+        "tradition": {
+          "type": "string",
+          "enum": [
+            "arcane",
+            "divine",
+            "occult",
+            "primal"
+          ]
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "innate",
+            "prepared",
+            "spontaneous",
+            "focus"
+          ]
+        },
+        "dc": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60
+        },
+        "attack_modifier": {
+          "type": "integer",
+          "minimum": -10,
+          "maximum": 60
+        },
+        "slots": {
+          "type": "array",
+          "maxItems": 11,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "rank",
+              "count"
+            ],
+            "properties": {
+              "rank": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 10
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 20
+              }
+            }
+          }
+        },
+        "entries": {
+          "type": "array",
+          "maxItems": 300,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "spell_id",
+              "rank"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_-]{0,99}$"
+              },
+              "spell_id": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_-]{0,99}$"
+              },
+              "rank": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 10
+              },
+              "source": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              }
+            }
+          }
+        }
+      }
+    },
+    "companion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,99}$"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "familiar",
+            "animal_companion",
+            "follower"
+          ]
+        },
+        "actor_uuid": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "selection_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,99}$"
+        }
+      }
+    },
+    "pc_build": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mechanics_model"
+      ],
+      "properties": {
+        "mechanics_model": {
+          "type": "string",
+          "enum": [
+            "pc_build",
+            "authored_statblock"
+          ]
+        },
+        "abilities": {
+          "$ref": "#/definitions/abilities"
+        },
+        "languages": {
+          "type": "array",
+          "maxItems": 200,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        },
+        "senses": {
+          "type": "array",
+          "maxItems": 200,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        },
+        "speed": {
+          "$ref": "#/definitions/speed"
+        },
+        "spellcasting": {
+          "$ref": "#/definitions/spellcasting"
+        },
+        "companions": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/definitions/companion"
+          }
+        },
+        "hex_footprint": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30
+        },
+        "level": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+        },
+        "class": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,99}$"
+        },
+        "subclass": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,99}$"
+        },
+        "class_key_ability": {
+          "type": "string",
+          "enum": [
+            "str",
+            "dex",
+            "con",
+            "int",
+            "wis",
+            "cha"
+          ]
+        },
+        "ancestry": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,99}$"
+        },
+        "heritage": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,99}$"
+        },
+        "background": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,99}$"
+        },
+        "boosts": {
+          "type": "array",
+          "maxItems": 60,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "source",
+              "ability"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "enum": [
+                  "ancestry",
+                  "background",
+                  "class",
+                  "free",
+                  "level_5",
+                  "level_10",
+                  "level_15",
+                  "level_20"
+                ]
+              },
+              "ability": {
+                "type": "string",
+                "enum": [
+                  "str",
+                  "dex",
+                  "con",
+                  "int",
+                  "wis",
+                  "cha"
+                ]
+              }
+            }
+          }
+        },
+        "feats": {
+          "type": "array",
+          "maxItems": 200,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "feat_id",
+              "slot",
+              "level_gained"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_-]{0,99}$"
+              },
+              "feat_id": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_-]{0,99}$"
+              },
+              "slot": {
+                "type": "string",
+                "enum": [
+                  "ancestry",
+                  "background",
+                  "class",
+                  "general",
+                  "skill",
+                  "bonus"
+                ]
+              },
+              "level_gained": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 20
+              },
+              "choices": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              }
+            }
+          }
+        },
+        "skills": {
+          "type": "array",
+          "maxItems": 80,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "rank"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_-]{0,99}$"
+              },
+              "rank": {
+                "type": "string",
+                "enum": [
+                  "untrained",
+                  "trained",
+                  "expert",
+                  "master",
+                  "legendary"
+                ]
+              },
+              "source": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              }
+            }
+          }
+        },
+        "features": {
+          "type": "array",
+          "maxItems": 300,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "feature_id"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_-]{0,99}$"
+              },
+              "feature_id": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_-]{0,99}$"
+              },
+              "level_gained": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 20
+              },
+              "choices": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "authored_statblock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mechanics_model"
+      ],
+      "properties": {
+        "mechanics_model": {
+          "type": "string",
+          "enum": [
+            "pc_build",
+            "authored_statblock"
+          ]
+        },
+        "abilities": {
+          "$ref": "#/definitions/abilities"
+        },
+        "languages": {
+          "type": "array",
+          "maxItems": 200,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        },
+        "senses": {
+          "type": "array",
+          "maxItems": 200,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        },
+        "speed": {
+          "$ref": "#/definitions/speed"
+        },
+        "spellcasting": {
+          "$ref": "#/definitions/spellcasting"
+        },
+        "companions": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/definitions/companion"
+          }
+        },
+        "hex_footprint": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30
+        },
+        "level": {
+          "type": "integer",
+          "minimum": -1,
+          "maximum": 30
+        },
+        "hit_points": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "max"
+          ],
+          "properties": {
+            "max": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9999
+            },
+            "hardness": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 50
+            },
+            "immunities": {
+              "type": "array",
+              "maxItems": 50,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              }
+            },
+            "resistances": {
+              "type": "array",
+              "maxItems": 50,
+              "items": {
+                "$ref": "#/definitions/damage_modifier"
+              }
+            },
+            "weaknesses": {
+              "type": "array",
+              "maxItems": 50,
+              "items": {
+                "$ref": "#/definitions/damage_modifier"
+              }
+            }
+          }
+        },
+        "defenses": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ac": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 60
+            },
+            "fortitude": {
+              "type": "integer",
+              "minimum": -10,
+              "maximum": 60
+            },
+            "reflex": {
+              "type": "integer",
+              "minimum": -10,
+              "maximum": 60
+            },
+            "will": {
+              "type": "integer",
+              "minimum": -10,
+              "maximum": 60
+            }
+          }
+        },
+        "perception": {
+          "type": "integer",
+          "minimum": -10,
+          "maximum": 60
+        },
+        "skills": {
+          "type": "array",
+          "maxItems": 80,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "modifier"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_-]{0,99}$"
+              },
+              "modifier": {
+                "type": "integer",
+                "minimum": -10,
+                "maximum": 60
+              }
+            }
+          }
+        },
+        "strikes": {
+          "type": "array",
+          "maxItems": 40,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "name",
+              "type",
+              "attack_bonus",
+              "damage",
+              "damage_type"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_-]{0,99}$"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "melee",
+                  "ranged"
+                ]
+              },
+              "attack_bonus": {
+                "type": "integer",
+                "minimum": -10,
+                "maximum": 60
+              },
+              "damage": {
+                "type": "string",
+                "pattern": "^[0-9]{1,2}d(4|6|8|10|12|20)([+-][0-9]{1,3})?$|^[0-9]{1,3}$"
+              },
+              "damage_type": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40
+              },
+              "traits": {
+                "type": "array",
+                "maxItems": 30,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100
+                }
+              },
+              "range_feet": {
+                "type": "integer",
+                "minimum": 5,
+                "maximum": 1000
+              }
+            }
+          }
+        },
+        "special_abilities": {
+          "type": "array",
+          "maxItems": 60,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "name",
+              "action_cost",
+              "description"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_-]{0,99}$"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "action_cost": {
+                "type": "string",
+                "enum": [
+                  "passive",
+                  "free",
+                  "reaction",
+                  "1",
+                  "2",
+                  "3"
+                ]
+              },
+              "description": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4000
+              },
+              "traits": {
+                "type": "array",
+                "maxItems": 30,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

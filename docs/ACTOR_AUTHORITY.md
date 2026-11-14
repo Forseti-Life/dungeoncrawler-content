@@ -54,11 +54,28 @@ follow variables across methods, service aliases, or SQL assembled at runtime.
 Those sites appear as `dynamic_*` findings and need a reviewed disposition.
 `tests/` is inventoried but not frozen; test fixture writers migrate in S6.
 
-## Open decisions before the S1 freeze
+## Decisions recorded in the ledger
 
-Rows marked `needs_decision` in the ledger block the fields they cover:
+- **D22** - the campaign-instance row is the single home for instance state:
+  `character_data` is the pinned actor document, `state_data` is one typed
+  instance-state document, and the row placement columns are the one placement
+  record. `dc_campaign_actor_runtime_state` stops owning actor facts.
+- **D20** - party definitions become group templates, not actors.
+- `tools/actor-authority/field-map.json` assigns each of 195 observed or
+  schema-declared top-level keys to exactly one owner. An unmapped key fails
+  the guard test.
 
-- **D22** - physical home of each campaign-instance fact. Today instance state
-  is spread across the instance row (`character_data`, `state_data`, hot
-  columns) and `dc_campaign_actor_runtime_state`.
-- **D20** - two `party` definitions stored as actors.
+## S1 (contract core, in progress)
+
+| Artifact | Purpose |
+|---|---|
+| `config/schemas/actor.schema.json` | The single actor document contract. `build.mechanics_model` is `pc_build` or `authored_statblock`; taxonomy never selects a schema. No runtime state, inventory, conditions or quest data. |
+| `src/Service/Validation/ActorDocumentValidator.php` | Schema plus rule checks under the `actor_authoring` and `actor_publication` profiles. Reports each check as passed, failed, not_checked, not_applicable or dependency_blocked; a required unchecked check never yields valid or ready. |
+| `StateValidationService::validateActor()` | The validation entry. |
+| `src/Service/Validation/ActorReferenceCatalogInterface.php` | Exact local catalog lookups for classes, ancestries, feats, spells, items and skills. |
+
+Not wired yet: no caller uses `validateActor()`, and the live service has no
+catalog adapter, so local references report `not_checked` until slice S2
+supplies one. Player-build choice eligibility is `not_checked` until the
+character creation rules are projected from the new document. Command
+envelopes, the transaction core and tools are not implemented.

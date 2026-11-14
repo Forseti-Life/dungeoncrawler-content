@@ -1,0 +1,1148 @@
+{
+  "contract": "actor-field-map-v1",
+  "work_item": "DC-ACTOR-AUTHORITY-20261114",
+  "scope": "Top-level keys of every actor payload store observed on 2026-11-14 (key names only, read-only) plus every top-level property of the three source schemas. Each key maps to exactly one owner. An unmapped key blocks conversion; none is silently discarded. Nested shapes are converted per the rules ledger rows cited in notes.",
+  "owners": {
+    "document:*": "canonical actor document on the actor row (character_data)",
+    "instance:*": "campaign-instance state document / placement columns on the instance row (D22)",
+    "row:*": "server-owned actor row column",
+    "domain:*": "specialized domain store keyed by the actor instance",
+    "derived": "projection rebuilt from owners; not stored",
+    "remove:transport": "no fact; deleted at conversion"
+  },
+  "fields": {
+    "_archive_meta": {
+      "target": "row:lifecycle"
+    },
+    "abilities": {
+      "target": "document:build.abilities",
+      "note": "scores keyed str..cha; modifiers derived (D05)"
+    },
+    "ability_scores": {
+      "target": "document:build.abilities",
+      "note": "scores keyed str..cha; modifiers derived (D05)"
+    },
+    "ability_sources": {
+      "target": "document:build.boosts"
+    },
+    "ac": {
+      "target": "document:build.defenses",
+      "note": "authored_statblock stores modifiers; pc_build computes them (D07)"
+    },
+    "actions": {
+      "target": "document:build.special_abilities"
+    },
+    "active": {
+      "target": "instance:state.flags"
+    },
+    "actor_id": {
+      "target": "row:library_slug",
+      "note": "mutable only by actor.template.rename; rewritten to typed refs"
+    },
+    "actor_type": {
+      "target": "document:identity.kind",
+      "note": "pc|npc|creature|companion; trap/obstacle/party leave the actor family (D02, D20)"
+    },
+    "age": {
+      "target": "document:identity.personal"
+    },
+    "ai_personality": {
+      "target": "document:defaults.psychology",
+      "note": "immutable seed; mutable psychology stays in dc_psychology (D16)"
+    },
+    "alignment": {
+      "target": "document:identity.alignment"
+    },
+    "ancestry": {
+      "target": "document:build.ancestry"
+    },
+    "ancestry_boosts": {
+      "target": "document:build.boosts"
+    },
+    "ancestry_feat": {
+      "target": "document:build.feats"
+    },
+    "animation_state": {
+      "target": "derived",
+      "note": "duplicate or computed view; rebuilt from the owners, never stored as a fact"
+    },
+    "appearance": {
+      "target": "document:narrative.appearance"
+    },
+    "arcane_thesis": {
+      "target": "document:build.features"
+    },
+    "armor_class": {
+      "target": "document:build.defenses",
+      "note": "authored_statblock stores modifiers; pc_build computes them (D07)"
+    },
+    "attacks": {
+      "target": "document:build.strikes"
+    },
+    "attitude": {
+      "target": "document:defaults.psychology",
+      "note": "immutable seed; mutable psychology stays in dc_psychology (D16)"
+    },
+    "background": {
+      "target": "document:build.ancestry"
+    },
+    "background_boosts": {
+      "target": "document:build.boosts"
+    },
+    "background_lore_skill": {
+      "target": "document:build.skills"
+    },
+    "background_skill_feat": {
+      "target": "document:build.feats"
+    },
+    "background_skill_training": {
+      "target": "document:build.skills"
+    },
+    "backstory": {
+      "target": "document:narrative.biography"
+    },
+    "basicInfo": {
+      "target": "derived",
+      "note": "duplicate or computed view; rebuilt from the owners, never stored as a fact"
+    },
+    "bonds": {
+      "target": "document:narrative.motivations"
+    },
+    "campaignId": {
+      "target": "row:identity",
+      "note": "server-owned columns; never read from a payload"
+    },
+    "campaign_character_id": {
+      "target": "row:identity",
+      "note": "server-owned columns; never read from a payload"
+    },
+    "campaign_id": {
+      "target": "row:identity",
+      "note": "server-owned columns; never read from a payload"
+    },
+    "canonical_actor_id": {
+      "target": "row:library_slug",
+      "note": "mutable only by actor.template.rename; rewritten to typed refs"
+    },
+    "canonical_actor_payload": {
+      "target": "remove:transport",
+      "note": "form/transport residue; readiness is projected by validation"
+    },
+    "canonical_actor_version": {
+      "target": "document:provenance"
+    },
+    "cantrips": {
+      "target": "document:build.spellcasting",
+      "note": "exact local spell ids (D12)"
+    },
+    "characterCreation": {
+      "target": "remove:transport",
+      "note": "form/transport residue; readiness is projected by validation"
+    },
+    "characterId": {
+      "target": "row:identity",
+      "note": "server-owned columns; never read from a payload"
+    },
+    "character_data": {
+      "target": "derived",
+      "note": "duplicate or computed view; rebuilt from the owners, never stored as a fact"
+    },
+    "charisma": {
+      "target": "document:build.abilities",
+      "note": "scores keyed str..cha; modifiers derived (D05)"
+    },
+    "class": {
+      "target": "document:build.class",
+      "note": "pc_build only"
+    },
+    "class_feat": {
+      "target": "document:build.feats"
+    },
+    "class_features": {
+      "target": "document:build.features"
+    },
+    "class_key_ability": {
+      "target": "document:build.class",
+      "note": "pc_build only"
+    },
+    "class_proficiencies": {
+      "target": "document:build.skills"
+    },
+    "collected": {
+      "target": "domain:room_state",
+      "note": "non-actor room entities stored in the runtime table"
+    },
+    "concept": {
+      "target": "document:identity.personal"
+    },
+    "conditions": {
+      "target": "domain:effects"
+    },
+    "constitution": {
+      "target": "document:build.abilities",
+      "note": "scores keyed str..cha; modifiers derived (D05)"
+    },
+    "content_id": {
+      "target": "row:library_slug",
+      "note": "mutable only by actor.template.rename; rewritten to typed refs"
+    },
+    "created_at": {
+      "target": "row:timestamps"
+    },
+    "creature_id": {
+      "target": "row:library_slug",
+      "note": "mutable only by actor.template.rename; rewritten to typed refs"
+    },
+    "creature_type": {
+      "target": "document:identity.taxonomy"
+    },
+    "criminal_refs": {
+      "target": "domain:social",
+      "note": "authored affiliation intents bind exact subject identities; edges stay with the social owners"
+    },
+    "culture_refs": {
+      "target": "domain:social",
+      "note": "authored affiliation intents bind exact subject identities; edges stay with the social owners"
+    },
+    "currency": {
+      "target": "domain:inventory",
+      "note": "item instances and currency transactions keyed by the instance"
+    },
+    "defenses": {
+      "target": "document:build.defenses",
+      "note": "authored_statblock stores modifiers; pc_build computes them (D07)"
+    },
+    "deity": {
+      "target": "document:identity.personal"
+    },
+    "deityFeatures": {
+      "target": "document:build.features"
+    },
+    "description": {
+      "target": "document:narrative.description"
+    },
+    "descriptors": {
+      "target": "derived",
+      "note": "duplicate or computed view; rebuilt from the owners, never stored as a fact"
+    },
+    "destroyed": {
+      "target": "domain:room_state",
+      "note": "non-actor room entities stored in the runtime table"
+    },
+    "dexterity": {
+      "target": "document:build.abilities",
+      "note": "scores keyed str..cha; modifiers derived (D05)"
+    },
+    "disabled": {
+      "target": "domain:room_state",
+      "note": "non-actor room entities stored in the runtime table"
+    },
+    "display_name": {
+      "target": "document:identity.name",
+      "note": "one name; display_name and basicInfo.name are duplicates"
+    },
+    "effectiveState": {
+      "target": "derived",
+      "note": "duplicate or computed view; rebuilt from the owners, never stored as a fact"
+    },
+    "employer_refs": {
+      "target": "domain:social",
+      "note": "authored affiliation intents bind exact subject identities; edges stay with the social owners"
+    },
+    "encounter_themes": {
+      "target": "document:defaults.spawn",
+      "note": "spawn/patrol inputs only; alive/dead/current room are instance facts (D18)"
+    },
+    "equipment": {
+      "target": "document:defaults.loadout",
+      "note": "item refs + starting currency; applied only at explicit instantiation (D13)"
+    },
+    "experience_points": {
+      "target": "instance:state.progression"
+    },
+    "faction_refs": {
+      "target": "domain:social",
+      "note": "authored affiliation intents bind exact subject identities; edges stay with the social owners"
+    },
+    "familiar": {
+      "target": "document:build.companions",
+      "note": "selection only; an acting companion is its own actor with an owner link"
+    },
+    "familiar_species_name": {
+      "target": "document:build.companions",
+      "note": "selection only; an acting companion is its own actor with an owner link"
+    },
+    "familiar_type": {
+      "target": "document:build.companions",
+      "note": "selection only; an acting companion is its own actor with an owner link"
+    },
+    "family": {
+      "target": "document:identity.taxonomy"
+    },
+    "family_refs": {
+      "target": "domain:social",
+      "note": "authored affiliation intents bind exact subject identities; edges stay with the social owners"
+    },
+    "fears": {
+      "target": "document:narrative.motivations"
+    },
+    "feat_selections": {
+      "target": "document:build.feats"
+    },
+    "feats": {
+      "target": "document:build.feats"
+    },
+    "features": {
+      "target": "document:build.features"
+    },
+    "focus_points": {
+      "target": "instance:state.resources",
+      "note": "current/temporary HP, hero points, expended slots, focus remaining, feat resources"
+    },
+    "follower_actor_records": {
+      "target": "document:build.companions",
+      "note": "selection only; an acting companion is its own actor with an owner link"
+    },
+    "follower_kind": {
+      "target": "document:build.companions",
+      "note": "selection only; an acting companion is its own actor with an owner link"
+    },
+    "free_boosts": {
+      "target": "document:build.boosts"
+    },
+    "gender": {
+      "target": "document:identity.personal"
+    },
+    "general_feat": {
+      "target": "document:build.feats"
+    },
+    "generated_at": {
+      "target": "document:provenance"
+    },
+    "generation_status": {
+      "target": "document:provenance"
+    },
+    "gm_chat": {
+      "target": "domain:chat",
+      "note": "Editor GM chat sessions own conversation history"
+    },
+    "gm_equipment_ids": {
+      "target": "document:defaults.loadout",
+      "note": "item refs + starting currency; applied only at explicit instantiation (D13)"
+    },
+    "goals": {
+      "target": "document:narrative.motivations"
+    },
+    "gold": {
+      "target": "document:defaults.loadout",
+      "note": "item refs + starting currency; applied only at explicit instantiation (D13)"
+    },
+    "government_ref": {
+      "target": "domain:social",
+      "note": "authored affiliation intents bind exact subject identities; edges stay with the social owners"
+    },
+    "heritage": {
+      "target": "document:build.ancestry"
+    },
+    "hero_points": {
+      "target": "instance:state.resources",
+      "note": "current/temporary HP, hero points, expended slots, focus remaining, feat resources"
+    },
+    "hex_footprint": {
+      "target": "document:build.hex_footprint"
+    },
+    "hidden": {
+      "target": "domain:room_state",
+      "note": "non-actor room entities stored in the runtime table"
+    },
+    "hit_points": {
+      "target": "instance:state.resources",
+      "note": "current/temporary HP, hero points, expended slots, focus remaining, feat resources"
+    },
+    "home_settlement_ref": {
+      "target": "domain:social",
+      "note": "authored affiliation intents bind exact subject identities; edges stay with the social owners"
+    },
+    "hp_current": {
+      "target": "instance:state.resources",
+      "note": "current/temporary HP, hero points, expended slots, focus remaining, feat resources"
+    },
+    "hp_max": {
+      "target": "document:build.hit_points.max",
+      "note": "authored maximum only (D06)"
+    },
+    "instanceId": {
+      "target": "row:identity",
+      "note": "server-owned columns; never read from a payload"
+    },
+    "intelligence": {
+      "target": "document:build.abilities",
+      "note": "scores keyed str..cha; modifiers derived (D05)"
+    },
+    "inventory": {
+      "target": "domain:inventory",
+      "note": "item instances and currency transactions keyed by the instance"
+    },
+    "is_defeated": {
+      "target": "instance:state.flags"
+    },
+    "known_spells": {
+      "target": "document:build.spellcasting",
+      "note": "exact local spell ids (D12)"
+    },
+    "languages": {
+      "target": "document:build.languages"
+    },
+    "level": {
+      "target": "document:build.level"
+    },
+    "lifecycle": {
+      "target": "document:defaults.spawn",
+      "note": "spawn/patrol inputs only; alive/dead/current room are instance facts (D18)"
+    },
+    "location": {
+      "target": "instance:placement",
+      "note": "instance row placement columns are the one placement record"
+    },
+    "loot_table": {
+      "target": "document:defaults.loadout",
+      "note": "item refs + starting currency; applied only at explicit instantiation (D13)"
+    },
+    "max_hp": {
+      "target": "document:build.hit_points.max",
+      "note": "authored maximum only (D06)"
+    },
+    "memory": {
+      "target": "domain:psychology",
+      "note": "mutable memory is never part of a definition"
+    },
+    "metadata": {
+      "target": "document:provenance"
+    },
+    "motivations": {
+      "target": "document:narrative.motivations"
+    },
+    "movement": {
+      "target": "document:build.speed",
+      "note": "object by movement mode (D09)"
+    },
+    "name": {
+      "target": "document:identity.name",
+      "note": "one name; display_name and basicInfo.name are duplicates"
+    },
+    "noble_refs": {
+      "target": "domain:social",
+      "note": "authored affiliation intents bind exact subject identities; edges stay with the social owners"
+    },
+    "npcDefinition": {
+      "target": "remove:transport",
+      "note": "form/transport residue; readiness is projected by validation"
+    },
+    "npc_id": {
+      "target": "row:library_slug",
+      "note": "mutable only by actor.template.rename; rewritten to typed refs"
+    },
+    "npc_profile": {
+      "target": "document:narrative.notes",
+      "note": "lore_notes/dialogue_notes become restricted narrative facts; attitude goes to defaults.psychology"
+    },
+    "occupation": {
+      "target": "document:identity.role",
+      "note": "narrative role label; never a rules class (D04)"
+    },
+    "order_refs": {
+      "target": "domain:social",
+      "note": "authored affiliation intents bind exact subject identities; edges stay with the social owners"
+    },
+    "origin": {
+      "target": "document:narrative.biography"
+    },
+    "party_size": {
+      "target": "domain:group_template",
+      "note": "party definitions become group templates (D20)"
+    },
+    "perception": {
+      "target": "document:build.defenses",
+      "note": "authored_statblock stores modifiers; pc_build computes them (D07)"
+    },
+    "personality": {
+      "target": "document:narrative.personality"
+    },
+    "personality_axes": {
+      "target": "document:defaults.psychology",
+      "note": "immutable seed; mutable psychology stays in dc_psychology (D16)"
+    },
+    "personality_traits": {
+      "target": "document:narrative.personality"
+    },
+    "pf2e_stats": {
+      "target": "document:build.statblock",
+      "note": "legacy statblock bag: ac/maxHp/saves/speed split into build.*; currentHp goes to instance state"
+    },
+    "placement": {
+      "target": "instance:placement",
+      "note": "instance row placement columns are the one placement record"
+    },
+    "portrait": {
+      "target": "document:defaults.media",
+      "note": "exact selected asset reference; assets owned by the image repository"
+    },
+    "portrait_generate": {
+      "target": "document:defaults.media",
+      "note": "exact selected asset reference; assets owned by the image repository"
+    },
+    "portrait_prompt": {
+      "target": "document:defaults.media",
+      "note": "exact selected asset reference; assets owned by the image repository"
+    },
+    "portrait_url": {
+      "target": "document:defaults.media",
+      "note": "exact selected asset reference; assets owned by the image repository"
+    },
+    "position": {
+      "target": "instance:placement",
+      "note": "instance row placement columns are the one placement record"
+    },
+    "profile": {
+      "target": "derived",
+      "note": "duplicate or computed view; rebuilt from the owners, never stored as a fact"
+    },
+    "progression": {
+      "target": "document:build.features"
+    },
+    "psychology": {
+      "target": "document:defaults.psychology",
+      "note": "immutable seed; mutable psychology stays in dc_psychology (D16)"
+    },
+    "quests": {
+      "target": "domain:quest",
+      "note": "quest progress/rewards are quest-owned; not an actor list"
+    },
+    "quickplay_prefab": {
+      "target": "document:provenance"
+    },
+    "rarity": {
+      "target": "document:identity.taxonomy"
+    },
+    "reactions": {
+      "target": "document:build.special_abilities"
+    },
+    "relationships": {
+      "target": "domain:social",
+      "note": "authored affiliation intents bind exact subject identities; edges stay with the social owners"
+    },
+    "religion_refs": {
+      "target": "domain:social",
+      "note": "authored affiliation intents bind exact subject identities; edges stay with the social owners"
+    },
+    "resources": {
+      "target": "instance:state.resources",
+      "note": "current/temporary HP, hero points, expended slots, focus remaining, feat resources"
+    },
+    "role": {
+      "target": "document:identity.role",
+      "note": "narrative role label; never a rules class (D04)"
+    },
+    "roleplay_style": {
+      "target": "document:narrative.personality"
+    },
+    "runtime_entity_id": {
+      "target": "row:identity",
+      "note": "server-owned columns; never read from a payload"
+    },
+    "saves": {
+      "target": "document:build.defenses",
+      "note": "authored_statblock stores modifiers; pc_build computes them (D07)"
+    },
+    "schema_version": {
+      "target": "row:schema_version"
+    },
+    "scholar_skill_choice": {
+      "target": "document:build.skills"
+    },
+    "security_affiliation_refs": {
+      "target": "domain:social",
+      "note": "authored affiliation intents bind exact subject identities; edges stay with the social owners"
+    },
+    "senses": {
+      "target": "document:build.senses"
+    },
+    "size": {
+      "target": "document:identity.size"
+    },
+    "skills": {
+      "target": "document:build.skills"
+    },
+    "source": {
+      "target": "document:provenance"
+    },
+    "source_canonical_actor_id": {
+      "target": "document:provenance"
+    },
+    "source_canonical_actor_version": {
+      "target": "document:provenance"
+    },
+    "source_character_id": {
+      "target": "row:identity",
+      "note": "server-owned columns; never read from a payload"
+    },
+    "source_module": {
+      "target": "document:provenance"
+    },
+    "special_abilities": {
+      "target": "document:build.special_abilities"
+    },
+    "species": {
+      "target": "document:identity.taxonomy"
+    },
+    "speed": {
+      "target": "document:build.speed",
+      "note": "object by movement mode (D09)"
+    },
+    "spell_slots": {
+      "target": "instance:state.resources",
+      "note": "current/temporary HP, hero points, expended slots, focus remaining, feat resources"
+    },
+    "spellbook": {
+      "target": "document:build.spellcasting",
+      "note": "exact local spell ids (D12)"
+    },
+    "spellcasting": {
+      "target": "document:build.spellcasting",
+      "note": "exact local spell ids (D12)"
+    },
+    "spells": {
+      "target": "document:build.spellcasting",
+      "note": "exact local spell ids (D12)"
+    },
+    "spells_first": {
+      "target": "document:build.spellcasting",
+      "note": "exact local spell ids (D12)"
+    },
+    "stance_summary": {
+      "target": "domain:social_projection"
+    },
+    "state_data": {
+      "target": "derived",
+      "note": "definition container; its properties are mapped individually"
+    },
+    "stats": {
+      "target": "document:build.statblock",
+      "note": "legacy statblock bag: ac/maxHp/saves/speed split into build.*; currentHp goes to instance state"
+    },
+    "step": {
+      "target": "remove:transport",
+      "note": "form/transport residue; readiness is projected by validation"
+    },
+    "step4_active_tab": {
+      "target": "remove:transport",
+      "note": "form/transport residue; readiness is projected by validation"
+    },
+    "storylineBinding": {
+      "target": "domain:storyline_binding",
+      "note": "binding record references actor UUID + publication (D17)"
+    },
+    "storyline_binding": {
+      "target": "domain:storyline_binding",
+      "note": "binding record references actor UUID + publication (D17)"
+    },
+    "strength": {
+      "target": "document:build.abilities",
+      "note": "scores keyed str..cha; modifiers derived (D05)"
+    },
+    "subclass": {
+      "target": "document:build.class",
+      "note": "pc_build only"
+    },
+    "submit": {
+      "target": "remove:transport",
+      "note": "form/transport residue; readiness is projected by validation"
+    },
+    "summary": {
+      "target": "document:narrative.description"
+    },
+    "tactical_role": {
+      "target": "document:identity.role",
+      "note": "narrative role label; never a rules class (D04)"
+    },
+    "team": {
+      "target": "instance:state.campaign_role"
+    },
+    "title": {
+      "target": "document:identity.title"
+    },
+    "trained_skills": {
+      "target": "document:build.skills"
+    },
+    "traits": {
+      "target": "document:identity.taxonomy"
+    },
+    "type": {
+      "target": "document:identity.kind",
+      "note": "pc|npc|creature|companion; trap/obstacle/party leave the actor family (D02, D20)"
+    },
+    "updatedAt": {
+      "target": "row:timestamps"
+    },
+    "updated_at": {
+      "target": "row:timestamps"
+    },
+    "userId": {
+      "target": "row:identity",
+      "note": "server-owned columns; never read from a payload"
+    },
+    "version": {
+      "target": "row:revision",
+      "note": "monotonic aggregate revision replaces payload version"
+    },
+    "wisdom": {
+      "target": "document:build.abilities",
+      "note": "scores keyed str..cha; modifiers derived (D05)"
+    },
+    "wizard": {
+      "target": "remove:transport",
+      "note": "form/transport residue; readiness is projected by validation"
+    },
+    "wizard_complete": {
+      "target": "remove:transport",
+      "note": "form/transport residue; readiness is projected by validation"
+    },
+    "wizard_next": {
+      "target": "remove:transport",
+      "note": "form/transport residue; readiness is projected by validation"
+    },
+    "xp_reward": {
+      "target": "domain:quest",
+      "note": "quest progress/rewards are quest-owned; not an actor list"
+    }
+  },
+  "observed_keys": {
+    "instance_or_library_row.state_data": [
+      "abilities",
+      "ability_scores",
+      "ability_sources",
+      "actions",
+      "actor_id",
+      "actor_type",
+      "age",
+      "alignment",
+      "ancestry",
+      "ancestry_boosts",
+      "ancestry_feat",
+      "animation_state",
+      "appearance",
+      "arcane_thesis",
+      "armor_class",
+      "attacks",
+      "attitude",
+      "background",
+      "background_boosts",
+      "background_lore_skill",
+      "background_skill_feat",
+      "background_skill_training",
+      "backstory",
+      "basicInfo",
+      "bonds",
+      "campaignId",
+      "campaign_character_id",
+      "campaign_id",
+      "characterCreation",
+      "characterId",
+      "charisma",
+      "class",
+      "class_feat",
+      "class_key_ability",
+      "class_proficiencies",
+      "concept",
+      "conditions",
+      "constitution",
+      "content_id",
+      "created_at",
+      "criminal_refs",
+      "culture_refs",
+      "currency",
+      "defenses",
+      "deity",
+      "deityFeatures",
+      "description",
+      "descriptors",
+      "dexterity",
+      "display_name",
+      "employer_refs",
+      "equipment",
+      "experience_points",
+      "faction_refs",
+      "familiar",
+      "familiar_species_name",
+      "familiar_type",
+      "family_refs",
+      "fears",
+      "feat_selections",
+      "feats",
+      "features",
+      "follower_actor_records",
+      "follower_kind",
+      "free_boosts",
+      "gender",
+      "general_feat",
+      "gm_chat",
+      "gm_equipment_ids",
+      "goals",
+      "gold",
+      "government_ref",
+      "heritage",
+      "hero_points",
+      "hit_points",
+      "home_settlement_ref",
+      "hp_current",
+      "hp_max",
+      "instanceId",
+      "intelligence",
+      "inventory",
+      "languages",
+      "level",
+      "location",
+      "metadata",
+      "motivations",
+      "movement",
+      "name",
+      "noble_refs",
+      "npcDefinition",
+      "npc_profile",
+      "occupation",
+      "order_refs",
+      "origin",
+      "perception",
+      "personality",
+      "personality_axes",
+      "personality_traits",
+      "placement",
+      "portrait",
+      "portrait_generate",
+      "portrait_prompt",
+      "portrait_url",
+      "position",
+      "profile",
+      "progression",
+      "psychology",
+      "quests",
+      "reactions",
+      "religion_refs",
+      "resources",
+      "role",
+      "roleplay_style",
+      "runtime_entity_id",
+      "saves",
+      "schema_version",
+      "scholar_skill_choice",
+      "security_affiliation_refs",
+      "senses",
+      "size",
+      "skills",
+      "source_canonical_actor_id",
+      "source_canonical_actor_version",
+      "source_character_id",
+      "source_module",
+      "speed",
+      "spells",
+      "stance_summary",
+      "stats",
+      "step",
+      "step4_active_tab",
+      "storylineBinding",
+      "storyline_binding",
+      "strength",
+      "subclass",
+      "submit",
+      "team",
+      "trained_skills",
+      "traits",
+      "type",
+      "updatedAt",
+      "updated_at",
+      "userId",
+      "version",
+      "wisdom",
+      "wizard",
+      "wizard_complete",
+      "wizard_next"
+    ],
+    "instance_or_library_row.character_data": [
+      "_archive_meta",
+      "abilities",
+      "ability_scores",
+      "ability_sources",
+      "actions",
+      "actor_id",
+      "actor_type",
+      "age",
+      "alignment",
+      "ancestry",
+      "ancestry_boosts",
+      "ancestry_feat",
+      "appearance",
+      "arcane_thesis",
+      "armor_class",
+      "attacks",
+      "attitude",
+      "background",
+      "background_boosts",
+      "background_lore_skill",
+      "background_skill_feat",
+      "background_skill_training",
+      "backstory",
+      "basicInfo",
+      "bonds",
+      "campaignId",
+      "campaign_character_id",
+      "campaign_id",
+      "cantrips",
+      "characterCreation",
+      "characterId",
+      "charisma",
+      "class",
+      "class_feat",
+      "class_key_ability",
+      "class_proficiencies",
+      "concept",
+      "conditions",
+      "constitution",
+      "content_id",
+      "created_at",
+      "criminal_refs",
+      "culture_refs",
+      "currency",
+      "defenses",
+      "deity",
+      "deityFeatures",
+      "description",
+      "descriptors",
+      "dexterity",
+      "display_name",
+      "effectiveState",
+      "employer_refs",
+      "equipment",
+      "experience_points",
+      "faction_refs",
+      "familiar",
+      "familiar_species_name",
+      "familiar_type",
+      "family_refs",
+      "fears",
+      "feat_selections",
+      "feats",
+      "features",
+      "follower_actor_records",
+      "follower_kind",
+      "free_boosts",
+      "gender",
+      "general_feat",
+      "gm_chat",
+      "gm_equipment_ids",
+      "goals",
+      "gold",
+      "government_ref",
+      "heritage",
+      "hero_points",
+      "hit_points",
+      "home_settlement_ref",
+      "hp_current",
+      "hp_max",
+      "instanceId",
+      "intelligence",
+      "inventory",
+      "languages",
+      "level",
+      "location",
+      "metadata",
+      "motivations",
+      "movement",
+      "name",
+      "noble_refs",
+      "npcDefinition",
+      "npc_id",
+      "npc_profile",
+      "occupation",
+      "order_refs",
+      "origin",
+      "perception",
+      "personality",
+      "personality_axes",
+      "personality_traits",
+      "placement",
+      "portrait",
+      "portrait_generate",
+      "portrait_prompt",
+      "portrait_url",
+      "position",
+      "profile",
+      "progression",
+      "psychology",
+      "quests",
+      "quickplay_prefab",
+      "reactions",
+      "religion_refs",
+      "resources",
+      "role",
+      "roleplay_style",
+      "runtime_entity_id",
+      "saves",
+      "schema_version",
+      "scholar_skill_choice",
+      "security_affiliation_refs",
+      "senses",
+      "size",
+      "skills",
+      "source_canonical_actor_id",
+      "source_canonical_actor_version",
+      "source_character_id",
+      "source_module",
+      "speed",
+      "spells",
+      "spells_first",
+      "stance_summary",
+      "stats",
+      "step",
+      "step4_active_tab",
+      "storylineBinding",
+      "storyline_binding",
+      "strength",
+      "subclass",
+      "submit",
+      "team",
+      "trained_skills",
+      "traits",
+      "type",
+      "updated_at",
+      "userId",
+      "version",
+      "wisdom",
+      "wizard",
+      "wizard_complete",
+      "wizard_next"
+    ],
+    "dc_campaign_actor_runtime_state.entity_payload.state": [
+      "abilities",
+      "actions",
+      "active",
+      "character_data",
+      "class_features",
+      "collected",
+      "conditions",
+      "currency",
+      "destroyed",
+      "disabled",
+      "equipment",
+      "feats",
+      "features",
+      "focus_points",
+      "hidden",
+      "hit_points",
+      "inventory",
+      "is_defeated",
+      "known_spells",
+      "metadata",
+      "resources",
+      "saves",
+      "skills",
+      "spell_slots",
+      "spellbook",
+      "spellcasting",
+      "spells"
+    ],
+    "dc_canonical_actors.state_data": [
+      "abilities",
+      "ac",
+      "alignment",
+      "ancestry",
+      "appearance",
+      "attacks",
+      "attitude",
+      "backstory",
+      "bonds",
+      "class",
+      "conditions",
+      "description",
+      "equipment",
+      "fears",
+      "hp_current",
+      "languages",
+      "level",
+      "max_hp",
+      "motivations",
+      "name",
+      "occupation",
+      "party_size",
+      "perception",
+      "personality_traits",
+      "psychology",
+      "role",
+      "saves",
+      "senses",
+      "skills",
+      "source_module",
+      "species",
+      "spells",
+      "storyline_binding"
+    ],
+    "registry.creature.schema_data": [
+      "ai_personality",
+      "alignment",
+      "content_id",
+      "created_at",
+      "creature_id",
+      "creature_type",
+      "description",
+      "encounter_themes",
+      "family",
+      "hex_footprint",
+      "level",
+      "lifecycle",
+      "loot_table",
+      "metadata",
+      "name",
+      "pf2e_stats",
+      "rarity",
+      "schema_version",
+      "size",
+      "tactical_role",
+      "title",
+      "traits",
+      "updated_at",
+      "xp_reward"
+    ],
+    "registry.npc.schema_data": [
+      "abilities",
+      "alignment",
+      "ancestry",
+      "attacks",
+      "attitude",
+      "backstory",
+      "bonds",
+      "canonical_actor_id",
+      "canonical_actor_payload",
+      "canonical_actor_version",
+      "class",
+      "content_id",
+      "description",
+      "equipment",
+      "fears",
+      "generated_at",
+      "generation_status",
+      "languages",
+      "level",
+      "motivations",
+      "name",
+      "occupation",
+      "personality_traits",
+      "psychology",
+      "role",
+      "schema_version",
+      "senses",
+      "skills",
+      "source",
+      "spells",
+      "stats"
+    ]
+  }
+}
