@@ -285,8 +285,9 @@
       "target_rule": "Board directive: per-campaign actor state belongs to the campaign instance of the actor. The instance is the aggregate for its own state; a template never holds it and a template edit never resets it. Each instance fact still has exactly one physical home. Recommendation: instance row character_data = pinned authored snapshot; instance-scoped mutable facts (current HP, resources, expended slots, defeated/flags, XP, campaign role) = one typed instance-state document; placement = one placement record; inventory/effects/psychology keep their domain stores keyed by the instance. Hot columns and the duplicate copies become projections or are removed.",
       "status": "needs_decision",
       "blocks": "S1 freeze of instance-scoped fields and all of S4. Requires the measured per-field map of which store wins today (instance row state_data vs hot columns vs runtime payload) before choosing each physical home.",
-      "data_impact": "Authored facts (description, backstory, abilities, attacks) are duplicated into instance state_data and again into runtime payload state.character_data; divergence between the copies has not been measured yet.",
-      "slice": "S0 map, S4 conversion"
+      "data_impact": "Measured 2026-11-14. Only 295 of 675 instance rows join a runtime-state row on (campaign_id, instance_id); 1463 of 1758 runtime rows match no instance row. Among joined rows: runtime HP differs from the instance hot column in 25 NPC rows, runtime placement H3 differs from position_h3 in 205 rows and room in 16; instance state_data HP differs from the hot column in 3 rows. Authored copies largely agree (3 name differences, no level or backstory differences).",
+      "slice": "S0 map, S4 conversion",
+      "recommendation_basis": "The instance row is the store the effective-state reader trusts and the only one reliably keyed to an actor row. The runtime table is weakly linked and already divergent, so it should not be chosen as a home for any fact without first reconciling its identity key."
     },
     {
       "id": "D23",
@@ -346,7 +347,14 @@
         "player_character": 364,
         "creature": 37,
         "with_character_id": 0
-      }
+      },
+      "instance_rows_joined_to_runtime": 295,
+      "runtime_rows_without_instance_row": 1463,
+      "joined_runtime_hp_differs_from_hot_column": 25,
+      "joined_runtime_h3_differs": 205,
+      "joined_runtime_room_differs": 16,
+      "state_data_hp_differs_from_hot_column": 3,
+      "state_data_name_differs": 3
     }
   }
 }
