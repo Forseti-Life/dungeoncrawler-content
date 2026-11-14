@@ -16,6 +16,7 @@ use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Definition\LoadDefinitio
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Definition\PlanDefinitionPatchTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Definition\UpdateDefinitionTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Definition\ValidateDefinitionTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Actor\DefinitionActorTool;
 
 /**
  * Canonical Definition Editor GM surface.
@@ -41,6 +42,9 @@ final class DefinitionEditorGmSurface implements EditorGmSurfaceInterface {
       new PlanDefinitionPatchTool(),
       new UpdateDefinitionTool(),
       new CreateDefinitionTool(),
+      new DefinitionActorTool('inspect_actor'),
+      new DefinitionActorTool('plan_actor_changes'),
+      new DefinitionActorTool('apply_actor_changes'),
     ];
     if ($generation !== NULL) {
       array_splice($tools, 4, 0, [

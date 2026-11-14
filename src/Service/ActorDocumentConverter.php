@@ -109,7 +109,8 @@ class ActorDocumentConverter {
     }
     self::text($identity, 'alignment', $source['alignment'] ?? NULL, 32, $issue);
     $role = trim((string) ($source['role'] ?? $row['role'] ?? ''));
-    if ($role !== '' && !in_array($role, ['player', 'creature', 'familiar'], TRUE)) {
+    // Words that only restate the actor kind are not a role.
+    if ($role !== '' && !in_array($role, ['player', 'creature', 'familiar', 'npc', 'pc'], TRUE)) {
       $identity['role'] = mb_substr($role, 0, 150);
     }
     $traits = self::strings($source['traits'] ?? []);
@@ -155,11 +156,18 @@ class ActorDocumentConverter {
       if ($class_label !== '' && !isset($identity['role'])) {
         $identity['role'] = mb_substr($class_label, 0, 150);
       }
-      $max_hp = $source['hit_points']['max'] ?? $stats['maxHp'] ?? ($source['resources']['hitPoints']['max'] ?? ($row['hp_max'] ?? NULL));
+      // A stat-block actor has no ancestry build choice; what it is belongs
+      // to its taxonomy.
+      $family = strtolower(trim((string) ($source['ancestry'] ?? $source['species'] ?? '')));
+      $family = trim((string) preg_replace('/[^a-z0-9]+/', '-', $family), '-');
+      if ($family !== '') {
+        $identity['taxonomy']['family'] = $family;
+      }
+      $max_hp = $source['hit_points']['max'] ?? $source['max_hp'] ?? $stats['maxHp'] ?? ($source['resources']['hitPoints']['max'] ?? ($row['hp_max'] ?? NULL));
       if (is_numeric($max_hp) && (int) $max_hp > 0) {
         $build['hit_points'] = ['max' => (int) $max_hp];
       }
-      $ac = $stats['ac'] ?? $source['armor_class'] ?? (is_array($defenses['armorClass'] ?? NULL) ? ($defenses['armorClass']['base'] ?? NULL) : ($defenses['armorClass'] ?? NULL));
+      $ac = $stats['ac'] ?? $source['ac'] ?? $source['armor_class'] ?? (is_array($defenses['armorClass'] ?? NULL) ? ($defenses['armorClass']['base'] ?? NULL) : ($defenses['armorClass'] ?? NULL));
       $authored = [];
       if (is_numeric($ac)) {
         $authored['ac'] = (int) $ac;

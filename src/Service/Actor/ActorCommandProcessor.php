@@ -67,6 +67,10 @@ class ActorCommandProcessor {
       'experience_points', 'position_q', 'position_r', 'last_room_id', 'character_data', 'status',
       'lifecycle_state',
     ],
+    'actor.template.import' => [
+      'type', 'role', 'name', 'level', 'ancestry', 'class', 'hp_current', 'hp_max', 'armor_class',
+      'character_data', 'status', 'lifecycle_state',
+    ],
   ];
 
   /**
@@ -80,6 +84,11 @@ class ActorCommandProcessor {
       'campaign_id', 'source_character_id', 'type', 'role', 'name', 'level', 'ancestry', 'class', 'hp_current',
       'hp_max', 'armor_class', 'experience_points', 'position_q', 'position_r', 'last_room_id',
       'character_data', 'default_locations', 'portrait', 'status', 'lifecycle_state',
+    ],
+    // A library template keeps its definition slug as instance_id.
+    'actor.template.import' => [
+      'instance_id', 'campaign_id', 'type', 'role', 'name', 'level', 'ancestry', 'class', 'hp_current', 'hp_max',
+      'armor_class', 'character_data', 'status', 'lifecycle_state',
     ],
   ];
 
@@ -125,8 +134,7 @@ class ActorCommandProcessor {
   public function inspect(string $actor_uuid, AccountInterface $principal, int $history_limit = 5): array {
     $row = $this->database->select('dc_campaign_characters', 'c')->fields('c')
       ->condition('uuid', $actor_uuid)->execute()->fetchAssoc();
-    $is_admin = $principal->hasPermission('administer dungeoncrawler content') || $principal->hasPermission('edit any dungeoncrawler characters');
-    if (!$row || (!$is_admin && (int) $row['uid'] !== (int) $principal->id())) {
+    if (!$row || !self::mayEdit($row, $principal)) {
       throw new \InvalidArgumentException('actor_not_found', 404);
     }
     $converted = $this->converter->convertRow($row, self::decode($row['character_data']) ?? [], self::decode($row['state_data']) ?? []);
@@ -358,8 +366,7 @@ class ActorCommandProcessor {
     try {
       $row = $this->database->select('dc_campaign_characters', 'c')->fields('c')
         ->condition('uuid', $actor_uuid)->forUpdate()->execute()->fetchAssoc();
-      $is_admin = $principal->hasPermission('administer dungeoncrawler content') || $principal->hasPermission('edit any dungeoncrawler characters');
-      if (!$row || (!$is_admin && (int) $row['uid'] !== (int) $principal->id())) {
+      if (!$row || !self::mayEdit($row, $principal)) {
         throw new \InvalidArgumentException('actor_not_found', 404);
       }
       if ((int) $row['version'] !== $expected_revision) {
@@ -449,8 +456,9 @@ class ActorCommandProcessor {
       $now = $this->time->getRequestTime();
       $actor_uuid = $this->uuid->generate();
       $id = (int) $this->database->insert('dc_campaign_characters')->fields($fields + [
-        'uuid' => $actor_uuid,
         'instance_id' => $actor_uuid,
+      ] + [
+        'uuid' => $actor_uuid,
         'uid' => (int) $principal->id(),
         'character_id' => 0,
         'version' => 0,
@@ -497,6 +505,20 @@ class ActorCommandProcessor {
       $transaction->rollBack();
       throw $exception;
     }
+  }
+
+  /**
+   * Whether the principal may read and change this actor.
+   *
+   * Owners and character administrators may; definition editors may edit
+   * library templates that mirror canonical actor definitions.
+   */
+  private static function mayEdit(array $row, AccountInterface $principal): bool {
+    return (int) $row['uid'] === (int) $principal->id()
+      || $principal->hasPermission('administer dungeoncrawler content')
+      || $principal->hasPermission('edit any dungeoncrawler characters')
+      || ($row['lifecycle_state'] === 'canonical_template' && (int) $row['campaign_id'] === 0
+        && $principal->hasPermission('edit canonical dungeoncrawler definitions'));
   }
 
   /**
@@ -548,10 +570,8 @@ class ActorCommandProcessor {
       ->fields('c')
       ->condition('uuid', $target['actor_uuid'])
       ->execute()->fetchAssoc();
-    $is_admin = $principal->hasPermission('administer dungeoncrawler content') || $principal->hasPermission('edit any dungeoncrawler characters');
-    $is_owner = $row && (int) $row['uid'] === (int) $principal->id();
     // An unauthorized caller learns nothing about whether the actor exists.
-    if (!$row || (!$is_admin && !$is_owner)) {
+    if (!$row || !self::mayEdit($row, $principal)) {
       return ['failure' => $this->failure($command, 'actor_not_found', 'No actor matches this reference for the current user.', FALSE, ['Inspect the actor again and use its exact reference.'])];
     }
     $scope = (int) $row['campaign_id'] > 0 ? 'campaign_instance' : ($row['lifecycle_state'] === 'draft_library' ? 'draft' : 'template');

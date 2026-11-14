@@ -83,7 +83,7 @@ Applied to the live database (update 10225): every actor row has a unique,
 required UUID allocated by the database; `level` is signed; the
 `dc_actor_revisions` and `dc_actor_command_receipts` tables exist.
 
-Preflight on 2026-11-14: all 852 rows convert and validate for save. Reviewed
+Preflight on 2026-11-14: all 955 rows convert and validate for save. Reviewed
 one-time repairs of stored values are listed in the ledger under
 `conversion_preflight.reviewed_repairs`. Spell lists stored without a tradition
 or casting type convert as drafts and stay unpublishable until authored.
@@ -125,7 +125,7 @@ until rows store the canonical document directly, the processor writes each
 fact to the stored key it currently lives under and keeps duplicate copies
 equal.
 
-Checks: `drush php:script tests/actor_command_integration.php` (79 checks,
+Checks: `drush php:script tests/actor_command_integration.php` (88 checks,
 one original fixture, always rolled back).
 
 Routed through the authority so far:
@@ -160,6 +160,28 @@ or persistence of their own:
 | `inspect_actor` | Read-only canonical view: document, revision, scope, validation checks, the paths each command accepts, recent history. |
 | `plan_actor_changes` | Preview one typed command: exact changed paths with before and after values. Read-only. |
 | `apply_actor_changes` | Execute one typed command immediately; returns the committed receipt with next steps, or a typed failure. |
+
+The Definition Editor and Storyline Builder surfaces register the same three
+tool names (`DefinitionActorTool`) for canonical actor definitions. The actor
+is the library row that mirrors the definition. An applied change is saved by
+`CanonicalDefinitionService::saveDefinition()`, which stays the one writer of
+definitions and commits the library row through the actor authority
+(`ActorDefinitionMirror`). Storyline Builder executes it immediately; the
+Definition Editor keeps its existing approval step for mutating tools.
+
+## Canonical actor definitions
+
+Every `dc_canonical_actors` definition of type `pc` or `npc` has a library
+actor row (`lifecycle_state = canonical_template`, `instance_id` = the
+definition id). The definition's authored state is stored verbatim: no default
+class, ancestry, statistics or level clamp. Traps, obstacles and parties are
+not actors and get no row. `tools/actor-authority/fold-canonical-actors.php`
+folded the existing 110 actor definitions on 2026-11-14 (dry run by default;
+`ACTOR_FOLD_APPLY=1` to apply).
+
+`dc_canonical_actors` is still the store the definition editors read. Retiring
+it, and `CharacterManager::saveCanonicalActorTemplate()` with its invented
+defaults, is the next step of this fold.
 
 Wizard choices go through `plan_character_draft_updates` /
 `apply_character_draft_updates`, which execute `actor.build.apply_choices`.

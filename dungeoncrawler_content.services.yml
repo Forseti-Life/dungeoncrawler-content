@@ -455,6 +455,13 @@ services:
       - '@datetime.time'
       - '@uuid'
 
+  dungeoncrawler_content.actor_definition_mirror:
+    class: Drupal\dungeoncrawler_content\Service\Actor\ActorDefinitionMirror
+    arguments:
+      - '@database'
+      - '@dungeoncrawler_content.character_manager'
+      - '@dungeoncrawler_content.canonical_definitions'
+
   dungeoncrawler_content.actor_document_validator:
     class: Drupal\dungeoncrawler_content\Service\Validation\ActorDocumentValidator
     arguments:

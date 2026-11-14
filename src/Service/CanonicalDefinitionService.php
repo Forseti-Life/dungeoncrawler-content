@@ -386,6 +386,12 @@ class CanonicalDefinitionService {
           ->condition('actor_id', $definition_id)
           ->execute();
       }
+      // Every actor definition has a library actor row, committed by the
+      // actor authority. Resolved on use: the actor services depend on this
+      // one. A definition the actor contract cannot represent fails here.
+      if (\Drupal::hasContainer() && \Drupal::hasService('dungeoncrawler_content.actor_definition_mirror')) {
+        \Drupal::service('dungeoncrawler_content.actor_definition_mirror')->mirror($definition_id, $payload, \Drupal::currentUser());
+      }
     }
     else {
       // The registry keeps denormalized level/rarity/tags columns for the

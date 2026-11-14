@@ -260,6 +260,46 @@ try {
     $switcher->switchBack();
   }
 
+  // Canonical actor definitions: one library actor row each, shared tools.
+  $switcher->switchTo(\Drupal\user\Entity\User::load(1));
+  try {
+    $definitions = \Drupal::service('dungeoncrawler_content.canonical_definitions');
+    $slug = 'zz-fixture-ferry-warden';
+    $definitions->saveDefinition('actor', NULL, [
+      'actor_id' => $slug, 'version' => '1.0.0', 'actor_type' => 'npc', 'display_name' => 'Ferry Warden',
+      'state_data' => ['name' => 'Ferry Warden', 'class' => 'Warden', 'level' => -1, 'hp_current' => 6, 'max_hp' => 6, 'ac' => 13, 'conditions' => [], 'backstory' => 'Counts every crossing.'],
+    ]);
+    $library = $database->query("SELECT id, uuid, level, lifecycle_state, version FROM {dc_campaign_characters} WHERE campaign_id = 0 AND instance_id = :s", [':s' => $slug])->fetchAssoc();
+    $check($library && (int) $library['level'] === -1 && $library['lifecycle_state'] === 'canonical_template', 'Saving an actor definition creates its library actor row without clamping the level: ' . json_encode($library));
+    $def_surface = \Drupal::service('dungeoncrawler_content.editor_gm_surface.definition_editor');
+    $def_context = $def_surface->createContext(NULL, 'editing', ['family' => 'actor', 'definition_id' => $slug]);
+    $def_tools = $def_surface->registry();
+    $seen = $def_tools->get('inspect_actor')->execute([], $def_context);
+    $check($seen['definition_id'] === $slug && $seen['document']['build'] === ['mechanics_model' => 'authored_statblock', 'level' => -1, 'hit_points' => ['max' => 6], 'defenses' => ['ac' => 13]] && $seen['document']['identity']['role'] === 'Warden', 'inspect_actor shows the definition in the actor contract with no invented class or statistics: ' . json_encode($seen['document']));
+    $ops = [['op' => 'set', 'path' => '/narrative/biography', 'value' => 'Counts every crossing twice.'], ['op' => 'set', 'path' => '/identity/name', 'value' => 'Ferry Warden Odalys']];
+    $plan_result = $def_tools->get('plan_actor_changes')->execute(['type' => 'actor.narrative.patch', 'operations' => [$ops[0]]], $def_context);
+    $check($plan_result['intent'] === 'preview' && $definitions->definitionPayload('actor', $slug)['state_data']['backstory'] === 'Counts every crossing.', 'plan_actor_changes on a definition is read-only.');
+    $done = $def_tools->get('apply_actor_changes')->execute(['type' => 'actor.narrative.patch', 'operations' => [$ops[0]]], $def_context);
+    $renamed = $def_tools->get('apply_actor_changes')->execute(['type' => 'actor.identity.patch', 'operations' => [$ops[1]]], $def_context);
+    $stored_definition = $definitions->definitionPayload('actor', $slug);
+    $check($done['committed'] === TRUE && $renamed['committed'] === TRUE && $stored_definition['state_data']['backstory'] === 'Counts every crossing twice.' && $stored_definition['display_name'] === 'Ferry Warden Odalys' && $stored_definition['state_data']['name'] === 'Ferry Warden Odalys', 'apply_actor_changes saves through the definition service: ' . json_encode([$done, $renamed]));
+    $mirrored = $database->query("SELECT name, version, character_data FROM {dc_campaign_characters} WHERE id = :id", [':id' => $library['id']])->fetchAssoc();
+    $check($mirrored['name'] === 'Ferry Warden Odalys' && (int) $mirrored['version'] === 2 && json_decode($mirrored['character_data'], TRUE)['backstory'] === 'Counts every crossing twice.', 'The library actor row follows the definition and its revision advances.');
+    $check($database->query('SELECT command_type FROM {dc_actor_revisions} WHERE actor_uuid = :u ORDER BY revision', [':u' => $library['uuid']])->fetchCol() === ['actor.template.import', 'actor.template.import', 'actor.template.import'], 'Each definition save is recorded in the actor history.');
+    $unsupported = $def_tools->get('apply_actor_changes')->execute(['type' => 'actor.identity.patch', 'operations' => [['op' => 'set', 'path' => '/identity/personal/age', 'value' => '40']]], $def_context);
+    $check($unsupported['committed'] === FALSE && $unsupported['code'] === 'actor_contract_invalid', 'A path the definition cannot hold is refused.');
+    $story_tools = \Drupal::service('dungeoncrawler_content.editor_gm_surface.storyline_builder')->registry();
+    $check($story_tools->get('inspect_actor')->definition()->mutating === FALSE && $story_tools->get('apply_actor_changes')->definition()->mutating === TRUE, 'Storyline Builder registers the same actor tools.');
+    $non_actor = $definitions->saveDefinition('actor', NULL, [
+      'actor_id' => 'zz-fixture-rope-trap', 'version' => '1.0.0', 'actor_type' => 'trap', 'display_name' => 'Rope Trap',
+      'state_data' => ['name' => 'Rope Trap', 'class' => 'trap', 'level' => 1, 'hp_current' => 0, 'conditions' => []],
+    ]);
+    $check((int) $database->query("SELECT COUNT(*) FROM {dc_campaign_characters} WHERE instance_id = 'zz-fixture-rope-trap'")->fetchField() === 0, 'A trap definition does not become an actor.');
+  }
+  finally {
+    $switcher->switchBack();
+  }
+
   echo "PASS: {$checks} actor command integration checks; fixture rolled back.\n";
 }
 finally {

@@ -36,6 +36,7 @@ use Drupal\dungeoncrawler_content\Service\StorylineAuthoringDraftService;
 use Drupal\dungeoncrawler_content\Service\Generation\CanonicalDefinitionGenerationService;
 use Drupal\dungeoncrawler_content\Service\RoomEditorService;
 use Drupal\Component\Uuid\UuidInterface;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Actor\DefinitionActorTool;
 
 /**
  * Storyline Builder GM surface with draft-scoped storyline authoring tools.
@@ -90,6 +91,9 @@ final class StorylineBuilderGmSurface implements EditorGmSurfaceInterface {
       new ApplyStorylineDraftOperationsTool(),
       $remediationExecutor,
       new PublishStorylineDraftTool($remediationPlanner, $remediationExecutor),
+      new DefinitionActorTool('inspect_actor'),
+      new DefinitionActorTool('plan_actor_changes'),
+      new DefinitionActorTool('apply_actor_changes'),
     ], [], NULL);
     $this->assembler = new StorylineBuilderGmContextAssembler($this->registry, $intentParser);
   }

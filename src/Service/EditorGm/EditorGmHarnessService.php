@@ -295,6 +295,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         'publish_storyline_draft',
         'create_canonical_definition',
         'update_canonical_definition',
+        'apply_actor_changes',
       ], TRUE)) {
         throw new \LogicException('storyline_gm_direct_mutation_tool_forbidden');
       }

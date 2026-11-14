@@ -16,7 +16,7 @@ use Drupal\dungeoncrawler_content\Service\Validation\ActorReferenceCatalogInterf
  */
 class ActorCatalogService implements ActorReferenceCatalogInterface {
 
-  public const FAMILIES = ['ancestry', 'heritage', 'background', 'class', 'feat', 'spell', 'equipment', 'familiar_ability'];
+  public const CATALOG_FAMILIES = ['ancestry', 'heritage', 'background', 'class', 'feat', 'spell', 'equipment', 'familiar_ability'];
 
   /**
    * Entry ids per family, built on first use.

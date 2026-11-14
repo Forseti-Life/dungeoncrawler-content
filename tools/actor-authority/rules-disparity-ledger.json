@@ -394,13 +394,19 @@
       "update": "dungeoncrawler_content_update_10226",
       "date": "2026-11-14",
       "effect": "Reclassified one archived evidence fixture (row 5411) from pc to npc."
+    },
+    {
+      "tool": "tools/actor-authority/fold-canonical-actors.php",
+      "date": "2026-11-14",
+      "rows": "D21",
+      "effect": "110 canonical actor definitions (106 npc, 4 pc) folded into library actor rows through the actor authority: 103 created, 7 rewritten verbatim. 1 trap, 1 obstacle and 2 party definitions are not actors and were skipped. dc_campaign_characters: 852 -> 955 rows."
     }
   ],
   "conversion_preflight": {
     "date": "2026-11-14",
     "tool": "tools/actor-authority/conversion-preflight.php (read-only)",
-    "rows": 852,
-    "convert_and_validate_for_save": 852,
+    "rows": 955,
+    "convert_and_validate_for_save": 955,
     "blocked_rows": {},
     "history": "664 initially; 749 after importing 14 spells whose damage adds the spellcasting ability modifier; 846 after exact-id precedence and draft spellcasting; 852 after adding Quick Coercion and Dubious Knowledge and the reviewed repairs below.",
     "reviewed_repairs": [

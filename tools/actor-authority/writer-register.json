@@ -13,8 +13,8 @@
     "none": "no actor-reaching site in this file"
   },
   "totals": {
-    "files": 111,
-    "write_sites": 333
+    "files": 112,
+    "write_sites": 334
   },
   "files": {
     "dungeoncrawler_content.install": {
@@ -213,6 +213,12 @@
         "literal_table_write:delete:dc_campaign_characters": 1,
         "literal_table_write:insert:dc_campaign_characters": 1,
         "literal_table_write:update:dc_campaign_characters": 2
+      }
+    },
+    "src/Service/Actor/ActorDefinitionMirror.php": {
+      "slice": "S4",
+      "sites": {
+        "mutation_entry_call:call:definitions->saveDefinition": 1
       }
     },
     "src/Service/ActorDispositionService.php": {
@@ -881,6 +887,10 @@
       "reason": "replace with typed actor command"
     },
     "src/Form/SchemaDrivenDefinitionForm.php|definitions->saveDefinition": {
+      "disposition": "actor_authority",
+      "reason": "actor/creature families route to facade; nonactor families keep CanonicalDefinitionService"
+    },
+    "src/Service/Actor/ActorDefinitionMirror.php|definitions->saveDefinition": {
       "disposition": "actor_authority",
       "reason": "actor/creature families route to facade; nonactor families keep CanonicalDefinitionService"
     },

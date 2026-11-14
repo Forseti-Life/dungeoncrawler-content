@@ -39,6 +39,10 @@ final class DefinitionEditorGmContractTest extends TestCase {
     'plan_definition_patch',
     'update_definition',
     'create_definition',
+    // Shared actor tools over the actor command authority.
+    'inspect_actor',
+    'plan_actor_changes',
+    'apply_actor_changes',
   ];
 
   private function root(): string {
@@ -124,7 +128,7 @@ final class DefinitionEditorGmContractTest extends TestCase {
   public function testDefinitionGmToolsetMatchesApiParity(): void {
     $harness = $this->harness();
     $manifest = $harness->manifest('definition_editor');
-    $this->assertSame(13, $manifest['tool_count']);
+    $this->assertSame(16, $manifest['tool_count']);
     $this->assertSame([], $manifest['supported_command_types']);
     $this->assertSame([], $manifest['command_payload_contracts']);
 
@@ -143,7 +147,7 @@ final class DefinitionEditorGmContractTest extends TestCase {
     sort($expected);
     $this->assertSame($expected, $names);
     sort($mutating);
-    $this->assertSame(['create_definition', 'update_definition'], $mutating);
+    $this->assertSame(['apply_actor_changes', 'create_definition', 'update_definition'], $mutating);
 
     $controller = $this->source('src/Controller/DefinitionEditorController.php');
     foreach (['apiList', 'apiLoad', 'apiSchema', 'apiSave', 'apiCreate'] as $method) {
