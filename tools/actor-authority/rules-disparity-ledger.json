@@ -1,0 +1,352 @@
+{
+  "contract": "actor-rules-disparity-ledger-v1",
+  "work_item": "DC-ACTOR-AUTHORITY-20261114",
+  "gate": "S0 (R1). Every row must be status=decided before the S1 contract freeze. needs_decision rows block S1 for the fields they cover.",
+  "sources": {
+    "character": "config/schemas/character.schema.json",
+    "canonical_actor": "config/schemas/canonical_actor.schema.json",
+    "creature": "config/schemas/creature.schema.json",
+    "actor_row": "dc_campaign_characters hot columns (dungeoncrawler_content.install)",
+    "library_validator": "StateValidationService::validateCanonicalActorLibraryContracts()",
+    "registry": "dungeoncrawler_content_registry content_type npc|creature"
+  },
+  "target": "config/schemas/actor.schema.json: one actor object type. build.mechanics_model is pc_build or authored_statblock. Creature taxonomy is data, never a schema/validator selector.",
+  "rows": [
+    {
+      "id": "D01",
+      "concept": "level bounds",
+      "observed": {
+        "character": "/properties/level integer 1..20 default 1",
+        "canonical_actor": "/definitions/state_data/properties/level integer -1..30",
+        "creature": "/properties/level integer -1..25",
+        "actor_row": "level int unsigned NOT NULL default 1 (cannot store -1)",
+        "library_validator": "level must be between 1 and 25",
+        "registry": "level int NULL"
+      },
+      "target_rule": "authored_statblock: -1..30. pc_build: creation 1, progression 1..20. Signed hot column. No clamp, no 1..25 policy, no creature cap.",
+      "data_impact": "Live creature registry rows observed at 0..20 and canonical actors at 0..4, so widening loses nothing. Level-0 definitions exist and must not be clamped to 1.",
+      "status": "decided",
+      "slice": "S1 schema, S2 column"
+    },
+    {
+      "id": "D02",
+      "concept": "actor kind / entity family",
+      "observed": {
+        "character": "actor_type enum pc|npc",
+        "canonical_actor": "actor_type enum pc|npc|party|trap|obstacle",
+        "creature": "separate family; creature_type enum of 20 taxonomy values",
+        "actor_row": "type varchar pc|npc plus free-form role (creature, familiar, merchant, ...)",
+        "registry": "content_type npc (137) and creature (86) are separate catalogs"
+      },
+      "target_rule": "identity.kind enum pc|npc|creature|companion describes presentation/ownership only. identity.taxonomy carries creature_type and traits. trap and obstacle are not actors and move to their existing trap/obstacle families.",
+      "data_impact": "dc_canonical_actors holds 1 trap, 1 obstacle and 2 party rows that are not actors.",
+      "status": "decided",
+      "open_item": "party (2 rows) has no nonactor family today; see D20.",
+      "slice": "S1 schema, S3 data"
+    },
+    {
+      "id": "D03",
+      "concept": "identity and version tokens",
+      "observed": {
+        "character": "optional actor_id slug",
+        "canonical_actor": "actor_id slug required; version semver string, bumped only when referenced by a published room",
+        "creature": "creature_id slug; schema_version semver",
+        "actor_row": "uuid varchar(36) NULL; version int unsigned; character_id; source_character_id NULL; instance_id"
+      },
+      "target_rule": "Immutable actor UUID (required, unique). Library slug unique per template. Monotonic bigint aggregate revision. Semantic version is a publication label only. Campaign instances pin source UUID + publication revision/hash.",
+      "data_impact": "Of 852 actor rows, 784 have no UUID and 775 have character_id=0. UUID backfill needs a reviewed offline map; no synthesized links.",
+      "status": "decided",
+      "slice": "S1 schema, S2 backfill"
+    },
+    {
+      "id": "D04",
+      "concept": "class requirement",
+      "observed": {
+        "character": "class required, enum of 12 player classes",
+        "canonical_actor": "state_data.class required for every actor (free string)",
+        "creature": "no class",
+        "actor_row": "class varchar NOT NULL default ''"
+      },
+      "target_rule": "build.class exists only under pc_build and must be a local class id. authored_statblock has no class; role is narrative/identity data. No fabricated Fighter/NPC class.",
+      "status": "decided",
+      "slice": "S1"
+    },
+    {
+      "id": "D05",
+      "concept": "ability scores",
+      "observed": {
+        "character": "abilities.{str,dex,con,int,wis,cha} integer 1..30",
+        "canonical_actor": "abilities.{strength,...,charisma} integer 1..30, optional",
+        "creature": "pf2e_stats.ability_scores.{strength,...}.{score,modifier} required"
+      },
+      "target_rule": "build.abilities.{str,dex,con,int,wis,cha} integer score 1..30. Modifier is derived, never stored. Conversion verifies stored creature modifier equals floor((score-10)/2); a mismatch blocks that record.",
+      "status": "decided",
+      "slice": "S1"
+    },
+    {
+      "id": "D06",
+      "concept": "hit points and other runtime state inside definitions",
+      "observed": {
+        "character": "hit_points.{max,current,temp}; conditions[]; hero_points",
+        "canonical_actor": "state_data.hp_current and conditions required; max_hp optional",
+        "creature": "pf2e_stats.hp.{max,current,temporary,hardness}; lifecycle.is_alive, death_timestamp, current_room_id",
+        "actor_row": "hp_current, hp_max hot columns"
+      },
+      "target_rule": "Document owns authored maximum only: build.hit_points.max for authored_statblock (computed for pc_build), plus hardness. Current/temporary HP, conditions, alive/dead and current room are runtime/effects/placement lanes and are removed from every definition.",
+      "status": "decided",
+      "slice": "S1 schema, S4 runtime"
+    },
+    {
+      "id": "D07",
+      "concept": "armor class, saves, perception",
+      "observed": {
+        "character": "armor_class 1..50; saves.{fortitude,reflex,will} -10..60 optional; perception -10..60",
+        "canonical_actor": "ac >=0; saves ints -10..60; perception -10..60",
+        "creature": "pf2e_stats.ac 1..50; saves.*.modifier; perception.modifier -10..40 plus senses"
+      },
+      "target_rule": "authored_statblock stores build.defenses.{ac 0..60, fortitude, reflex, will} and build.perception as integer modifiers -10..60. pc_build computes them; stored copies are projections.",
+      "status": "decided",
+      "slice": "S1"
+    },
+    {
+      "id": "D08",
+      "concept": "size",
+      "observed": {
+        "character": "Tiny|Small|Medium|Large (capitalized)",
+        "canonical_actor": "Tiny..Gargantuan (capitalized)",
+        "creature": "tiny..gargantuan (lower case) plus hex_footprint 1..30"
+      },
+      "target_rule": "identity.size lower-case enum tiny|small|medium|large|huge|gargantuan; build.hex_footprint optional. Ancestry rules, not the schema, restrict PC sizes.",
+      "status": "decided",
+      "slice": "S1"
+    },
+    {
+      "id": "D09",
+      "concept": "movement",
+      "observed": {
+        "character": "speed integer 0..120",
+        "canonical_actor": "speed integer 0..120",
+        "creature": "pf2e_stats.speed.{land,fly,swim,climb,burrow}"
+      },
+      "target_rule": "build.speed object keyed by movement mode; land required, others optional non-null integers. Scalar speed converts to {land}.",
+      "status": "decided",
+      "slice": "S1"
+    },
+    {
+      "id": "D10",
+      "concept": "skills",
+      "observed": {
+        "character": "skills object (untyped)",
+        "canonical_actor": "skills[] of {name, modifier}",
+        "creature": "pf2e_stats.skills map name => {modifier}"
+      },
+      "target_rule": "build.skills list with stable id = local skill id: pc_build stores proficiency rank, authored_statblock stores modifier. Unknown skill ids block.",
+      "status": "decided",
+      "slice": "S1"
+    },
+    {
+      "id": "D11",
+      "concept": "attacks and special abilities",
+      "observed": {
+        "character": "attacks[] {name, bonus, damage}",
+        "canonical_actor": "attacks[] {name, bonus, damage}",
+        "creature": "attacks[] {name, type, attack_bonus, damage, damage_type, ...}; special_abilities[] {name, action_cost, description}"
+      },
+      "target_rule": "build.strikes[] with stable id, {name, type, attack_bonus, damage, damage_type, traits}; build.special_abilities[] with stable id and action_cost. The three-field form converts only when damage type is explicit in source; otherwise the record is blocked for authoring.",
+      "status": "decided",
+      "slice": "S1"
+    },
+    {
+      "id": "D12",
+      "concept": "spells",
+      "observed": {
+        "character": "spells {tradition, spell_attack, spell_dc, spells_known, spell_slots, focus_points}",
+        "canonical_actor": "spells[] of free strings",
+        "creature": "pf2e_stats.spells {tradition, type, dc, attack_modifier, spell_slots{slots, spells}} or null"
+      },
+      "target_rule": "Declared spellcasting capability. build.spellcasting {tradition, type, dc, attack_modifier, entries[] with exact local spell ids and rank}. Expended slots and focus remaining are runtime. Free-string spells must resolve to a local spell id or block.",
+      "status": "decided",
+      "slice": "S1"
+    },
+    {
+      "id": "D13",
+      "concept": "equipment and currency",
+      "observed": {
+        "character": "equipment[] {item_id, name, quantity}; gold integer",
+        "canonical_actor": "equipment[] of free strings",
+        "creature": "loot_table {guaranteed, random, currency ranges}"
+      },
+      "target_rule": "defaults.loadout[] of {item_id, quantity} using canonical item references, applied only at explicit instantiation. Current inventory and currency are inventory-domain facts. Free-string equipment must resolve to an item id or block.",
+      "status": "decided",
+      "slice": "S1 schema, S4 inventory"
+    },
+    {
+      "id": "D14",
+      "concept": "languages and senses",
+      "observed": {
+        "character": "languages[] maxLength 50",
+        "canonical_actor": "languages[] and senses[] maxLength 100",
+        "creature": "pf2e_stats.languages[]; perception.senses[]"
+      },
+      "target_rule": "build.languages[] and build.senses[] string lists, maxLength 100, distinct. Absence is a valid declared state.",
+      "status": "decided",
+      "slice": "S1"
+    },
+    {
+      "id": "D15",
+      "concept": "narrative text limits",
+      "observed": {
+        "character": "name 2..100; appearance/personality 1000; backstory 5000",
+        "canonical_actor": "name 1..255; description 4000; appearance/personality 2000; backstory 5000; motivations/fears/bonds 1000",
+        "creature": "name 1..200; description 1..5000; ai_personality goals/fears/desires arrays",
+        "actor_row": "name varchar(255)"
+      },
+      "target_rule": "identity.name 1..255. narrative.description 5000, appearance 2000, personality 2000, biography 5000, motivations/fears/bonds 1000. The 2-character PC name minimum stays a pc_build creation rule in the shared validator.",
+      "status": "decided",
+      "slice": "S1"
+    },
+    {
+      "id": "D16",
+      "concept": "psychology seed and mutable psychology",
+      "observed": {
+        "character": "psychology object of nine required strings; attitude enum",
+        "canonical_actor": "state_data.psychology (same nine strings); attitude enum",
+        "creature": "ai_personality {disposition, personality_traits, goals, fears, desires, speech_patterns, combat_personality, memory, relationships}"
+      },
+      "target_rule": "defaults.psychology is an immutable instantiation seed: baseline attitude, the nine seed strings, speech and combat temperament. Mutable axes, goals, memory and relationship edges stay in dc_psychology and the social stores; creature memory/relationships are removed from definitions.",
+      "status": "decided",
+      "slice": "S1 schema, S5 data"
+    },
+    {
+      "id": "D17",
+      "concept": "storyline binding embedded in the actor",
+      "observed": {
+        "canonical_actor": "state_data.storyline_binding {contact_id, availability, chapter_id, scene_id, location_id, dialogue, knowledge}",
+        "character": "same optional object"
+      },
+      "target_rule": "Bindings are storyline-owned records that reference actor UUID + publication. The embedded object is removed from the actor document; dialogue/knowledge become binding knowledge entries with visibility.",
+      "status": "decided",
+      "slice": "S3"
+    },
+    {
+      "id": "D18",
+      "concept": "spawn, patrol and reward metadata",
+      "observed": {
+        "creature": "lifecycle {spawn_type, respawn_cooldown_hours, home_room_id, patrol_route, wander_radius_rooms}; xp_reward 0..50000"
+      },
+      "target_rule": "defaults.spawn {spawn_type, respawn_cooldown_hours, patrol_route, wander_radius_rooms} is authored initialization input; home room is a placement binding. XP award stays with the encounter/reward owner and is derived from level, so xp_reward is not stored on the actor.",
+      "status": "decided",
+      "slice": "S1 schema, S4"
+    },
+    {
+      "id": "D19",
+      "concept": "generation provenance",
+      "observed": {
+        "canonical_actor": "metadata.generated_by {tool, model, provider, prompt_hash, seed, generated_at}",
+        "creature": "identical metadata.generated_by; created_at/updated_at strings"
+      },
+      "target_rule": "provenance.generated_by with the same required fields, server-maintained and not patchable. Timestamps are row metadata.",
+      "status": "decided",
+      "slice": "S1"
+    },
+    {
+      "id": "D20",
+      "concept": "party definitions stored as actors",
+      "observed": {
+        "canonical_actor": "actor_type=party with state_data.party_size 1..12 (2 live rows)"
+      },
+      "target_rule": "A party is a group of actors, not an actor. Recommendation: convert each to an encounter/group template that references member actor publications.",
+      "status": "needs_decision",
+      "blocks": "S3 conversion of the 2 party rows only; not S1.",
+      "slice": "S3"
+    },
+    {
+      "id": "D21",
+      "concept": "duplicate actor catalogs",
+      "observed": {
+        "registry": "content_type npc (137) and creature (86) rows in dungeoncrawler_content_registry",
+        "canonical_actor": "dc_canonical_actors 114 rows; 24 ids also exist in the registry",
+        "actor_row": "campaign_id=0 library rows in dc_campaign_characters; dungeoncrawler_content_characters 34 legacy rows",
+        "quarantine": "82 creature definitions quarantined as not losslessly canonical"
+      },
+      "target_rule": "One library: draft/template rows on dc_campaign_characters. Registry npc/creature rows, dc_canonical_actors and dungeoncrawler_content_characters convert once and retire. Ids present in two catalogs need a reviewed field-level disposition; quarantined creatures stay blocked until authored.",
+      "status": "decided",
+      "slice": "S2/S3"
+    },
+    {
+      "id": "D22",
+      "concept": "actor state held at the campaign instance",
+      "observed": {
+        "actor_row": "Campaign-instance rows (campaign_id>0, 675 rows) carry per-campaign state in three forms: character_data (+ default_character_data merged at read), state_data, and hot columns hp_current/hp_max/armor_class/experience_points/position_q/position_r/position_h3/last_room_id/location_type/location_ref/facing/lifecycle_state/status.",
+        "instance_state_data_keys": "role, stats, description, content_id, backstory, basicInfo, inventory, resources, psychology, bonds, fears, equipment, motivations, runtime_entity_id, campaign_character_id, senses, skills, abilities, goals, attacks, quests, npc_profile, spells, defenses, actions, features, conditions, ...",
+        "runtime_table": "dc_campaign_actor_runtime_state (1758 rows, 368 campaigns) entity_payload.state repeats character_data (638), inventory, equipment, resources, currency, conditions, hit_points, spell_slots, focus_points, is_defeated; entity_payload.placement holds room_id, hex, facing, h3_index_res14.",
+        "reader": "CharacterStateService::getState() reads HP and AC from the instance row hot columns (CharacterStateService.php:147-158), overlays the campaign row state_data (:205), and merges default_character_data under character_data through alias chains. Its persistence path writes state_data and the hot columns together (:1699-1790). The coordinator separately persists dc_campaign_actor_runtime_state through ActorRuntimeMutationService. So the instance row is today's effective home for sheet state, and the runtime table is a second instance-level store."
+      },
+      "target_rule": "Board directive: per-campaign actor state belongs to the campaign instance of the actor. The instance is the aggregate for its own state; a template never holds it and a template edit never resets it. Each instance fact still has exactly one physical home. Recommendation: instance row character_data = pinned authored snapshot; instance-scoped mutable facts (current HP, resources, expended slots, defeated/flags, XP, campaign role) = one typed instance-state document; placement = one placement record; inventory/effects/psychology keep their domain stores keyed by the instance. Hot columns and the duplicate copies become projections or are removed.",
+      "status": "needs_decision",
+      "blocks": "S1 freeze of instance-scoped fields and all of S4. Requires the measured per-field map of which store wins today (instance row state_data vs hot columns vs runtime payload) before choosing each physical home.",
+      "data_impact": "Authored facts (description, backstory, abilities, attacks) are duplicated into instance state_data and again into runtime payload state.character_data; divergence between the copies has not been measured yet.",
+      "slice": "S0 map, S4 conversion"
+    },
+    {
+      "id": "D23",
+      "concept": "alias-precedence reads",
+      "observed": {
+        "reader": "getState() resolves name as basicInfo.name ?? display_name ?? name ?? row.name, level as basicInfo.level ?? level ?? row.level, and similar chains for ancestry, class, background, appearance, saves."
+      },
+      "target_rule": "One path per fact in the canonical document. Readers take that path or fail with a typed contract error; no alias chain, no default-under-override merge at read time.",
+      "status": "decided",
+      "slice": "S2 library rows, S4 instance rows"
+    }
+  ],
+  "data_preflight_observed": {
+    "observed_at": "2026-11-14",
+    "method": "read-only aggregate queries on database dungeoncrawler; no row content exported",
+    "dc_campaign_characters": {
+      "rows": 852,
+      "rows_without_uuid": 784,
+      "distinct_uuid": 68,
+      "duplicate_uuid_groups": 0,
+      "rows_with_character_id_zero": 775,
+      "creature_role_rows_with_empty_character_data": 84,
+      "level_range": "1..5"
+    },
+    "dc_canonical_actors": {
+      "npc": 106,
+      "pc": 4,
+      "party": 2,
+      "trap": 1,
+      "obstacle": 1,
+      "level_range": "0..4"
+    },
+    "dungeoncrawler_content_registry": {
+      "npc": 137,
+      "creature": 86,
+      "creature_level_range": "0..20"
+    },
+    "dungeoncrawler_content_characters": 34,
+    "definition_quarantine": {
+      "creature": 82,
+      "item": 99
+    },
+    "ids_in_both_canonical_actors_and_registry": 24,
+    "campaign_instance_state": {
+      "instance_rows": 675,
+      "library_rows": 177,
+      "instance_rows_with_state_data": {
+        "npc": 513,
+        "pc": 76
+      },
+      "instance_rows_with_default_character_data": {
+        "npc": 1,
+        "pc": 77
+      },
+      "runtime_state_rows": {
+        "npc": 1357,
+        "player_character": 364,
+        "creature": 37,
+        "with_character_id": 0
+      }
+    }
+  }
+}

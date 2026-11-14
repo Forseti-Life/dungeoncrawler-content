@@ -19,6 +19,7 @@
 | Client execution of server actions, coordinator flows | Coordinator client bridge | `js/game-coordinator/`, `js/v2/systems/` |
 | Character creation, leveling, feats, sheet state | Character lifecycle | `src/Controller/Character*`, `src/Service/Character*` |
 | Character creation validation, missing/invalid wizard choices, GM next steps | Shared state validation | `StateValidationService::validateCharacterDraft()`, `src/Service/CharacterCreationValidationService.php` |
+| Any actor/character/NPC/creature write, new actor table access, actor schema or rules change | Actor authority reconciliation (writer set is frozen) | `docs/ACTOR_AUTHORITY.md`, `tools/actor-authority/writer-register.json`, `tests/src/Unit/Service/ActorWriteAuthorityGuardTest.php` |
 | Campaign start/state, room transitions, dungeon state | Campaign and world state | `src/Service/Campaign*`, `src/Service/Room*`, `src/Service/Dungeon*` |
 | Quest generation/progress/rewards/objectives | Generation pipeline | `src/Service/Quest*`, `src/Controller/QuestTrackerController.php` |
 | NPC behavior, institution modeling, relationship state | NPC and institutions | `src/Service/Npc*`, `src/Service/Institution*`, `src/Service/RelationshipManagerService.php` |
