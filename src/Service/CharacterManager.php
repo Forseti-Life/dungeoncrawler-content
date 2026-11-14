@@ -4,6 +4,7 @@ namespace Drupal\dungeoncrawler_content\Service;
 
 use Drupal\Component\Uuid\UuidInterface;
 use Drupal\Core\Database\Connection;
+use Drupal\Core\Session\AccountInterface;
 use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\dungeoncrawler_content\Service\InventoryManagementService;
 
@@ -11418,6 +11419,25 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
       'totalBulk' => (float) ($inventory['totalBulk'] ?? $inventory['total_bulk'] ?? 0),
       'encumbrance' => (string) ($inventory['encumbrance'] ?? 'unencumbered'),
     ]);
+  }
+
+  /**
+   * Executes a typed actor command; the single write entry for actors.
+   *
+   * Returns a committed actor-command-receipt-v1 receipt, or a typed failure
+   * with committed FALSE and no state change (DC-ACTOR-AUTHORITY-20261114).
+   */
+  public function executeActorCommand(array $command, ?AccountInterface $principal = NULL): array {
+    return \Drupal::service('dungeoncrawler_content.actor_command_processor')
+      ->execute($command, $principal ?? $this->currentUser);
+  }
+
+  /**
+   * Plans a typed actor command without writing anything.
+   */
+  public function previewActorCommand(array $command, ?AccountInterface $principal = NULL): array {
+    return \Drupal::service('dungeoncrawler_content.actor_command_processor')
+      ->preview($command, $principal ?? $this->currentUser);
   }
 
   /**

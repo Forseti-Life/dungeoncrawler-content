@@ -96,9 +96,38 @@ explicitly when the caster records none.
 A familiar is its own actor (`identity.kind` = `companion`); the owner's
 `build.companions` records the selection that links to it.
 
+## Commands (live)
+
+`CharacterManager::executeActorCommand()` and `previewActorCommand()` are the
+actor write entry. A command follows `config/schemas/actor_command.schema.json`
+(`actor-command-v1`) and is executed by
+`src/Service/Actor/ActorCommandProcessor.php`: lock the actor, re-read it,
+apply only the requested operations, validate the whole candidate, write, bump
+the aggregate revision (`version`), append `dc_actor_revisions`, store the
+receipt in `dc_actor_command_receipts`, and verify the stored row reads back
+as the validated candidate. A failure returns a typed code with
+`committed: false` and changes nothing.
+
+| Command | Paths |
+|---|---|
+| `actor.identity.patch` | `/identity/name`, `/identity/alignment`, `/identity/personal/{age,gender,deity,concept}` |
+| `actor.narrative.patch` | `/narrative/{description,appearance,personality,biography,fears,bonds}` |
+
+Behaviour: an older inspected revision still applies to the latest row and
+preserves unrelated fields; replaying a command id returns the original
+receipt; a no-change command does not advance the revision; a caller who may
+not edit an actor gets `actor_not_found`. Commands address canonical paths;
+until rows store the canonical document directly, the processor writes each
+fact to the stored key it currently lives under and keeps duplicate copies
+equal.
+
+Checks: `drush php:script tests/actor_command_integration.php` (48 checks,
+one original fixture, always rolled back).
+
+No form, tool or gameplay writer calls the commands yet.
+
 The live validator resolves references against `ActorCatalogService`.
 
-Not wired yet: no caller uses `validateActor()`. Player-build choice
+Player-build choice
 eligibility is `not_checked` until the character creation rules are projected
-from the new document (slice S2). Command envelopes, the transaction core and
-the shared actor tools are not implemented.
+from the new document (slice S2). The shared actor tools are not implemented.

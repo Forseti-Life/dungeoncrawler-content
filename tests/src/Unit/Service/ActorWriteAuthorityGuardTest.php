@@ -24,7 +24,7 @@ class ActorWriteAuthorityGuardTest extends TestCase {
 
   private const DYNAMIC_DISPOSITIONS = ['actor_reachable', 'historical_migration', 'not_tracked_table', 'not_database'];
 
-  private const SLICES = ['S2', 'S3', 'S4', 'S5', 'S6', 'frozen', 'none'];
+  private const SLICES = ['authority', 'S2', 'S3', 'S4', 'S5', 'S6', 'frozen', 'none'];
 
   public function testLiteralAndConstantTablesAreClassified(): void {
     $findings = (new ActorAuthorityScanner())->scanSource(<<<'PHP'

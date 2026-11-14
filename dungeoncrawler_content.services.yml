@@ -445,6 +445,15 @@ services:
     arguments:
       - '@dungeoncrawler_content.actor_catalog'
 
+  dungeoncrawler_content.actor_command_processor:
+    class: Drupal\dungeoncrawler_content\Service\Actor\ActorCommandProcessor
+    arguments:
+      - '@database'
+      - '@dungeoncrawler_content.definition_schema_validator'
+      - '@dungeoncrawler_content.actor_document_converter'
+      - '@dungeoncrawler_content.state_validation_service'
+      - '@datetime.time'
+
   dungeoncrawler_content.actor_document_validator:
     class: Drupal\dungeoncrawler_content\Service\Validation\ActorDocumentValidator
     arguments:
