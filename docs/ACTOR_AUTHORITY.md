@@ -74,8 +74,11 @@ Those sites appear as `dynamic_*` findings and need a reviewed disposition.
 | `StateValidationService::validateActor()` | The validation entry. |
 | `src/Service/Validation/ActorReferenceCatalogInterface.php` | Exact local catalog lookups for classes, ancestries, feats, spells, items and skills. |
 
-Not wired yet: no caller uses `validateActor()`, and the live service has no
-catalog adapter, so local references report `not_checked` until slice S2
-supplies one. Player-build choice eligibility is `not_checked` until the
-character creation rules are projected from the new document. Command
-envelopes, the transaction core and tools are not implemented.
+| `src/Service/ActorCatalogService.php` | The single local catalog authority (ancestry, heritage, background, class, feat, spell, equipment, familiar ability, item, skill). The character GM's catalog tools delegate to it; their previous private copy was removed. |
+
+The live validator resolves references against `ActorCatalogService`.
+
+Not wired yet: no caller uses `validateActor()`. Player-build choice
+eligibility is `not_checked` until the character creation rules are projected
+from the new document (slice S2). Command envelopes, the transaction core and
+the shared actor tools are not implemented.

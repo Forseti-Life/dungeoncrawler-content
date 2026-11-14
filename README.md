@@ -54,6 +54,10 @@ its latest state, and save through the same atomic native authority. An older
 inspected revision is retained for audit rather than presented as a conflict;
 requested fields win and unrelated newer saved fields remain intact.
 
+Catalog lookups are owned by the shared `ActorCatalogService`, which actor
+validation also uses to resolve exact local references (see
+`docs/ACTOR_AUTHORITY.md`).
+
 `search_character_catalog` provides bounded, paginated local discovery, and
 `get_character_catalog_entry` reads complete stored ancestry, heritage,
 background, class, feat, spell, equipment, and familiar-ability records. These

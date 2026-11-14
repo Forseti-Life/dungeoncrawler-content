@@ -429,14 +429,22 @@ services:
       - '@dungeoncrawler_content.faction_generation'
       - '@class_resolver'
       - '@dungeoncrawler_content.character_wizard_hardening'
+      - '@dungeoncrawler_content.state_validation_service'
+      - '@dungeoncrawler_content.actor_catalog'
+
+  dungeoncrawler_content.actor_catalog:
+    class: Drupal\dungeoncrawler_content\Service\ActorCatalogService
+    arguments:
       - '@dungeoncrawler_content.feat_library'
       - '@dungeoncrawler_content.spell_catalog'
-      - '@dungeoncrawler_content.state_validation_service'
+      - '@dungeoncrawler_content.character_creation_validation'
+      - '@dungeoncrawler_content.canonical_definitions'
 
   dungeoncrawler_content.actor_document_validator:
     class: Drupal\dungeoncrawler_content\Service\Validation\ActorDocumentValidator
     arguments:
       - '@dungeoncrawler_content.definition_schema_validator'
+      - '@dungeoncrawler_content.actor_catalog'
 
   dungeoncrawler_content.character_creation_validation:
     class: Drupal\dungeoncrawler_content\Service\CharacterCreationValidationService

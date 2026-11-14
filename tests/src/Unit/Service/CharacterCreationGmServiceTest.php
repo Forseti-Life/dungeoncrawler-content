@@ -9,7 +9,10 @@ use Drupal\Core\DependencyInjection\ClassResolverInterface;
 use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\dungeoncrawler_content\Form\CharacterCreationStepForm;
 use Drupal\dungeoncrawler_content\Service\AbilityScoreTracker;
+use Drupal\dungeoncrawler_content\Service\ActorCatalogService;
+use Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService;
 use Drupal\dungeoncrawler_content\Service\CharacterCreationGmService;
+use Drupal\dungeoncrawler_content\Service\CharacterCreationValidationService;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
 use Drupal\dungeoncrawler_content\Service\CharacterWizardHardeningService;
 use Drupal\dungeoncrawler_content\Service\FactionGenerationService;
@@ -48,9 +51,13 @@ class CharacterCreationGmServiceTest extends TestCase {
       $manager, new AbilityScoreTracker($manager), $this->createMock(InstitutionMembershipService::class),
       $factions ?? $this->createMock(FactionGenerationService::class), $resolver,
       $this->createMock(CharacterWizardHardeningService::class),
-      $feats ?? $this->createMock(FeatLibraryService::class),
-      $this->createMock(SpellCatalogService::class),
       $validation ?? $this->createMock(StateValidationService::class),
+      new ActorCatalogService(
+        $feats ?? $this->createMock(FeatLibraryService::class),
+        $this->createMock(SpellCatalogService::class),
+        $this->createMock(CharacterCreationValidationService::class),
+        $this->createMock(CanonicalDefinitionService::class),
+      ),
     );
   }
 
