@@ -266,7 +266,11 @@ export class EncounterSystem {
 
       const result = await this._sendCoordinatorActionWithResync(coordinator, actionKey, actorRef, params);
       if (!result?.success) {
-        this._appendChatLine('System', result?.error || result?.result?.error || 'Unable to complete that rest activity.', 'system');
+        const setupRequired = result?.result?.requires_setup === true;
+        const setupHint = setupRequired
+          ? ' Open Actor Roster > Marching and Camping to arrange and save both setup rooms, then retry this action.'
+          : '';
+        this._appendChatLine('System', (result?.error || result?.result?.error || 'Unable to complete that rest activity.') + setupHint, 'system');
         return;
       }
 

@@ -1051,6 +1051,15 @@ trait EncounterNavigationTransitionCoordinatorTrait {
     try {
       // Build participant list from entities in the room.
       $participants = $this->buildParticipantList($dungeon_data, $room_id, $enemies);
+      $participants = $this->roomSceneEncounterCoordinator->preparePlayerSetupEncounter(
+        $campaign_id,
+        $participants,
+        $this->findRoomById($dungeon_data, $room_id),
+        $game_state['encounter_context'],
+        function (string $id, string $rid, array $hex, int $facing) use (&$dungeon_data): void {
+          $this->moveEntityToRoom($dungeon_data, $id, $rid, $hex, $facing);
+        },
+      );
       $has_player_side = FALSE;
       $has_hostile_side = FALSE;
       foreach ($participants as $participant) {

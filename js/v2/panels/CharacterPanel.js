@@ -1439,6 +1439,18 @@ export class CharacterPanel {
     if (!hexmap) {
       return;
     }
+    const setupSection = document.getElementById('party-player-setup');
+    const setupCampaignId = Number(hexmap.resolveLaunchCharacterRuntimeContext?.()?.campaignId || hexmap.resolveCampaignId?.() || 0);
+    if (setupSection) {
+      setupSection.hidden = !(setupCampaignId > 0);
+      setupSection.querySelectorAll('[data-party-setup-room]').forEach((link) => {
+        if (setupCampaignId > 0) {
+          link.href = `/campaign/${encodeURIComponent(setupCampaignId)}/player-setup?room=${encodeURIComponent(link.dataset.partySetupRoom)}`;
+        } else {
+          link.removeAttribute('href');
+        }
+      });
+    }
     const selectorTargets = [
       { wrap: this._el.partyActorSelectWrap, select: this._el.partyActorSelect },
     ].filter((target) => target.wrap && target.select);

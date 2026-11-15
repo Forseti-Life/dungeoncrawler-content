@@ -30,6 +30,25 @@ transient recovery as a gameplay error. Authoritative state failures still
 retain their normal degraded/read-only protections; event-stream recovery does
 not falsely clear a state-sync failure.
 
+### Marching and Camping
+
+Actor Roster links to the campaign's setup-only **Playersetup** dungeon at
+`/campaign/{campaign_id}/player-setup?room=camping` (or `room=marching`).
+Players select party and eligible escort actors, choose hexes and facing, and
+assign sleeping/watch duties in the campsite. Both rooms must be saved with
+the same participants before resting. Required party changes invalidate old
+layouts until corrected. These planning pages do not move live actors,
+advance time, or spend resources.
+
+`PlayerSetupService` owns validation and revision-checked, campaign-scoped
+persistence. Encounter producers explicitly opt in with the runtime room's
+`gameplay_state.player_setup_mode` set to `camping` or `marching`. Both hostile
+combat and room-scene bootstrap use the same saved-position consumer and the
+existing canonical placement helper, retaining the setup revision, duties and
+marching order in encounter context. The destination must contain every saved
+hex and participant without collisions; incompatible setups fail explicitly,
+never auto-fit or silently drop actors. Ordinary rooms are not repositioned.
+
 ### Character Setup Assistant
 
 `/charactersetup` uses a left-hand step/quicklink sidebar and a larger right

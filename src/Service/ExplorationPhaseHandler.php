@@ -134,6 +134,7 @@ class ExplorationPhaseHandler implements MutationContextPhaseHandlerInterface {
   protected StorylineQuestLifecycleService $storylineQuestLifecycleService;
   protected DungeonPayloadStatePersistenceService $dungeonPayloadStatePersistence;
   protected ActionTargetingService $actionTargetingService;
+  protected ?PlayerSetupService $playerSetup;
 
   /**
    * Constructs an ExplorationPhaseHandler.
@@ -158,7 +159,8 @@ class ExplorationPhaseHandler implements MutationContextPhaseHandlerInterface {
     ?FileUrlGeneratorInterface $file_url_generator = NULL,
     ?QuestTrackerService $quest_tracker = NULL,
     ?ActionTargetingService $action_targeting_service = NULL,
-    ?NavigationService $navigation_service = NULL
+    ?NavigationService $navigation_service = NULL,
+    ?PlayerSetupService $player_setup = NULL
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler');
@@ -185,6 +187,7 @@ class ExplorationPhaseHandler implements MutationContextPhaseHandlerInterface {
     $this->fileUrlGenerator = $file_url_generator;
     $this->actionTargetingService = $action_targeting_service ?? new ActionTargetingService();
     $this->navigationService = $navigation_service;
+    $this->playerSetup = $player_setup;
     $this->questTracker = $quest_tracker;
     $this->storylineQuestLifecycleService = $storyline_quest_lifecycle_service;
     if (
@@ -575,6 +578,12 @@ class ExplorationPhaseHandler implements MutationContextPhaseHandlerInterface {
 
       case 'rest':
         $result = $this->processRest($actor_id, $params, $game_state, $dungeon_data, $campaign_id);
+        if (!empty($result['error'])) {
+          return [
+            'success' => FALSE, 'result' => $result, 'mutations' => [],
+            'events' => [], 'phase_transition' => NULL, 'narration' => NULL,
+          ];
+        }
         $mutations = $result['mutations'] ?? [];
         // Short rest advances 10 minutes, long rest transitions to downtime.
         $rest_type = $params['rest_type'] ?? 'short';
@@ -4217,6 +4226,14 @@ class ExplorationPhaseHandler implements MutationContextPhaseHandlerInterface {
    * Process a rest action.
    */
   protected function processRest(string $actor_id, array $params, array &$game_state, array &$dungeon_data, int $campaign_id): array {
+    if ($campaign_id > 0) {
+      if ($this->playerSetup === NULL) {
+        throw new \LogicException('Exploration rest requires PlayerSetupService.');
+      }
+      if ($requirement = $this->playerSetup->restRequirement($campaign_id)) {
+        return $requirement;
+      }
+    }
     $rest_type = $params['rest_type'] ?? 'short';
 
     if ($rest_type === 'short') {

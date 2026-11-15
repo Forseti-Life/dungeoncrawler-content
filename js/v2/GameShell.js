@@ -29,7 +29,7 @@ import { HexCanvas } from './canvas/HexCanvas.js?v=20261009-module-background-1'
 import { HexTokenRenderer } from './canvas/HexTokenRenderer.js';
 import { HexFogOfWar } from './canvas/HexFogOfWar.js';
 import { HexInputHandler } from './canvas/HexInputHandler.js';
-import { EncounterSystem } from './systems/EncounterSystem.js?v=20261109-visible-runtime-sync-1';
+import { EncounterSystem } from './systems/EncounterSystem.js?v=20261115-player-setup-1';
 import { NavigationSystem } from './systems/NavigationSystem.js?v=20261024-campaign-storylines-1';
 import { PlayerAutomation } from './systems/PlayerAutomation.js?v=20260608-v2-chat-persistence-dev-1';
 import { QuestSystem } from './systems/QuestSystem.js?v=20260608-v2-quest-summary-merge-2';
@@ -39,7 +39,7 @@ import { ActionRailPanel } from './panels/ActionRailPanel.js?v=20261024-campaign
 import { ChatPanel } from './panels/ChatPanel.js?v=20261025-search-narrator-1';
 import { QuestPanel } from './panels/QuestPanel.js?v=20260723-v2-quest-storyline-grouping-2';
 import { InventoryPanel } from './panels/InventoryPanel.js?v=20260909-tab-runtime-consistency-1';
-import { CharacterPanel } from './panels/CharacterPanel.js?v=20260909-tab-runtime-consistency-1';
+import { CharacterPanel } from './panels/CharacterPanel.js?v=20261115-player-setup-1';
 import { RoomViewPanel } from './panels/RoomViewPanel.js?v=20261009-module-background-1';
 import { StatusPanel } from './panels/StatusPanel.js?v=20261109-visible-runtime-sync-1';
 import { normalizeInventoryState } from './utils/inventory-utils.js';

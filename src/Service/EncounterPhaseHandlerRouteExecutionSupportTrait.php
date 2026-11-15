@@ -1534,6 +1534,9 @@ trait EncounterPhaseHandlerRouteExecutionSupportTrait {
       },
       function (string $entity_id, array &$state, array &$dungeon, int $cid): array {
         return $this->buildTurnStartSearchEvents($entity_id, $state, $dungeon, $cid);
+      },
+      function (string $id, string $rid, array $hex, int $facing) use (&$dungeon_data): void {
+        $this->moveEntityToRoom($dungeon_data, $id, $rid, $hex, $facing);
       }
     );
   }
@@ -2622,7 +2625,7 @@ trait EncounterPhaseHandlerRouteExecutionSupportTrait {
    */
   protected function moveEntityToRoom(array &$dungeon_data, string $actor_id, string $room_id, array $hex, int $facing = 0): void {
     $h3_index_res14 = $this->resolveRoomHexH3IndexRes14($dungeon_data, $room_id, $hex);
-    foreach ($dungeon_data['entities'] ?? [] as &$entity) {
+    foreach ($dungeon_data['entities'] as &$entity) {
       $entity_id = (string) ($entity['entity_instance_id'] ?? ($entity['instance_id'] ?? ($entity['id'] ?? '')));
       if ($entity_id !== $actor_id) {
         continue;

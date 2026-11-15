@@ -9,6 +9,17 @@
 # ADMIN ROUTES
 # ==============================================================================
 
+dungeoncrawler_content.player_setup:
+  path: '/campaign/{campaign_id}/player-setup'
+  defaults:
+    _form: '\Drupal\dungeoncrawler_content\Form\PlayerSetupForm'
+    _title: 'Playersetup - Marching and Camping'
+  requirements:
+    _custom_access: '\Drupal\dungeoncrawler_content\Form\PlayerSetupForm::access'
+    campaign_id: '\d+'
+  options:
+    no_cache: TRUE
+
 dungeoncrawler_content.settings:
   path: '/admin/config/content/dungeoncrawler'
   defaults:

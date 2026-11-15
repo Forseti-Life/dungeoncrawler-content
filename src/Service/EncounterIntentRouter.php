@@ -7,6 +7,8 @@ namespace Drupal\dungeoncrawler_content\Service;
  */
 class EncounterIntentRouter {
 
+  public function __construct(private ?PlayerSetupService $playerSetup = NULL) {}
+
   public function routeIntent(
     array $intent,
     array &$game_state,
@@ -225,6 +227,14 @@ class EncounterIntentRouter {
     callable $process_repair,
     callable $process_daily_preparations
   ): array {
+    if (isset(['treat_wounds' => TRUE, 'refocus' => TRUE, 'repair' => TRUE, 'daily_preparations' => TRUE][$type]) && $campaign_id > 0) {
+      if ($this->playerSetup === NULL) {
+        throw new \LogicException('Encounter rest routing requires PlayerSetupService.');
+      }
+      if ($requirement = $this->playerSetup->restRequirement($campaign_id)) {
+        return ['handled' => TRUE, 'result' => $requirement];
+      }
+    }
     return match ($type) {
       'treat_wounds' => [
         'handled' => TRUE,
@@ -316,7 +326,7 @@ class EncounterIntentRouter {
     if (!empty($result['error'])) {
       return [
         'success' => FALSE,
-        'result' => ['error' => $result['error']],
+        'result' => $result,
         'mutations' => [],
         'events' => [],
         'phase_transition' => NULL,

@@ -6,6 +6,31 @@ namespace Drupal\dungeoncrawler_content\Service;
  * Coordinates room-scene encounter progression and reseed safeguards.
  */
 class RoomSceneEncounterCoordinator {
+
+  public function __construct(private ?PlayerSetupService $playerSetup = NULL) {}
+
+  public function preparePlayerSetupEncounter(
+    int $campaign_id,
+    array $participants,
+    ?array $room,
+    array &$encounter_context,
+    ?callable $move_entity_to_room,
+  ): array {
+    $mode = $room['gameplay_state']['player_setup_mode'] ?? NULL;
+    if ($mode === NULL) {
+      return $participants;
+    }
+    if ($this->playerSetup === NULL || !is_string($mode) || $move_entity_to_room === NULL) {
+      throw new \LogicException('Player setup encounter requires PlayerSetupService, a string mode, and the canonical placement callback.');
+    }
+    $arranged = $this->playerSetup->arrangeEncounter($campaign_id, $mode, $participants, $room);
+    foreach ($arranged['setup']['positions'] as $id => $position) {
+      $move_entity_to_room($id, $room['room_id'], ['q' => $position['q'], 'r' => $position['r']], $position['facing']);
+    }
+    $encounter_context['player_setup'] = $arranged['setup'];
+    return $arranged['participants'];
+  }
+
   /**
    * Normalize team labels so legacy aliases do not break turn routing.
    */
@@ -114,7 +139,8 @@ class RoomSceneEncounterCoordinator {
     callable $sync_game_state_with_canonical_turn,
     callable $build_round_start_events,
     callable $build_turn_start_events,
-    callable $build_turn_start_search_events
+    callable $build_turn_start_search_events,
+    ?callable $move_entity_to_room = NULL,
   ): array {
     $initiative_order = $build_room_encounter_turn_order($dungeon_data, $room_id, $actor_id);
     $assert_initiative_has_player(
@@ -122,6 +148,8 @@ class RoomSceneEncounterCoordinator {
       sprintf('%s:%s', $start_missing_player_error_code, $room_id)
     );
     $participants = $build_room_scene_encounter_participants($dungeon_data, $initiative_order);
+    $setup_context = [];
+    $participants = $this->preparePlayerSetupEncounter($campaign_id, $participants, $room, $setup_context, $move_entity_to_room);
     $encounter_id = $create_encounter(
       $campaign_id > 0 ? $campaign_id : NULL,
       $room_id,
@@ -141,6 +169,7 @@ class RoomSceneEncounterCoordinator {
       'mode' => 'room_scene',
       'started_at' => date('c'),
     ];
+    $game_state['encounter_context'] += $setup_context;
     $game_state['encounter_id'] = $encounter_id;
     $initiative_order = is_array($game_state['initiative_order'] ?? NULL) ? $game_state['initiative_order'] : $initiative_order;
 

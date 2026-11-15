@@ -6,6 +6,16 @@
 #
 # @see https://www.drupal.org/docs/drupal-apis/services-and-dependency-injection
 services:
+  dungeoncrawler_content.player_setup:
+    class: Drupal\dungeoncrawler_content\Service\PlayerSetupService
+    arguments:
+      - '@database'
+      - '@keyvalue'
+      - '@lock'
+      - '@dungeoncrawler_content.hex_utility'
+      - '@dungeoncrawler_content.room_editor'
+      - '@dungeoncrawler_content.campaign_runtime_state_store'
+
   logger.channel.dungeoncrawler:
     parent: logger.channel_base
     arguments: ['dungeoncrawler']
@@ -1036,6 +1046,7 @@ services:
 
   dungeoncrawler_content.room_scene_encounter_coordinator:
     class: Drupal\dungeoncrawler_content\Service\RoomSceneEncounterCoordinator
+    arguments: ['@dungeoncrawler_content.player_setup']
 
   dungeoncrawler_content.canonical_projection_service:
     class: Drupal\dungeoncrawler_content\Service\CanonicalProjectionService
@@ -1115,6 +1126,7 @@ services:
 
   dungeoncrawler_content.encounter_intent_router:
     class: Drupal\dungeoncrawler_content\Service\EncounterIntentRouter
+    arguments: ['@dungeoncrawler_content.player_setup']
 
   # Campaign State Services
   dungeoncrawler_content.dungeon_state_service:
@@ -2099,6 +2111,7 @@ services:
       - ~
       - ~
       - '@dungeoncrawler_content.navigation_service'
+      - '@dungeoncrawler_content.player_setup'
 
   dungeoncrawler_content.encounter_phase_handler:
     class: Drupal\dungeoncrawler_content\Service\EncounterPhaseHandler

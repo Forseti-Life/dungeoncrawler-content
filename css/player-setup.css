@@ -1,0 +1,51 @@
+[data-player-setup] {
+  padding: 1.25rem;
+  border-radius: .5rem;
+  background: #182033;
+  color: #e3eaf3;
+}
+[data-player-setup] a { color: #b5dcff; }
+[data-player-setup] th,
+[data-player-setup] label { color: #e3eaf3; }
+[data-setup-actor] {
+  padding: .4rem;
+  border: 1px solid #7e9cbb;
+  background: #253749;
+  color: #f4f8ff;
+}
+.player-setup__rooms {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+.player-setup__rooms [aria-current="page"] {
+  font-weight: bold;
+  text-decoration: underline;
+}
+.player-setup__map {
+  max-width: 760px;
+  overflow: auto;
+  background: #18251c;
+}
+.player-setup__map svg {
+  display: block;
+  width: 100%;
+  min-width: 420px;
+}
+.player-setup__map polygon {
+  stroke: #b7c4b8;
+  stroke-width: 1;
+}
+.player-setup__grass { fill: #385e3d; }
+.player-setup__road { fill: #6a624e; }
+.player-setup__map text {
+  fill: #fff;
+  font-size: 10px;
+  pointer-events: none;
+}
+.player-setup__map [role="button"] { cursor: pointer; }
+.player-setup__map [role="button"]:focus polygon { stroke: #fff; stroke-width: 4; }
+.player-setup__occupied polygon { fill: #194f89; }
+.player-setup__placements { display: block; overflow-x: auto; }
+[data-setup-actor][aria-pressed="true"] { outline: 3px solid #297abf; }
