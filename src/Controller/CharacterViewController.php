@@ -536,6 +536,52 @@ class CharacterViewController extends ControllerBase {
   }
 
   /**
+   * Shows an actor that so far exists only as a spec in a storyline draft.
+   *
+   * Nothing is created: the page states what the draft says about the actor
+   * and that the actor itself has not been generated yet.
+   */
+  private function buildStorylineDraftActorPage(string $draft_id, string $actor_id): array {
+    try {
+      $draft = \Drupal::service('dungeoncrawler_content.storyline_authoring_drafts')->getDraftForViewing($draft_id);
+    }
+    catch (\OutOfBoundsException) {
+      throw new NotFoundHttpException();
+    }
+    $spec = NULL;
+    foreach ($draft['payload']['objects']['actors']['generation_specs'] ?? [] as $candidate) {
+      if (is_array($candidate) && (string) ($candidate['actor_id'] ?? '') === $actor_id) {
+        $spec = $candidate;
+        break;
+      }
+    }
+    if ($spec === NULL) {
+      throw new NotFoundHttpException();
+    }
+    $rows = [];
+    foreach ($spec as $key => $value) {
+      if (is_scalar($value) && trim((string) $value) !== '') {
+        $rows[] = [ucfirst(str_replace('_', ' ', (string) $key)), (string) $value];
+      }
+    }
+    $builder = \Drupal\Core\Url::fromRoute('dungeoncrawler_content.gm_storyline_builder', [], ['query' => ['draft_id' => $draft['draft_id']]]);
+
+    return [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['dc-character-sheet', 'dc-planned-actor']],
+      '#attached' => ['library' => ['dungeoncrawler_content/character-sheet']],
+      '#cache' => ['max-age' => 0],
+      'title' => ['#markup' => '<h1>' . \Drupal\Component\Utility\Html::escape((string) ($spec['display_name'] ?? $actor_id)) . '</h1>'],
+      'status' => [
+        '#markup' => '<p><strong>' . $this->t('Not created yet.') . '</strong> '
+          . $this->t('This actor is planned in a storyline draft. It has no character sheet until the storyline GM generates the missing actors or the draft is published.') . '</p>',
+      ],
+      'spec' => ['#type' => 'table', '#header' => [$this->t('Planned'), $this->t('Value')], '#rows' => $rows],
+      'back' => ['#type' => 'link', '#title' => $this->t('Back to the storyline draft'), '#url' => $builder],
+    ];
+  }
+
+  /**
    * Renders a full character sheet for runtime/canonical/storyline actor refs.
    */
   public function viewRuntimeActor(string $actor_id): array {
@@ -557,6 +603,11 @@ class CharacterViewController extends ControllerBase {
         throw new AccessDeniedHttpException();
       }
       return $this->buildCharacterSheetRenderArray($record, $campaign_id);
+    }
+
+    $draft_id = trim((string) \Drupal::request()->query->get('draft_id', ''));
+    if ($draft_id !== '' && $campaign_id <= 0) {
+      return $this->buildStorylineDraftActorPage($draft_id, $actor_id);
     }
 
     $descriptor = NULL;
@@ -691,30 +742,22 @@ class CharacterViewController extends ControllerBase {
       return NULL;
     }
 
-    $row = $this->database->select('dc_canonical_actors', 'a')
-      ->fields('a', ['actor_id', 'actor_type', 'display_name', 'state_data', 'metadata'])
-      ->condition('actor_id', $normalized_actor_id)
-      ->range(0, 1)
-      ->execute()
-      ->fetchAssoc();
-    if (!is_array($row)) {
+    try {
+      $entry = \Drupal::service('dungeoncrawler_content.canonical_definitions')->loadCanonicalEntry('actor', $normalized_actor_id);
+    }
+    catch (\OutOfBoundsException) {
       return NULL;
     }
-
-    $state_data = json_decode((string) ($row['state_data'] ?? '{}'), TRUE);
-    $metadata = json_decode((string) ($row['metadata'] ?? '{}'), TRUE);
-    $state_data = is_array($state_data) ? $state_data : [];
-    $metadata = is_array($metadata) ? $metadata : [];
 
     return [
       'actor_id' => $normalized_actor_id,
       'entity_ref' => '',
       'campaign_character_id' => 0,
       'character_id' => 0,
-      'display_name' => (string) ($row['display_name'] ?? $metadata['name'] ?? $normalized_actor_id),
-      'actor_kind' => (string) ($row['actor_type'] ?? 'actor'),
-      'type' => (string) ($row['actor_type'] ?? 'actor'),
-      'team' => (string) ($metadata['team'] ?? $state_data['team'] ?? 'neutral'),
+      'display_name' => $entry['name'],
+      'actor_kind' => $entry['category'],
+      'type' => $entry['category'],
+      'team' => (string) ($entry['metadata']['team'] ?? $entry['schema_data']['team'] ?? 'neutral'),
       'room_id' => '',
       'initiative' => NULL,
     ];
@@ -1969,20 +2012,10 @@ class CharacterViewController extends ControllerBase {
   }
 
   /**
-   * Returns whether current user owns the campaign.
+   * Returns whether current user is a member of the campaign.
    */
   private function isCampaignOwner(int $campaign_id): bool {
-    if ($campaign_id <= 0) {
-      return FALSE;
-    }
-    $campaign_uid = $this->database->select('dc_campaigns', 'c')
-      ->fields('c', ['uid'])
-      ->condition('id', $campaign_id)
-      ->range(0, 1)
-      ->execute()
-      ->fetchField();
-
-    return $campaign_uid !== FALSE && (int) $campaign_uid === (int) $this->currentUser()->id();
+    return \Drupal::service('dungeoncrawler_content.campaign_membership')->isMember($campaign_id, (int) $this->currentUser()->id());
   }
 
   /**

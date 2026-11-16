@@ -1,5 +1,9 @@
 .gm-storyline-wizard {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   gap: 1.25rem;
   color: var(--dc-text-primary, #fff8e6);
 }
@@ -113,6 +117,7 @@
 }
 
 .gm-storyline-wizard__step {
+  min-width: 0;
   border: 1px solid rgba(186, 143, 76, 0.24);
   border-radius: 16px;
   padding: 1.1rem 1rem;
@@ -188,6 +193,7 @@
 
 .gm-storyline-wizard__actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
   margin-top: 0.65rem;
 }
@@ -333,6 +339,8 @@
 }
 
 .gm-storyline-wizard__analysis {
+  min-width: 0;
+  max-width: 100%;
   margin: 0.8rem 0;
   padding: 0.75rem;
   border: 1px solid rgba(186, 143, 76, 0.24);
@@ -346,45 +354,52 @@
 }
 
 .gm-storyline-wizard__analysis-graph {
-  min-height: 18rem;
-  overflow-x: auto;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
 }
 
-.gm-storyline-wizard__analysis-svg {
+.gm-storyline-wizard__graph-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.gm-storyline-wizard__graph-controls button {
+  min-width: 2.5rem;
+}
+
+.gm-storyline-wizard__graph-controls span {
+  color: rgba(255, 248, 230, 0.7);
+  font-size: 0.8rem;
+}
+
+.gm-storyline-wizard__graph-viewport {
+  width: 100%;
+  min-width: 0;
+  height: clamp(20rem, 65vh, 42rem);
+  overflow: hidden;
+  border: 1px solid rgba(186, 143, 76, 0.24);
+  border-radius: 0.5rem;
+  cursor: grab;
+}
+
+.gm-storyline-wizard__graph-viewport:active {
+  cursor: grabbing;
+}
+
+.gm-storyline-wizard__graph-viewport:focus-visible {
+  outline: 2px solid #f0c87a;
+  outline-offset: 2px;
+}
+
+.gm-storyline-wizard__graph-viewport svg {
   display: block;
   width: 100%;
-  min-width: 720px;
-  min-height: 32rem;
-}
-
-.gm-storyline-wizard__analysis-edge {
-  stroke: rgba(255, 248, 230, 0.36);
-  stroke-width: 2;
-}
-
-.gm-storyline-wizard__analysis-edge--sequence {
-  stroke: #4fc3f7;
-  stroke-width: 3;
-}
-
-.gm-storyline-wizard__analysis-edge--foreshadows {
-  stroke: #f0c87a;
-  stroke-dasharray: 7 5;
-}
-
-.gm-storyline-wizard__analysis-edge--relationship {
-  stroke: #81c784;
-}
-
-.gm-storyline-wizard__analysis-edge--introduces_conflict,
-.gm-storyline-wizard__analysis-edge--resolved_by {
-  stroke: #ef6c6c;
-  stroke-width: 3;
-}
-
-.gm-storyline-wizard__analysis-node text {
-  fill: #fff8e6;
-  font-size: 12px;
+  height: 100%;
+  max-width: none;
 }
 
 .gm-storyline-wizard__assistant-card {
@@ -711,3 +726,136 @@
 .gm-storyline-status__label {
   margin-bottom: 0.35rem;
 }
+
+.gm-storyline-wizard__quest-outline {
+  display: grid;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.gm-storyline-wizard__outline-card {
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 0.75rem;
+  padding: 0.85rem 1rem;
+  margin-bottom: 0.75rem;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.gm-storyline-wizard__outline-card header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.gm-storyline-wizard__outline-card li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 0.75rem;
+}
+
+.gm-storyline-wizard__outline-card header .btn,
+.gm-storyline-wizard__outline-card li .btn {
+  margin-left: auto;
+}
+
+.gm-storyline-wizard__outline-card ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.gm-storyline-wizard__outline-card h5 {
+  margin: 0.4rem 0 0;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.75;
+}
+
+.gm-storyline-wizard__outline-goal {
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.gm-storyline-wizard__outline-meta,
+.gm-storyline-wizard__outline-gm,
+.gm-storyline-wizard__outline-empty {
+  opacity: 0.75;
+  margin: 0;
+}
+
+.gm-storyline-wizard__outline-problem {
+  margin: 0;
+  color: #f59e0b;
+  font-weight: 600;
+}
+
+.gm-storyline-wizard__outline-badge {
+  border-radius: 999px;
+  padding: 0.1rem 0.55rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  border: 1px solid currentColor;
+}
+
+.gm-storyline-wizard__outline-badge--known { color: #22c55e; }
+.gm-storyline-wizard__outline-badge--discoverable { color: #38bdf8; }
+.gm-storyline-wizard__outline-badge--secret { color: #f472b6; }
+
+.gm-storyline-wizard__advanced {
+  border: 1px dashed rgba(148, 163, 184, 0.35);
+  border-radius: 0.75rem;
+  padding: 0.5rem 0.85rem;
+  margin-bottom: 1rem;
+}
+
+.gm-storyline-wizard__advanced > summary {
+  cursor: pointer;
+  font-weight: 600;
+  opacity: 0.85;
+}
+
+.gm-storyline-wizard__card-fields {
+  display: grid;
+  gap: 0.6rem;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+}
+
+.gm-storyline-wizard__card-field {
+  display: grid;
+  gap: 0.2rem;
+  font-size: 0.85rem;
+}
+
+.gm-storyline-wizard__card-field > span {
+  font-weight: 600;
+  opacity: 0.85;
+}
+
+.gm-storyline-wizard__card-field--wide {
+  grid-column: 1 / -1;
+}
+
+.gm-storyline-wizard__way {
+  border-left: 4px solid #22c55e;
+  padding: 0.6rem 0 0.6rem 0.85rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.gm-storyline-wizard__way--discoverable { border-left-color: #38bdf8; }
+.gm-storyline-wizard__way--secret { border-left-color: #f472b6; }
+
+.gm-storyline-wizard__card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.gm-storyline-wizard__outline-card > .btn { justify-self: start; }

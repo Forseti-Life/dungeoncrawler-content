@@ -917,7 +917,11 @@ class ChatSessionManager {
       foreach ($all_recent as $msg) {
         $type_tag = strtoupper($msg['speaker_type'] ?? 'unknown');
         $speaker = $msg['speaker'] ?? 'Unknown';
-        $content = $msg['message'] ?? '';
+        $content = (string) ($msg['message'] ?? '');
+        $stripped_content = preg_replace('/^Round\s+[0-9\?]+:\s+(?:Turn\s+[0-9\?]+:\s+)?(?:Actor\s+)?[^\:]+\:\s+(?:Actions\s+[0-9\?]+\/[0-9\?]+:\s+)?/u', '', trim($content), 1);
+        if (is_string($stripped_content)) {
+          $content = trim($stripped_content);
+        }
         if (mb_strlen($content, 'UTF-8') > $content_limit) {
           $content = mb_substr($content, 0, $content_limit - 3, 'UTF-8') . '...';
         }

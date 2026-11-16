@@ -45,9 +45,13 @@
                 <a href="{{ campaign.unarchive_url }}" class="dc-btn dc-btn-secondary dc-btn--sm" title="Restore this campaign to active list">
                   ♻️ Unarchive
                 </a>
-                <a href="{{ campaign.delete_url }}" class="dc-btn dc-btn-danger dc-btn--sm" title="Permanently delete this campaign">
-                  ☠️ Delete Forever
-                </a>
+                {% if campaign.delete_url %}
+                  <a href="{{ campaign.delete_url }}" class="dc-btn dc-btn-danger dc-btn--sm" title="Permanently delete this campaign">
+                    ☠️ Delete Forever
+                  </a>
+                {% else %}
+                  <span class="muted" title="Only the player who created a campaign can delete it.">Only its creator can delete</span>
+                {% endif %}
               </div>
             </div>
           </div>

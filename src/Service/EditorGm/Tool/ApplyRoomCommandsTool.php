@@ -37,6 +37,7 @@ final class ApplyRoomCommandsTool implements EditorGmToolInterface {
 
   public function execute(array $arguments, EditorGmToolContext $context): array {
     $context = RoomEditorGmToolContext::of($context);
+    $context->draft();
     $revision = EditorGmToolContext::requireInt($arguments, 'expected_revision');
     $commands = EditorGmToolContext::requireArray($arguments, 'commands');
     if ($commands === []) {

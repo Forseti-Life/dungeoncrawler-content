@@ -31,10 +31,22 @@ class StorylineAuthoringDraftService {
   private const OPERATION_TABLE = 'dungeoncrawler_content_storyline_draft_operations';
   public const OPERATION_CONTRACT = [
     'set' => ['required' => ['type', 'path', 'value']],
-    'append' => ['required' => ['type', 'path', 'value']],
+    'append' => ['required' => ['type', 'path', 'value'], 'optional' => ['key']],
     'replace' => ['required' => ['type', 'path', 'match', 'value'], 'match' => ['field + value or fields']],
+    'patch' => ['required' => ['type', 'path', 'match', 'value'], 'match' => ['field + value or fields']],
     'remove' => ['required' => ['type', 'path', 'match'], 'match' => ['field + value or fields']],
     'move' => ['required' => ['type', 'path', 'match', 'to_index'], 'match' => ['field + value or fields']],
+  ];
+  private const GENERATED_ID_FIELDS = [
+    '/process_flow/journal_entries' => ['scene_id' => 'scene'],
+    '/process_flow/tasks' => ['task_id' => 'task'],
+    '/process_flow/branch_choices' => ['choice_id' => 'choice', 'decision_id' => 'decision'],
+    '/process_flow/objective_completion_criteria' => ['objective_id' => 'objective'],
+    '/process_flow/conflicts' => ['conflict_id' => 'conflict'],
+    '/objects/actors/generation_specs' => ['actor_id' => 'actor', 'contact_id' => 'contact'],
+    '/objects/dungeons/generation_specs' => ['dungeon_id' => 'dungeon'],
+    '/objects/rooms/generation_specs' => ['room_id' => 'room'],
+    '/objects/items/generation_specs' => ['item_id' => 'item'],
   ];
   private const NARRATIVE_BEATS = [
     'inciting_incident' => ['label' => 'Inciting incident', 'fields' => ['disruption', 'stakes']],
@@ -68,14 +80,61 @@ class StorylineAuthoringDraftService {
       . '{"type":"set","path":"/json/pointer","value":...}; '
       . '{"type":"append","path":"/collection","value":...}; '
       . '{"type":"replace","path":"/collection","match":{"field":"id_field","value":"id"},"value":...}; '
+      . '{"type":"patch","path":"/collection","match":{"field":"id_field","value":"id"},"value":{"changed_field":"new value"}}; '
       . '{"type":"remove","path":"/collection","match":{"fields":{"id_field":"id","second_field":"value"}}}; '
       . '{"type":"move","path":"/collection","match":{"field":"id_field","value":"id"},"to_index":0}. '
       . 'The key is type, never operation or op. Paths are RFC 6901 JSON pointers. '
       . 'Use only paths present in the grounded storyline payload. A set path points to a property whose parent already exists. '
       . 'Append paths may point to a schema-declared collection omitted from the payload because it has no rows yet. '
-      . 'Replace, remove, and move paths point to an existing collection. '
+      . 'New append rows may omit their generated identity fields: the authority allocates them before validation. '
+      . 'An append may include an internal key, for example {"type":"append","path":"/objects/actors/generation_specs","key":"guide","value":{"role":"guide","display_name":"Ena"}}. '
+      . 'Link new rows in the same batch with {"$draft_ref":"guide.actor_id"} as a field value; forward references are supported. Keys and references are internal, never author decisions. '
+      . 'Replace, patch, remove, and move paths point to an existing collection. '
+      . 'Patch merges a nonempty object of changed fields into the matched row, preserving every other field. Prefer patch for renaming or editing a few row fields; never resend whole rows for those edits. '
       . 'A match must identify exactly one row; when one field is not unique, use match.fields with enough exact field/value pairs to make it unique. '
-      . 'Never add /- or an array index.';
+      . 'Collection operation paths never add /- or an array index; set may address an existing row field by its grounded index.';
+  }
+
+  /**
+   * Shared identity workflow for planning, grounding, and response synthesis.
+   */
+  public static function identityAuthoringContract(): array {
+    return [
+      'owner' => 'StorylineAuthoringDraftService::planDraftOperations',
+      'user_supplies_internal_ids' => FALSE,
+      'generated_fields_by_collection' => self::GENERATED_ID_FIELDS,
+      'storyline_id' => 'Allocated once from the native draft UUID; changing the title never changes this identity.',
+      'process' => [
+        'Read the current draft and revision; distinguish inspection from an authorized edit.',
+        'Reuse grounded IDs for existing objects; look up named canonical objects before rebinding.',
+        'For new append rows, omit generated identity fields and let the authority allocate collision-free, draft-scoped IDs.',
+        'Give related new rows internal batch keys and link them with $draft_ref values; never ask the author to supply keys or IDs.',
+        'Keep existing IDs when renaming or editing content; only rebind references when the author requests that change.',
+        'Use the grounded room-site binding plan; never infer physical sites from narrative chapter order.',
+        'Validate the fully resolved batch and save through revision-checked, idempotent native operations.',
+        'Ask only genuine creative questions using named people, places, or story choices. Reject technical ID-assignment prompts.',
+      ],
+      'reference_format' => ['$draft_ref' => 'batch-key.identity_field'],
+      'allocation_is_not_canonical_publication' => TRUE,
+      'placement_and_instance_ids_remain_owned_by_their_native_editors' => TRUE,
+      'invalid_references_fail_explicitly' => TRUE,
+    ];
+  }
+
+  /**
+   * Rejects requests that improperly hand identifier mechanics to the author.
+   */
+  public static function assertNoIdAssignmentRequest(string $text): void {
+    $verbs = '(?:assign|provide|supply|choose|select|pick|enter|specify|invent|create|generate|give|set|confirm)';
+    $ids = '(?:ids?|uuids?|identifiers?|slugs?|(?:[a-z][a-z0-9]*_)+ids?|(?:batch|internal|technical)\\s+keys?)';
+    $request = '(?:^|[.!?:\\n]\\s*)(?:\\d+[.)]\\s*)?(?:please\\s+)?' . $verbs
+      . '|\\b(?:can|could|would|will)\\s+you\\s+' . $verbs
+      . '|\\byou\\s+(?:must|need\\s+to|should)\\s+' . $verbs;
+    if (preg_match('/(?:' . $request . ')\\b[^.!?\\n]{0,100}\\b' . $ids . '\\b/iu', trim($text))
+      || preg_match('/\\b(?:which|what)\\s+(?:[\\w-]+\\s+){0,3}' . $ids . '\\b[^.!?\\n]{0,80}\\b(?:use|assign|want|prefer|choose)\\b/iu', $text)
+      || preg_match('/\\bwhat\\s+should\\s+(?:[\\w-]+\\s+){0,4}' . $ids . '\\s+be\\b/iu', $text)) {
+      throw new \DomainException('storyline_gm_user_id_assignment_forbidden');
+    }
   }
 
   /**
@@ -91,6 +150,7 @@ class StorylineAuthoringDraftService {
       '/process_flow/objective_completion_criteria' => 'objective',
       '/process_flow/conflicts' => 'conflict',
       '/objects/actors/generation_specs' => 'actor',
+      '/objects/actors/relationships' => 'actor_relationship',
       '/objects/dungeons/generation_specs' => 'dungeon',
       '/objects/rooms/generation_specs' => 'room',
       '/objects/items/generation_specs' => 'item',
@@ -104,6 +164,7 @@ class StorylineAuthoringDraftService {
       $contract[$path] = [
         'required_fields' => array_values(array_filter((array) ($definition['required'] ?? []), 'is_string')),
         'allowed_fields' => array_keys($definition['properties']),
+        'server_generated_fields' => array_keys(self::GENERATED_ID_FIELDS[$path] ?? []),
         'field_constraints' => self::projectFieldConstraints($definition['properties']),
       ];
     }
@@ -271,7 +332,6 @@ class StorylineAuthoringDraftService {
         ->condition('published_template_id', $template_id);
       $existing_draft_id = $query
         ->fields('d', ['draft_id'])
-        ->condition('owner_uid', $uid)
         ->condition('status', 'editing')
         ->condition($template_match)
         ->orderBy('updated_at', 'DESC')
@@ -320,6 +380,30 @@ class StorylineAuthoringDraftService {
       if ($template === NULL) {
         throw new \OutOfBoundsException('storyline_template_not_found');
       }
+      $resolved_template_id = $template_id;
+      $seen = [$template_id => TRUE];
+      while (TRUE) {
+        $consolidation = $template['template_data']['metadata']['storyline_consolidation'] ?? [];
+        if (!is_array($consolidation)) {
+          throw new \DomainException('storyline_template_consolidation_redirect_invalid');
+        }
+        if (!array_key_exists('merged_into_template_id', $consolidation)) {
+          break;
+        }
+        $replacement = $consolidation['merged_into_template_id'];
+        if (!is_string($replacement) || trim($replacement) === '' || $replacement !== trim($replacement) || isset($seen[$replacement])) {
+          throw new \DomainException('storyline_template_consolidation_redirect_invalid');
+        }
+        $seen[$replacement] = TRUE;
+        $resolved_template_id = $replacement;
+        $template = $this->storylineManager->getTemplate($resolved_template_id);
+        if ($template === NULL) {
+          throw new \OutOfBoundsException('storyline_template_consolidation_target_not_found');
+        }
+      }
+      if ($resolved_template_id !== $template_id) {
+        return $this->createDraft($resolved_template_id);
+      }
       $template_data = is_array($template['template_data'] ?? NULL) ? $template['template_data'] : [];
       $payload['storyline_id'] = (string) ($template_data['template_id'] ?? $template_id);
       $payload['title'] = (string) ($template_data['name'] ?? $template['name'] ?? $template_id);
@@ -339,10 +423,6 @@ class StorylineAuthoringDraftService {
       $payload['ending'] = (string) ($identity['ending'] ?? '');
       $payload['canonical_template'] = $template_data;
       $payload = $this->hydrateDraftRowsFromCanonicalTemplate($payload, $template_data);
-      $source_author_uid = (int) ($template_data['metadata']['authorship']['author_uid'] ?? 0);
-      if ($source_author_uid !== $uid) {
-        $payload = $this->deriveOwnedCopyIdentity($payload, $uid);
-      }
     }
 
     return $this->insertDraft($uid, $payload, $template_id, NULL);
@@ -356,8 +436,12 @@ class StorylineAuthoringDraftService {
     $uid = (int) $this->currentUser->id();
     $query = $this->database->select(self::TABLE, 'd');
     $query->leftJoin('users_field_data', 'u', 'u.uid = d.owner_uid AND u.default_langcode = 1');
+    $query->leftJoin(self::REVISION_TABLE, 'r', 'r.draft_id = d.draft_id AND r.revision = d.revision');
+    $query->leftJoin('users_field_data', 'editor', 'editor.uid = r.owner_uid AND editor.default_langcode = 1');
     $query->fields('d', ['draft_id', 'owner_uid', 'source_draft_id', 'source_revision', 'source_template_id', 'published_template_id', 'revision', 'status', 'draft_payload', 'created_at', 'updated_at']);
     $query->addField('u', 'name', 'owner_name');
+    $query->addField('r', 'owner_uid', 'updated_by_uid');
+    $query->addField('editor', 'name', 'updated_by_name');
     if (!$include_archived) {
       $query->condition('d.status', 'archived', '<>');
     }
@@ -381,16 +465,16 @@ class StorylineAuthoringDraftService {
         'owner_uid' => (int) $row['owner_uid'],
         'owner_name' => (string) ($row['owner_name'] ?? ('User ' . $row['owner_uid'])),
         'is_owner' => (int) $row['owner_uid'] === $uid,
-        'can_edit' => (int) $row['owner_uid'] === $uid && (string) $row['status'] === 'editing',
-        'can_copy' => (int) $row['owner_uid'] !== $uid || (string) $row['status'] !== 'editing',
+        'can_edit' => (string) $row['status'] === 'editing',
+        'can_copy' => (string) $row['status'] !== 'editing',
+        'updated_by_uid' => (int) $row['updated_by_uid'],
+        'updated_by_name' => (string) $row['updated_by_name'],
         'source_draft_id' => (string) ($row['source_draft_id'] ?? ''),
         'source_revision' => isset($row['source_revision']) ? (int) $row['source_revision'] : NULL,
         'source_template_id' => (string) ($row['source_template_id'] ?? ''),
         'published_template_id' => (string) ($row['published_template_id'] ?? ''),
         'revision' => (int) $row['revision'],
-        'revision_count' => (int) $row['owner_uid'] === $uid
-          ? ($revision_counts[(string) $row['draft_id']] ?? 0)
-          : 1,
+        'revision_count' => $revision_counts[(string) $row['draft_id']] ?? 0,
         'status' => (string) $row['status'],
         'title' => (string) ($payload['title'] ?? $payload['storyline_id'] ?? 'Untitled storyline'),
         'storyline_id' => (string) ($payload['storyline_id'] ?? ''),
@@ -416,6 +500,7 @@ class StorylineAuthoringDraftService {
    */
   public function archiveDraft(string $draft_id): array {
     $draft = $this->getDraft($draft_id);
+    $this->assertCanManageDraft($draft);
     if ((string) ($draft['status'] ?? '') === 'archived') {
       return ['status' => 'already_archived', 'draft' => $draft];
     }
@@ -447,6 +532,7 @@ class StorylineAuthoringDraftService {
    */
   public function unarchiveDraft(string $draft_id): array {
     $draft = $this->getDraft($draft_id);
+    $this->assertCanManageDraft($draft);
     if ((string) ($draft['status'] ?? '') !== 'archived') {
       return ['status' => 'not_archived', 'draft' => $draft];
     }
@@ -478,28 +564,10 @@ class StorylineAuthoringDraftService {
    * Lists one selector entry per canonical storyline plus unbound drafts.
    */
   public function listStorylineOptions(): array {
-    $drafts = $this->listDrafts();
-    $mapped_draft_ids = [];
     $options = [];
     foreach ($this->storylineManager->listTemplates() as $template) {
       $template_id = trim((string) ($template['template_id'] ?? ''));
       if ($template_id === '') {
-        continue;
-      }
-      $candidates = array_values(array_filter($drafts, static fn(array $draft): bool =>
-        (string) ($draft['source_template_id'] ?? '') === $template_id
-        || (string) ($draft['published_template_id'] ?? '') === $template_id
-      ));
-      usort($candidates, static fn(array $left, array $right): int =>
-        [(int) !empty($right['is_owner']), (int) ($right['updated_at'] ?? 0)]
-        <=> [(int) !empty($left['is_owner']), (int) ($left['updated_at'] ?? 0)]
-      );
-      $draft = $candidates[0] ?? NULL;
-      if (is_array($draft)) {
-        $mapped_draft_ids[(string) $draft['draft_id']] = TRUE;
-        $draft['selector_type'] = 'draft';
-        $draft['template_id'] = $template_id;
-        $options[] = $draft;
         continue;
       }
       $options[] = [
@@ -517,10 +585,8 @@ class StorylineAuthoringDraftService {
         'updated_at' => (int) ($template['updated_at'] ?? 0),
       ];
     }
-    foreach ($drafts as $draft) {
-      $draft_id = (string) ($draft['draft_id'] ?? '');
-      $template_id = (string) ($draft['source_template_id'] ?? '');
-      if ($draft_id === '' || isset($mapped_draft_ids[$draft_id]) || $template_id !== '') {
+    foreach ($this->listDrafts() as $draft) {
+      if ($draft['status'] !== 'editing') {
         continue;
       }
       $draft['selector_type'] = 'draft';
@@ -558,7 +624,7 @@ class StorylineAuthoringDraftService {
   /**
    * Finds the most recently edited draft derived from one canonical template.
    */
-  public function findLatestDraftForTemplate(string $template_id): ?array {
+  public function findLatestDraftForTemplate(string $template_id, bool $editable_only = FALSE): ?array {
     $this->assertCanEdit();
     $template_id = trim($template_id);
     if ($template_id === '') {
@@ -568,6 +634,9 @@ class StorylineAuthoringDraftService {
     $template_match = $query->orConditionGroup()
       ->condition('source_template_id', $template_id)
       ->condition('published_template_id', $template_id);
+    if ($editable_only) {
+      $query->condition('status', 'editing');
+    }
     $row = $query
       ->fields('d', ['draft_id'])
       ->condition($template_match)
@@ -587,8 +656,11 @@ class StorylineAuthoringDraftService {
    */
   public function listDraftRevisions(string $draft_id): array {
     $draft = $this->getDraft($draft_id);
-    $rows = $this->database->select(self::REVISION_TABLE, 'r')
-      ->fields('r', ['revision', 'payload_hash', 'created_at'])
+    $query = $this->database->select(self::REVISION_TABLE, 'r');
+    $query->leftJoin('users_field_data', 'editor', 'editor.uid = r.owner_uid AND editor.default_langcode = 1');
+    $query->addField('editor', 'name', 'updated_by_name');
+    $rows = $query
+      ->fields('r', ['revision', 'payload_hash', 'created_at', 'owner_uid'])
       ->condition('draft_id', $draft_id)
       ->orderBy('revision', 'DESC')
       ->execute()
@@ -598,6 +670,8 @@ class StorylineAuthoringDraftService {
       'payload_hash' => (string) $row['payload_hash'],
       'created_at' => (int) $row['created_at'],
       'is_current' => (int) $row['revision'] === (int) $draft['revision'],
+      'updated_by_uid' => (int) $row['owner_uid'],
+      'updated_by_name' => (string) $row['updated_by_name'],
     ], $rows);
   }
 
@@ -606,8 +680,11 @@ class StorylineAuthoringDraftService {
    */
   public function getDraftRevisionForViewing(string $draft_id, int $revision): array {
     $draft = $this->getDraft($draft_id);
-    $row = $this->database->select(self::REVISION_TABLE, 'r')
-      ->fields('r', ['revision', 'draft_payload', 'payload_hash', 'created_at'])
+    $query = $this->database->select(self::REVISION_TABLE, 'r');
+    $query->leftJoin('users_field_data', 'editor', 'editor.uid = r.owner_uid AND editor.default_langcode = 1');
+    $query->addField('editor', 'name', 'updated_by_name');
+    $row = $query
+      ->fields('r', ['revision', 'draft_payload', 'payload_hash', 'created_at', 'owner_uid'])
       ->condition('draft_id', $draft_id)
       ->condition('revision', $revision)
       ->range(0, 1)
@@ -621,6 +698,8 @@ class StorylineAuthoringDraftService {
     $draft['payload'] = $this->decodePayload((string) $row['draft_payload']);
     $draft['payload_hash'] = (string) $row['payload_hash'];
     $draft['updated_at'] = (int) $row['created_at'];
+    $draft['updated_by_uid'] = (int) $row['owner_uid'];
+    $draft['updated_by_name'] = (string) $row['updated_by_name'];
     $draft['is_historical'] = (int) $row['revision'] !== (int) $draft['current_revision'];
     $draft['can_edit'] = FALSE;
     $draft['can_copy'] = TRUE;
@@ -674,10 +753,11 @@ class StorylineAuthoringDraftService {
   }
 
   /**
-   * Permanently deletes one owner-bound draft and its private history.
+   * Permanently deletes one creator-managed draft and its shared history.
    */
   public function deleteDraft(string $draft_id): array {
     $draft = $this->getDraft($draft_id);
+    $this->assertCanManageDraft($draft);
     $transaction = $this->database->startTransaction();
     $this->database->delete(self::OPERATION_TABLE)
       ->condition('draft_id', $draft_id)
@@ -710,7 +790,7 @@ class StorylineAuthoringDraftService {
       ? $this->getDraftForViewing($source_draft_id)
       : $this->getDraftRevisionForViewing($source_draft_id, $source_revision);
     $uid = (int) $this->currentUser->id();
-    $payload = $this->deriveOwnedCopyIdentity((array) $source['payload'], $uid);
+    $payload = $this->deriveOwnedDraftIdentity((array) $source['payload'], $uid);
     return $this->insertDraft(
       $uid,
       $payload,
@@ -731,22 +811,12 @@ class StorylineAuthoringDraftService {
     ?int $source_revision = NULL,
   ): array {
     $draft_id = $this->uuid->generate();
+    if (($payload['storyline_id'] ?? '') === '') {
+      $payload['storyline_id'] = 'storyline-' . $draft_id;
+    }
     $now = $this->time->getRequestTime();
     $payload_json = $this->encodePayload($payload);
     $payload_hash = hash('sha256', $payload_json);
-    $draft = [
-      'draft_id' => $draft_id,
-      'owner_uid' => $uid,
-      'source_draft_id' => $source_draft_id ?? '',
-      'source_revision' => $source_revision,
-      'source_template_id' => $template_id,
-      'revision' => 1,
-      'status' => 'editing',
-      'created_at' => $now,
-      'updated_at' => $now,
-      'payload' => $payload,
-      'payload_hash' => $payload_hash,
-    ];
     $transaction = $this->database->startTransaction();
     $this->database->insert(self::TABLE)
       ->fields([
@@ -767,11 +837,11 @@ class StorylineAuthoringDraftService {
       ])
       ->execute();
     $this->insertRevisionSnapshot($draft_id, 1, $uid, $payload_json, $payload_hash, $now);
-    return $this->projectOwnership($draft);
+    return $this->getDraft($draft_id);
   }
 
   /**
-   * Load an existing draft with strict owner enforcement.
+   * Loads a shared draft for an authorized storyline editor.
    */
   public function getDraft(string $draft_id): array {
     $this->assertCanEdit();
@@ -780,8 +850,8 @@ class StorylineAuthoringDraftService {
       throw new \OutOfBoundsException('storyline_draft_not_found');
     }
     $uid = (int) $this->currentUser->id();
-    if ($uid <= 0 || (int) ($draft['owner_uid'] ?? 0) !== $uid) {
-      throw new \UnexpectedValueException('storyline_draft_not_owner');
+    if ($uid <= 0) {
+      throw new \UnexpectedValueException('storyline_draft_auth_required');
     }
     return $this->projectOwnership($draft);
   }
@@ -1179,6 +1249,9 @@ class StorylineAuthoringDraftService {
       if ($current_stage <= 6) {
         $next_steps[] = "Continue editing Stage {$current_stage}.";
       }
+      elseif (($draft['status'] ?? '') === 'published') {
+        $next_steps[] = 'The storyline is published; its publication receipt is the final signoff.';
+      }
       elseif ($warning_count === 0) {
         $next_steps[] = 'Review the complete canonical object and create the storyline when satisfied.';
       }
@@ -1244,16 +1317,37 @@ class StorylineAuthoringDraftService {
     $this->insertRevisionSnapshot(
       $draft_id,
       $next_revision,
-      (int) $draft['owner_uid'],
+      (int) $this->currentUser->id(),
       $payload_json,
       $payload_hash,
       $updated_at,
     );
-    $draft['revision'] = $next_revision;
-    $draft['updated_at'] = $updated_at;
-    $draft['payload'] = $payload;
-    $draft['payload_hash'] = $payload_hash;
-    return $draft;
+    return $this->getDraft($draft_id);
+  }
+
+  /**
+   * Plans evidence-backed site links without changing the saved draft.
+   */
+  public function planRoomDungeonBindings(string $draft_id): array {
+    $draft = $this->getDraft($draft_id);
+    $resolution = $this->storylineManager->resolveAuthoredRoomDungeonBindings(
+      $draft['payload']['objects']['rooms']['generation_specs'] ?? [],
+      $draft['payload']['objects']['dungeons']['generation_specs'] ?? [],
+    );
+    $operations = [];
+    foreach ($resolution['resolved'] as $binding) {
+      $operations[] = [
+        'type' => 'set',
+        'path' => '/objects/rooms/generation_specs/' . $binding['index'] . '/dungeon_id',
+        'value' => $binding['dungeon_id'],
+      ];
+    }
+    return [
+      'expected_revision' => (int) $draft['revision'],
+      'resolved' => $resolution['resolved'],
+      'unresolved' => $resolution['unresolved'],
+      'operations' => $operations,
+    ];
   }
 
   /**
@@ -1272,6 +1366,7 @@ class StorylineAuthoringDraftService {
     }
 
     $before = is_array($draft['payload'] ?? NULL) ? $draft['payload'] : [];
+    [$operations, $allocated_ids] = $this->prepareOperationIdentities($draft_id, $before, array_values($operations));
     $after = $before;
     $changes = [];
     foreach (array_values($operations) as $index => $operation) {
@@ -1282,6 +1377,15 @@ class StorylineAuthoringDraftService {
       if ($change !== NULL) {
         $changes[] = $change;
       }
+    }
+    if (($after['storyline_id'] ?? '') === '') {
+      $change = $this->applyDraftOperation($after, [
+        'type' => 'set',
+        'path' => '/storyline_id',
+        'value' => 'storyline-' . $draft_id,
+      ], count($operations));
+      $changes[] = $change;
+      $allocated_ids[] = ['operation_index' => count($operations), 'field' => 'storyline_id', 'id' => $after['storyline_id']];
     }
     if (($after['canonical_template'] ?? NULL) !== ($before['canonical_template'] ?? NULL)) {
       throw new \InvalidArgumentException('storyline_draft_canonical_source_immutable');
@@ -1294,8 +1398,132 @@ class StorylineAuthoringDraftService {
       'result_revision' => $expected_revision + ($changes === [] ? 0 : 1),
       'has_changes' => $changes !== [],
       'changes' => $changes,
+      'allocated_ids' => $allocated_ids,
       'payload' => $after,
     ];
+  }
+
+  /**
+   * Allocates new row identities and resolves batch links before validation.
+   */
+  private function prepareOperationIdentities(string $draft_id, array $payload, array $operations): array {
+    $used = [];
+    $collect = static function (array $value) use (&$collect, &$used): void {
+      foreach ($value as $field => $item) {
+        if (is_array($item)) {
+          $collect($item);
+        }
+        elseif (is_string($field) && str_ends_with($field, '_id') && is_string($item) && $item !== '') {
+          $used[$item] = TRUE;
+        }
+      }
+    };
+    $collect($payload);
+    $collect($operations);
+    $allocate = function (string $kind, string $seed) use ($draft_id, &$used): string {
+      $base = substr($this->sanitizeIdentifier('draft-' . $draft_id . '-' . $kind . '-' . $seed), 0, 110);
+      $id = $base;
+      for ($suffix = 2; isset($used[$id]); $suffix++) {
+        $id = $base . '-' . $suffix;
+      }
+      $used[$id] = TRUE;
+      return $id;
+    };
+    $decisions = [];
+    $batch_decisions = [];
+    foreach ($payload['process_flow']['branch_choices'] ?? [] as $choice) {
+      if (is_string($choice['source_task_id'] ?? NULL) && is_string($choice['decision_id'] ?? NULL) && $choice['decision_id'] !== '') {
+        $decisions[json_encode($choice['source_task_id'], JSON_THROW_ON_ERROR)][$choice['decision_id']] = TRUE;
+      }
+    }
+    foreach ($operations as $operation) {
+      if (is_array($operation) && ($operation['type'] ?? '') === 'append'
+        && ($operation['path'] ?? '') === '/process_flow/branch_choices'
+        && is_string($operation['value']['decision_id'] ?? NULL) && $operation['value']['decision_id'] !== '') {
+        $source = json_encode($operation['value']['source_task_id'] ?? '', JSON_THROW_ON_ERROR);
+        $decisions[$source][$operation['value']['decision_id']] = TRUE;
+      }
+    }
+    $symbols = [];
+    $allocated = [];
+    foreach ($operations as $index => &$operation) {
+      if (!is_array($operation) || ($operation['type'] ?? '') !== 'append') {
+        continue;
+      }
+      $path = $operation['path'] ?? '';
+      if (!is_string($path) || !isset(self::GENERATED_ID_FIELDS[$path])
+        || !is_array($operation['value'] ?? NULL) || array_is_list($operation['value'])) {
+        continue;
+      }
+      $key = $operation['key'] ?? NULL;
+      if ($key !== NULL) {
+        if (!is_string($key) || preg_match('/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/D', $key) !== 1 || isset($symbols[$key])) {
+          throw new \InvalidArgumentException('storyline_draft_batch_key_invalid_or_duplicate:' . $index);
+        }
+        $symbols[$key] = $index;
+      }
+      $row =& $operation['value'];
+      foreach (self::GENERATED_ID_FIELDS[$path] as $field => $kind) {
+        if (array_key_exists($field, $row) && $row[$field] !== '') {
+          continue;
+        }
+        $seed = $row['display_name'] ?? $row['title'] ?? $row['label'] ?? $row['goal_text'] ?? $row['purpose'] ?? $row['description'] ?? $key ?? $kind;
+        if (!is_string($seed)) {
+          throw new \InvalidArgumentException('storyline_draft_identity_seed_invalid:' . $index);
+        }
+        if ($field === 'decision_id') {
+          $source = json_encode($row['source_task_id'] ?? '', JSON_THROW_ON_ERROR);
+          if (isset($batch_decisions[$source])) {
+            $row[$field] = $batch_decisions[$source];
+          }
+          elseif (count($decisions[$source] ?? []) === 1) {
+            $row[$field] = (string) array_key_first($decisions[$source]);
+          }
+          else {
+            $row[$field] = $allocate($kind, substr(hash('sha256', $source), 0, 16));
+          }
+          $batch_decisions[$source] = $row[$field];
+        }
+        else {
+          $row[$field] = $allocate($kind, $seed);
+        }
+        $allocated[] = ['operation_index' => $index, 'field' => $field, 'id' => $row[$field]];
+      }
+      unset($row);
+    }
+    unset($operation);
+
+    $resolve = static function (mixed $value, array $trail = []) use (&$resolve, &$operations, $symbols): mixed {
+      if (!is_array($value)) {
+        return $value;
+      }
+      if (array_key_exists('$draft_ref', $value)) {
+        $ref = $value['$draft_ref'];
+        if (count($value) !== 1 || !is_string($ref)
+          || preg_match('/^([a-zA-Z][a-zA-Z0-9_-]{0,63})\\.([a-z_]+_id)$/D', $ref, $match) !== 1
+          || !isset($symbols[$match[1]]) || isset($trail[$ref])) {
+          throw new \InvalidArgumentException('storyline_draft_batch_reference_invalid');
+        }
+        $trail[$ref] = TRUE;
+        $target = $operations[$symbols[$match[1]]]['value'][$match[2]] ?? NULL;
+        $resolved = $resolve($target, $trail);
+        if (!is_string($resolved) || trim($resolved) === '') {
+          throw new \InvalidArgumentException('storyline_draft_batch_reference_target_invalid:' . $ref);
+        }
+        return $resolved;
+      }
+      foreach ($value as &$item) {
+        $item = $resolve($item, $trail);
+      }
+      unset($item);
+      return $value;
+    };
+    foreach ($operations as $index => $operation) {
+      if (is_array($operation) && array_key_exists('value', $operation)) {
+        $operations[$index]['value'] = $resolve($operation['value']);
+      }
+    }
+    return [$operations, $allocated];
   }
 
   /**
@@ -1307,6 +1535,119 @@ class StorylineAuthoringDraftService {
     if ($findings !== []) {
       throw new StorylineDraftValidationException('storyline_draft_schema_invalid', $findings);
     }
+    $this->assertActorAffiliationsValid($payload);
+    $this->assertActorRelationshipsValid($payload);
+  }
+
+  /**
+   * Every affiliation names a domain the institution engine accepts for
+   * authoring, and an actor lists each institution once.
+   *
+   * @throws \InvalidArgumentException
+   *   `storyline_draft_actor_affiliation_domain_unsupported:<actor>:<domain>`
+   *   `storyline_draft_actor_affiliation_duplicate:<actor>:<domain>:<name>` or
+   *   `storyline_draft_actor_affiliation_single:<actor>:<domain>`.
+   */
+  private function assertActorAffiliationsValid(array $payload): void {
+    $normalizer = new InstitutionNormalizationService();
+    // An actor has one home settlement and one state.
+    $single = InstitutionMembershipService::singleMembershipDomains();
+    foreach ((array) ($payload['objects']['actors']['generation_specs'] ?? []) as $actor) {
+      $seen = [];
+      foreach ((array) ($actor['affiliations'] ?? []) as $affiliation) {
+        $domain = (string) $affiliation['domain'];
+        // The schema's list must stay the engine's list.
+        if (!isset(InstitutionNormalizationService::AUTHORABLE_DOMAINS[$domain]) || $normalizer->normalizeDomain($domain) !== $domain) {
+          throw new \InvalidArgumentException('storyline_draft_actor_affiliation_domain_unsupported:' . $actor['actor_id'] . ':' . $domain);
+        }
+        $key = $domain . ':' . mb_strtolower(trim((string) $affiliation['name']));
+        if (isset($seen[$key])) {
+          throw new \InvalidArgumentException('storyline_draft_actor_affiliation_duplicate:' . $actor['actor_id'] . ':' . $key);
+        }
+        $seen[$key] = TRUE;
+        if (in_array($domain, $single, TRUE) && isset($seen[$domain])) {
+          throw new \InvalidArgumentException('storyline_draft_actor_affiliation_single:' . $actor['actor_id'] . ':' . $domain);
+        }
+        $seen[$domain] = TRUE;
+      }
+    }
+  }
+
+  /**
+   * An actor's affiliations as the institution engine's structured
+   * selections: one institution per storyline, domain and name.
+   */
+  private function contactAffiliations(array $actor, string $storyline_id): array {
+    $normalizer = new InstitutionNormalizationService();
+    $selections = [];
+    foreach ((array) ($actor['affiliations'] ?? []) as $affiliation) {
+      $name = trim((string) $affiliation['name']);
+      $normalized = $normalizer->normalizeInstitutionInput(['domain' => $affiliation['domain'], 'display_name' => $name]);
+      $selections[] = [
+        'domain' => $normalized['domain'],
+        'display_name' => $normalized['display_name'],
+        'source_asset_type' => 'storyline',
+        'source_asset_id' => $storyline_id . ':' . $normalized['domain'] . ':' . $normalized['normalized_label'],
+      ];
+    }
+
+    return $selections;
+  }
+
+  /**
+   * Every actor relationship joins two different actors of this draft, once.
+   *
+   * @throws \InvalidArgumentException
+   *   `storyline_draft_actor_relationship_actor_unknown:<id>`,
+   *   `storyline_draft_actor_relationship_self:<id>` or
+   *   `storyline_draft_actor_relationship_duplicate:<source>:<target>`.
+   */
+  private function assertActorRelationshipsValid(array $payload): void {
+    $actor_ids = array_column((array) ($payload['objects']['actors']['generation_specs'] ?? []), 'actor_id');
+    $seen = [];
+    foreach ((array) ($payload['objects']['actors']['relationships'] ?? []) as $relationship) {
+      foreach (['source_actor_id', 'target_actor_id'] as $end) {
+        if (!in_array($relationship[$end], $actor_ids, TRUE)) {
+          throw new \InvalidArgumentException('storyline_draft_actor_relationship_actor_unknown:' . $relationship[$end]);
+        }
+      }
+      if ($relationship['source_actor_id'] === $relationship['target_actor_id']) {
+        throw new \InvalidArgumentException('storyline_draft_actor_relationship_self:' . $relationship['source_actor_id']);
+      }
+      // One actor holds one attitude toward another.
+      $key = $relationship['source_actor_id'] . ':' . $relationship['target_actor_id'];
+      if (isset($seen[$key])) {
+        throw new \InvalidArgumentException('storyline_draft_actor_relationship_duplicate:' . $key);
+      }
+      $seen[$key] = TRUE;
+    }
+  }
+
+  /**
+   * A contact's outgoing relationships in the published definition shape.
+   */
+  private function contactRelationships(string $actor_id, array $payload): array {
+    $names = array_column((array) ($payload['objects']['actors']['generation_specs'] ?? []), 'display_name', 'actor_id');
+    $links = [];
+    foreach ((array) ($payload['objects']['actors']['relationships'] ?? []) as $relationship) {
+      if ($relationship['source_actor_id'] === $actor_id) {
+        $links[] = [
+          'entity_type' => 'campaign_npc',
+          'entity_id' => $relationship['target_actor_id'],
+          // The relationship engine's actor-to-actor edge.
+          'relationship_type' => 'knows',
+          'attitude' => $relationship['attitude'],
+          'display_name' => (string) ($names[$relationship['target_actor_id']] ?? $relationship['target_actor_id']),
+          'notes' => (string) ($relationship['notes'] ?? ''),
+          'relationship_state' => [
+            'authored_in' => 'storyline_actor_relationships',
+            'bond' => trim((string) ($relationship['bond'] ?? '')),
+          ],
+        ];
+      }
+    }
+
+    return $links;
   }
 
   /**
@@ -1330,6 +1671,7 @@ class StorylineAuthoringDraftService {
     string $operation_id,
     array $operations,
   ): array {
+    $this->assertCanEdit();
     $operation_id = trim($operation_id);
     if (
       $operation_id === ''
@@ -1366,6 +1708,7 @@ class StorylineAuthoringDraftService {
         'changed' => (bool) $plan['has_changes'],
         'idempotent_replay' => FALSE,
         'changes' => $plan['changes'],
+        'allocated_ids' => $plan['allocated_ids'],
         'saved' => $saved,
       ];
       $this->database->insert(self::OPERATION_TABLE)
@@ -1446,6 +1789,20 @@ class StorylineAuthoringDraftService {
     }
     $row_index = $this->findCollectionRow($collection, $match_fields, $index);
     $before = $collection[$row_index];
+    if ($type === 'patch') {
+      $fields = $operation['value'] ?? NULL;
+      if (!is_array($fields) || array_is_list($fields) || !is_array($before) || array_is_list($before)) {
+        throw new \InvalidArgumentException(sprintf('storyline_draft_operation_patch_object_required:%d', $index));
+      }
+      $after = array_replace($before, $fields);
+      $collection[$row_index] = $after;
+      return $before === $after ? NULL : [
+        'type' => $type,
+        'path' => $path . '/' . $row_index,
+        'before' => $before,
+        'after' => $after,
+      ];
+    }
     if ($type === 'replace') {
       if (!array_key_exists('value', $operation)) {
         throw new \InvalidArgumentException(sprintf('storyline_draft_operation_value_required:%d', $index));
@@ -1637,7 +1994,6 @@ class StorylineAuthoringDraftService {
       ->fields('o')
       ->condition('draft_id', $draft_id)
       ->condition('operation_id', $operation_id)
-      ->condition('owner_uid', (int) $this->currentUser->id())
       ->execute()
       ->fetchAssoc();
     return is_array($row) ? $row : NULL;
@@ -1655,6 +2011,7 @@ class StorylineAuthoringDraftService {
       throw new \UnexpectedValueException('storyline_draft_operation_receipt_invalid');
     }
     $result['idempotent_replay'] = TRUE;
+    $result['saved'] = $this->projectOwnership($result['saved']);
     return $result;
   }
 
@@ -1665,16 +2022,46 @@ class StorylineAuthoringDraftService {
     if (!$this->currentUser->hasPermission('publish canonical dungeoncrawler storylines')) {
       throw new \UnexpectedValueException('storyline_draft_publish_access_denied');
     }
+    $transaction = $this->database->startTransaction();
+    try {
+      $this->database->select(self::TABLE, 'd')->fields('d', ['draft_id'])
+        ->condition('draft_id', $draft_id)->forUpdate()->execute()->fetchField();
+      return $this->publishLockedDraft($draft_id, $expected_revision);
+    }
+    catch (\Throwable $exception) {
+      $transaction->rollBack();
+      throw $exception;
+    }
+  }
+
+  /**
+   * Publishes the locked revision, or replays its existing native signoff.
+   */
+  private function publishLockedDraft(string $draft_id, int $expected_revision): array {
     $draft = $this->getDraft($draft_id);
-    if (($draft['status'] ?? '') === 'published') {
-      throw new \DomainException('storyline_draft_already_published');
-    }
-    if (($draft['status'] ?? '') !== 'editing') {
-      throw new \DomainException('storyline_draft_not_publishable');
-    }
     $current_revision = (int) ($draft['revision'] ?? 0);
     if ($expected_revision !== $current_revision) {
       throw new \DomainException('storyline_draft_revision_conflict');
+    }
+    if (($draft['status'] ?? '') === 'published') {
+      $receipt = $draft['publication_receipt'] ?? NULL;
+      if (!is_array($receipt)
+        || ($receipt['draft_id'] ?? '') !== $draft_id
+        || ($receipt['draft_revision'] ?? NULL) !== $current_revision
+        || ($receipt['draft_payload_hash'] ?? '') !== $draft['payload_hash']
+        || ($receipt['template_id'] ?? '') !== $draft['published_template_id']) {
+        throw new \DomainException('storyline_publication_receipt_invalid:' . $draft_id);
+      }
+      return [
+        'draft_id' => $draft_id,
+        'revision' => $current_revision,
+        'template_id' => $receipt['template_id'],
+        'publication_receipt' => $receipt,
+        'idempotent_replay' => TRUE,
+      ];
+    }
+    if (($draft['status'] ?? '') !== 'editing') {
+      throw new \DomainException('storyline_draft_not_publishable');
     }
     $payload = is_array($draft['payload'] ?? NULL) ? $draft['payload'] : [];
     $definition = $this->storylineManager->prepareStorylineDefinition(
@@ -1906,6 +2293,7 @@ class StorylineAuthoringDraftService {
         'availability' => trim((string) ($actor['availability'] ?? 'available')) ?: 'available',
         'notes' => trim((string) ($actor['motivation'] ?? '')),
         'relationship_state' => [
+          'affiliations' => $this->contactAffiliations($actor, (string) ($payload['storyline_id'] ?? '')),
           'chapter_id' => trim((string) ($actor['chapter_id'] ?? '')),
           'scene_id' => trim((string) ($actor['scene_id'] ?? '')),
           'location_id' => trim((string) ($actor['location_id'] ?? '')),
@@ -1918,7 +2306,7 @@ class StorylineAuthoringDraftService {
             'knowledge' => trim((string) ($actor['knowledge'] ?? '')),
           ],
         ],
-        'introduces_to' => [],
+        'introduces_to' => $this->contactRelationships($entity_id, $payload),
       ];
     }
 
@@ -1942,16 +2330,18 @@ class StorylineAuthoringDraftService {
     foreach ($rooms as $room) {
       $room_id = trim((string) ($room['room_id'] ?? ''));
       if ($room_id !== '') {
+        $narrative = trim((string) ($room['narrative'] ?? ''));
         $asset_references[] = [
           'asset_type' => 'room',
           'asset_id' => $room_id,
-          'asset_role' => trim((string) ($room['narrative'] ?? '')) === 'connector-room'
+          'asset_role' => $narrative === 'connector-room'
             ? 'road-connector'
-            : 'story-room',
+            : $this->normalizeAssetRole($narrative, 'story-room'),
           'chapter_id' => trim((string) ($room['chapter_id'] ?? '')),
           'scene_id' => trim((string) ($room['scene_id'] ?? '')),
           'link_data' => [
             'dungeon_id' => trim((string) ($room['dungeon_id'] ?? '')),
+            'narrative' => $narrative,
           ],
           'source_scope' => 'asset_reference',
         ];
@@ -1960,14 +2350,16 @@ class StorylineAuthoringDraftService {
     foreach ($dungeons as $dungeon) {
       $dungeon_id = trim((string) ($dungeon['dungeon_id'] ?? ''));
       if ($dungeon_id !== '') {
+        $purpose = trim((string) ($dungeon['purpose'] ?? ''));
         $asset_references[] = [
           'asset_type' => 'dungeon',
           'asset_id' => $dungeon_id,
-          'asset_role' => trim((string) ($dungeon['purpose'] ?? '')) ?: 'story-dungeon',
+          'asset_role' => $this->normalizeAssetRole($purpose, 'story-dungeon'),
           'chapter_id' => trim((string) ($dungeon['chapter_id'] ?? '')),
           'source_scope' => 'asset_reference',
           'link_data' => [
             'entrance_room_id' => trim((string) ($dungeon['entrance_room'] ?? '')),
+            'purpose' => $purpose,
           ],
         ];
       }
@@ -1975,10 +2367,11 @@ class StorylineAuthoringDraftService {
     foreach ($items as $item) {
       $item_id = trim((string) ($item['item_id'] ?? ''));
       if ($item_id !== '') {
+        $purpose = trim((string) ($item['purpose'] ?? ''));
         $asset_references[] = [
           'asset_type' => 'item',
           'asset_id' => $item_id,
-          'asset_role' => trim((string) ($item['purpose'] ?? '')) ?: 'story-item',
+          'asset_role' => $this->normalizeAssetRole($purpose, 'story-item'),
           'notes' => trim((string) ($item['acquisition'] ?? '')),
           'chapter_id' => trim((string) ($item['chapter_id'] ?? '')),
           'scene_id' => trim((string) ($item['scene_id'] ?? '')),
@@ -1987,6 +2380,7 @@ class StorylineAuthoringDraftService {
             'actor_id' => trim((string) ($item['actor_id'] ?? '')),
             'prerequisite_ids' => $this->normalizeCsvReferences($item['prerequisite_ids'] ?? []),
             'reward' => trim((string) ($item['reward'] ?? '')),
+            'purpose' => $purpose,
           ],
           'source_scope' => 'asset_reference',
         ];
@@ -2100,9 +2494,13 @@ class StorylineAuthoringDraftService {
           'unlocks_after' => implode(', ', array_values(array_filter((array) ($node['unlocks_after'] ?? []), 'is_string'))),
           'unlocks_to' => implode(', ', array_values(array_filter((array) ($node['unlocks_to'] ?? []), 'is_string'))),
           'unlock_condition' => (string) ($node['unlock_condition'] ?? ''),
-        ];
+        ] + (is_array($node['goal'] ?? NULL) ? [
+          'goal_text' => (string) $node['goal']['goal_text'],
+          'gm_notes' => (string) $node['goal']['gm_notes'],
+          'open_resolution' => (bool) $node['goal']['open_resolution'],
+        ] : []);
         foreach (array_values(array_filter((array) ($node['choices'] ?? []), 'is_array')) as $choice) {
-          $branch_rows[] = [
+          $branch_rows[] = (is_array($choice['approach'] ?? NULL) ? ['approach' => $choice['approach']] : []) + [
             'decision_id' => (string) ($choice['decision_id'] ?? ''),
             'source_task_id' => (string) ($node['quest_id'] ?? ''),
             'choice_id' => (string) ($choice['choice_id'] ?? ''),
@@ -2127,8 +2525,24 @@ class StorylineAuthoringDraftService {
     }
 
     $actors = [];
+    $actor_relationships = [];
     foreach (array_values(array_filter((array) ($template_data['contacts'] ?? []), 'is_array')) as $contact) {
+      foreach ((array) ($contact['introduces_to'] ?? []) as $link) {
+        if (is_array($link) && ($link['relationship_state']['authored_in'] ?? '') === 'storyline_actor_relationships') {
+          $actor_relationships[] = [
+            'source_actor_id' => (string) ($contact['entity_id'] ?? ''),
+            'target_actor_id' => (string) $link['entity_id'],
+            'attitude' => (string) $link['attitude'],
+            'bond' => (string) ($link['relationship_state']['bond'] ?? ''),
+            'notes' => (string) $link['notes'],
+          ];
+        }
+      }
       $actors[] = [
+        'affiliations' => array_map(
+          static fn(array $selection): array => ['domain' => (string) $selection['domain'], 'name' => (string) $selection['display_name']],
+          array_values(array_filter((array) ($contact['relationship_state']['affiliations'] ?? []), 'is_array'))
+        ),
         'contact_id' => (string) ($contact['contact_id'] ?? ''),
         'actor_id' => (string) ($contact['entity_id'] ?? ''),
         'role' => (string) ($contact['role'] ?? 'contact'),
@@ -2151,7 +2565,7 @@ class StorylineAuthoringDraftService {
         $dungeons[] = [
           'dungeon_id' => (string) ($reference['asset_id'] ?? ''),
           'chapter_id' => (string) ($reference['chapter_id'] ?? ''),
-          'purpose' => (string) ($reference['asset_role'] ?? ''),
+          'purpose' => (string) ($reference['link_data']['purpose'] ?? $reference['asset_role'] ?? ''),
           'entrance_room' => (string) ($reference['link_data']['entrance_room_id'] ?? ''),
         ];
       }
@@ -2161,7 +2575,7 @@ class StorylineAuthoringDraftService {
           'chapter_id' => (string) ($reference['chapter_id'] ?? ''),
           'scene_id' => (string) ($reference['scene_id'] ?? ''),
           'room_id' => (string) ($reference['asset_id'] ?? ''),
-          'narrative' => (string) ($reference['asset_role'] ?? ''),
+          'narrative' => (string) ($reference['link_data']['narrative'] ?? $reference['asset_role'] ?? ''),
         ];
       }
     }
@@ -2172,7 +2586,7 @@ class StorylineAuthoringDraftService {
       }
       $items[] = [
         'item_id' => (string) ($reference['asset_id'] ?? ''),
-        'purpose' => (string) ($reference['asset_role'] ?? ''),
+        'purpose' => (string) ($reference['link_data']['purpose'] ?? $reference['asset_role'] ?? ''),
         'acquisition' => (string) ($reference['notes'] ?? ''),
         'chapter_id' => (string) ($reference['chapter_id'] ?? ''),
         'scene_id' => (string) ($reference['scene_id'] ?? ''),
@@ -2211,9 +2625,11 @@ class StorylineAuthoringDraftService {
     $payload['process_flow']['conflicts'] = array_values(array_filter((array) ($analysis['conflicts'] ?? []), 'is_array'));
     $payload['process_flow']['narrative_architecture'] = $this->normalizeNarrativeArchitecture($builder['narrative_architecture'] ?? []);
     $payload['objects']['actors']['generation_specs'] = $actors;
+    $payload['objects']['actors']['relationships'] = $actor_relationships;
     $payload['objects']['actors']['validation_criteria'] = array_values((array) ($builder['actor_validation_criteria'] ?? []));
     $payload['objects']['dungeons']['generation_specs'] = $dungeons;
-    $payload['objects']['rooms']['generation_specs'] = $rooms;
+    $payload['objects']['rooms']['generation_specs'] = $this->storylineManager
+      ->resolveAuthoredRoomDungeonBindings($rooms, $dungeons)['rooms'];
     $payload['objects']['rooms']['validation_criteria'] = array_values((array) ($builder['room_validation_criteria'] ?? []));
     $payload['objects']['items']['generation_specs'] = $items;
     $payload['objects']['items']['validation_criteria'] = array_values((array) ($builder['item_validation_criteria'] ?? []));
@@ -2282,9 +2698,14 @@ class StorylineAuthoringDraftService {
     $template['metadata']['storyline_builder']['generation_orchestration'] = array_values((array) ($payload['orchestration']['generation'] ?? []));
     $template['metadata']['storyline_builder']['validation_orchestration'] = array_values((array) ($payload['orchestration']['validation'] ?? []));
     $template = $this->applyCanonicalTemplateProcessFlowEdits($payload, $template);
+    $task_rows = array_values(array_filter((array) ($payload['process_flow']['tasks'] ?? []), 'is_array'));
     $template['questline'] = $this->buildQuestlineFromTaskRows(
-      array_values(array_filter((array) ($payload['process_flow']['tasks'] ?? []), 'is_array')),
+      $task_rows,
       array_values(array_filter((array) ($payload['process_flow']['branch_choices'] ?? []), 'is_array')),
+    );
+    $template['linked_quests'] = $this->synchronizeLinkedQuestsWithTasks(
+      is_array($template['linked_quests'] ?? NULL) ? $template['linked_quests'] : [],
+      $task_rows,
     );
     $template = $this->applyCanonicalTemplateObjectEdits($payload, $template);
     $template['metadata']['storyline_analysis'] = $this->buildStorylineAnalysisMetadata(
@@ -2320,6 +2741,7 @@ class StorylineAuthoringDraftService {
         'unlocks_to' => $this->normalizeCsvReferences($task['unlocks_to'] ?? []),
         'unlock_condition' => trim((string) ($task['unlock_condition'] ?? '')),
         'prerequisite_mode' => 'all',
+        'goal' => $this->normalizeTaskGoal($task),
         'choices' => [],
       ];
     }
@@ -2343,7 +2765,7 @@ class StorylineAuthoringDraftService {
         'target_quest_id' => $target_quest_id,
         'target_scene_id' => trim((string) ($choice['target_scene_id'] ?? '')),
         'terminal' => $terminal,
-      ];
+      ] + (is_array($choice['approach'] ?? NULL) ? ['approach' => $this->normalizeChoiceApproach($choice['approach'])] : []);
     }
     $has_choices = FALSE;
     foreach ($nodes as &$node) {
@@ -2351,8 +2773,11 @@ class StorylineAuthoringDraftService {
         continue;
       }
       $has_choices = TRUE;
+      $current_quest_id = $node['quest_id'];
       $node['unlocks_to'] = array_values(array_unique(array_filter(array_map(
-        static fn(array $choice): string => !$choice['terminal'] ? $choice['target_quest_id'] : '',
+        static fn(array $choice): string => (!$choice['terminal'] && $choice['target_quest_id'] !== $current_quest_id)
+          ? $choice['target_quest_id']
+          : '',
         $node['choices'],
       ))));
       $node['unlock_condition'] = 'player_choice';
@@ -2362,6 +2787,9 @@ class StorylineAuthoringDraftService {
       foreach ($nodes as &$node) {
         $choice_predecessors = [];
         foreach ($nodes as $source) {
+          if ($source['quest_id'] === $node['quest_id']) {
+            continue;
+          }
           foreach ($source['choices'] as $choice) {
             if (!$choice['terminal'] && $choice['target_quest_id'] === $node['quest_id']) {
               $choice_predecessors[] = $source['quest_id'];
@@ -2403,6 +2831,43 @@ class StorylineAuthoringDraftService {
   /**
    * Normalize author-entered terminal flags without truthy-string ambiguity.
    */
+  /**
+   * The goal a task states, or NULL when it states none.
+   *
+   * @return array{goal_text:string, gm_notes:string, open_resolution:bool}|null
+   */
+  private function normalizeTaskGoal(array $task): ?array {
+    $goal_text = trim((string) ($task['goal_text'] ?? ''));
+    if ($goal_text === '') {
+      return NULL;
+    }
+
+    return [
+      'goal_text' => $goal_text,
+      'gm_notes' => trim((string) ($task['gm_notes'] ?? '')),
+      'open_resolution' => $this->normalizeBranchTerminal($task['open_resolution'] ?? FALSE),
+    ];
+  }
+
+  /**
+   * A choice's approach fields in the shape QuestGoalContract reads.
+   */
+  private function normalizeChoiceApproach(array $approach): array {
+    $normalized = [
+      'visibility' => (string) ($approach['visibility'] ?? ''),
+      'outcome_label' => trim((string) ($approach['outcome_label'] ?? '')),
+      'objective_ids' => $this->normalizeCsvReferences($approach['objective_ids'] ?? []),
+    ];
+    if (isset($approach['reveal_when'])) {
+      $normalized['reveal_when'] = $approach['reveal_when'];
+    }
+    if (isset($approach['rewards'])) {
+      $normalized['rewards'] = $approach['rewards'];
+    }
+
+    return $normalized;
+  }
+
   private function normalizeBranchTerminal(mixed $value): bool {
     if (is_bool($value)) {
       return $value;
@@ -2703,6 +3168,13 @@ class StorylineAuthoringDraftService {
       if (!is_array($contact['relationship_state'] ?? NULL)) {
         $contact['relationship_state'] = [];
       }
+      $contact['relationship_state']['affiliations'] = $this->contactAffiliations($row, (string) ($payload['storyline_id'] ?? ''));
+      // Authored actor relationships replace the ones this draft authored
+      // before; introductions from any other source are kept.
+      $contact['introduces_to'] = array_values(array_merge(
+        array_filter((array) ($contact['introduces_to'] ?? []), static fn($link): bool => is_array($link) && ($link['relationship_state']['authored_in'] ?? '') !== 'storyline_actor_relationships'),
+        $this->contactRelationships($actor_id, $payload),
+      ));
       $contact['relationship_state']['chapter_id'] = trim((string) ($row['chapter_id'] ?? ''));
       $contact['relationship_state']['scene_id'] = trim((string) ($row['scene_id'] ?? ''));
       $contact['relationship_state']['location_id'] = trim((string) ($row['location_id'] ?? ''));
@@ -2750,15 +3222,17 @@ class StorylineAuthoringDraftService {
       if ($dungeon_id === '') {
         throw new \InvalidArgumentException('storyline_draft_dungeon_id_required');
       }
+      $purpose = trim((string) ($row['purpose'] ?? ''));
       $asset_refs[] = $this->buildAuthoredAssetReference(
         is_array($existing_refs['dungeon'][$dungeon_id] ?? NULL) ? $existing_refs['dungeon'][$dungeon_id] : [],
         'dungeon',
         $dungeon_id,
-        trim((string) ($row['purpose'] ?? '')) ?: 'story-dungeon'
+        $this->normalizeAssetRole($purpose, 'story-dungeon')
       );
       $last_index = array_key_last($asset_refs);
       $asset_refs[$last_index]['chapter_id'] = trim((string) ($row['chapter_id'] ?? ''));
       $asset_refs[$last_index]['link_data']['entrance_room_id'] = trim((string) ($row['entrance_room'] ?? ''));
+      $asset_refs[$last_index]['link_data']['purpose'] = $purpose;
     }
     foreach ($room_rows as $row) {
       $room_id = trim((string) ($row['room_id'] ?? ''));
@@ -2775,11 +3249,12 @@ class StorylineAuthoringDraftService {
         $room_id,
         $narrative === 'connector-room'
           ? 'road-connector'
-          : ($narrative !== '' ? $narrative : 'story-room')
+          : $this->normalizeAssetRole($narrative, 'story-room')
       );
       $reference['chapter_id'] = $chapter_id;
       $reference['scene_id'] = $scene_id;
       $reference['link_data']['dungeon_id'] = $dungeon_id;
+      $reference['link_data']['narrative'] = $narrative;
       $asset_refs[] = $reference;
     }
     foreach ($item_rows as $row) {
@@ -2793,7 +3268,7 @@ class StorylineAuthoringDraftService {
         is_array($existing_refs['item'][$item_id] ?? NULL) ? $existing_refs['item'][$item_id] : [],
         'item',
         $item_id,
-        $purpose !== '' ? $purpose : 'story-item'
+        $this->normalizeAssetRole($purpose, 'story-item')
       );
       unset($reference['content_id']);
       $reference['notes'] = $acquisition;
@@ -2803,10 +3278,49 @@ class StorylineAuthoringDraftService {
       $reference['link_data']['actor_id'] = trim((string) ($row['actor_id'] ?? ''));
       $reference['link_data']['prerequisite_ids'] = $this->normalizeCsvReferences($row['prerequisite_ids'] ?? []);
       $reference['link_data']['reward'] = trim((string) ($row['reward'] ?? ''));
+      $reference['link_data']['purpose'] = $purpose;
       $asset_refs[] = $reference;
     }
     $template['asset_references'] = $asset_refs;
     return $template;
+  }
+
+  /**
+   * Synchronize linked_quests map with authored task rows.
+   */
+  private function synchronizeLinkedQuestsWithTasks(array $existing_linked_quests, array $task_rows): array {
+    $linked_quests = [];
+    foreach ($task_rows as $row) {
+      $quest_id = trim((string) ($row['task_id'] ?? ''));
+      if ($quest_id === '') {
+        continue;
+      }
+      $existing = is_array($existing_linked_quests[$quest_id] ?? NULL) ? $existing_linked_quests[$quest_id] : [];
+      $linked_quests[$quest_id] = array_replace($existing, [
+        'quest_id' => $quest_id,
+        'chapter_id' => trim((string) ($row['chapter_id'] ?? $existing['chapter_id'] ?? '')),
+        'scene_id' => trim((string) ($row['scene_id'] ?? $existing['scene_id'] ?? '')),
+        'status' => trim((string) ($row['status'] ?? $existing['status'] ?? 'available')) ?: 'available',
+      ]);
+    }
+    return $linked_quests;
+  }
+
+  /**
+   * Normalize an authored role/narrative/purpose string to the <=128 char asset_role contract.
+   */
+  private function normalizeAssetRole(string $raw, string $default): string {
+    $raw = trim($raw);
+    if ($raw === '') {
+      return $default;
+    }
+    if (preg_match('/^([a-z0-9][a-z0-9_-]{0,63}):/i', $raw, $matches) === 1) {
+      return strtolower($matches[1]);
+    }
+    if (mb_strlen($raw) <= 128) {
+      return $raw;
+    }
+    return rtrim(mb_substr($raw, 0, 128));
   }
 
   /**
@@ -2832,7 +3346,12 @@ class StorylineAuthoringDraftService {
   }
 
   private function loadDraftRow(string $draft_id): ?array {
-    $row = $this->database->select(self::TABLE, 'd')
+    $query = $this->database->select(self::TABLE, 'd');
+    $query->leftJoin(self::REVISION_TABLE, 'r', 'r.draft_id = d.draft_id AND r.revision = d.revision');
+    $query->leftJoin('users_field_data', 'editor', 'editor.uid = r.owner_uid AND editor.default_langcode = 1');
+    $query->addField('r', 'owner_uid', 'updated_by_uid');
+    $query->addField('editor', 'name', 'updated_by_name');
+    $row = $query
       ->fields('d', [
         'draft_id',
         'owner_uid',
@@ -2849,7 +3368,7 @@ class StorylineAuthoringDraftService {
         'published_at',
         'publication_receipt',
       ])
-      ->condition('draft_id', $draft_id)
+      ->condition('d.draft_id', $draft_id)
       ->range(0, 1)
       ->execute()
       ->fetchAssoc();
@@ -2866,6 +3385,8 @@ class StorylineAuthoringDraftService {
     return [
       'draft_id' => (string) $row['draft_id'],
       'owner_uid' => (int) $row['owner_uid'],
+      'updated_by_uid' => (int) $row['updated_by_uid'],
+      'updated_by_name' => (string) $row['updated_by_name'],
       'source_draft_id' => (string) ($row['source_draft_id'] ?? ''),
       'source_revision' => isset($row['source_revision']) ? (int) $row['source_revision'] : NULL,
       'source_template_id' => (string) ($row['source_template_id'] ?? ''),
@@ -2889,7 +3410,7 @@ class StorylineAuthoringDraftService {
   private function insertRevisionSnapshot(
     string $draft_id,
     int $revision,
-    int $owner_uid,
+    int $editor_uid,
     string $payload_json,
     string $payload_hash,
     int $created_at,
@@ -2898,7 +3419,7 @@ class StorylineAuthoringDraftService {
       ->fields([
         'draft_id' => $draft_id,
         'revision' => $revision,
-        'owner_uid' => $owner_uid,
+        'owner_uid' => $editor_uid,
         'draft_payload' => $payload_json,
         'payload_hash' => $payload_hash,
         'created_at' => $created_at,
@@ -2923,14 +3444,10 @@ class StorylineAuthoringDraftService {
   /**
    * Assigns a derivative its own canonical identity before it can be published.
    */
-  private function deriveOwnedCopyIdentity(array $payload, int $uid): array {
+  private function deriveOwnedDraftIdentity(array $payload, int $uid): array {
     $source_id = trim((string) ($payload['storyline_id'] ?? 'storyline'));
     $suffix = 'u' . $uid . '-' . substr($this->uuid->generate(), 0, 8);
     $payload['storyline_id'] = substr($this->sanitizeIdentifier($source_id . '-' . $suffix), 0, 191);
-    $title = trim((string) ($payload['title'] ?? 'Untitled storyline'));
-    if (!str_starts_with($title, 'Copy of ')) {
-      $payload['title'] = 'Copy of ' . $title;
-    }
     return $payload;
   }
 
@@ -2941,9 +3458,18 @@ class StorylineAuthoringDraftService {
     $uid = (int) $this->currentUser->id();
     $is_owner = $uid > 0 && (int) ($draft['owner_uid'] ?? 0) === $uid;
     $draft['is_owner'] = $is_owner;
-    $draft['can_edit'] = $is_owner && (string) ($draft['status'] ?? '') === 'editing';
-    $draft['can_copy'] = !$is_owner || (string) ($draft['status'] ?? '') !== 'editing';
+    $draft['can_edit'] = $uid > 0 && (string) ($draft['status'] ?? '') === 'editing';
+    $draft['can_copy'] = (string) ($draft['status'] ?? '') !== 'editing';
     return $draft;
+  }
+
+  /**
+   * Shared editing does not grant destructive management of another's draft.
+   */
+  private function assertCanManageDraft(array $draft): void {
+    if ((int) $draft['owner_uid'] !== (int) $this->currentUser->id()) {
+      throw new \UnexpectedValueException('storyline_draft_not_owner');
+    }
   }
 
   /**

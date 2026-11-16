@@ -1442,13 +1442,15 @@ export class CharacterPanel {
     const setupSection = document.getElementById('party-player-setup');
     const setupCampaignId = Number(hexmap.resolveLaunchCharacterRuntimeContext?.()?.campaignId || hexmap.resolveCampaignId?.() || 0);
     if (setupSection) {
-      setupSection.hidden = !(setupCampaignId > 0);
-      setupSection.querySelectorAll('[data-party-setup-room]').forEach((link) => {
-        if (setupCampaignId > 0) {
-          link.href = `/campaign/${encodeURIComponent(setupCampaignId)}/player-setup?room=${encodeURIComponent(link.dataset.partySetupRoom)}`;
-        } else {
-          link.removeAttribute('href');
-        }
+      const waiting = document.getElementById('party-player-setup-waiting');
+      if (waiting) waiting.hidden = setupCampaignId > 0;
+      setupSection.querySelectorAll('[data-party-setup-room]').forEach((button) => {
+        button.disabled = !(setupCampaignId > 0);
+        button.onclick = () => window.open(
+          `/campaign/${encodeURIComponent(setupCampaignId)}/player-setup?room=${encodeURIComponent(button.dataset.partySetupRoom)}`,
+          '_blank',
+          'noopener'
+        );
       });
     }
     const selectorTargets = [

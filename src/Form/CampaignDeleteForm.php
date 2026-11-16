@@ -116,7 +116,7 @@ class CampaignDeleteForm extends ConfirmFormBase {
     }
 
     if (
-      (int) $this->campaign->uid !== (int) $this->currentUser->id()
+      !\Drupal::service('dungeoncrawler_content.campaign_membership')->isCreator((int) $this->campaign->id, (int) $this->currentUser->id())
       && !$this->currentUser->hasPermission('administer dungeoncrawler content')
     ) {
       throw new AccessDeniedHttpException();
@@ -173,6 +173,8 @@ class CampaignDeleteForm extends ConfirmFormBase {
       'dc_campaign_room_states',
       'dc_campaign_rooms',
       'dc_campaign_dungeons',
+      'dc_campaign_members',
+      'dc_campaign_discord',
     ] as $table) {
       $this->deleteCampaignScopedRows($table, $campaign_id);
     }

@@ -1465,7 +1465,10 @@ trait RoomChatServiceIntentAndDeterminismTrait {
     string $gm_narrative
   ): ?array {
     $deterministic_reply = $this->buildDeterministicNpcDialogue($campaign_id, $entity_ref, $display_name, $player_message, $room_id, $dungeon_data);
-    if ($deterministic_reply !== NULL) {
+    $normalized_player_message = $this->normalizeNpcNameForMatch($this->encounterTranscriptPrefixService->stripPrefix($player_message));
+    $is_strict_mechanical_turn = $this->looksLikeQuestTurnInHandoff($normalized_player_message)
+      || $this->looksLikeMerchantTransactionText($normalized_player_message);
+    if ($deterministic_reply !== NULL && $is_strict_mechanical_turn) {
       $this->recordDebugStage('npc.deterministic_reply', hrtime(true), [
         'npc_entity' => $entity_ref,
         'length' => strlen($deterministic_reply),
@@ -1534,7 +1537,7 @@ trait RoomChatServiceIntentAndDeterminismTrait {
     $history_lines = [];
     foreach ($recent as $msg) {
       $speaker = $msg['speaker'] ?? 'Unknown';
-      $text = $msg['message'] ?? '';
+      $text = $this->encounterTranscriptPrefixService->stripPrefix((string) ($msg['message'] ?? ''));
       if (strlen($text) > 220) {
         $text = substr($text, 0, 217) . '...';
       }
@@ -1548,7 +1551,16 @@ trait RoomChatServiceIntentAndDeterminismTrait {
     }
 
     // Build the user prompt.
+    $clean_player_message = $this->encounterTranscriptPrefixService->stripPrefix($player_message);
+    $clean_gm_narrative = $this->encounterTranscriptPrefixService->stripPrefix($gm_narrative);
     $storyline_leads_context = $this->buildBrokeredStorylinePromptContext($campaign_id, $entity_ref);
+    if ($deterministic_reply !== NULL) {
+      $grounding_note = "=== AUTHORITATIVE TURN RESPONSE FACTS ===\n"
+        . "The player's message touches on work, leads, or a direct room question. Convey the following concrete substance in your own voice, personality, and attitude:\n"
+        . trim($deterministic_reply, " \t\n\r\0\x0B\"") . "\n"
+        . "IMPORTANT: Express this naturally as spoken in-character dialogue. Do NOT say 'I have an assignment for you:', do NOT recite raw quest titles or module names as mechanical labels, and keep it to 1-3 natural sentences.";
+      $storyline_leads_context = trim($storyline_leads_context . "\n\n" . $grounding_note);
+    }
     $prompt = NpcPromptAssembler::buildRoomDialogueUserPrompt(
       $session_context,
       $scene,
@@ -1556,8 +1568,8 @@ trait RoomChatServiceIntentAndDeterminismTrait {
       $actor_action_context,
       $storyline_leads_context,
       $history_lines,
-      $player_message,
-      $gm_narrative,
+      $clean_player_message,
+      $clean_gm_narrative,
       $display_name
     );
 
@@ -1613,7 +1625,7 @@ trait RoomChatServiceIntentAndDeterminismTrait {
       ));
     }
 
-    return $this->buildCharacterDialoguePayload(
+    $response_payload = $this->buildCharacterDialoguePayload(
       $campaign_id,
       $room_id,
       $entity_ref,
@@ -1627,6 +1639,10 @@ trait RoomChatServiceIntentAndDeterminismTrait {
       TRUE,
       FALSE
     );
+    if ($deterministic_reply !== NULL) {
+      $response_payload['quest_grounding_hint'] = trim($deterministic_reply, " \t\n\r\0\x0B\"");
+    }
+    return $response_payload;
   }
 
   /**

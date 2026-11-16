@@ -62,3 +62,6 @@ vertex_image_timeout: 30
 vertex_image_api_key: ''
 vertex_service_account_file: ''
 vertex_service_account_json: ''
+discord_invite_url: ''
+discord_guild_id: ''
+discord_voice_category_id: ''

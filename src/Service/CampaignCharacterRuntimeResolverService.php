@@ -32,6 +32,7 @@ class CampaignCharacterRuntimeResolverService {
     protected readonly InstitutionMembershipService $institutionMembership,
     protected readonly FollowerSubsystemService $followerSubsystem,
     protected readonly TimeInterface $time,
+    protected readonly CampaignMembershipService $campaignMembership,
   ) {}
 
   /**
@@ -289,7 +290,9 @@ class CampaignCharacterRuntimeResolverService {
       'location_type' => $location_fields['location_type'],
       'location_ref' => $location_fields['location_ref'],
       'is_active' => 1,
-      'status' => max(1, (int) ($canonical_character->status ?? 1)),
+      // Joining makes this campaign's row active; the library row's archive
+      // state is its own.
+      'status' => 1,
       'joined' => $now,
       'changed' => $now,
       'updated' => $now,
@@ -318,9 +321,9 @@ class CampaignCharacterRuntimeResolverService {
       ->condition('id', $selected_row_id, '<>')
       ->execute();
 
+    $this->campaignMembership->setCharacter($campaign_id, (int) $canonical_character->uid, $canonical_character_id);
     $this->database->update('dc_campaigns')
       ->fields([
-        'active_character_id' => $canonical_character_id,
         'status' => 'ready',
         'changed' => $now,
       ])
@@ -469,7 +472,7 @@ class CampaignCharacterRuntimeResolverService {
       return;
     }
 
-    $source_follower_rows = $this->loadSourceFollowerRowsForClone($source_campaign_id, $follower_signals);
+    $source_follower_rows = $this->loadSourceFollowerRowsForClone($source_campaign_id, $follower_signals, $owner_character_id);
     if ($source_follower_rows === []) {
       return;
     }
@@ -561,7 +564,7 @@ class CampaignCharacterRuntimeResolverService {
    *
    * @return array<int,array<string,mixed>>
    */
-  protected function loadSourceFollowerRowsForClone(int $source_campaign_id, array $signals): array {
+  protected function loadSourceFollowerRowsForClone(int $source_campaign_id, array $signals, int $owner_character_id): array {
     $instance_candidates = $signals['instance_ids'];
     foreach ($signals['content_ids'] as $content_id) {
       $instance_candidates[] = $content_id;
@@ -590,6 +593,8 @@ class CampaignCharacterRuntimeResolverService {
     }
     $query->condition($match);
     $query->condition('role', self::FOLLOWER_RUNTIME_ROLES, 'IN');
+    // Only the owner's own followers: another player's may share a name.
+    $query->condition('source_character_id', $owner_character_id);
     $query->orderBy('updated', 'DESC');
     $query->orderBy('id', 'DESC');
 
@@ -603,17 +608,17 @@ class CampaignCharacterRuntimeResolverService {
     $existing_id = $this->database->select('dc_campaign_characters', 'cc')
       ->fields('cc', ['id'])
       ->condition('campaign_id', $target_campaign_id)
-      ->condition('type', 'npc')
-      ->condition('role', (string) ($source_row['role'] ?? ''))
-      ->condition('name', (string) ($source_row['name'] ?? ''))
-      ->orderBy('updated', 'DESC')
-      ->orderBy('id', 'DESC')
+      // Two players may each bring a follower with the same name and role;
+      // the instance id is what tells them apart.
+      ->condition('instance_id', (string) $source_row['instance_id'])
       ->range(0, 1)
       ->execute()
       ->fetchField();
 
     $fields = $source_row;
-    unset($fields['id'], $fields['campaign_id'], $fields['created'], $fields['changed'], $fields['updated']);
+    // The uuid identifies one actor row; a clone is a new actor and takes its
+    // own (the column default on insert, its existing one on update).
+    unset($fields['id'], $fields['uuid'], $fields['campaign_id'], $fields['created'], $fields['changed'], $fields['updated']);
     // Followers cloned into another campaign must not carry over stale room/hex
     // placement from the source campaign. They will be placed adjacent to owner.
     if ($target_campaign_id > 0) {
@@ -1141,13 +1146,7 @@ class CampaignCharacterRuntimeResolverService {
       ->condition('campaign_id', $campaign_id)
       ->execute();
 
-    $this->database->update('dc_campaigns')
-      ->fields([
-        'active_character_id' => $library_row_id,
-        'changed' => $now,
-      ])
-      ->condition('id', $campaign_id)
-      ->execute();
+    $this->campaignMembership->setCharacter($campaign_id, (int) $runtime_row['uid'], $library_row_id);
 
     $this->ensureCanonicalLibraryFollowerDataset($library_row_id);
     return [

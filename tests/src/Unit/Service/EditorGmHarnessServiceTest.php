@@ -113,7 +113,9 @@ class EditorGmHarnessServiceTest extends UnitTestCase {
       $definitions,
     );
 
-    $tool = new \Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\PlanStorylineRemediationTool();
+    $tool = new \Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\PlanStorylineRemediationTool(
+      $this->createMock(\Drupal\dungeoncrawler_content\Service\CanonicalQuestTemplateService::class),
+    );
     $result = $tool->execute([
       'expected_revision' => 5,
       'operations' => [
@@ -140,6 +142,45 @@ class EditorGmHarnessServiceTest extends UnitTestCase {
     $this->assertSame('wayfinder_resonance_key', $planned_defs[0]['definition_id']);
     $this->assertSame('item', $planned_defs[1]['family']);
     $this->assertSame('ritual_ledger', $planned_defs[1]['definition_id']);
+  }
+
+  /**
+   * Routes only grounded approval, never questions or unrelated proposals.
+   *
+   * @dataProvider questReferenceRoutingProvider
+   */
+  public function testGroundedQuestReferenceRouting(string $utterance, string $conversation, bool $has_repairs, bool $executes): void {
+    $parser = (new \ReflectionClass(\Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmIntentParser::class))->newInstanceWithoutConstructor();
+    $method = new \ReflectionMethod($parser, 'groundedQuestReferenceRepairIntent');
+    $snapshot = [
+      'draft' => ['revision' => 14],
+      'authoring_workflow' => ['linked_quest_reference_repairs' => $has_repairs ? [['template_id' => 'original-watch-task']] : []],
+      'conversation_context' => $conversation,
+    ];
+    $intent = $method->invoke($parser, $utterance, $snapshot);
+    if (!$executes) {
+      $this->assertNull($intent);
+      return;
+    }
+    $this->assertSame('plan_storyline_remediation', $intent['tool_name']);
+    $this->assertSame(['expected_revision' => 14, 'scope' => 'quest_storyline_references'], $intent['arguments']);
+  }
+
+  /**
+   * Grounded authoring continuation and read-only boundaries.
+   */
+  public static function questReferenceRoutingProvider(): array {
+    $proposal = "NEXT STEPS:\n1. Align the linked quest's storyline references with this draft.";
+    return [
+      'apply proposed correction' => ['Apply it', $proposal, TRUE, TRUE],
+      'explicit correction' => ['Fix the quest references', '', TRUE, TRUE],
+      'read only question' => ['What are my options?', $proposal, TRUE, FALSE],
+      'negated correction' => ['Do not apply it', $proposal, TRUE, FALSE],
+      'no available correction' => ['Apply it', $proposal, FALSE, FALSE],
+      'no grounded target' => ['Apply it', '', TRUE, FALSE],
+      'different latest proposal' => ['Apply it', $proposal . "\nNEXT STEPS:\n1. Rename the guide.", TRUE, FALSE],
+      'warning discussion is not a proposal' => ['Apply it', "NEXT STEPS:\n1. Rename the guide.\nRESPONSE: The linked quest has stale storyline references.", TRUE, FALSE],
+    ];
   }
 
   /**

@@ -4077,13 +4077,7 @@ class ModuleConversionReleaseService {
         ->execute()
         ->fetchField(),
       'CanonicalDefinitionService' => (bool) (
-      $this->database->select('dc_canonical_actors', 'a')
-        ->fields('a', ['actor_id'])
-        ->condition('a.actor_id', $target_id)
-        ->condition('a.version', $target_version)
-        ->range(0, 1)
-        ->execute()
-        ->fetchField()
+      $this->canonicalDefinitions->definitionExists('actor', $target_id, $target_version)
       ?: $this->database->select('dungeoncrawler_content_registry', 'r')
         ->fields('r', ['content_id'])
         ->condition('r.content_id', $target_id)

@@ -2,6 +2,8 @@
 
 namespace Drupal\dungeoncrawler_content\Form;
 
+use Drupal\Core\Site\Settings;
+use Drupal\dungeoncrawler_content\Service\CampaignDiscordService;
 use Drupal\Core\Form\ConfigFormBase;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Link;
@@ -31,6 +33,50 @@ class DungeonCrawlerSettingsForm extends ConfigFormBase {
    */
   public function buildForm(array $form, FormStateInterface $form_state) {
     $config = $this->config('dungeoncrawler_content.settings');
+
+    $form['discord'] = [
+      '#type' => 'fieldset',
+      '#title' => $this->t('Discord'),
+      '#description' => trim((string) Settings::get(CampaignDiscordService::TOKEN_SETTING, '')) !== ''
+        ? $this->t('Bot token: set in settings.php.')
+        : $this->t('Bot token: not set. Add $settings[\'@key\'] to settings.php so campaigns can create voice channels.', ['@key' => CampaignDiscordService::TOKEN_SETTING]),
+    ];
+    $form['discord']['integration_help'] = [
+      '#type' => 'item',
+      '#title' => $this->t('Status postings and campaign voice channels'),
+      '#plain_text' => $this->t('Organization status postings use the existing Discord incoming webhook. A posting webhook cannot create campaign voice channels: that requires a Discord bot token and the Manage Channels permission on the server. Do not enter a webhook URL as a bot token.'),
+    ];
+    $form['discord']['bot_setup_help'] = [
+      '#type' => 'item',
+      '#title' => $this->t('Bot credential setup'),
+      '#plain_text' => $this->t('Create or select the bot in the Discord Developer Portal, authorize it on your server with Manage Channels, and configure $settings[\'@key\'] in this site\'s settings.php. The token is never displayed here or saved in exported Drupal configuration. Enable Developer Mode in Discord to copy the server and category IDs below.', ['@key' => CampaignDiscordService::TOKEN_SETTING]),
+    ];
+    $form['discord']['developer_portal'] = [
+      '#type' => 'link',
+      '#title' => $this->t('Open the Discord Developer Portal'),
+      '#url' => Url::fromUri('https://discord.com/developers/applications'),
+      '#attributes' => ['target' => '_blank', 'rel' => 'noopener noreferrer'],
+    ];
+    $form['discord']['discord_invite_url'] = [
+      '#type' => 'url',
+      '#title' => $this->t('Discord general-channel link'),
+      '#default_value' => $config->get('discord_invite_url'),
+      '#description' => $this->t('Paste the link copied from your Discord server\'s general channel. Shown in every campaign\'s settings; members create voice channels directly on Discord. This link does not require a bot token.'),
+    ];
+    $form['discord']['discord_guild_id'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Server (guild) id'),
+      '#default_value' => $config->get('discord_guild_id'),
+      '#pattern' => '\d*',
+      '#description' => $this->t('The server the bot creates campaign voice channels in.'),
+    ];
+    $form['discord']['discord_voice_category_id'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Voice channel category id (optional)'),
+      '#default_value' => $config->get('discord_voice_category_id'),
+      '#pattern' => '\d*',
+      '#description' => $this->t('Campaign voice channels are created under this category.'),
+    ];
 
     $form['game_settings'] = [
       '#type' => 'fieldset',
@@ -170,10 +216,10 @@ class DungeonCrawlerSettingsForm extends ConfigFormBase {
     ];
 
     $form['ai_settings']['latency_toggle_canary_campaign_ids'] = [
-      '#type' => 'textfield',
+      '#type' => 'textarea',
       '#title' => $this->t('Latency rollout canary campaign IDs'),
       '#default_value' => $config->get('latency_toggle_canary_campaign_ids') ?? '',
-      '#maxlength' => 255,
+      '#rows' => 3,
       '#description' => $this->t('Comma or whitespace-separated campaign IDs that should force-enable latency rollout toggles for canary rollout when env overrides are not set.'),
     ];
 
@@ -264,7 +310,7 @@ class DungeonCrawlerSettingsForm extends ConfigFormBase {
       '#title' => $this->t('Vertex location'),
       '#default_value' => $config->get('vertex_image_location') ?? 'us-central1',
       '#maxlength' => 64,
-      '#description' => $this->t('Region for Vertex AI image generation, for example us-central1 or us-east1.'),
+      '#description' => $this->t('Region for Vertex AI image generation. Imagen publisher models require us-central1.'),
     ];
 
     $form['ai_settings']['vertex_image_model'] = [
@@ -347,6 +393,17 @@ class DungeonCrawlerSettingsForm extends ConfigFormBase {
   public function validateForm(array &$form, FormStateInterface $form_state) {
     parent::validateForm($form, $form_state);
 
+    foreach (['discord_guild_id', 'discord_voice_category_id'] as $key) {
+      $value = trim((string) $form_state->getValue($key));
+      if ($value !== '' && !preg_match('/^[0-9]{1,20}$/D', $value)) {
+        $form_state->setErrorByName($key, $this->t('Use a numeric Discord ID of at most 20 digits.'));
+      }
+    }
+    if (trim((string) $form_state->getValue('discord_voice_category_id')) !== ''
+      && trim((string) $form_state->getValue('discord_guild_id')) === '') {
+      $form_state->setErrorByName('discord_guild_id', $this->t('Set the Discord server ID before choosing a voice channel category.'));
+    }
+
     $service_account_json = trim((string) $form_state->getValue('vertex_service_account_json'));
     if ($service_account_json !== '') {
       $decoded = json_decode($service_account_json, TRUE);
@@ -359,6 +416,12 @@ class DungeonCrawlerSettingsForm extends ConfigFormBase {
         $form_state->setErrorByName('vertex_service_account_json', $this->t('Vertex service-account JSON must include client_email and private_key.'));
       }
     }
+
+    $vertex_model = strtolower(trim((string) $form_state->getValue('vertex_image_model')));
+    $vertex_location = strtolower(trim((string) $form_state->getValue('vertex_image_location')));
+    if (str_starts_with($vertex_model, 'imagen-') && $vertex_location !== 'us-central1') {
+      $form_state->setErrorByName('vertex_image_location', $this->t('Imagen publisher models require Vertex location us-central1.'));
+    }
   }
 
   /**
@@ -367,6 +430,9 @@ class DungeonCrawlerSettingsForm extends ConfigFormBase {
   public function submitForm(array &$form, FormStateInterface $form_state) {
     $this->config('dungeoncrawler_content.settings')
       ->set('max_level', $form_state->getValue('max_level'))
+      ->set('discord_invite_url', trim((string) $form_state->getValue('discord_invite_url')))
+      ->set('discord_guild_id', trim((string) $form_state->getValue('discord_guild_id')))
+      ->set('discord_voice_category_id', trim((string) $form_state->getValue('discord_voice_category_id')))
       ->set('difficulty_levels', $form_state->getValue('difficulty_levels'))
       ->set('rarity_tiers', $form_state->getValue('rarity_tiers'))
       ->set('room_persistence', $form_state->getValue('room_persistence'))

@@ -6,6 +6,7 @@ use Drupal\ai_conversation\Service\AIApiService;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessInterface;
 use Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessManagementService;
+use Drupal\dungeoncrawler_content\Service\StorylineAuthoringDraftService;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
@@ -196,6 +197,11 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     }
     $intent = $this->intentParser->parse($utterance, $snapshot, $surface->registry(), $surface->label());
 
+    if ($intent['type'] === 'clarification' && $surface->id() === CharacterCreationGmSurface::ID) {
+      // The character GM never stops to ask: it answers from the saved
+      // character and names the one next decision.
+      $intent = ['type' => 'direct_response', 'focus' => 'discussion', 'reasoning' => $intent['question']];
+    }
     if ($intent['type'] === 'clarification') {
       $tool_calls = [$this->describeToolCall('clarification')];
       return $this->envelope(
@@ -282,7 +288,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     }
     // Typed actor commands save immediately: the actor authority validates
     // and records them, and a failed contract changes nothing.
-    if ($surface->id() === CharacterCreationGmSurface::ID && $definition->name === 'apply_actor_changes') {
+    if ($surface->id() === CharacterCreationGmSurface::ID && in_array($definition->name, ['apply_actor_changes', 'autofill_character_draft'], TRUE)) {
       return $this->executeTool(
         $surface, $draft_id, $profile, $definition->name,
         $intent['arguments'], FALSE,
@@ -296,6 +302,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         'create_canonical_definition',
         'update_canonical_definition',
         'apply_actor_changes',
+        'build_storyline_actor_sheets',
       ], TRUE)) {
         throw new \LogicException('storyline_gm_direct_mutation_tool_forbidden');
       }
@@ -305,7 +312,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         $profile,
         $intent['tool_name'],
         $intent['arguments'],
-        FALSE,
+        $dry_run,
         $intent['reasoning'],
         $scope,
         array_values((array) ($intent['next_steps'] ?? [])),
@@ -366,7 +373,10 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     string $author_message,
     bool $dry_run = FALSE,
   ): array {
-    $ordered = $this->harnessManagement->orderTaskQueue($tasks);
+    $ordered = $surface->id() === RoomEditorGmSurface::ID
+      ? array_values($tasks)
+      : $this->harnessManagement->orderTaskQueue($tasks);
+    $initial_draft_id = $draft_id;
     $started_at = microtime(TRUE);
     $accumulated_tool_calls = [
       [
@@ -411,9 +421,20 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         $is_last ? $author_message : '',
         $accumulated_tool_calls,
         apply_character_plan: TRUE,
+        require_approval: $surface->id() === RoomEditorGmSurface::ID,
       );
       $accumulated_tool_calls = array_values((array) ($last_envelope['tool_calls'] ?? $accumulated_tool_calls));
       $completed_count++;
+      if ($surface->id() === RoomEditorGmSurface::ID) {
+        if (array_key_exists('active_draft_id', $last_envelope['tool_result'])) {
+          $draft_id = $last_envelope['tool_result']['active_draft_id'];
+        }
+        if (!empty($last_envelope['tool_result']['requires_approval'])
+          || !empty($last_envelope['tool_result']['would_mutate'])) {
+          $last_envelope['tool_result']['remaining_tasks'] = array_slice($ordered, $index + 1);
+          break;
+        }
+      }
       if ($surface->id() === CharacterCreationGmSurface::ID && !empty($last_envelope['tool_result']['blocking_errors'])) {
         break;
       }
@@ -421,6 +442,12 @@ class EditorGmHarnessService implements AgentHarnessInterface {
 
     if ($last_envelope === NULL) {
       throw new \RuntimeException('editor_gm_task_queue_empty');
+    }
+    if ($surface->id() === RoomEditorGmSurface::ID && $draft_id !== $initial_draft_id) {
+      $last_envelope['tool_result']['active_draft_id'] = $draft_id;
+      $last_envelope['tool_result']['draft'] = $draft_id === NULL
+        ? NULL
+        : $this->createContext($surface, $draft_id, $profile, $scope)->draft();
     }
 
     return $last_envelope;
@@ -442,6 +469,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     string $utterance = '',
     array $prior_tool_calls = [],
     bool $apply_character_plan = FALSE,
+    bool $require_approval = FALSE,
   ): array {
     if ($tool_name === AgentHarnessManagementService::TOOL_SUBMIT_BACKLOG_SUGGESTION) {
       $tool_calls = array_values($prior_tool_calls);
@@ -538,7 +566,35 @@ class EditorGmHarnessService implements AgentHarnessInterface {
       );
     }
 
+    if ($require_approval && $definition->mutating) {
+      return $this->envelope(
+        $surface,
+        'editor_intent_proposal',
+        $snapshot,
+        [
+          'intent' => 'proposed_execution',
+          'requires_approval' => TRUE,
+          'proposed_execution' => [
+            'tool_name' => $definition->name,
+            'authority' => $definition->authority,
+            'arguments' => $arguments,
+          ],
+          'assistant_response' => sprintf('%s is ready for approval; no changes have been applied for this task.', $definition->name),
+          'tool_calls' => $tool_calls,
+        ],
+        $context->validation(),
+        [],
+        [],
+        $tool_calls,
+      );
+    }
+
     $result = $tool->execute($arguments, $context);
+    if ($surface->id() === RoomEditorGmSurface::ID && array_key_exists('active_draft_id', $result)) {
+      $draft_id = $result['active_draft_id'];
+      $context = $this->createContext($surface, $draft_id, $profile, $scope);
+      $snapshot = $surface->assembler()->assemble($context);
+    }
     if (is_array($result['tool_calls'] ?? NULL)) {
       foreach ($result['tool_calls'] as $sub_call) {
         if (is_array($sub_call) && trim((string) ($sub_call['message'] ?? '')) !== '') {
@@ -555,7 +611,11 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     if ($reasoning !== '') {
       $result['reasoning'] = $reasoning;
     }
-    if ($next_steps !== []) {
+    // A saved character's next step comes from its validation, not from what
+    // the model guessed before the save.
+    $validation_owns_next_steps = $surface->id() === CharacterCreationGmSurface::ID
+      && in_array($definition->name, ['apply_character_draft_updates', 'autofill_character_draft'], TRUE);
+    if ($next_steps !== [] && !$validation_owns_next_steps) {
       $result['next_steps'] = $next_steps;
     }
     if ($surface->id() === CharacterCreationGmSurface::ID && !empty($result['blocking_errors'])) {
@@ -774,6 +834,11 @@ class EditorGmHarnessService implements AgentHarnessInterface {
       'do it',
       'proceed',
       'apply it',
+      'apply that',
+      'fix it',
+      'lets update the base name',
+      "let's update the base name",
+      'align the linked quest references',
       'apply them',
       'fix them',
       'resolve them',
@@ -829,7 +894,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     array $context_snapshot,
     string $surface_label,
   ): array {
-    if ($surface_label === 'Character Creation' && $tool_name === 'apply_character_draft_updates') {
+    if ($surface_label === 'Character Creation' && in_array($tool_name, ['apply_character_draft_updates', 'autofill_character_draft'], TRUE)) {
       return [
         'answer' => $tool_result['assistant_response'],
         'next_steps' => $tool_result['next_steps'],
@@ -861,6 +926,12 @@ class EditorGmHarnessService implements AgentHarnessInterface {
       'character' => $context_snapshot['character'] ?? [],
       'process_flow' => $context_snapshot['process_flow'] ?? [],
       'creation_contract' => $context_snapshot['creation_contract'] ?? [],
+      'authoring_workflow' => [
+        'identity_contract' => $context_snapshot['authoring_workflow']['identity_contract'] ?? [],
+        'room_site_binding_plan' => $context_snapshot['authoring_workflow']['room_site_binding_plan'] ?? [],
+        'linked_quest_reference_repairs' => $context_snapshot['authoring_workflow']['linked_quest_reference_repairs'] ?? [],
+        'finalization' => $context_snapshot['authoring_workflow']['finalization'] ?? [],
+      ],
       'legacy_conversation' => $context_snapshot['legacy_conversation'] ?? [],
       'authority_boundary' => $context_snapshot['authority_boundary'] ?? [],
       'validation_summary' => $context_snapshot['validation_summary'] ?? [],
@@ -981,6 +1052,11 @@ Hard rules:
   option per line. Requested valid edits are saved immediately; never ask for
   approval or suggest an Approve and Run button. Read-only inspection does not
   save anything. Players can revise saved choices later.
+- On Character Creation, never ask the player to confirm, approve, or verify
+  anything, and never end with a question that only seeks permission. When the
+  player handed the decisions to you, report what was chosen as done. Return
+  exactly one next step: the single next open decision, or the final review
+  when nothing is open.
 - On Character Creation, follow process_flow: guide current_step decisions in
   the native wizard order, using only their available choices. Do not jump to
   later missing steps unless the player explicitly requests them. A completed
@@ -996,6 +1072,18 @@ Hard rules:
   a missing asset when its exact id has an authored generation spec.
 - Repeated room ids with distinct authored chapter, scene, or narrative roles
   are not duplicates unless validation reports a duplicate contract violation.
+- Internal identifiers and site wiring are system responsibilities. Never
+  tell the author to assign or invent IDs. Explain missing site links using
+  room and place names. When authoring_workflow.room_site_binding_plan has
+  operations, the existing canonical placements and authored links already
+  resolve those entries: do not claim their sites cannot be determined or
+  require a creative decision. For read-only reviews, offer applying those
+  known links as the next action, not assigning IDs. Only unresolved entries
+  require a genuine choice of named site; do not claim a proposed link is saved.
+  Follow authoring_workflow.identity_contract when describing the next action.
+  New draft IDs are allocated by the authority; the author supplies story
+  intent, not IDs, uniqueness suffixes, or internal batch keys. Discuss
+  creative choices in names and narrative terms, never as database decisions.
 - Compare the author request with the exact persisted changes. Never claim the
   requested scope was completed when a requested change is absent. Never send
   an explicitly requested but unapplied change back as an ordinary next step;
@@ -1080,7 +1168,7 @@ PROMPT, $surface_label);
       }
       $scope = $request_scope;
     }
-    elseif ((string) ($tool_context['draft_id'] ?? '') !== $draft_id) {
+    elseif (($tool_context['draft_id'] ?? NULL) !== $draft_id) {
       throw new \InvalidArgumentException('editor_gm_draft_id_mismatch');
     }
     $profile = (string) ($tool_context['validation_profile'] ?? 'editing');
@@ -1135,6 +1223,9 @@ PROMPT, $surface_label);
    * Binds the route's draft id to the surface's scope, or refuses.
    */
   private function resolveDraftId(EditorGmSurfaceInterface $surface, ?string $draft_id): ?string {
+    if ($surface->id() === RoomEditorGmSurface::ID && $draft_id === NULL) {
+      return NULL;
+    }
     if ($surface->scope() === EditorGmSurfaceInterface::SCOPE_SUITE || $surface->scope() === EditorGmSurfaceInterface::SCOPE_DEFINITION) {
       if ($draft_id !== NULL) {
         throw new \InvalidArgumentException(sprintf('editor_gm_draft_not_applicable:%s', $surface->id()));
@@ -1170,6 +1261,22 @@ PROMPT, $surface_label);
     array $command_plan = [],
     array $tool_calls = [],
   ): array {
+    if ($surface->id() === StorylineBuilderGmSurface::ID) {
+      foreach (['question', 'assistant_response'] as $field) {
+        if (is_string($tool_result[$field] ?? NULL)) {
+          StorylineAuthoringDraftService::assertNoIdAssignmentRequest($tool_result[$field]);
+        }
+      }
+      foreach ((array) ($tool_result['next_steps'] ?? []) as $step) {
+        if (is_string($step)) {
+          StorylineAuthoringDraftService::assertNoIdAssignmentRequest($step);
+        }
+      }
+    }
+    if ($surface->id() === CharacterCreationGmSurface::ID && is_array($tool_result['next_steps'] ?? NULL)) {
+      // One decision at a time on the character wizard.
+      $tool_result['next_steps'] = array_slice(array_values($tool_result['next_steps']), 0, 1);
+    }
     return [
       'schema_version' => self::RESPONSE_CONTRACT_VERSION,
       'tool_id' => $surface->id(),

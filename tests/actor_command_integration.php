@@ -30,7 +30,7 @@ try {
   $owner_uid = 987650001;
   $id = (int) $database->insert('dc_campaign_characters')->fields([
     'uuid' => $actor_uuid, 'campaign_id' => 0, 'character_id' => 0, 'uid' => $owner_uid, 'type' => 'npc', 'role' => 'contact',
-    'name' => 'Odalys Fenwick', 'level' => 2, 'lifecycle_state' => 'canonical_template', 'status' => 0, 'version' => 4,
+    'name' => 'Odalys Fenwick', 'level' => 2, 'lifecycle_state' => 'ready_library', 'status' => 0, 'version' => 4,
     'character_data' => json_encode([
       'name' => 'Odalys Fenwick', 'display_name' => 'Odalys Fenwick', 'level' => 2, 'backstory' => 'Keeps the toll ledger.',
       'basicInfo' => ['name' => 'Odalys Fenwick', 'backstory' => 'Keeps the toll ledger.'],
@@ -288,6 +288,9 @@ try {
     $check($database->query('SELECT command_type FROM {dc_actor_revisions} WHERE actor_uuid = :u ORDER BY revision', [':u' => $library['uuid']])->fetchCol() === ['actor.template.import', 'actor.template.import', 'actor.template.import'], 'Each definition save is recorded in the actor history.');
     $unsupported = $def_tools->get('apply_actor_changes')->execute(['type' => 'actor.identity.patch', 'operations' => [['op' => 'set', 'path' => '/identity/personal/age', 'value' => '40']]], $def_context);
     $check($unsupported['committed'] === FALSE && $unsupported['code'] === 'actor_contract_invalid', 'A path the definition cannot hold is refused.');
+    $direct = $manager->executeActorCommand(['target' => ['scope' => 'template', 'actor_uuid' => $library['uuid']], 'base_revision' => 2] + $command([['op' => 'set', 'path' => '/narrative/biography', 'value' => 'Bypass.']]), \Drupal::currentUser());
+    $check($direct['committed'] === FALSE && $direct['code'] === 'actor_definition_owned' && $definitions->definitionPayload('actor', $slug)['state_data']['backstory'] === 'Counts every crossing twice.', 'A definition row cannot be changed around the definition service: ' . json_encode($direct));
+    $check((int) $database->query('SELECT COUNT(*) FROM {dc_canonical_actors} WHERE actor_id = :s', [':s' => $slug])->fetchField() === 0 && $definitions->catalogEntry('actor', $slug)['label'] === 'Ferry Warden Odalys', 'The library actor row is the only store of a pc/npc definition.');
     $story_tools = \Drupal::service('dungeoncrawler_content.editor_gm_surface.storyline_builder')->registry();
     $check($story_tools->get('inspect_actor')->definition()->mutating === FALSE && $story_tools->get('apply_actor_changes')->definition()->mutating === TRUE, 'Storyline Builder registers the same actor tools.');
     $non_actor = $definitions->saveDefinition('actor', NULL, [

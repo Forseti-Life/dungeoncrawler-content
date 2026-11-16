@@ -33,7 +33,7 @@ class GmTranscriptProjector {
       : $build_visible_gm_narrative($narrative, $actions, $state_diff, $navigation_result);
 
     if (!$suppress_visible_gm_response) {
-      $gm_encounter_prefix = $build_encounter_prefix_for_speaker($dungeon_data, 'Narrator');
+      $gm_encounter_prefix = $build_encounter_prefix_for_speaker($dungeon_data, 'Game Master');
       $visible_gm_narrative = $prefix_encounter_chat_text($visible_gm_narrative, $gm_encounter_prefix);
     }
 

@@ -119,7 +119,7 @@ class GameMasterSubsystemService {
       }
 
       $talk_result = is_array($action_response['result'] ?? NULL) ? $action_response['result'] : [];
-      foreach (['game_state', 'available_actions', 'action_contract', 'events', 'phase_transition', 'dungeon_data'] as $response_key) {
+      foreach (['snapshot_id', 'event_cursor', 'event_log_cursor', 'state_version', 'active_room_id', 'runtime_snapshot', 'game_state', 'available_actions', 'action_contract', 'events', 'phase_transition', 'dungeon_data'] as $response_key) {
         if (array_key_exists($response_key, $action_response)) {
           $talk_result[$response_key] = $action_response[$response_key];
         }

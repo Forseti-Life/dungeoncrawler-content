@@ -1339,7 +1339,7 @@ PROMPT;
       return $this->finalizeRoomIntentDecision('navigation_query', 'navigation_query', $routing_context);
     }
 
-    if ($this->looksLikeNavigationTurn($normalized)) {
+    if ($this->looksLikeNavigationTurn($normalized) && $directly_addressed_npc === NULL) {
       return $this->finalizeRoomIntentDecision('navigation_travel', 'navigation_travel', $routing_context);
     }
 

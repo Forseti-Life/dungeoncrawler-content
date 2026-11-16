@@ -189,8 +189,16 @@ class ActorCatalogService implements ActorReferenceCatalogInterface {
   public function featType(string $feat_id): ?string {
     foreach ($this->entries('feat') as $feat) {
       if ((string) $feat['id'] === $feat_id) {
-        $type = (string) ($feat['type'] ?? '');
-        return in_array($type, ['ancestry', 'class', 'general', 'skill'], TRUE) ? $type : NULL;
+        // A multiclass dedication is only ever granted on top of the normal
+        // feat slots (a racket, an archetype rule), so it is a bonus feat.
+        return match ((string) ($feat['type'] ?? '')) {
+          'ancestry' => 'ancestry',
+          'class' => 'class',
+          'general' => 'general',
+          'skill' => 'skill',
+          'archetype' => 'bonus',
+          default => NULL,
+        };
       }
     }
 

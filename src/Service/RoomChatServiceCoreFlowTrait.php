@@ -562,6 +562,7 @@ trait RoomChatServiceCoreFlowTrait {
       );
     }
 
+    $raw_message = $this->encounterTranscriptPrefixService->stripPrefix($message);
     $message = $this->encounterTranscriptPrefixService->prefixChatText($message, $encounter_prefix);
 
     $this->recordDebugStage('validate_encounter_turn', $stage_started_at, [
@@ -722,7 +723,7 @@ trait RoomChatServiceCoreFlowTrait {
           $gm_response,
           [],
           $quest_touchpoint_hint,
-          $message
+          $raw_message
         );
       }
 
@@ -735,8 +736,8 @@ trait RoomChatServiceCoreFlowTrait {
       );
       if ($can_evaluate_room_interjections) {
         $interjection_gm_narrative = $gm_result !== NULL
-          ? (string) ($gm_response['message'] ?? '')
-          : $message;
+          ? $this->encounterTranscriptPrefixService->stripPrefix((string) ($gm_response['message'] ?? ''))
+          : $raw_message;
         $stage_started_at = hrtime(true);
         if ($defer_npc_interjections) {
           $this->recordDebugStage('evaluate_npc_interjections', $stage_started_at, [
@@ -752,7 +753,7 @@ trait RoomChatServiceCoreFlowTrait {
             $room_index,
             $dungeon_id,
             $dungeon_data,
-            $message,
+            $raw_message,
             $interjection_gm_narrative,
             $char_data,
             $encounter_prefix
@@ -765,6 +766,7 @@ trait RoomChatServiceCoreFlowTrait {
           ]);
         }
       }
+      $this->persistRoomChatSnapshotState($campaign_id, (string) $dungeon_id, $dungeon_data);
     }
 
     $transport_mode = $this->resolveRoomChatResponseTransportMode($response_options);
@@ -797,7 +799,7 @@ trait RoomChatServiceCoreFlowTrait {
           $gm_response,
           $npc_interjections,
           $quest_touchpoint_hint,
-          $message
+          $raw_message
         );
         $quest_updates = $this->mergeQuestUpdatePayloads($quest_updates, $post_npc_quest_updates);
       }
@@ -811,7 +813,7 @@ trait RoomChatServiceCoreFlowTrait {
         $gm_response,
         $npc_interjections,
         $quest_touchpoint_hint,
-        $message
+        $raw_message
       );
     }
     if (
@@ -828,7 +830,7 @@ trait RoomChatServiceCoreFlowTrait {
         $gm_response,
         $turn_harness_result['messages'],
         $quest_touchpoint_hint,
-        $message
+        $raw_message
       );
       if ($deferred_quest_updates !== []) {
         $quest_updates = $this->mergeQuestUpdatePayloads($quest_updates, $deferred_quest_updates);

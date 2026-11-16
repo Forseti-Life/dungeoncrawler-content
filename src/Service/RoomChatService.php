@@ -251,7 +251,7 @@ class RoomChatService {
     $this->gmTranscriptProjector = $gm_transcript_projector ?? new GmTranscriptProjector();
     $this->roomChatHistoryProjector = $room_chat_history_projector ?? new RoomChatHistoryProjector();
     $this->encounterTranscriptPrefixService = $encounter_transcript_prefix_service ?? new EncounterTranscriptPrefixService();
-    $this->roomChatAccessGuard = $room_chat_access_guard ?? new RoomChatAccessGuard($database, $current_user);
+    $this->roomChatAccessGuard = $room_chat_access_guard ?? new RoomChatAccessGuard($database, $current_user, \Drupal::service('dungeoncrawler_content.campaign_membership'));
     $this->encounterTurnGuard = $encounter_turn_guard ?? new EncounterTurnGuard();
     if (!$runtime_graph_assembler) {
       throw new \RuntimeException('RoomChatService contract violation: runtime graph assembler must be injected.');
@@ -268,7 +268,7 @@ class RoomChatService {
       $this->encounterTranscriptPrefixService,
       $this->roomLocator,
       $this->navigationApplicationOrchestrator,
-      $this->logger
+      $logger_factory
     );
     $this->enforceTraitContracts();
   }

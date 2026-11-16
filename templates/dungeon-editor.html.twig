@@ -115,7 +115,7 @@
           <ul class="dungeon-editor__region-list" data-dungeon-editor-region-list role="list"></ul>
           <p class="room-editor__hint" data-dungeon-editor-region-empty hidden>{{ 'No regions yet.'|t }}</p>
           <form class="dungeon-editor__region-form" data-dungeon-editor-region-form>
-            <label class="room-editor__field">{{ 'Region id'|t }}<input type="text" name="region_id" maxlength="100" pattern="[a-z0-9][a-z0-9_\-]{0,99}" required placeholder="north-wing"></label>
+            <label class="room-editor__field">{{ 'Region id (auto if blank)'|t }}<input type="text" name="region_id" maxlength="100" pattern="[a-z0-9][a-z0-9_\-]{0,99}" placeholder="north-wing"></label>
             <label class="room-editor__field">{{ 'Name'|t }}<input type="text" name="name" maxlength="200" required></label>
             <button type="submit" class="room-editor__button">{{ 'Add region'|t }}</button>
           </form>

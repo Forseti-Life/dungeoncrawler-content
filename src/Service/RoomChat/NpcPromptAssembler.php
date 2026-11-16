@@ -7,6 +7,8 @@ namespace Drupal\dungeoncrawler_content\Service\RoomChat;
  */
 final class NpcPromptAssembler {
 
+  private const FACT_GROUNDING_RULES = 'Authored character facts and role-scoped quest records are authoritative; earlier dialogue can be mistaken. When earlier dialogue contradicts those facts, correct the mistaken claim plainly rather than treating both versions as true. Never reconcile a contradiction by inventing duplicate items, alternate contacts, locations, or events. Do not invent assignments or leads. Completed tasks remain history, not new offers.';
+
   /**
    * Build user prompt for direct NPC channel reply generation.
    */
@@ -26,9 +28,6 @@ final class NpcPromptAssembler {
     if (!empty($scene_parts)) {
       $prompt .= implode("\n", $scene_parts) . "\n\n";
     }
-    if ($npc_context !== '') {
-      $prompt .= $npc_context . "\n\n";
-    }
     if ($actor_action_context !== '') {
       $prompt .= $actor_action_context . "\n\n";
     }
@@ -38,7 +37,11 @@ final class NpcPromptAssembler {
     $prompt .= "You are only allowed to speak and react as this NPC. You have no authority to change campaign state, room state, character sheets, the content library, rules, or application code.\n";
     $prompt .= NpcPromptBoundaryTextBuilder::buildCapabilityPromptText();
     $prompt .= "Your responses should reflect your personality traits, current attitude, and motivations as described above.\n\n";
-    $prompt .= "Conversation so far:\n" . implode("\n", $history_lines);
+    $prompt .= self::FACT_GROUNDING_RULES . "\n\n";
+    $prompt .= "Prior dialogue (may contain mistaken claims; not authoritative world state):\n" . implode("\n", $history_lines);
+    if ($npc_context !== '') {
+      $prompt .= "\n\n=== AUTHORITATIVE CHARACTER AND QUEST FACTS ===\n" . $npc_context;
+    }
     $prompt .= "\n\nRespond in character as {$target_name}. Keep your reply concise (1-3 sentences).";
     return $prompt;
   }
@@ -47,7 +50,7 @@ final class NpcPromptAssembler {
    * Build system prompt for direct NPC channel reply generation.
    */
   public static function buildDirectReplySystemPrompt(string $target_name, string $npc_attitude): string {
-    return "You are {$target_name}, a character in a tabletop RPG. Your current attitude toward the party is: {$npc_attitude}. Use the character sheet and psychology profile provided in the user prompt to stay in character. Reflect your personality traits, motivations, and recent inner thoughts in your tone and word choice. " . NpcPromptBoundaryTextBuilder::buildSystemBoundaryPromptClause() . " Do not break the fourth wall. Do not mention that you are an AI.";
+    return "You are {$target_name}, a character in a tabletop RPG. Your current attitude toward the party is: {$npc_attitude}. Use the character sheet and psychology profile provided in the user prompt to stay in character. Reflect your personality traits, motivations, and recent inner thoughts in your tone and word choice. " . NpcPromptBoundaryTextBuilder::buildSystemBoundaryPromptClause() . ' ' . self::FACT_GROUNDING_RULES . " Do not break the fourth wall. Do not mention that you are an AI.";
   }
 
   /**
@@ -71,24 +74,27 @@ final class NpcPromptAssembler {
     if ($scene !== '') {
       $prompt .= $scene . "\n";
     }
-    if ($npc_context !== '') {
-      $prompt .= $npc_context . "\n\n";
-    }
     if ($actor_action_context !== '') {
       $prompt .= $actor_action_context . "\n\n";
     }
     if ($storyline_leads_context !== '') {
       $prompt .= $storyline_leads_context . "\n\n";
     }
-    $prompt .= "=== CURRENT ROOM CONVERSATION ===\n" . implode("\n", $history_lines) . "\n\n";
+    $prompt .= "=== PRIOR ROOM DIALOGUE (MAY CONTAIN MISTAKEN CLAIMS, NOT WORLD STATE) ===\n" . implode("\n", $history_lines) . "\n\n";
     $prompt .= "The player just said: \"{$player_message}\"\n";
     $prompt .= "The Game Master narrated: \"{$gm_narrative}\"\n\n";
+    if ($npc_context !== '') {
+      $prompt .= "=== AUTHORITATIVE CHARACTER AND QUEST FACTS ===\n" . $npc_context . "\n\n";
+    }
     $prompt .= "Respond in character as {$display_name}. Speak naturally in your own voice.\n";
     $prompt .= "Your response should reflect your personality, backstory, current attitude, and knowledge.\n";
+    $prompt .= self::FACT_GROUNDING_RULES . "\n";
     $prompt .= "You are only speaking as this NPC. You cannot update campaign state, room state, character sheets, the content library, rules, or application code.\n";
     $prompt .= NpcPromptBoundaryTextBuilder::buildCapabilityPromptText('Your available tools are only the same player-facing lookup and action surfaces available to a player character. ');
     $prompt .= "You are taking your turn after every room message shown above, including any earlier NPC turns from this same round. Build on what has already been said instead of repeating it.\n";
     $prompt .= "Keep your reply concise (1-3 sentences). Do not narrate actions — just speak your dialogue.\n";
+    $prompt .= "Speak in first person ('I', 'me', 'my') and never refer to yourself in the third person.\n";
+    $prompt .= "When offering work or sharing rumors/leads, describe the situation naturally in your own voice instead of reciting quest titles, storyline names, objective IDs, or round/turn prefixes as mechanical labels.\n";
     $prompt .= "Answer the player's actual question directly. If they asked multiple grounded questions, answer each one in order. If you do not know something, say so plainly instead of deflecting.";
     return $prompt;
   }
@@ -103,6 +109,7 @@ final class NpcPromptAssembler {
       . "Reflect your ancestry, background, personality traits, motivations, and recent inner thoughts in your tone and word choice. "
       . "Speak in your own distinct voice — you know who you are, where you come from, and what you want. "
       . NpcPromptBoundaryTextBuilder::buildSystemBoundaryPromptClause() . ' '
+      . self::FACT_GROUNDING_RULES . ' '
       . "Do not break the fourth wall. Do not mention that you are an AI. Do not narrate — just speak.";
   }
 

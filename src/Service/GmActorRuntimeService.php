@@ -93,7 +93,7 @@ class GmActorRuntimeService {
     $stage_started_at = hrtime(true);
     $action_availability = $this->coordinator->getActionAvailabilityForActor($campaign_id, $actor_id);
     $timings['load_action_availability_ms'] = $this->elapsedMs($stage_started_at);
-    foreach (['game_state', 'available_actions', 'action_contract', 'events', 'phase', 'encounter_id', 'round', 'turn', 'state_version', 'active_room_id'] as $response_key) {
+    foreach (['snapshot_id', 'event_cursor', 'event_log_cursor', 'game_state', 'available_actions', 'action_contract', 'events', 'phase', 'encounter_id', 'round', 'turn', 'state_version', 'active_room_id'] as $response_key) {
       if (array_key_exists($response_key, $state)) {
         $chat_result[$response_key] = $state[$response_key];
       }

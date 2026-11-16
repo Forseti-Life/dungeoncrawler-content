@@ -30,6 +30,15 @@ transient recovery as a gameplay error. Authoritative state failures still
 retain their normal degraded/read-only protections; event-stream recovery does
 not falsely clear a state-sync failure.
 
+Actor dialogue projects authored identity and biography from the canonical
+campaign actor, while psychology retains attitude, personality and memory.
+Role-scoped quest context matches nested objective identities independently of
+broker ownership or quest-row location, uses tracked phase/visibility, and
+remembers completed handoffs without making them offerable again. Current
+canonical facts follow fallible transcript history in both room and private
+NPC prompts. Linked assignments do not receive generic hiring/lead grounding;
+reading this context never restarts quests or grants rewards.
+
 ### Marching and Camping
 
 Actor Roster links to the campaign's setup-only **Playersetup** dungeon at
@@ -445,19 +454,67 @@ annotations live in `metadata.storyline_analysis` using
 - Draft saves use expected-revision CAS. Publication validates the exact saved
   revision, rejects repeated publication, server-stamps authorship, and stores
   a receipt containing draft/canonical hashes and canonical template identity.
-- Natural-language GM assistant requests may read immediately, but saved-state
-  changes are rendered as explicit proposals that the author must approve or
-  reject before the registered mutation tool can run.
+- `/storylines` distinguishes working drafts from published stories. Published
+  authoring snapshots remain available in history, not as duplicate draft cards.
+  All users with storyline-edit permission share working drafts and their full
+  revision history, with the saving editor attributed on each revision. The
+  legacy revision table's `owner_uid` column records that revision's updater;
+  the draft row's `owner_uid` remains its original creator. Create Draft reuses
+  an existing shared working draft for that published storyline. Historical
+  revisions can be restored as a new revision with optimistic conflict checks.
+  Publishing remains separately permissioned; archiving and deleting drafts
+  retain creator-only restrictions. Explicit duplication still produces a new
+  identity, but ordinary collaborative saves never create personal copies.
+- Natural-language GM reviews remain read-only. Explicitly requested draft
+  edits run through the native revision-safe plan/apply flow; canonical
+  publication remains a separate, permissioned action.
 - `storyline_authoring_draft.schema.json` is the shared UI/GM authoring
-  contract. The GM uses revision-bound `set`, `append`, `replace`, `remove`,
-  and `move` operations; approved batches are idempotent through durable
+  contract. The GM uses revision-bound `set`, `append`, `replace`, `patch`,
+  `remove`, and `move` operations. ID-matched patches edit only supplied row
+  fields, preserving the rest and validating the merged draft. Approved
+  batches are idempotent through durable
   operation receipts and still persist only through
   `StorylineAuthoringDraftService::saveDraft()`.
+- Storyline ID generation and assignment are system responsibilities:
+  inspect the current revision, reuse grounded existing identities, allocate
+  identities only for newly appended objects, resolve references, validate,
+  then save with CAS and an idempotency receipt. Renames keep their existing
+  IDs. Allocating a draft ID does not create a canonical asset or runtime
+  placement. A new standalone storyline receives its ID from its native
+  draft UUID immediately; title changes do not change that ID.
+- New append rows may omit the `server_generated_fields` in the collection
+  contract. The draft authority allocates deterministic, draft-scoped IDs,
+  avoids collisions with existing and same-batch IDs, and returns
+  `allocated_ids` with the plan and saved receipt. To connect new objects in
+  one batch, the GM gives appends internal `key` values and uses
+  `{"$draft_ref":"guide.actor_id"}` in reference fields; forward links are
+  resolved before schema validation. Unknown, cyclic, or non-identity
+  references fail explicitly. Batch keys are not persisted.
+- The same identity workflow and evidence-backed room/site binding plan
+  reach both intent selection and final response synthesis. Questions may
+  request genuine creative choices using names, never internal IDs, slugs,
+  UUIDs, or batch keys. Such technical prompts are rejected before intent
+  execution and at the final response boundary, not rewritten or retried.
 - The Storyline GM directly reuses the canonical catalog, room/dungeon
   discovery, editor-routing, draft-validation, and finding-explanation tools.
   Linked actors, items, rooms, and dungeons remain owned by their existing
   editors; the storyline surface discovers and routes to those authorities
   rather than duplicating their creation or publication functions.
+- Linked-quest storyline mismatches use the existing remediation tools with
+  `scope: quest_storyline_references`. Plans carry an exact quest version and
+  row fingerprint; the canonical quest authority locks and checks the row
+  before changing only its storyline references and contract metadata.
+  Objectives, rewards, narrative, draft revisions, and campaign snapshots
+  are preserved. A grounded follow-up such as "Apply it" executes that
+  correction, not another review or an unrelated asset-generation pass.
+- Canonical review uses `check_storyline_creation_readiness`. There is no
+  separate writable review-completed flag. "Review and create" executes
+  `publish_storyline_draft`; its persisted publication receipt is the final
+  signoff. Publication checks the locked revision atomically, and retries
+  replay its receipt instead of creating another publication.
+- The storyline flowchart reuses the shared Mermaid and SVG pan/zoom
+  framework library. It fits within the editor pane, supports zoom controls,
+  wheel zoom, drag/keyboard panning, and refits when the pane changes size.
 
 The authoring draft produces one `storyline-definition-v1` object before any
 canonical write:
@@ -492,6 +549,30 @@ Enter-to-send behavior. Their server requests still resolve through the
 existing Editor GM harness and each surface's registered domain tools.
 Character Creation uses the same harness and browser contracts, with its own
 registered tools and the canonical wizard form as validation/save authority.
+
+### Storyline roster character sheets
+
+The Storyline GM exposes `inspect_storyline_actor_sheets` and
+`build_storyline_actor_sheets`. An explicit whole-roster, role-driven selection
+executes the build without asking for classes or pre-existing character drafts.
+Omitting `actor_ids` builds the entire roster; explicit IDs restrict the scope.
+Optional per-actor preferences use native class, ancestry and background IDs.
+The shared canonical generation service plans those choices from authored roles,
+clan context and relationships; the native character wizard fills the remaining
+choices and owns level and statistics.
+
+`StorylineActorSheetService` creates through `CharacterCreationGmService`, binds
+the same library row as the canonical actor definition, and saves its
+`character_id`, revision, source hash and native build summary in the actor spec.
+There is no second character store or combat engine. Existing canonical actor
+IDs remain unchanged for storyline publication and runtime lookup. Native
+character edits and definition narrative edits preserve the full shared sheet.
+
+Build and linkage commit together per actor. Retries reuse linked sheets and
+preserve later native edits. A failed actor is rolled back; the error names that
+actor, the native cause and any earlier completed actors. Draft revision conflicts,
+invalid catalog choices, archived actors and campaign-runtime targets fail
+explicitly. Other storyline asset/readiness findings do not block this workflow.
 
 ## 4. API Surface (Grouped from Routing)
 

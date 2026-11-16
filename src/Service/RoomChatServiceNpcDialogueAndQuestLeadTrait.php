@@ -159,6 +159,13 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
         return $available_quest_offer;
       }
 
+      if (!$this->isBrokeredStorylineNpcRef($entity_ref) && $this->actorNarrativeContextService instanceof ActorNarrativeContextService) {
+        $context = $this->actorNarrativeContextService->buildContextEnvelope($campaign_id, $entity_ref, $room_id);
+        if (!empty($context['knowledge_directives']['knows_linked_objectives'])) {
+          return NULL;
+        }
+      }
+
       $direct_entry_lead = $this->buildDirectEntryStorylineLeadDialogue($campaign_id, $entity_ref, $display_name, $player_message, $room_id, $dungeon_data, $character_id);
       if ($direct_entry_lead !== NULL) {
         return $direct_entry_lead;
@@ -697,7 +704,7 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
       ?? $selected_contact['lead_location']['notes']
       ?? ''
     ));
-    $lead_notes = $this->sanitizeStorylineLeadNotesForDialogue($raw_notes);
+    $lead_notes = $this->sanitizeStorylineLeadNotesForDialogue($raw_notes, $display_name);
     if ($quest_giver_name === '' && $storyline_name === '') {
       return NULL;
     }
@@ -724,7 +731,7 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
   /**
    * Strip internal authoring metadata (Trigger:, Gate:, snake/kebab IDs) from spoken lead notes.
    */
-  protected function sanitizeStorylineLeadNotesForDialogue(string $notes): string {
+  protected function sanitizeStorylineLeadNotesForDialogue(string $notes, string $speaker_name = ''): string {
     $notes = trim($notes);
     if ($notes === '') {
       return '';
@@ -734,6 +741,9 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
     // Replace third-person authoring phrasing ("wants the party to") with natural second-person dialogue ("needs someone to").
     $notes = preg_replace('/\bwants\s+the\s+party\s+to\b/i', 'needs someone to', $notes) ?? $notes;
     $notes = preg_replace('/\bthe\s+party\b/i', 'you', $notes) ?? $notes;
+    if ($speaker_name !== '') {
+      $notes = $this->sanitizeQuestgiverObjectiveHintForSpeaker($notes, $speaker_name);
+    }
     // Strip raw kebab-case or snake_case quest/entity IDs if any remain.
     $notes = preg_replace('/\b(?:quest|actor|room|scene)\s+[a-z0-9]+(?:[-_][a-z0-9]+)+\b/i', 'that task', $notes) ?? $notes;
     return trim($notes);
@@ -783,7 +793,7 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
       ?? $selected_contact['entry_point']['detail_summary']
       ?? ''
     ));
-    $summary = $this->sanitizeStorylineLeadNotesForDialogue($raw_summary);
+    $summary = $this->sanitizeStorylineLeadNotesForDialogue($raw_summary, $display_name);
     if ($storyline_name === '' && $summary === '') {
       return NULL;
     }
@@ -1213,22 +1223,52 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
 
     $display_name = preg_replace('/\s+/', ' ', $display_name) ?? $display_name;
     $objective_hint = preg_replace('/\s+/', ' ', $objective_hint) ?? $objective_hint;
-    $self_reference_prefix = '/^(?:speak|talk)\s+(?:to|with)\s+' . preg_quote($display_name, '/') . '(?:\b|[,:;\.\!\?\-])\s*(?:and\s+)?/i';
+
+    $name_candidates = [$display_name];
+    foreach (explode(' ', $display_name) as $token) {
+      $token = trim($token, " \t\n\r\0\x0B,.;:!?\"'()");
+      if (strlen($token) >= 4 && !in_array(strtolower($token), ['the', 'and', 'for', 'with', 'from'], TRUE)) {
+        $name_candidates[] = $token;
+      }
+    }
+    $name_candidates = array_values(array_unique($name_candidates));
+    $escaped_names = array_map(static fn(string $name): string => preg_quote($name, '/'), $name_candidates);
+    $name_pattern = '(?:' . implode('|', $escaped_names) . ')';
+
+    $self_reference_prefix = '/^(?:speak|talk)\s+(?:to|with)\s+' . $name_pattern . '(?:\b|[,:;\.\!\?\-])\s*(?:and\s+)?/i';
     $rewritten = preg_replace($self_reference_prefix, '', $objective_hint, 1, $replacement_count);
-    if (!is_string($rewritten) || $replacement_count === 0) {
-      return $objective_hint;
+    if (is_string($rewritten) && $replacement_count > 0) {
+      $rewritten = $this->trimNpcDialogueClause($rewritten);
+      if ($rewritten === '') {
+        return '';
+      }
+
+      // Avoid pronoun-only remnants after removing "Speak to {current NPC}".
+      $rewritten = preg_replace('/\b(his|her|their)\b/i', 'a', $rewritten, 1) ?? $rewritten;
+      $rewritten = preg_replace('/\s{2,}/', ' ', $rewritten) ?? $rewritten;
+
+      return ucfirst($rewritten);
     }
 
-    $rewritten = $this->trimNpcDialogueClause($rewritten);
-    if ($rewritten === '') {
-      return '';
+    // Rewrite self-referential "Question/Ask/Consult {NPC} about X" into first-person.
+    $ask_about_prefix = '/^(?:question|ask|consult|check\s+with|confront)\s+' . $name_pattern . '(?:\'s)?\s+(about|regarding|for|on)\s+/i';
+    $rewritten_ask = preg_replace($ask_about_prefix, 'Ask me $1 ', $objective_hint, 1, $ask_count);
+    if (is_string($rewritten_ask) && $ask_count > 0) {
+      $rewritten_ask = $this->trimNpcDialogueClause($rewritten_ask);
+      $rewritten_ask = preg_replace('/\s{2,}/', ' ', $rewritten_ask) ?? $rewritten_ask;
+      return ucfirst($rewritten_ask);
     }
 
-    // Avoid pronoun-only remnants after removing "Speak to {current NPC}".
-    $rewritten = preg_replace('/\b(his|her|their)\b/i', 'a', $rewritten, 1) ?? $rewritten;
-    $rewritten = preg_replace('/\s{2,}/', ' ', $rewritten) ?? $rewritten;
+    // Rewrite trailing third-person references like "Return the wine to {NPC}" -> "Return the wine to me".
+    $trailing_ref = '/\b(to|with|for|from)\s+' . $name_pattern . '\b/i';
+    $rewritten_trailing = preg_replace($trailing_ref, '$1 me', $objective_hint, 1, $trailing_count);
+    if (is_string($rewritten_trailing) && $trailing_count > 0) {
+      $rewritten_trailing = $this->trimNpcDialogueClause($rewritten_trailing);
+      $rewritten_trailing = preg_replace('/\s{2,}/', ' ', $rewritten_trailing) ?? $rewritten_trailing;
+      return ucfirst($rewritten_trailing);
+    }
 
-    return ucfirst($rewritten);
+    return $objective_hint;
   }
 
   /**

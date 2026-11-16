@@ -114,7 +114,7 @@ import {
                   : 'Draft inspection complete.'), result);
             }
             showContext(data);
-            const saved = result.tool === 'apply_character_draft_updates' && !result.dry_run;
+            const saved = ['apply_character_draft_updates', 'autofill_character_draft', 'apply_actor_changes'].includes(result.tool) && !result.dry_run;
             if (saved) {
               if (Drupal.characterCreationWorkspace) {
                 await Drupal.characterCreationWorkspace.refresh({ saved: true });

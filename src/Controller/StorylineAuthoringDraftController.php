@@ -173,11 +173,14 @@ class StorylineAuthoringDraftController extends ControllerBase {
     if (!str_starts_with((string) $request->headers->get('Content-Type'), 'application/json')) {
       throw new \InvalidArgumentException('content_type_must_be_json');
     }
-    $decoded = json_decode($request->getContent(), FALSE, 512, JSON_THROW_ON_ERROR);
-    if (!is_object($decoded)) {
+    // Decoded to arrays at every depth: the draft service and its schema
+    // validator work on arrays, and a nested object would never pass
+    // is_array().
+    $content = $request->getContent();
+    if (!str_starts_with(ltrim($content), '{')) {
       throw new \InvalidArgumentException('json_object_required');
     }
-    return (array) $decoded;
+    return json_decode($content, TRUE, 512, JSON_THROW_ON_ERROR);
   }
 
   private function validateCsrf(Request $request): ?JsonResponse {

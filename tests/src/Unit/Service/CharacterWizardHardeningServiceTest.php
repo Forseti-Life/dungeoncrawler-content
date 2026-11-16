@@ -7,6 +7,7 @@ use Drupal\Component\Uuid\UuidInterface;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\dungeoncrawler_content\Service\CampaignCharacterRuntimeResolverService;
+use Drupal\dungeoncrawler_content\Service\CampaignMembershipService;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
 use Drupal\dungeoncrawler_content\Service\CharacterWizardHardeningService;
 use PHPUnit\Framework\TestCase;
@@ -26,6 +27,7 @@ class CharacterWizardHardeningServiceTest extends TestCase {
       $this->createMock(TimeInterface::class),
       $this->createMock(UuidInterface::class),
       $this->createMock(AccountProxyInterface::class),
+      $this->createMock(CampaignMembershipService::class),
     );
   }
 
@@ -33,6 +35,12 @@ class CharacterWizardHardeningServiceTest extends TestCase {
     $result = $this->buildService()->advanceProgress(['step' => 7], 7, FALSE);
     $this->assertSame(8, $result['step']);
     $this->assertFalse($result['wizard_complete']);
+  }
+
+  public function testNativeEditsKeepCanonicalDefinitionInItsLibrary(): void {
+    $data = ['actor_id' => 'original-scout', 'canonical_actor_version' => '1.0.0', 'canonical_definition' => ['metadata' => NULL]];
+    $this->assertSame(['status' => 1, 'lifecycle_state' => 'canonical_template'], $this->buildService()->getCompletionFields($data, 0));
+    $this->assertSame(['status' => 0, 'lifecycle_state' => 'campaign_draft'], $this->buildService()->getCompletionFields($data, 1));
   }
 
   public function testEarlierEditsPreserveUnlockedProgressAndCompletion(): void {

@@ -142,6 +142,11 @@ trait RoomChatServiceChannelAndSessionTrait {
       $live_entity
     );
 
+    $narrative_context = $this->buildActorNarrativeScopePromptContext($campaign_id, (string) $npc_ref, $room_id);
+    if ($narrative_context !== '') {
+      $npc_context = trim($npc_context . "\n\n" . $narrative_context);
+    }
+
     // Build the prompt with full NPC context.
     $prompt = NpcPromptAssembler::buildDirectReplyUserPrompt(
       $session_context,
@@ -1721,6 +1726,8 @@ trait RoomChatServiceChannelAndSessionTrait {
     string $room_id = '',
     string $turn_seed = ''
   ): array {
+    $player_message = $this->encounterTranscriptPrefixService->stripPrefix($player_message);
+    $gm_narrative = $this->encounterTranscriptPrefixService->stripPrefix($gm_narrative);
     $directly_addressed_npc = $this->resolveDirectlyAddressedNpc($room_npcs, $player_message, FALSE);
     $gm_addressed = $this->isExplicitRoomGmAddress($player_message);
     $conversation_state_ref = NULL;

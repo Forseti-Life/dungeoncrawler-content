@@ -108,6 +108,10 @@ trait RoomChatServiceGmPipelineTrait {
       if ($storyline_branch_context !== '') {
         $room_quest_context = trim($room_quest_context . "\n\n" . $storyline_branch_context);
       }
+      $quest_goal_context = $this->questTracker ? $this->questTracker->buildQuestGoalPromptContext($campaign_id) : '';
+      if ($quest_goal_context !== '') {
+        $room_quest_context = trim($room_quest_context . "\n\n" . $quest_goal_context);
+      }
 
       $prompt_artifact_payload = $this->gmPromptOrchestration->buildPromptArtifacts(
         $session_context,
@@ -766,6 +770,52 @@ trait RoomChatServiceGmPipelineTrait {
       ?? $dungeon_data['current_room_id']
       ?? ''
     ));
+    if (\Drupal::hasService('dungeoncrawler_content.room_runtime_state_store')) {
+      $room_runtime_state_store = \Drupal::service('dungeoncrawler_content.room_runtime_state_store');
+      if ($room_runtime_state_store instanceof RoomRuntimeStateStore) {
+        $persisted_room_states = $room_runtime_state_store->loadRoomStates($campaign_id);
+        if ($persisted_room_states !== []) {
+          $existing_rooms = is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : [];
+          $indexed_existing_rooms = [];
+          foreach ($existing_rooms as $room) {
+            if (is_array($room) && trim((string) ($room['room_id'] ?? '')) !== '') {
+              $indexed_existing_rooms[trim((string) $room['room_id'])] = $room;
+            }
+          }
+          foreach ($persisted_room_states as $persisted_room_id => $persisted_room_entry) {
+            if (!isset($indexed_existing_rooms[$persisted_room_id])) {
+              $indexed_existing_rooms[$persisted_room_id] = $persisted_room_entry;
+              continue;
+            }
+            $existing_room = $indexed_existing_rooms[$persisted_room_id];
+            $existing_gp = is_array($existing_room['gameplay_state'] ?? NULL) ? $existing_room['gameplay_state'] : [];
+            $persisted_gp = is_array($persisted_room_entry['gameplay_state'] ?? NULL) ? $persisted_room_entry['gameplay_state'] : [];
+            $existing_room['gameplay_state'] = array_merge($existing_gp, $persisted_gp);
+            if (isset($persisted_room_entry['conversation_state']) && is_array($persisted_room_entry['conversation_state'])) {
+              $existing_room['conversation_state'] = array_merge(
+                is_array($existing_room['conversation_state'] ?? NULL) ? $existing_room['conversation_state'] : [],
+                $persisted_room_entry['conversation_state']
+              );
+            }
+            if (
+              isset($persisted_room_entry['chat'])
+              && is_array($persisted_room_entry['chat'])
+              && count($persisted_room_entry['chat']) >= count((array) ($existing_room['chat'] ?? []))
+            ) {
+              $existing_room['chat'] = $persisted_room_entry['chat'];
+            }
+            if (isset($persisted_room_entry['npc_response_consumption']) && is_array($persisted_room_entry['npc_response_consumption'])) {
+              $existing_room['npc_response_consumption'] = array_merge(
+                is_array($existing_room['npc_response_consumption'] ?? NULL) ? $existing_room['npc_response_consumption'] : [],
+                $persisted_room_entry['npc_response_consumption']
+              );
+            }
+            $indexed_existing_rooms[$persisted_room_id] = $existing_room;
+          }
+          $dungeon_data['rooms'] = array_values($indexed_existing_rooms);
+        }
+      }
+    }
     $hydrated = $this->runtimeGraphAssembler->buildRuntimeGraph(
       $campaign_id,
       $resolved_dungeon_id,

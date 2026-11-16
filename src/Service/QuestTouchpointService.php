@@ -84,6 +84,10 @@ class QuestTouchpointService {
       ];
     }
 
+    // What just happened may be how the party learns of another way to
+    // reach a quest's goal.
+    $this->questTracker->revealQuestApproachesForTouchpoint($campaign_id, $touchpoint, $character_id);
+
     $room_id = trim((string) ($touchpoint['room_id'] ?? $touchpoint['location_id'] ?? ''));
     if ($room_id !== '') {
       $this->activateOpenRoomQuests($campaign_id, $character_id, $room_id);

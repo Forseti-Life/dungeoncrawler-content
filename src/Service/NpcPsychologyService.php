@@ -146,12 +146,51 @@ class NpcPsychologyService {
       $profile = $this->hydrateProfile($row);
       $profile_ref = trim((string) ($row['actor_instance_id'] ?? $row['entity_ref'] ?? $entity_ref));
       $this->repairStoredProfileStructure($campaign_id, $profile_ref, $row, $profile);
-      return $profile;
     }
     catch (\Exception $e) {
       $this->logger->error('Failed to load NPC psychology: @err', ['@err' => $e->getMessage()]);
       return NULL;
     }
+
+    return $this->projectCanonicalActorProfile($campaign_id, $entity_ref, $profile);
+  }
+
+  /**
+   * Psychology owns roleplay state, not the actor's authored identity or story.
+   */
+  protected function projectCanonicalActorProfile(int $campaign_id, string $entity_ref, array $profile): array {
+    $actor = $this->loadCanonicalActor($campaign_id, $entity_ref);
+    if ($actor === NULL) {
+      throw new \RuntimeException(sprintf(
+        'Actor psychology context contract violation: dc_psychology has no canonical dc_campaign_characters actor for campaign_id=%d entity_ref=%s.',
+        $campaign_id,
+        $entity_ref,
+      ));
+    }
+    $character_json = (string) ($actor['character_data'] ?? '{}');
+    try {
+      $character = json_decode($character_json, TRUE, 512, JSON_THROW_ON_ERROR);
+    }
+    catch (\JsonException $error) {
+      throw new \RuntimeException(sprintf(
+        'Actor psychology context contract violation: invalid dc_campaign_characters.character_data for campaign_id=%d entity_ref=%s.',
+        $campaign_id,
+        $entity_ref,
+      ), 0, $error);
+    }
+    if (!is_array($character) || !str_starts_with(ltrim($character_json), '{')) {
+      throw new \RuntimeException(sprintf(
+        'Actor psychology context contract violation: character_data must be an object for campaign_id=%d entity_ref=%s.',
+        $campaign_id,
+        $entity_ref,
+      ));
+    }
+    $profile['display_name'] = (string) $actor['name'];
+    $profile['character_sheet']['display_name'] = $profile['display_name'];
+    foreach (['description', 'backstory', 'role', 'level', 'ancestry', 'class', 'occupation'] as $field) {
+      $profile['character_sheet'][$field] = $character[$field] ?? $actor[$field] ?? '';
+    }
+    return $profile;
   }
 
   /**
@@ -1796,14 +1835,8 @@ class NpcPsychologyService {
       throw new \InvalidArgumentException('Psychology profile requires a non-empty actor entity_ref.');
     }
 
-    $query = $this->database->select('dc_campaign_characters', 'c')
-      ->fields('c')
-      ->condition('campaign_id', $campaign_id)
-      ->condition('instance_id', $candidates, 'IN')
-      ->orderBy('updated', 'DESC')
-      ->range(0, 1);
-    $row = $query->execute()->fetchAssoc();
-    if (is_array($row) && !empty($row)) {
+    $row = $this->loadCanonicalActor($campaign_id, $entity_ref);
+    if ($row !== NULL) {
       return $this->applyRoomScopedLocationFromSeed($campaign_id, $row, $seed_data);
     }
 
@@ -1831,6 +1864,21 @@ class NpcPsychologyService {
     }
 
     return $this->createCanonicalActorRow($campaign_id, $entity_ref, $seed_data, $actor_type);
+  }
+
+  /**
+   * Read the same canonical actor for profile creation and prompt projection.
+   */
+  protected function loadCanonicalActor(int $campaign_id, string $entity_ref): ?array {
+    $row = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c')
+      ->condition('campaign_id', $campaign_id)
+      ->condition('instance_id', $this->buildEntityRefCandidates($entity_ref), 'IN')
+      ->orderBy('updated', 'DESC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    return is_array($row) ? $row : NULL;
   }
 
   /**

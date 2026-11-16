@@ -5,6 +5,9 @@ namespace Drupal\dungeoncrawler_content\Service\EditorGm;
 use Drupal\Component\Uuid\UuidInterface;
 use Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\ApplyRoomCommandsTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\ApplyRoomCommandTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\RoomDraftLifecycleTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\DefinitionLifecycleTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\CheckPublicationReadinessTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\CreateCanonicalDefinitionTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\DescribeCanonicalDefinitionSchemaTool;
@@ -77,6 +80,7 @@ final class RoomEditorGmSurface implements EditorGmSurfaceInterface {
     UuidInterface $uuid,
     ?EditorCanonicalGenerationPlanService $generation = NULL,
   ) {
+    $command_executor = new ApplyRoomCommandsTool($uuid);
     $tools = [
       new LoadDraftSnapshotTool(),
       new LoadPublishedSnapshotTool(),
@@ -96,7 +100,7 @@ final class RoomEditorGmSurface implements EditorGmSurfaceInterface {
       new PlanRoomCommandsTool(),
       new PreviewCommandPlanTool(),
       new PlanCanonicalDefinitionPatchTool(),
-      new ApplyRoomCommandsTool($uuid),
+      $command_executor,
       new PreviewPublicationPayloadTool(),
       new PublishRoomVersionTool(),
     ];
@@ -105,6 +109,13 @@ final class RoomEditorGmSurface implements EditorGmSurfaceInterface {
         new GenerateRoomLayoutTool($generation),
         new GenerateCanonicalDefinitionTool($generation),
       ]);
+    }
+    foreach (['list_room_drafts', 'create_room_draft', 'load_room_draft', 'abandon_room_draft', 'list_room_command_history'] as $name) {
+      $tools[] = new RoomDraftLifecycleTool($name);
+    }
+    $tools[] = new ApplyRoomCommandTool($command_executor);
+    foreach (['inspect_definition_lifecycle', 'retire_canonical_definition', 'restore_canonical_definition'] as $name) {
+      $tools[] = new DefinitionLifecycleTool($name);
     }
     $this->registry = new EditorGmToolRegistry($tools, self::SUPPORTED_COMMAND_TYPES, 'room_editor_command.schema.json');
     $this->assembler = new RoomEditorGmContextAssembler($this->registry, $intentParser);
@@ -139,9 +150,6 @@ final class RoomEditorGmSurface implements EditorGmSurfaceInterface {
   }
 
   public function createContext(?string $draft_id, string $profile, array $scope = []): EditorGmToolContext {
-    if ($draft_id === NULL) {
-      throw new \LogicException('editor_gm_draft_required:room_editor');
-    }
     return new RoomEditorGmToolContext($draft_id, $profile, $this->roomEditor, $this->definitions);
   }
 

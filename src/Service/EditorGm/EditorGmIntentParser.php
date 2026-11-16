@@ -5,6 +5,7 @@ namespace Drupal\dungeoncrawler_content\Service\EditorGm;
 use Drupal\ai_conversation\Service\AIApiService;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessManagementService;
+use Drupal\dungeoncrawler_content\Service\StorylineAuthoringDraftService;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -83,6 +84,16 @@ class EditorGmIntentParser {
         'reasoning' => 'The author requested review of current findings without authorizing remediation.',
       ];
     }
+    if ($surface_label === 'Storyline Builder') {
+      $finalization_intent = $this->storylineFinalizationIntent($utterance, $context_snapshot);
+      if ($finalization_intent !== NULL) {
+        return $finalization_intent;
+      }
+      $repair_intent = $this->groundedQuestReferenceRepairIntent($utterance, $context_snapshot);
+      if ($repair_intent !== NULL) {
+        return $repair_intent;
+      }
+    }
     if ($this->ai === NULL) {
       throw new \RuntimeException('editor_gm_intent_parser_unavailable');
     }
@@ -103,6 +114,16 @@ class EditorGmIntentParser {
         '@error' => is_array($result) ? (string) ($result['error'] ?? 'unknown') : 'malformed provider response',
       ]);
       throw new \RuntimeException('editor_gm_intent_model_failed');
+    }
+
+    if (in_array($result['finish_reason'] ?? $result['stop_reason'] ?? '', ['length', 'max_tokens'], TRUE)) {
+      $this->logger->error('Editor GM intent output exceeded its budget for @surface/@draft (@model; @tokens tokens). No intent was executed.', [
+        '@surface' => $surface_label,
+        '@draft' => (string) ($context_snapshot['draft']['draft_id'] ?? ''),
+        '@model' => (string) ($result['model_id'] ?? ''),
+        '@tokens' => (int) ($execution_options['max_tokens'] ?? 0),
+      ]);
+      throw new \RuntimeException('editor_gm_intent_output_truncated', 502);
     }
 
     return $this->decodeIntent(
@@ -177,10 +198,88 @@ class EditorGmIntentParser {
   }
 
   /**
+   * Routes review and explicit finalization to their existing native tools.
+   */
+  private function storylineFinalizationIntent(string $utterance, array $snapshot): ?array {
+    $normalized = $this->normalizeGovernanceUtterance($utterance);
+    if (in_array($normalized, [
+      'review', 'final review', 'review the storyline', 'review for publication',
+      'mark review complete', 'mark review completed', 'complete the review',
+    ], TRUE)) {
+      return [
+        'type' => 'tool_call',
+        'tool_name' => 'check_storyline_creation_readiness',
+        'arguments' => [],
+        'reasoning' => 'Complete canonical review of the current saved revision without publishing or changing story content.',
+        'next_steps' => [],
+      ];
+    }
+    if (!in_array($normalized, [
+      'review and create', 'review and publish', 'review and create the storyline',
+      'publish', 'publish it', 'publish the storyline', 'publish the draft',
+      'create the storyline', 'create the final signoff', 'create final signoff',
+      'complete the final signoff', 'complete final signoff',
+      'record the final signoff', 'record final signoff', 'sign off',
+      'finalize the storyline',
+    ], TRUE)) {
+      return NULL;
+    }
+    return [
+      'type' => 'tool_call',
+      'tool_name' => 'publish_storyline_draft',
+      'arguments' => ['expected_revision' => (int) $snapshot['draft']['revision']],
+      'reasoning' => 'Review and publish the explicitly approved saved revision, recording the native publication receipt as final signoff.',
+      'next_steps' => [],
+    ];
+  }
+
+  /**
+   * Routes approval of a grounded quest-reference correction to its authority.
+   */
+  private function groundedQuestReferenceRepairIntent(string $utterance, array $snapshot): ?array {
+    if (empty($snapshot['authoring_workflow']['linked_quest_reference_repairs'])) {
+      return NULL;
+    }
+    $normalized = $this->normalizeGovernanceUtterance($utterance);
+    $explicit = in_array($normalized, [
+      'fix the quest references', 'repair the quest references',
+      'align the linked quest references', 'apply the quest reference fix',
+    ], TRUE);
+    $continuation = in_array($normalized, [
+      'apply it', 'apply that', 'do it', 'fix it', 'go ahead',
+      'lets update the base name', "let's update the base name",
+    ], TRUE);
+    $conversation = (string) ($snapshot['conversation_context'] ?? '');
+    $last_next_steps = strrpos($conversation, 'NEXT STEPS:');
+    $proposed = $last_next_steps === FALSE ? '' : substr($conversation, $last_next_steps);
+    $response_start = strpos($proposed, "\nRESPONSE:");
+    if ($response_start !== FALSE) {
+      $proposed = substr($proposed, 0, $response_start);
+    }
+    $grounded_proposal = preg_match('/\\bquest\\b[^\\n]{0,180}\\b(?:references?|story-impact|storyline|template)\\b/i', $proposed) === 1;
+    if (!$explicit && !($continuation && $grounded_proposal)) {
+      return NULL;
+    }
+    return [
+      'type' => 'tool_call',
+      'tool_name' => 'plan_storyline_remediation',
+      'arguments' => [
+        'expected_revision' => (int) $snapshot['draft']['revision'],
+        'scope' => 'quest_storyline_references',
+      ],
+      'reasoning' => 'Apply the requested, grounded linked-quest reference correction without changing quest content or generating assets.',
+      'next_steps' => [],
+    ];
+  }
+
+  /**
    * Parses and validates the model's JSON response against the registry.
    */
   private function decodeIntent(string $response, EditorGmToolRegistry $registry, bool $requires_storyline_choices): array {
     $decoded = $this->decodeJsonObject($response, 'editor_gm_intent_response_not_json');
+    if ($requires_storyline_choices) {
+      $this->assertStorylineDecisionsValid($decoded);
+    }
 
     $type = (string) ($decoded['type'] ?? '');
     if ($type === 'clarification') {
@@ -230,6 +329,32 @@ class EditorGmIntentParser {
     }
 
     return $this->validateToolCallPayload($decoded, $registry);
+  }
+
+  /**
+   * Invalid technical decisions must fail before any task can save changes.
+   */
+  private function assertStorylineDecisionsValid(array $intent): void {
+    if (is_string($intent['question'] ?? NULL)) {
+      StorylineAuthoringDraftService::assertNoIdAssignmentRequest($intent['question']);
+    }
+    foreach ((array) ($intent['next_steps'] ?? []) as $step) {
+      if (is_string($step)) {
+        StorylineAuthoringDraftService::assertNoIdAssignmentRequest($step);
+      }
+    }
+    foreach ((array) ($intent['options'] ?? []) as $option) {
+      foreach (is_array($option) ? $option : [] as $text) {
+        if (is_string($text)) {
+          StorylineAuthoringDraftService::assertNoIdAssignmentRequest($text);
+        }
+      }
+    }
+    foreach ((array) ($intent['tasks'] ?? []) as $task) {
+      if (is_array($task)) {
+        $this->assertStorylineDecisionsValid($task);
+      }
+    }
   }
 
   /**
@@ -367,8 +492,9 @@ class EditorGmIntentParser {
    */
   private function systemPrompt(string $surface_label): string {
     $mutation_rule = match ($surface_label) {
-      'Storyline Builder' => 'For Storyline Builder, use plan_storyline_draft_operations for explicitly requested draft changes and plan_storyline_remediation only when the author explicitly asks to fix or create missing canonical assets; the harness may immediately apply that authorized plan through the owning authorities.',
-      'Character Creation' => 'For Character Creation, use plan_character_draft_updates for requested changes. The GM has authority to overwrite unsaved form edits and applies validated patches against the latest locked character; never ask for save/discard, conflict resolution, or approval. Present genuine unresolved player decisions as numbered choices, one option per line. Read-only inspection and local catalog lookups never save changes. Use inspect_actor for the canonical actor view, its revision and change history. Use apply_actor_changes only for typed actor commands: actor.narrative.patch and actor.identity.patch for free-text identity and narrative paths listed by inspect_actor, and actor.archive or actor.restore when the player explicitly asks to archive or restore the character; wizard choices always go through plan_character_draft_updates.',
+      'Storyline Builder' => 'For Storyline Builder, explicit requests or selected options to build roster actor character sheets MUST use build_storyline_actor_sheets with the grounded expected_revision. Omit actor_ids for the whole roster; otherwise use grounded roster IDs. This tool creates missing character drafts, derives native classes from authored roles, completes and links the sheets itself; it needs no existing character context. Role-driven generation is already a complete decision: never ask for classes, more confirmation or a separate draft ID. Sheet inspection uses inspect_storyline_actor_sheets. These sheet tools take precedence over generic draft and remediation routing. For other draft changes use plan_storyline_draft_operations, and for other missing canonical assets use plan_storyline_remediation only when explicitly requested; the harness may immediately apply the authorized plan through the owning authorities.',
+      'Character Creation' => 'For Character Creation, use plan_character_draft_updates for requested changes. The GM has authority to overwrite unsaved form edits and applies validated patches against the latest locked character; never ask for save/discard, conflict resolution, or approval. Present genuine unresolved player decisions as numbered choices, one option per line. Read-only inspection and local catalog lookups never save changes. Use inspect_actor for the canonical actor view, its revision and change history. Use apply_actor_changes only for typed actor commands: actor.narrative.patch and actor.identity.patch for free-text identity and narrative paths listed by inspect_actor, and actor.archive or actor.restore when the player explicitly asks to archive or restore the character; wizard choices always go through plan_character_draft_updates. When the player asks you to build, create, make, roll up, finish, complete or auto-fill the character, or to choose, pick or decide for them, use autofill_character_draft once: put every choice the player stated or plainly implied into preferences with native IDs from the grounded reference (an evoker is subclass evocation, a former miner is the closest listed background), write the free-text fields they did not give (an original in-world personal name of at least two characters, concept, appearance, personality, backstory, age, gender) yourself so they fit the request, and leave every other rules choice out so it is filled from the native options. Never return a clarification on Character Creation and never ask the player to confirm, approve or choose before acting: act on the most reasonable reading, save it, and let the player revise afterwards. Give at most one next step.',
+      'Room Editor' => 'Use create_room_draft to start a room without asking for ID mechanics. Use list_room_drafts and load_room_draft to resume/switch drafts. If no draft is active, create/load must precede draft tools. Use apply_room_command for one fully specified edit and plan_room_commands for larger plans. Read list_room_command_history before choosing undo/redo IDs. Mutating calls always require author approval, including task queues. Abandon preserves audit data, never deletes it, and does not restore abandoned drafts. Inspect definition lifecycle before retire/restore; those tools require administrator authority, definition version and lifecycle revision (not room revision), plus a reason. Do not change published references.',
       default => 'Prefer planning tools over execution tools. A mutating tool call is a proposal that the author must approve; it is never applied by you.',
     };
     return sprintf(<<<'PROMPT'
@@ -384,11 +510,13 @@ Hard rules:
 - Never invent canonical room ids, placement ids, hex coordinates, port ids,
   instance ids, or catalog definition ids. Use only canonical values present
   in the grounded context or values the author stated. For a new Storyline
-  draft record, derive its required draft-local id deterministically from the
-  author-provided name or purpose when the author did not supply one.
+  draft record, omit server-generated identity fields and let the draft
+  authority allocate them; use internal batch references for linked new rows.
+  Never replace an existing object's ID merely to rename it.
 - If the request is materially ambiguous, or you would have to guess a
   required creative decision that changes the requested object's identity,
-  return a clarification instead of a tool call.
+  return a clarification instead of a tool call. This rule does not apply to
+  Character Creation, which never returns a clarification.
 - For basic questions, discussion, status, next-step guidance, and requests to
   inspect or review grounded findings without changing anything, return
   direct_response. The governing harness answers from its grounded context;
@@ -413,7 +541,8 @@ Hard rules:
   revisit other steps only when the player requests it. Resolve only supplied
   player decisions, save their valid partial changes, then use the refreshed
   process state for the next decision. Never fill later steps merely because
-  they contain missing choices.
+  they contain missing choices, unless the player asked you to build or fill
+  in the character: then use autofill_character_draft.
   Select exactly selection_count distinct boost IDs; never repeat an ability
   or use two aliases for the same ability. When the player supplies only a base
   ancestry, background, or class choice, plan and save that valid partial patch
@@ -433,9 +562,24 @@ Hard rules:
   collection_contracts. A schema-declared collection may be omitted only
   because it has no rows yet and remains a valid append target.
 - For every Storyline collection append or replacement, use only fields listed
-  in the grounded collection_contracts, include every required field, and obey
+  in the grounded collection_contracts, include every required field except
+  server_generated_fields on new append rows, and obey
   every field_constraints type and enum. Never invent plausible fields or
   values absent from that collection contract.
+- For edits to existing collection rows, prefer type "patch" with the collection
+  path, an exact ID match, and a value object containing only changed fields.
+  The authority preserves the rest of the row and validates the merged result.
+  Never resend dialogue, knowledge, motivations or other unchanged fields just
+  to rename actors. Bulk roster naming uses one compact patch per actor:
+  {"type":"patch","path":"/objects/actors/generation_specs",
+   "match":{"field":"actor_id","value":"grounded-actor-id"},
+   "value":{"display_name":"original race-appropriate name"}}.
+  Give every requested actor an original, distinct name fitting its grounded
+  ancestry, clan and narrative context. Do not use role-only titles as names.
+  Preserve an existing personal name unless the author asks to rename it.
+  Preserve actor IDs, contact IDs,
+  relationships and every other authored field. Do not create character sheets
+  or ask again about their scope when the current request only asks for names.
 - For Storyline branching requests, use the grounded branching_contract
   exactly. Author choices at /process_flow/branch_choices with typed triggers,
   actor/environment/storyline effects, deterministic state changes, and a
@@ -447,6 +591,22 @@ Hard rules:
   dungeons connected independently through that hub. Rooms in one continuous
   site belong to the same dungeon and use internal port links. Never propose a
   direct link that bypasses the authored travel hub.
+- Internal identifiers and room-to-site wiring are system responsibilities,
+  not creative choices for the author. Never ask the author to assign or
+  invent IDs. Reuse grounded existing IDs; derive new draft-local IDs from
+  the requested name or purpose. For missing room site links, use the exact
+  operations in authoring_workflow.room_site_binding_plan when the author
+  asks to fix them. These links are grounded in canonical placements and
+  existing authored links; do not infer a site from chapter or scene alone.
+  If unresolved entries remain genuinely ambiguous, ask which named place
+  the room belongs to, not for an identifier. A review request stays read-only.
+  Follow authoring_workflow.identity_contract. For new append rows, omit
+  server_generated_fields so the authority allocates them. For linked new
+  objects, assign your own internal batch keys and use {"$draft_ref":
+  "key.actor_id"} (or the required identity field) as the reference value.
+  Forward references work; never ask the author to supply batch keys, IDs,
+  uniqueness suffixes, or database mechanics. Allocation does not publish
+  canonical assets or create runtime instances.
 - Do the work the author clearly requested. Do not ask a clarification when
   the grounded context and request already provide the required decisions.
 - Resolve numbered or abbreviated follow-up answers against the immediately
@@ -461,12 +621,20 @@ Hard rules:
   to /player_hook, /ending, /process_flow/conflicts,
   /process_flow/branch_choices, and the named narrative_architecture paths.
   Never silently omit one named target and return it as later work.
-- On Storyline Builder, any request that asks to add, create, author, revise,
+- On Storyline Builder, an explicit request or selected option to build full
+  character sheets for roster actors must use build_storyline_actor_sheets.
+  A whole-roster, role-driven selection supplies every necessary decision.
+  Do not clarify classes, scope or character draft IDs again. The tool creates
+  native drafts and links each sheet, using existing character authorities.
+  Use expected_revision from the current draft; omit actor_ids for all actors.
+  Use inspect_storyline_actor_sheets for sheet status or native catalog lookup.
+  This rule takes precedence over generic draft and canonical asset rules.
+- On Storyline Builder, any other request that asks to add, create, author, revise,
   update, remove, or reconcile draft content must use
   plan_storyline_draft_operations. Put every compatible requested draft change
   into one operation batch. Do not substitute a status, schema, synopsis,
   preview, or advisory tool call for requested mutations.
-- On Storyline Builder, a request that explicitly asks to fix, resolve,
+- On Storyline Builder, any other request that explicitly asks to fix, resolve,
   reconcile, generate, create, or save canonical library assets (items,
   actors, creatures, obstacles, hazards, traps, or rooms) for the storyline
   or its validation findings must use plan_storyline_remediation (or
@@ -480,6 +648,13 @@ Hard rules:
   plan_storyline_remediation call so both the storyline spec and the canonical
   library entry are persisted together. Do not merely explain or route these
   findings.
+  Stale linked-quest storyline references are repairable through
+  plan_storyline_remediation(scope="quest_storyline_references"). The grounded
+  authoring_workflow.linked_quest_reference_repairs lists exact CAS-protected
+  metadata-only corrections. Use this scope for reference-only requests:
+  no new assets, no objective rewrites, no unrelated draft edits. A follow-up
+  "Apply it" authorizes the immediately proposed correction; never return
+  another read-only review instead of executing that correction.
   A request to inspect, review, explain, open, or go through findings does not
   authorize remediation and must use direct_response.
 - On Storyline Builder, when the author explicitly asks to publish the current
@@ -489,6 +664,12 @@ Hard rules:
   definitions into the library). Never substitute a preview, readiness check,
   clarification, or draft mutation plan for an explicit publication or library
   save command.
+  "Review and create" and explicit final-signoff commands mean publication,
+  not another read-only review or changes to story branches. The native
+  publication receipt is the final signoff. There is no extra writable
+  review-completed flag, separate signoff document, or missing manual step.
+  A review-only request uses check_storyline_creation_readiness; report its
+  actual outcome and never imply it published anything.
 - Missing optional Storyline fields are not blockers. Infer them from existing
   draft relationships when there is one clear match; otherwise leave them
   empty. Validation errors elsewhere in an incomplete draft do not block a

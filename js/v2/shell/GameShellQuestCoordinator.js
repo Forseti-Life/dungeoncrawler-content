@@ -1,4 +1,4 @@
-import { normalizeQuestSummaryPayload } from '../utils/quest-utils.js?v=20260607-quest-summary-const-4';
+import { normalizeQuestSummaryPayload } from '../utils/quest-utils.js?v=20261115-quest-goals-4';
 import { _flattenQuestObjectives } from './GameShellProjectionHelpers.js?v=20261024-campaign-storylines-1';
 
 export class GameShellQuestCoordinator {

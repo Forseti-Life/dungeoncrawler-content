@@ -68,6 +68,25 @@ class ActorTurnContextLoader {
     }
 
     $runtime_snapshot = [
+      'snapshot_id' => isset($runtime_state['snapshot_id']) && trim((string) $runtime_state['snapshot_id']) !== ''
+        ? trim((string) $runtime_state['snapshot_id'])
+        : (isset($runtime_state['game_state']['snapshot_id']) && trim((string) $runtime_state['game_state']['snapshot_id']) !== ''
+          ? trim((string) $runtime_state['game_state']['snapshot_id'])
+          : NULL),
+      'event_cursor' => is_numeric($runtime_state['event_cursor'] ?? NULL)
+        ? (int) $runtime_state['event_cursor']
+        : (is_numeric($runtime_state['event_log_cursor'] ?? NULL)
+          ? (int) $runtime_state['event_log_cursor']
+          : (is_numeric($runtime_state['game_state']['event_log_cursor'] ?? NULL)
+            ? (int) $runtime_state['game_state']['event_log_cursor']
+            : 0)),
+      'event_log_cursor' => is_numeric($runtime_state['event_log_cursor'] ?? NULL)
+        ? (int) $runtime_state['event_log_cursor']
+        : (is_numeric($runtime_state['event_cursor'] ?? NULL)
+          ? (int) $runtime_state['event_cursor']
+          : (is_numeric($runtime_state['game_state']['event_log_cursor'] ?? NULL)
+            ? (int) $runtime_state['game_state']['event_log_cursor']
+            : 0)),
       'game_state' => is_array($runtime_state['game_state'] ?? NULL)
         ? $runtime_state['game_state']
         : [],

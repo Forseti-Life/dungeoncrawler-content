@@ -7,6 +7,9 @@ namespace Drupal\dungeoncrawler_content\Service;
  */
 class RelationshipAttitudeService {
 
+  /** The attitudes one actor can hold toward another, most hostile first. */
+  public const ATTITUDES = ['hostile', 'unfriendly', 'indifferent', 'friendly', 'helpful'];
+
   protected RelationshipManagerService $relationshipManager;
   protected RelationshipAttitudeEventStoreService $eventStoreService;
   protected RelationshipAttitudeStateStoreService $stateStoreService;
@@ -198,8 +201,7 @@ class RelationshipAttitudeService {
       return '';
     }
 
-    $ranked = ['hostile', 'unfriendly', 'indifferent', 'friendly', 'helpful'];
-    foreach ($ranked as $candidate) {
+    foreach (self::ATTITUDES as $candidate) {
       if (in_array($candidate, $matches, TRUE)) {
         return $candidate;
       }

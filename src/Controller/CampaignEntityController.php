@@ -70,7 +70,8 @@ class CampaignEntityController extends ControllerBase {
 
     $phase = strtolower(trim((string) ($game_state['phase'] ?? '')));
     $encounter_id = (int) ($game_state['encounter_id'] ?? 0);
-    if ($phase !== 'encounter' || $encounter_id <= 0) {
+    $encounter_mode = strtolower(trim((string) ($game_state['encounter_context']['mode'] ?? '')));
+    if ($phase !== 'encounter' || $encounter_id <= 0 || $encounter_mode === 'room_scene') {
       return FALSE;
     }
 
@@ -321,9 +322,13 @@ class CampaignEntityController extends ControllerBase {
         
         // Extract and update position hot columns if position data is provided.
         $hot_columns = $this->extractHotColumnsFromStateData($new_state_data, $location_ref);
-        
-        // Only update position columns if new position data was provided.
-        if ($hot_columns['position_q'] !== 0 || $hot_columns['position_r'] !== 0) {
+        $has_explicit_position = is_array($new_state_data['placement']['hex'] ?? NULL)
+          && (array_key_exists('q', $new_state_data['placement']['hex']) || array_key_exists('r', $new_state_data['placement']['hex']))
+          || is_array($new_state_data['position'] ?? NULL)
+          && (array_key_exists('q', $new_state_data['position']) || array_key_exists('r', $new_state_data['position']));
+
+        // Update position columns when new position data was provided (including 0,0).
+        if ($has_explicit_position || $hot_columns['position_q'] !== 0 || $hot_columns['position_r'] !== 0) {
           $update_fields['position_q'] = $hot_columns['position_q'];
           $update_fields['position_r'] = $hot_columns['position_r'];
         }

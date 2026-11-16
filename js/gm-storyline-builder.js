@@ -2,6 +2,7 @@ import {
   buildEditorGmRequest,
   shouldSubmitEditorGmKey,
 } from './v2/editor/EditorGmChatClient.js?v=20261023-gm-chat-2';
+import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261116-1';
 
 (function (Drupal, once, drupalSettings) {
   'use strict';
@@ -118,6 +119,40 @@ import {
     }).join('\n');
   }
 
+  function sanitizeIdentifier(value) {
+    const raw = String(value || '').trim().toLowerCase();
+    if (raw === '') {
+      return '';
+    }
+    let normalized = raw;
+    if (typeof normalized.normalize === 'function') {
+      normalized = normalized.normalize('NFKD').replace(/[\u0300-\u036f]/g, '');
+    }
+    return normalized
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .replace(/-{2,}/g, '-');
+  }
+
+  function createIdentifierAllocator(existing = []) {
+    const used = new Set(
+      (Array.isArray(existing) ? existing : [])
+        .map((value) => String(value || '').trim())
+        .filter((value) => value !== '')
+    );
+    return (preferred, fallbackPrefix = 'id') => {
+      const base = sanitizeIdentifier(preferred) || sanitizeIdentifier(fallbackPrefix) || 'id';
+      let candidate = base;
+      let suffix = 2;
+      while (used.has(candidate)) {
+        candidate = `${base}-${suffix}`;
+        suffix += 1;
+      }
+      used.add(candidate);
+      return candidate;
+    };
+  }
+
   function parseLegacyDelimitedRows(raw, keys) {
     return parseLines(raw).map((line) => {
       const parts = line.split('|').map((part) => part.trim());
@@ -150,6 +185,7 @@ import {
         const validationListEl = wizard.querySelector('[data-gm-template-validation-list]');
         const analysisSummaryEl = wizard.querySelector('[data-gm-template-analysis-summary]');
         const analysisGraphEl = wizard.querySelector('[data-gm-template-analysis-graph]');
+        const storylineFlowGraph = analysisGraphEl ? new StorylineFlowGraph(analysisGraphEl) : null;
         const fields = Array.from(wizard.querySelectorAll('[data-field]'));
         const maxStep = stepPanels.length;
         const settings = drupalSettings?.dungeoncrawlerGmStorylineBuilder || {};
@@ -193,8 +229,8 @@ import {
           journal_entries: ['chapter_id', 'scene_id', 'order', 'title', 'summary', 'trigger', 'room_ids', 'central_conflict', 'dramatic_function', 'themes', 'character_ids', 'foreshadows_scene_id'],
           conflict_entries: ['conflict_id', 'title', 'actor_ids', 'introduced_scene_id', 'escalation_scene_ids', 'resolved_scene_id', 'status'],
           relationship_entries: ['scene_id', 'source_actor_id', 'target_actor_id', 'before', 'after', 'reason'],
-          task_entries: ['task_id', 'chapter_id', 'scene_id', 'status'],
-          branch_choice_entries: ['decision_id', 'source_task_id', 'choice_id', 'label', 'trigger_type', 'trigger_interaction', 'trigger_condition', 'trigger_source_id', 'effect_summary', 'target_task_id', 'target_scene_id', 'terminal'],
+          task_entries: ['task_id', 'chapter_id', 'scene_id', 'status', 'goal_text', 'gm_notes', 'open_resolution'],
+          branch_choice_entries: ['decision_id', 'source_task_id', 'choice_id', 'label', 'trigger_type', 'trigger_interaction', 'trigger_condition', 'trigger_source_id', 'effect_summary', 'target_task_id', 'target_scene_id', 'terminal', 'approach_visibility', 'approach_outcome_label', 'approach_reveal', 'approach_objective_ids', 'approach_reward_xp', 'approach_reward_gold'],
           branch_actor_effect_entries: ['choice_id', 'actor_id', 'interaction', 'reaction', 'effect', 'state_changes'],
           branch_environment_effect_entries: ['choice_id', 'target_type', 'target_id', 'effect', 'state_changes'],
           branch_storyline_effect_entries: ['choice_id', 'target_type', 'target_id', 'source_actor_id', 'operation', 'effect', 'follow_up_required', 'state_changes'],
@@ -231,8 +267,16 @@ import {
         let draftId = '';
         let draftRevision = 0;
         let viewedRevision = null;
+        let draftCurrentRevision = 0;
+        let draftLifecycle = '';
+        let draftTemplateId = '';
         let draftDirty = false;
         let draftCanEdit = false;
+        // Actor relationships are managed on the actor graph page; this form
+        // carries them through a save untouched.
+        let actorRelationships = [];
+        // Likewise each actor's institution affiliations, keyed by actor id.
+        let actorAffiliations = new Map();
         let draftIsOwner = false;
         let draftLibrary = new Map();
         let assistantBusy = false;
@@ -331,119 +375,18 @@ import {
           });
         }
 
-        function renderNarrativeAnalysis(analysis) {
+        async function renderNarrativeAnalysis(analysis) {
           if (analysisSummaryEl) {
             analysisSummaryEl.textContent = '';
           }
-          if (analysisGraphEl) {
-            analysisGraphEl.innerHTML = '';
-          }
-          if (!analysis || typeof analysis !== 'object' || !analysisGraphEl) {
+          if (!analysis || typeof analysis !== 'object' || !storylineFlowGraph) {
             return;
           }
           const metrics = analysis.metrics || {};
           if (analysisSummaryEl) {
             analysisSummaryEl.textContent = `${Number(metrics.chapter_count || 0)} chapters • ${Number(metrics.scene_count || 0)} scenes • ${Number(metrics.actor_count || 0)} actors • ${Number(metrics.conflict_count || 0)} conflicts • ${Number(metrics.branch_decision_count || 0)} decisions • ${Number(metrics.branch_choice_count || 0)} choices`;
           }
-          const nodes = Array.isArray(analysis?.graph?.nodes) ? analysis.graph.nodes : [];
-          const edges = Array.isArray(analysis?.graph?.edges) ? analysis.graph.edges : [];
-          if (nodes.length === 0) {
-            analysisGraphEl.textContent = 'No graph nodes were generated.';
-            return;
-          }
-
-          const namespace = 'http://www.w3.org/2000/svg';
-          const groups = {
-            chapter: nodes.filter((node) => node?.type === 'chapter'),
-            scene: nodes.filter((node) => node?.type === 'scene'),
-            actor: nodes.filter((node) => node?.type === 'actor'),
-            conflict: nodes.filter((node) => node?.type === 'conflict'),
-            quest: nodes.filter((node) => node?.type === 'quest'),
-            decision: nodes.filter((node) => node?.type === 'decision'),
-            choice: nodes.filter((node) => node?.type === 'choice'),
-            environment: nodes.filter((node) => node?.type === 'environment'),
-            storyline_implication: nodes.filter((node) => node?.type === 'storyline_implication'),
-            terminal_outcome: nodes.filter((node) => node?.type === 'terminal_outcome'),
-          };
-          const maxGroupSize = Math.max(1, ...Object.values(groups).map((group) => group.length));
-          const width = Math.max(720, 180 * maxGroupSize);
-          const height = 990;
-          const positions = new Map();
-          const bands = [
-            ['chapter', 55],
-            ['scene', 155],
-            ['actor', 275],
-            ['conflict', 375],
-            ['quest', 475],
-            ['decision', 575],
-            ['choice', 675],
-            ['environment', 775],
-            ['storyline_implication', 855],
-            ['terminal_outcome', 925],
-          ];
-          bands.forEach(([type, y]) => {
-            const group = groups[type] || [];
-            group.forEach((node, index) => {
-              positions.set(String(node.id), {
-                x: ((index + 1) * width) / (group.length + 1),
-                y,
-              });
-            });
-          });
-
-          const svg = document.createElementNS(namespace, 'svg');
-          svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
-          svg.setAttribute('aria-hidden', 'true');
-          svg.classList.add('gm-storyline-wizard__analysis-svg');
-          const colors = {
-            chapter: '#f0c87a',
-            scene: '#4fc3f7',
-            actor: '#81c784',
-            conflict: '#ef6c6c',
-            quest: '#ce93d8',
-            decision: '#ffb74d',
-            choice: '#4dd0e1',
-            environment: '#aed581',
-            storyline_implication: '#7986cb',
-            terminal_outcome: '#ef5350',
-          };
-          edges.forEach((edge) => {
-            const source = positions.get(String(edge?.source || ''));
-            const target = positions.get(String(edge?.target || ''));
-            if (!source || !target) {
-              return;
-            }
-            const line = document.createElementNS(namespace, 'line');
-            line.setAttribute('x1', String(source.x));
-            line.setAttribute('y1', String(source.y));
-            line.setAttribute('x2', String(target.x));
-            line.setAttribute('y2', String(target.y));
-            line.setAttribute('class', `gm-storyline-wizard__analysis-edge gm-storyline-wizard__analysis-edge--${String(edge?.type || 'link')}`);
-            svg.appendChild(line);
-          });
-          nodes.forEach((node) => {
-            const position = positions.get(String(node?.id || ''));
-            if (!position) {
-              return;
-            }
-            const group = document.createElementNS(namespace, 'g');
-            group.setAttribute('class', `gm-storyline-wizard__analysis-node gm-storyline-wizard__analysis-node--${String(node?.type || 'unknown')}`);
-            const circle = document.createElementNS(namespace, 'circle');
-            circle.setAttribute('cx', String(position.x));
-            circle.setAttribute('cy', String(position.y));
-            circle.setAttribute('r', node?.type === 'conflict' ? '18' : '14');
-            circle.setAttribute('fill', colors[node?.type] || '#ffffff');
-            const label = document.createElementNS(namespace, 'text');
-            label.setAttribute('x', String(position.x));
-            label.setAttribute('y', String(position.y + 31));
-            label.setAttribute('text-anchor', 'middle');
-            label.textContent = String(node?.label || node?.id || '');
-            const title = document.createElementNS(namespace, 'title');
-            title.textContent = `${String(node?.type || 'node')}: ${String(node?.label || node?.id || '')}`;
-            group.append(circle, label, title);
-            svg.appendChild(group);
-          });
-          analysisGraphEl.appendChild(svg);
+          await storylineFlowGraph.render(analysis.graph);
         }
 
         function setAssistantStatus(text) {
@@ -578,11 +521,80 @@ import {
 
         function buildBlueprint() {
           const get = (key) => (wizard.querySelector(`[data-field="${key}"]`)?.value || '').trim();
+          const storylineId = get('storyline_id') || sanitizeIdentifier(get('storyline_title')) || 'storyline';
+          const defaultChapterId = `${storylineId}-chapter`;
           const relationshipChanges = listFromCollection('relationship_entries', collections.relationship_entries);
           const actorEffects = listFromCollection('branch_actor_effect_entries', collections.branch_actor_effect_entries);
           const environmentEffects = listFromCollection('branch_environment_effect_entries', collections.branch_environment_effect_entries);
           const storylineEffects = listFromCollection('branch_storyline_effect_entries', collections.branch_storyline_effect_entries);
-          const branchChoices = listFromCollection('branch_choice_entries', collections.branch_choice_entries)
+          const journalDraftRows = listFromCollection('journal_entries', collections.journal_entries);
+          const sceneIdFor = createIdentifierAllocator(journalDraftRows.map((entry) => entry.scene_id));
+          const journalEntriesBase = journalDraftRows.map((entry, index) => {
+            const scene_id = entry.scene_id || sceneIdFor(entry.title || entry.summary || `scene-${index + 1}`, `${storylineId}-scene`);
+            return {
+              ...entry,
+              scene_id,
+              chapter_id: entry.chapter_id || defaultChapterId,
+            };
+          });
+          const primarySceneId = journalEntriesBase[0]?.scene_id || '';
+          const resolvedRelationshipChanges = relationshipChanges.map((change) => ({
+            ...change,
+            scene_id: change.scene_id || primarySceneId,
+          }));
+          const journalEntries = journalEntriesBase.map((entry) => ({
+            ...entry,
+            relationship_changes: resolvedRelationshipChanges
+              .filter((change) => change.scene_id === entry.scene_id)
+              .map(({ scene_id, ...change }) => change),
+          }));
+          const taskDraftRows = listFromCollection('task_entries', collections.task_entries);
+          const taskIdFor = createIdentifierAllocator(taskDraftRows.map((task) => task.task_id));
+          const tasks = taskDraftRows.map((task, index) => {
+            const { goal_text: goalText, gm_notes: gmNotes, open_resolution: openResolution, ...rest } = task;
+            return {
+              ...rest,
+              task_id: task.task_id || taskIdFor(task.status || task.scene_id || `task-${index + 1}`, `${storylineId}-task`),
+              chapter_id: task.chapter_id || defaultChapterId,
+              scene_id: task.scene_id || primarySceneId,
+              // A quest has a goal only when the author wrote one.
+              ...(goalText ? { goal_text: goalText, gm_notes: gmNotes, open_resolution: openResolution === 'true' } : {}),
+            };
+          });
+          // "objective:ID" or "event:TYPE:REF", as typed in the approach row.
+          const parseApproachReveal = (text) => {
+            const [kind, ...rest] = String(text || '').split(':').map((part) => part.trim());
+            if (kind === 'objective' && rest.length === 1 && rest[0]) {
+              return { objective_id: rest[0] };
+            }
+            if (kind === 'event' && rest.length === 2 && rest[0] && rest[1]) {
+              return { touchpoint: { objective_type: rest[0], ref: rest[1] } };
+            }
+            return null;
+          };
+          const buildApproach = (choice) => {
+            if (!choice.approach_visibility) {
+              return {};
+            }
+            const approach = {
+              visibility: choice.approach_visibility,
+              outcome_label: choice.approach_outcome_label,
+              objective_ids: String(choice.approach_objective_ids || '').split(',').map((id) => id.trim()).filter(Boolean),
+            };
+            if (choice.approach_reveal !== '') {
+              // Kept as typed when it does not parse, so validation reports it.
+              approach.reveal_when = parseApproachReveal(choice.approach_reveal) || { unparsed: choice.approach_reveal };
+            }
+            if (choice.approach_reward_xp !== '' || choice.approach_reward_gold !== '') {
+              approach.rewards = { xp: Number(choice.approach_reward_xp || 0), gold: Number(choice.approach_reward_gold || 0), items: [] };
+            }
+            return { approach };
+          };
+          const primaryTaskId = tasks[0]?.task_id || '';
+          const choiceDraftRows = listFromCollection('branch_choice_entries', collections.branch_choice_entries);
+          const decisionIdFor = createIdentifierAllocator(choiceDraftRows.map((choice) => choice.decision_id));
+          const choiceIdFor = createIdentifierAllocator(choiceDraftRows.map((choice) => choice.choice_id));
+          const branchChoices = choiceDraftRows
             .filter((choice) => [
               'decision_id',
               'source_task_id',
@@ -594,10 +606,10 @@ import {
               'target_task_id',
               'target_scene_id',
             ].some((key) => choice[key] !== ''))
-            .map((choice) => ({
-            decision_id: choice.decision_id,
-            source_task_id: choice.source_task_id,
-            choice_id: choice.choice_id,
+            .map((choice, index) => ({
+            decision_id: choice.decision_id || decisionIdFor(choice.source_task_id || choice.label || `decision-${index + 1}`, `${storylineId}-decision`),
+            source_task_id: choice.source_task_id || primaryTaskId,
+            choice_id: choice.choice_id || choiceIdFor(choice.label || choice.trigger_condition || `choice-${index + 1}`, `${storylineId}-choice`),
             label: choice.label,
             trigger: {
               type: choice.trigger_type,
@@ -628,34 +640,78 @@ import {
                 })),
             },
             target_task_id: choice.target_task_id,
-            target_scene_id: choice.target_scene_id,
+            target_scene_id: choice.terminal === 'true'
+              ? choice.target_scene_id
+              : choice.target_scene_id || primarySceneId,
             terminal: choice.terminal === 'true',
+            ...buildApproach(choice),
           }));
-          const journalEntries = listFromCollection('journal_entries', collections.journal_entries).map((entry) => ({
-            ...entry,
-            relationship_changes: relationshipChanges
-              .filter((change) => change.scene_id === entry.scene_id)
-              .map(({ scene_id, ...change }) => change),
+          const conflictDraftRows = listFromCollection('conflict_entries', collections.conflict_entries);
+          const conflictIdFor = createIdentifierAllocator(conflictDraftRows.map((conflict) => conflict.conflict_id));
+          const objectiveDraftRows = listFromCollection('objective_entries', collections.objective_entries);
+          const objectiveIdFor = createIdentifierAllocator(objectiveDraftRows.map((objective) => objective.objective_id));
+          const actorDraftRows = listFromCollection('actor_entries', collections.actor_entries);
+          const actorIdFor = createIdentifierAllocator(actorDraftRows.map((actor) => actor.actor_id));
+          const contactIdFor = createIdentifierAllocator(actorDraftRows.map((actor) => actor.contact_id));
+          const actors = actorDraftRows.map((actor, index) => {
+            const actor_id = actor.actor_id || actorIdFor(actor.display_name || actor.role || `actor-${index + 1}`, `${storylineId}-actor`);
+            return {
+              ...actor,
+              actor_id,
+              contact_id: actor.contact_id || contactIdFor(`contact-${actor_id}`, `${storylineId}-contact`),
+              chapter_id: actor.chapter_id || defaultChapterId,
+              scene_id: actor.scene_id || primarySceneId,
+            };
+          });
+          const dungeonDraftRows = listFromCollection('dungeon_entries', collections.dungeon_entries);
+          const dungeonIdFor = createIdentifierAllocator(dungeonDraftRows.map((dungeon) => dungeon.dungeon_id));
+          const dungeons = dungeonDraftRows.map((dungeon, index) => ({
+            ...dungeon,
+            dungeon_id: dungeon.dungeon_id || dungeonIdFor(dungeon.purpose || `dungeon-${index + 1}`, `${storylineId}-dungeon`),
+            chapter_id: dungeon.chapter_id || defaultChapterId,
+          }));
+          const primaryDungeonId = dungeons[0]?.dungeon_id || '';
+          const roomDraftRows = listFromCollection('room_entries', collections.room_entries);
+          const roomIdFor = createIdentifierAllocator(roomDraftRows.map((room) => room.room_id));
+          const rooms = roomDraftRows.map((room, index) => ({
+            ...room,
+            room_id: room.room_id || roomIdFor(room.narrative || room.scene_id || `room-${index + 1}`, `${storylineId}-room`),
+            chapter_id: room.chapter_id || defaultChapterId,
+            scene_id: room.scene_id || primarySceneId,
+            dungeon_id: room.dungeon_id || primaryDungeonId,
+          }));
+          const itemDraftRows = listFromCollection('item_entries', collections.item_entries);
+          const itemIdFor = createIdentifierAllocator(itemDraftRows.map((item) => item.item_id));
+          const items = itemDraftRows.map((item, index) => ({
+            ...item,
+            item_id: item.item_id || itemIdFor(item.purpose || item.reward || `item-${index + 1}`, `${storylineId}-item`),
+            chapter_id: item.chapter_id || defaultChapterId,
+            scene_id: item.scene_id || primarySceneId,
+            actor_id: item.actor_id || actors[0]?.actor_id || '',
           }));
           return {
             schema_version: 'storyline-authoring-draft-v1',
-            storyline_id: get('storyline_id'),
+            storyline_id: storylineId,
             title: get('storyline_title'),
             description: get('storyline_description'),
             premise: get('storyline_premise'),
             level_range: get('storyline_level_range'),
             tags: parseCommaList(get('storyline_tags')),
             player_hook: get('storyline_player_hook'),
-            entry_actor_id: get('storyline_entry_actor'),
+            entry_actor_id: get('storyline_entry_actor') || actors[0]?.actor_id || '',
             entry_location_id: get('storyline_entry_location'),
             ending: get('storyline_ending'),
             process_flow: {
               journal_entries: journalEntries,
-              tasks: listFromCollection('task_entries', collections.task_entries),
+              tasks,
               branch_choices: branchChoices,
-              objective_completion_criteria: listFromCollection('objective_entries', collections.objective_entries),
-              conflicts: listFromCollection('conflict_entries', collections.conflict_entries).map((conflict) => ({
+              objective_completion_criteria: objectiveDraftRows.map((objective, index) => ({
+                ...objective,
+                objective_id: objective.objective_id || objectiveIdFor(objective.description || objective.metric || `objective-${index + 1}`, `${storylineId}-objective`),
+              })),
+              conflicts: conflictDraftRows.map((conflict, index) => ({
                 ...conflict,
+                conflict_id: conflict.conflict_id || conflictIdFor(conflict.title || `conflict-${index + 1}`, `${storylineId}-conflict`),
                 actor_ids: parseCommaList(conflict.actor_ids),
                 escalation_scene_ids: parseCommaList(conflict.escalation_scene_ids),
               })),
@@ -696,18 +752,25 @@ import {
             },
             objects: {
               actors: {
-                generation_specs: listFromCollection('actor_entries', collections.actor_entries),
+                generation_specs: actors.map((actor) => {
+                  const affiliations = actorAffiliations.get(actor.actor_id);
+                  return affiliations && affiliations.length ? { ...actor, affiliations } : actor;
+                }),
+                relationships: actorRelationships.filter((relationship) => {
+                  const ids = actors.map((actor) => actor.actor_id);
+                  return ids.includes(relationship.source_actor_id) && ids.includes(relationship.target_actor_id);
+                }),
                 validation_criteria: parseLines(get('actor_validation')),
               },
               dungeons: {
-                generation_specs: listFromCollection('dungeon_entries', collections.dungeon_entries),
+                generation_specs: dungeons,
               },
               rooms: {
-                generation_specs: listFromCollection('room_entries', collections.room_entries),
+                generation_specs: rooms,
                 validation_criteria: parseLines(get('room_validation')),
               },
               items: {
-                generation_specs: listFromCollection('item_entries', collections.item_entries),
+                generation_specs: items,
                 validation_criteria: parseLines(get('item_validation')),
               },
             },
@@ -747,11 +810,6 @@ import {
           };
           const blueprint = buildBlueprint();
           const objects = [
-            ...(blueprint.objects?.actors?.generation_specs || []).map((actor) => ({
-              kind: 'actor',
-              id: normalizeActorId(actor.actor_id),
-              label: String(actor.display_name || actor.actor_id || '').trim(),
-            })),
             ...(blueprint.objects?.items?.generation_specs || []).map((item) => ({
               kind: 'item',
               id: String(item.item_id || '').trim(),
@@ -775,6 +833,23 @@ import {
             }
           });
           objectEditorLinks.replaceChildren();
+          const actorCount = (blueprint.objects?.actors?.generation_specs || []).length;
+          if (actorCount > 0 && draftId && draftsSettings.actorGraphUrl) {
+            const graphItem = document.createElement('li');
+            const graphLink = document.createElement('a');
+            const graphUrl = new URL(draftsSettings.actorGraphUrl, window.location.origin);
+            graphUrl.searchParams.set('draft_id', draftId);
+            graphLink.href = graphUrl.toString();
+            graphLink.target = '_blank';
+            graphLink.rel = 'noopener';
+            graphLink.textContent = `Actors and relationships (${actorCount})`;
+            graphLink.title = 'Open the affiliation and relationship graph; each actor there links to its review page';
+            graphItem.appendChild(graphLink);
+            objectEditorLinks.appendChild(graphItem);
+          }
+          if (unique.size === 0 && actorCount > 0) {
+            return;
+          }
           if (unique.size === 0) {
             const empty = document.createElement('li');
             empty.textContent = 'Add or load storyline objects to open their exact editors.';
@@ -799,7 +874,13 @@ import {
                 actorUrl.searchParams.set('campaign_id', campaignId);
                 link.href = actorUrl.toString();
               } else {
-                link.href = href;
+                // An actor that exists only as a spec in this draft is shown
+                // from the draft, so the link carries the draft it came from.
+                const actorUrl = new URL(href, window.location.href);
+                if (draftId) {
+                  actorUrl.searchParams.set('draft_id', draftId);
+                }
+                link.href = actorUrl.toString();
               }
             } else {
               link.href = href;
@@ -826,6 +907,10 @@ import {
           if (!payload || typeof payload !== 'object') {
             return;
           }
+          actorRelationships = Array.isArray(payload?.objects?.actors?.relationships) ? payload.objects.actors.relationships : [];
+          actorAffiliations = new Map((payload?.objects?.actors?.generation_specs || [])
+            .filter((actor) => Array.isArray(actor?.affiliations))
+            .map((actor) => [actor.actor_id, actor.affiliations]));
           const setField = (key, value) => {
             const field = wizard.querySelector(`[data-field="${key}"]`);
             if (field) {
@@ -880,7 +965,12 @@ import {
               actor_ids: Array.isArray(conflict?.actor_ids) ? conflict.actor_ids.join(', ') : (conflict?.actor_ids || ''),
               escalation_scene_ids: Array.isArray(conflict?.escalation_scene_ids) ? conflict.escalation_scene_ids.join(', ') : (conflict?.escalation_scene_ids || ''),
             }))],
-            ['task_entries', payload?.process_flow?.tasks || []],
+            ['task_entries', (payload?.process_flow?.tasks || []).map((task) => ({
+              ...task,
+              goal_text: task?.goal_text || '',
+              gm_notes: task?.gm_notes || '',
+              open_resolution: task?.open_resolution === true || task?.open_resolution === 'true' ? 'true' : 'false',
+            }))],
             ['branch_choice_entries', branchChoices.map((choice) => ({
               decision_id: choice?.decision_id || '',
               source_task_id: choice?.source_task_id || '',
@@ -894,6 +984,16 @@ import {
               target_task_id: choice?.target_task_id || '',
               target_scene_id: choice?.target_scene_id || '',
               terminal: choice?.terminal ? 'true' : 'false',
+              approach_visibility: choice?.approach?.visibility || '',
+              approach_outcome_label: choice?.approach?.outcome_label || '',
+              approach_reveal: choice?.approach?.reveal_when?.objective_id
+                ? `objective:${choice.approach.reveal_when.objective_id}`
+                : (choice?.approach?.reveal_when?.touchpoint
+                  ? `event:${choice.approach.reveal_when.touchpoint.objective_type}:${choice.approach.reveal_when.touchpoint.ref}`
+                  : (choice?.approach?.reveal_when?.unparsed || '')),
+              approach_objective_ids: [].concat(choice?.approach?.objective_ids || []).join(', '),
+              approach_reward_xp: choice?.approach?.rewards ? String(choice.approach.rewards.xp) : '',
+              approach_reward_gold: choice?.approach?.rewards ? String(choice.approach.rewards.gold) : '',
             }))],
             ['branch_actor_effect_entries', branchChoices.flatMap((choice) => (
               Array.isArray(choice?.effects?.actors)
@@ -972,7 +1072,9 @@ import {
             draftRevision = Number(draft.revision || 0);
             viewedRevision = null;
             draftCanEdit = draft.can_edit !== false;
-            draftIsOwner = true;
+            draftIsOwner = draft.is_owner === true;
+            draftLifecycle = String(draft.status || '');
+            draftTemplateId = String(draft.published_template_id || draft.source_template_id || '');
             draftDirty = preserveFields;
             applyDraftOwnershipState();
             updateDraftUrl();
@@ -1008,6 +1110,8 @@ import {
             viewedRevision = null;
             draftCanEdit = draft.can_edit === true;
             draftIsOwner = draft.is_owner === true;
+            draftLifecycle = String(draft.status || '');
+            draftTemplateId = String(draft.published_template_id || draft.source_template_id || '');
             draftDirty = false;
             applyDraftOwnershipState();
             updateDraftUrl();
@@ -1017,12 +1121,12 @@ import {
             setDraftStatus(redirected
               ? `Recovered retired draft ${redirected.slice(0, 8)} as active draft ${draftId.slice(0, 8)} (rev ${draftRevision}).`
               : (draftCanEdit
-                ? `Loaded your draft ${draftId.slice(0, 8)} (rev ${draftRevision})`
-                : `Viewing another author's draft ${draftId.slice(0, 8)} (rev ${draftRevision}); saving creates your own copy.`));
-            if (draftCanEdit || draftIsOwner) {
+                ? `Loaded shared draft ${draftId.slice(0, 8)} (rev ${draftRevision}); last updated by ${draft.updated_by_name || 'unknown editor'}.`
+                : `Viewing ${draftLifecycle} snapshot ${draftId.slice(0, 8)} (rev ${draftRevision}).`));
+            if (draftCanEdit) {
               initAssistant();
             } else {
-              setAssistantStatus('Create your own copy to use the GM or save changes.');
+              setAssistantStatus('This snapshot is read-only. Open its working draft to edit or use the GM.');
             }
             await refreshRevisionPicker();
             if (requestedRevision !== null && Number(requestedRevision) !== draftRevision) {
@@ -1051,7 +1155,10 @@ import {
             draftRevision = Number(draft.revision || revision);
             viewedRevision = draftRevision;
             draftCanEdit = false;
-            draftIsOwner = true;
+            draftIsOwner = draft.is_owner === true;
+            draftCurrentRevision = Number(draft.current_revision || draft.revision);
+            draftLifecycle = String(draft.status || '');
+            draftTemplateId = String(draft.published_template_id || draft.source_template_id || '');
             draftDirty = false;
             hydrateFromPayload(draft.payload || {});
             refreshPreview();
@@ -1060,8 +1167,8 @@ import {
             if (draftRevisionPicker) {
               draftRevisionPicker.value = String(draftRevision);
             }
-            setDraftStatus(`Viewing immutable revision ${draftRevision}; saving creates a new draft copy from this version.`);
-            setAssistantStatus('Historical revisions are read-only. Save as your copy to continue from this version.');
+            setDraftStatus(`Viewing immutable revision ${draftRevision}. Restore it as a new revision without changing the saved history.`);
+            setAssistantStatus('Historical revisions are read-only. Return to the current revision to use the GM.');
           } catch (error) {
             setDraftStatus(`Draft revision load failed: ${error.message}`);
           }
@@ -1075,7 +1182,15 @@ import {
             }
           }
           if (!draftCanEdit) {
-            await copyCurrentDraft();
+            if (viewedRevision !== null && draftLifecycle === 'editing') {
+              draftRevision = draftCurrentRevision;
+            } else if (draftLifecycle === 'published' && draftTemplateId) {
+              selectedTemplateId = draftTemplateId;
+              await createDraft(false);
+              return;
+            } else {
+              throw new Error('storyline_draft_not_editable');
+            }
           }
           const saveUrl = resolveDraftUrl(draftsSettings.saveUrlTemplate, draftId);
           if (!saveUrl) {
@@ -1110,8 +1225,11 @@ import {
             draftRevision = Number(draft.revision || draftRevision);
             viewedRevision = null;
             draftCanEdit = true;
+            draftIsOwner = draft.is_owner === true;
+            draftLifecycle = String(draft.status || '');
             draftDirty = false;
             applyDraftOwnershipState();
+            updateDraftUrl();
             setDraftStatus(`Saved draft ${draftId.slice(0, 8)} (rev ${draftRevision})`);
             await refreshDraftPicker();
             await refreshRevisionPicker();
@@ -1123,7 +1241,10 @@ import {
 
         function applyDraftOwnershipState() {
             if (draftSaveBtn) {
-              draftSaveBtn.textContent = draftCanEdit ? 'Save draft' : 'Save as my copy';
+              draftSaveBtn.textContent = draftCanEdit || !draftId
+                ? 'Save draft'
+                : (viewedRevision !== null && draftLifecycle === 'editing' ? 'Restore as New Revision' : 'Open Working Draft');
+              draftSaveBtn.disabled = draftLifecycle === 'archived';
             }
             if (assistantSend) {
               assistantSend.disabled = !draftCanEdit || assistantBusy;
@@ -1137,40 +1258,6 @@ import {
             if (draftDeleteBtn) {
               draftDeleteBtn.disabled = !draftIsOwner || !draftId;
             }
-          }
-
-        async function copyCurrentDraft() {
-            const copyUrl = resolveDraftUrl(draftsSettings.copyUrlTemplate, draftId);
-            if (!copyUrl) {
-              throw new Error('storyline_draft_copy_url_unavailable');
-            }
-            if (!csrfToken) {
-              csrfToken = await fetchCsrfToken();
-            }
-            setDraftStatus('Creating your copy…');
-            const response = await fetch(copyUrl, {
-              method: 'POST',
-              credentials: 'same-origin',
-              headers: {
-                'Content-Type': 'application/json',
-                'X-CSRF-Token': csrfToken,
-              },
-              body: JSON.stringify(viewedRevision === null ? {} : { revision: viewedRevision }),
-            });
-            const payload = await response.json().catch(() => ({}));
-            if (!response.ok) {
-              throw new Error(payload?.error?.code || `copy_${response.status}`);
-            }
-            const draft = payload?.data || {};
-            draftId = String(draft.draft_id || '');
-            draftRevision = Number(draft.revision || 1);
-            viewedRevision = null;
-            draftCanEdit = true;
-            draftIsOwner = true;
-            updateDraftUrl();
-            applyDraftOwnershipState();
-            await refreshDraftPicker();
-            await refreshRevisionPicker();
           }
 
         async function refreshDraftPicker() {
@@ -1190,33 +1277,23 @@ import {
               draftCountEl.textContent = `${drafts.length} ${drafts.length === 1 ? 'storyline' : 'storylines'}`;
             }
             draftPicker.replaceChildren(new Option('Load a storyline…', ''));
-            const mine = document.createElement('optgroup');
-            mine.label = 'My storylines';
-            const shared = document.createElement('optgroup');
-            shared.label = 'Shared and canonical storylines';
             drafts.forEach((draft) => {
               const selectorType = draft.selector_type || 'draft';
               if (selectorType === 'template') {
-                const option = new Option(`${draft.title || 'Untitled'} · Canonical · no draft yet`, `template:${draft.template_id || ''}`);
-                shared.appendChild(option);
+                const option = new Option(`${draft.title || 'Untitled'} · Published`, `template:${draft.template_id || ''}`);
+                draftPicker.appendChild(option);
                 return;
               }
-              const ownership = draft.is_owner ? 'Mine' : `By ${draft.owner_name || `User ${draft.owner_uid}`}`;
+              const updater = `Updated by ${draft.updated_by_name || 'unknown editor'}`;
               const source = draftLibrary.get(String(draft.source_draft_id || ''));
               const lineage = source
                 ? ` · from ${source.title || 'Untitled'} rev ${Number(draft.source_revision || source.revision || 0)}`
                 : '';
               const versions = ` · ${Number(draft.revision_count || 0)} saved ${Number(draft.revision_count || 0) === 1 ? 'version' : 'versions'}`;
-              const option = new Option(`${draft.title || 'Untitled'} · ${ownership} · rev ${Number(draft.revision || 0)}${versions}${lineage}`, `draft:${String(draft.draft_id || '')}`);
+              const option = new Option(`${draft.title || 'Untitled'} · Draft · ${updater} · rev ${Number(draft.revision || 0)}${versions}${lineage}`, `draft:${String(draft.draft_id || '')}`);
               option.selected = String(draft.draft_id || '') === draftId;
-              (draft.is_owner ? mine : shared).appendChild(option);
+              draftPicker.appendChild(option);
             });
-            if (mine.children.length > 0) {
-              draftPicker.appendChild(mine);
-            }
-            if (shared.children.length > 0) {
-              draftPicker.appendChild(shared);
-            }
         }
 
         async function refreshRevisionPicker() {
@@ -1225,11 +1302,6 @@ import {
             }
             draftRevisionPicker.replaceChildren(new Option('Current revision', ''));
             draftRevisionPicker.disabled = !draftId;
-            if (draftId && !draftIsOwner) {
-              draftRevisionPicker.options[0].textContent = `Latest shared version — revision ${draftRevision}`;
-              draftRevisionPicker.disabled = true;
-              return;
-            }
             if (!draftId || !draftsSettings.revisionsUrlTemplate) {
               return;
             }
@@ -1241,13 +1313,13 @@ import {
             }
             const revisions = Array.isArray(payload?.data) ? payload.data : [];
             const current = revisions.find((revision) => revision.is_current);
-            draftRevisionPicker.options[0].textContent = `Current — revision ${Number(current?.revision || draftRevision || 0)}`;
+            draftRevisionPicker.options[0].textContent = `Current — revision ${Number(current?.revision || draftRevision || 0)} · ${current?.updated_by_name || 'unknown editor'}`;
             revisions.filter((revision) => !revision.is_current).forEach((revision) => {
               const date = new Date(Number(revision.created_at || 0) * 1000);
               const label = Number.isNaN(date.getTime())
                 ? `Revision ${Number(revision.revision || 0)}`
                 : `Revision ${Number(revision.revision || 0)} — ${date.toLocaleString()}`;
-              draftRevisionPicker.appendChild(new Option(label, String(revision.revision || '')));
+              draftRevisionPicker.appendChild(new Option(`${label} · ${revision.updated_by_name || 'unknown editor'}`, String(revision.revision || '')));
             });
             draftRevisionPicker.value = viewedRevision === null ? '' : String(viewedRevision);
         }
@@ -1315,7 +1387,7 @@ import {
             }
             const validation = payload?.data || {};
             renderValidationResult(validation);
-            renderNarrativeAnalysis(validation.analysis);
+            await renderNarrativeAnalysis(validation.analysis);
             if (previewEl && validation.definition) {
               previewEl.textContent = JSON.stringify(validation.definition, null, 2);
             }
@@ -1661,8 +1733,8 @@ import {
             setAssistantStatus('Create or load a draft to activate assistant context.');
             return;
           }
-          if (!draftCanEdit && !draftIsOwner) {
-            setAssistantStatus('Create your own copy to use the GM.');
+          if (!draftCanEdit) {
+            setAssistantStatus('Open the current working draft to use the GM.');
             return;
           }
           const describeUrl = resolveDraftUrl(assistantSettings.describeUrlTemplate, draftId);
@@ -1685,8 +1757,9 @@ import {
             }
             setAssistantStatus(draftCanEdit
               ? ''
-              : 'This published draft is read-only. Save as your copy to continue editing.');
+              : 'This published snapshot is read-only. Open its working draft to continue editing.');
             renderCurrentState(payload?.data?.context_snapshot?.current_state, storylineStatusElements);
+            await renderNarrativeAnalysis(payload?.data?.context_snapshot?.narrative_analysis);
             restoreConversation(payload?.data?.conversation);
             if (announce) {
               const toolCount = Number(payload?.data?.context_snapshot?.tools?.tool_count || 0);
@@ -1775,6 +1848,14 @@ import {
                 hydrateFromPayload(saved.payload || {});
                 refreshPreview();
                 setDraftStatus(`GM updated draft ${draftId.slice(0, 8)} (rev ${draftRevision})`);
+              }
+              if (result?.publication_receipt) {
+                draftLifecycle = 'published';
+                draftTemplateId = String(result.publication_receipt.template_id);
+                draftCanEdit = false;
+                draftDirty = false;
+                applyDraftOwnershipState();
+                setDraftStatus(`Published storyline ${draftTemplateId}; final signoff recorded.`);
               }
               renderCurrentState(payload?.data?.context_snapshot?.current_state, storylineStatusElements);
               setAssistantStatus('');
@@ -1945,7 +2026,258 @@ import {
           });
         });
 
+        // Quest cards: one per quest, showing and editing goal -> ways ->
+        // results. Every control is bound to a field of the underlying row, so
+        // the rows remain the single thing that is saved.
+        const questOutlineEl = wizard.querySelector('[data-quest-outline]');
+        const outlineRows = (collection) => Array.from(wizard.querySelectorAll(`[data-rows="${collection}"] .gm-storyline-wizard__row`));
+        const rowValue = (row, key) => (row.querySelector(`[data-col-field="${key}"]`)?.value || '').trim();
+        const setRowValue = (row, key, value) => {
+          const field = row.querySelector(`[data-col-field="${key}"]`);
+          if (field) {
+            field.value = value;
+            field.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+        };
+        const outlineEl = (tag, className, text) => {
+          const el = document.createElement(tag);
+          if (className) el.className = className;
+          if (text != null) el.textContent = text;
+          return el;
+        };
+        const outlineButton = (text, onClick, className = 'btn btn-secondary btn-sm') => {
+          const button = outlineEl('button', className, text);
+          button.type = 'button';
+          button.addEventListener('click', onClick);
+          return button;
+        };
+        const showRow = (row) => {
+          const details = row.closest('details');
+          if (details) details.open = true;
+          row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          row.querySelector('input, select, textarea')?.focus({ preventScroll: true });
+        };
+        // A labelled control in a card that edits one field of one row.
+        const boundField = (labelText, row, key, focusKey, options = {}) => {
+          const label = outlineEl('label', `gm-storyline-wizard__card-field${options.wide ? ' gm-storyline-wizard__card-field--wide' : ''}`);
+          label.append(outlineEl('span', '', labelText));
+          let control;
+          if (options.choices) {
+            control = document.createElement('select');
+            control.className = 'form-select';
+            options.choices.forEach(([value, text]) => control.add(new Option(text, value)));
+          } else {
+            control = document.createElement('input');
+            control.type = options.type || 'text';
+            control.className = 'form-text';
+            if (options.placeholder) control.placeholder = options.placeholder;
+            if (options.type === 'number') control.min = '0';
+          }
+          control.value = rowValue(row, key);
+          control.dataset.outlineFocus = focusKey;
+          control.addEventListener('input', () => {
+            setRowValue(row, key, control.value);
+            options.onInput?.(control.value);
+          });
+          label.append(control);
+          if (options.help) label.append(outlineEl('small', 'gm-storyline-wizard__outline-meta', options.help));
+          return label;
+        };
+        const visibilityChoices = [
+          ['known', 'Known to players from the start'],
+          ['discoverable', 'Hidden until discovered'],
+          ['secret', 'Secret until used'],
+        ];
+        function renderQuestOutline() {
+          if (!questOutlineEl) {
+            return;
+          }
+          const focusKey = questOutlineEl.contains(document.activeElement) ? document.activeElement.dataset.outlineFocus : null;
+          const questRows = outlineRows('task_entries');
+          const choiceRows = outlineRows('branch_choice_entries');
+          const questIds = questRows.map((row) => rowValue(row, 'task_id')).filter(Boolean);
+          const effectCount = (choiceId) => ['branch_actor_effect_entries', 'branch_environment_effect_entries', 'branch_storyline_effect_entries']
+            .reduce((total, collection) => total + outlineRows(collection).filter((row) => choiceId !== '' && rowValue(row, 'choice_id') === choiceId).length, 0);
+          questOutlineEl.replaceChildren();
+
+          questRows.forEach((questRow, questIndex) => {
+            const questId = rowValue(questRow, 'task_id');
+            const card = outlineEl('article', 'gm-storyline-wizard__outline-card');
+            const header = document.createElement('header');
+            header.append(
+              outlineEl('strong', '', questId || '(new quest: give it an ID)'),
+              outlineEl('span', 'gm-storyline-wizard__outline-meta', [rowValue(questRow, 'chapter_id'), rowValue(questRow, 'scene_id')].filter(Boolean).join(' / ')),
+              outlineButton('All fields', () => showRow(questRow)),
+            );
+            card.append(header);
+
+            const goalText = rowValue(questRow, 'goal_text');
+            const questFields = outlineEl('div', 'gm-storyline-wizard__card-fields');
+            if (!questId) {
+              questFields.append(boundField('Quest ID', questRow, 'task_id', `q${questIndex}:task_id`, { placeholder: 'clear-the-mill' }));
+            }
+            questFields.append(
+              boundField('Goal — what the players are trying to achieve', questRow, 'goal_text', `q${questIndex}:goal_text`, {
+                wide: true,
+                placeholder: 'End the goblin threat to the mill',
+                help: goalText ? '' : 'Leave empty for a quest that is finished by completing all of its objectives.',
+              }),
+            );
+            if (goalText) {
+              questFields.append(
+                boundField('GM notes — never shown to players', questRow, 'gm_notes', `q${questIndex}:gm_notes`, { wide: true }),
+                boundField('Unplanned ways', questRow, 'open_resolution', `q${questIndex}:open_resolution`, {
+                  choices: [['false', 'Only the ways below count'], ['true', 'An unplanned way may also count (GM decides)']],
+                }),
+              );
+            }
+            card.append(questFields);
+
+            const own = questId ? choiceRows.filter((row) => rowValue(row, 'source_task_id') === questId) : [];
+            const ways = own.filter((row) => rowValue(row, 'approach_visibility') !== '');
+            const decisions = own.filter((row) => rowValue(row, 'approach_visibility') === '');
+            const leadsToChoices = [
+              ...questIds.filter((id) => id !== questId).map((id) => [id, `Leads to ${id}`]),
+              ['', 'Ends the storyline'],
+            ];
+
+            if (goalText || ways.length) {
+              card.append(outlineEl('h5', '', 'Ways of achieving it (any one)'));
+              ways.forEach((wayRow) => {
+                const index = choiceRows.indexOf(wayRow);
+                const way = outlineEl('div', `gm-storyline-wizard__way gm-storyline-wizard__way--${rowValue(wayRow, 'approach_visibility')}`);
+                const fields = outlineEl('div', 'gm-storyline-wizard__card-fields');
+                fields.append(
+                  boundField('Way, as players read it', wayRow, 'label', `c${index}:label`, { wide: true, placeholder: 'Persuade Chief Grubnak to leave' }),
+                  boundField('Who knows about it', wayRow, 'approach_visibility', `c${index}:approach_visibility`, { choices: visibilityChoices }),
+                );
+                if (rowValue(wayRow, 'approach_visibility') === 'discoverable') {
+                  fields.append(boundField('Discovered when', wayRow, 'approach_reveal', `c${index}:approach_reveal`, {
+                    placeholder: 'event:interact:captured_goblin',
+                    help: 'objective:ID (that objective completes) or event:TYPE:REF (for example event:interact:actor-id).',
+                  }));
+                }
+                fields.append(
+                  boundField('Achieved by objectives', wayRow, 'approach_objective_ids', `c${index}:approach_objective_ids`, {
+                    placeholder: 'blank: the Game Master judges it',
+                    help: 'Objective IDs of this quest, comma separated.',
+                  }),
+                  boundField('Outcome players read afterwards', wayRow, 'approach_outcome_label', `c${index}:approach_outcome_label`, { wide: true, placeholder: 'The goblins left peacefully' }),
+                  boundField('Reward XP', wayRow, 'approach_reward_xp', `c${index}:approach_reward_xp`, { type: 'number', placeholder: 'quest reward' }),
+                  boundField('Reward gold', wayRow, 'approach_reward_gold', `c${index}:approach_reward_gold`, { type: 'number', placeholder: 'quest reward' }),
+                );
+                const leadsTo = boundField('Then', wayRow, 'target_task_id', `c${index}:target_task_id`, {
+                  choices: leadsToChoices,
+                  onInput: (value) => setRowValue(wayRow, 'terminal', value === '' ? 'true' : 'false'),
+                });
+                leadsTo.querySelector('select').value = rowValue(wayRow, 'terminal') === 'true' ? '' : rowValue(wayRow, 'target_task_id');
+                fields.append(leadsTo);
+                way.append(fields);
+
+                const actions = outlineEl('div', 'gm-storyline-wizard__card-actions');
+                const consequences = effectCount(rowValue(wayRow, 'choice_id'));
+                actions.append(
+                  outlineEl('span', 'gm-storyline-wizard__outline-meta', consequences ? `${consequences} consequence(s) authored` : 'No consequences authored'),
+                  outlineButton('All fields', () => showRow(wayRow)),
+                  outlineButton('Not a way of achieving the goal', () => { setRowValue(wayRow, 'approach_visibility', ''); renderQuestOutline(); }),
+                  outlineButton('Delete', () => { wayRow.remove(); markDraftDirty(); }),
+                );
+                way.append(actions);
+                card.append(way);
+              });
+              if (rowValue(questRow, 'open_resolution') === 'true') {
+                card.append(outlineEl('p', 'gm-storyline-wizard__outline-meta', 'An unplanned way may also count; the Game Master decides.'));
+              }
+
+              const problems = [];
+              const open = rowValue(questRow, 'open_resolution') === 'true';
+              if (goalText && !ways.length && !open) {
+                problems.push('This goal has no way of achieving it. Add a way, or allow an unplanned way.');
+              }
+              if (goalText && ways.length && !open && !ways.some((row) => rowValue(row, 'approach_visibility') === 'known')) {
+                problems.push('Players start with no known way forward. Make one way known, or allow an unplanned way.');
+              }
+              if (!goalText && ways.length) {
+                problems.push('A choice is marked as a way of achieving the goal, but this quest has no goal.');
+              }
+              ways.forEach((row) => {
+                const name = rowValue(row, 'label') || rowValue(row, 'choice_id') || 'A way';
+                if (!rowValue(row, 'label')) problems.push('A way has no text for players.');
+                if (rowValue(row, 'approach_visibility') === 'discoverable' && !rowValue(row, 'approach_reveal')) problems.push(`“${name}” is hidden until discovered but has no “discovered when”.`);
+                if (!rowValue(row, 'approach_outcome_label')) problems.push(`“${name}” has no outcome text for players.`);
+              });
+              problems.forEach((problem) => card.append(outlineEl('p', 'gm-storyline-wizard__outline-problem', `⚠ ${problem}`)));
+            }
+
+            if (questId && goalText) {
+              card.append(outlineButton('Add a way', () => {
+                const nextQuestId = questIds[questIds.indexOf(questId) + 1] || '';
+                const decisionId = ways.length ? rowValue(ways[0], 'decision_id') : `${questId}-ways`;
+                addCollectionRow('branch_choice_entries', {
+                  decision_id: decisionId,
+                  source_task_id: questId,
+                  trigger_type: 'gm_decision',
+                  trigger_interaction: 'other',
+                  trigger_condition: 'The party achieves the goal this way.',
+                  trigger_source_id: questId,
+                  target_task_id: nextQuestId,
+                  terminal: nextQuestId ? 'false' : 'true',
+                  approach_visibility: 'known',
+                });
+                markDraftDirty();
+              }, 'btn btn-primary btn-sm'));
+            }
+
+            if (decisions.length) {
+              card.append(outlineEl('h5', '', 'Other story decisions on this quest'));
+              decisions.forEach((choiceRow) => {
+                const line = outlineEl('div', 'gm-storyline-wizard__card-actions');
+                line.append(
+                  outlineEl('strong', '', rowValue(choiceRow, 'label') || rowValue(choiceRow, 'choice_id') || '(unnamed choice)'),
+                  outlineEl('span', 'gm-storyline-wizard__outline-meta', `decision ${rowValue(choiceRow, 'decision_id') || '?'}; ${rowValue(choiceRow, 'terminal') === 'true' ? 'ends the storyline' : `leads to ${rowValue(choiceRow, 'target_task_id') || '?'}`}`),
+                  outlineButton('All fields', () => showRow(choiceRow)),
+                );
+                if (goalText) {
+                  line.append(outlineButton('Make this a way of achieving the goal', () => { setRowValue(choiceRow, 'approach_visibility', 'known'); renderQuestOutline(); }));
+                }
+                card.append(line);
+              });
+            }
+            questOutlineEl.append(card);
+          });
+
+          questOutlineEl.append(outlineButton('Add a quest', () => {
+            const row = addCollectionRow('task_entries');
+            markDraftDirty();
+            renderQuestOutline();
+            questOutlineEl.querySelector(`[data-outline-focus="q${outlineRows('task_entries').indexOf(row)}:task_id"]`)?.focus();
+          }, 'btn btn-primary btn-sm'));
+
+          if (focusKey) {
+            questOutlineEl.querySelector(`[data-outline-focus="${focusKey}"]`)?.focus();
+          }
+        }
+        let questOutlineTimer = null;
+        const scheduleQuestOutline = () => {
+          clearTimeout(questOutlineTimer);
+          questOutlineTimer = setTimeout(renderQuestOutline, 150);
+        };
+        ['task_entries', 'branch_choice_entries', 'branch_actor_effect_entries', 'branch_environment_effect_entries', 'branch_storyline_effect_entries'].forEach((collection) => {
+          const target = wizard.querySelector(`[data-rows="${collection}"]`);
+          if (target) {
+            new MutationObserver(scheduleQuestOutline).observe(target, { childList: true });
+          }
+        });
+        // A finished edit (leaving a field, picking an option) redraws the
+        // cards; typing does not, so the field being typed in keeps its caret.
+        wizard.addEventListener('change', scheduleQuestOutline);
+        renderQuestOutline();
+
         wizard.addEventListener('input', (event) => {
+          // Typing in a row redraws the cards; typing in a card must not.
+          if (!(questOutlineEl && questOutlineEl.contains(document.activeElement))) {
+            scheduleQuestOutline();
+          }
           if (event.target instanceof Element && event.target.closest('.gm-storyline-wizard__row') && activeStep === 7) {
             refreshPreview();
           }

@@ -79,6 +79,35 @@ function hexColor(int) {
   return `#${int.toString(16).padStart(6, '0')}`;
 }
 
+function sanitizeIdentifier(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) {
+    return '';
+  }
+  let normalized = raw;
+  if (typeof normalized.normalize === 'function') {
+    normalized = normalized.normalize('NFKD').replace(/[\u0300-\u036f]/g, '');
+  }
+  return normalized
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .replace(/-{2,}/g, '-');
+}
+
+function nextAvailableIdentifier(preferred, existing, fallback = 'id') {
+  const base = sanitizeIdentifier(preferred) || sanitizeIdentifier(fallback) || 'id';
+  const used = new Set((Array.isArray(existing) ? existing : [])
+    .map((value) => String(value || '').trim())
+    .filter((value) => value !== ''));
+  let candidate = base;
+  let suffix = 2;
+  while (used.has(candidate)) {
+    candidate = `${base}-${suffix}`;
+    suffix += 1;
+  }
+  return candidate;
+}
+
 export class DungeonEditorShell {
   /**
    * @param {HTMLElement} container Root element carrying [data-dungeon-editor].
@@ -452,11 +481,23 @@ export class DungeonEditorShell {
         return;
       }
       const form = this._dom.regionForm;
-      const regionId = String(form.elements.region_id.value).trim();
       const name = String(form.elements.name.value).trim();
-      if (!regionId || !name) {
-        this._setStatus('Region id and name are both required.', 'error');
+      if (!name) {
+        this._setStatus('Region name is required.', 'error');
         return;
+      }
+      const explicitRegionId = String(form.elements.region_id.value).trim();
+      const regionId = explicitRegionId || nextAvailableIdentifier(
+        name,
+        (this.model.regions || []).map((region) => region.region_id),
+        'region'
+      );
+      if (!/^[a-z0-9][a-z0-9_-]{0,99}$/.test(regionId)) {
+        this._setStatus('Region id must start with a letter or number and use only lowercase letters, numbers, underscores, or hyphens.', 'error');
+        return;
+      }
+      if (!explicitRegionId) {
+        form.elements.region_id.value = regionId;
       }
       this.applyCommand('add_region', { region_id: regionId, name, placement_ids: [] }).then((result) => {
         if (result) {

@@ -52,6 +52,18 @@ class ActorResponseProjector {
       'gm_subsystem' => is_array($chat_result['gm_subsystem'] ?? NULL) ? $chat_result['gm_subsystem'] : NULL,
     ];
     $runtime_snapshot = is_array($response['runtime_snapshot'] ?? NULL) ? $response['runtime_snapshot'] : [];
+    if (isset($runtime_snapshot['snapshot_id']) && trim((string) $runtime_snapshot['snapshot_id']) !== '') {
+      $response['snapshot_id'] = trim((string) $runtime_snapshot['snapshot_id']);
+    }
+    if (is_numeric($runtime_snapshot['event_cursor'] ?? NULL)) {
+      $response['event_cursor'] = (int) $runtime_snapshot['event_cursor'];
+    }
+    if (is_numeric($runtime_snapshot['event_log_cursor'] ?? NULL)) {
+      $response['event_log_cursor'] = (int) $runtime_snapshot['event_log_cursor'];
+    }
+    if (is_numeric($runtime_snapshot['state_version'] ?? NULL)) {
+      $response['state_version'] = (int) $runtime_snapshot['state_version'];
+    }
     if (is_array($runtime_snapshot['aggression_state'] ?? NULL)) {
       $response['aggression_state'] = $runtime_snapshot['aggression_state'];
     }

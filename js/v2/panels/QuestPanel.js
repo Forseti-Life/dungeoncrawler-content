@@ -16,7 +16,7 @@ import {
   renderQuestTreeNodeHtml,
   resolveQuestTitle,
   escapeQuestHtml,
-} from '../utils/quest-utils.js?v=20260607-quest-summary-const-4';
+} from '../utils/quest-utils.js?v=20261115-quest-goals-4';
 
 export class QuestPanel {
   constructor(container, bus) {
@@ -39,6 +39,55 @@ export class QuestPanel {
     console.log('[QuestPanel] init', { container: !!this.container, nullEl: nullKeys.length, nullKeys: nullKeys.join(',') || 'none' });
     this._subscribe();
     this.setupQuestJournalControls();
+    this.setupQuestGoalControls();
+  }
+
+  /**
+   * Game Master view: record how a goal was achieved, or reveal a hidden way.
+   * The server refuses these unless the viewer is in Game Master mode.
+   */
+  setupQuestGoalControls() {
+    const list = this._el.questList;
+    if (!list) return;
+    const handler = async (event) => {
+      const button = event.target instanceof Element ? event.target.closest('[data-quest-goal-action]') : null;
+      if (!button) return;
+      event.preventDefault();
+      const { questGoalAction: action, campaignId, questId, approachId, label } = button.dataset;
+      const body = { approach_id: approachId };
+      if (action === 'resolve') {
+        const evidence = window.prompt(`Record the goal as achieved: ${label}\n\nWhat happened in play? (one sentence${approachId === 'other' ? '; players will read this as the outcome' : ''})`);
+        if (!evidence || !evidence.trim()) return;
+        body.evidence = evidence.trim();
+      } else {
+        const reason = window.prompt(`Reveal to the players: ${label}\n\nHow did the party learn of it?`);
+        if (reason === null) return;
+        body.reason = reason.trim();
+      }
+      button.disabled = true;
+      try {
+        const token = await fetch('/session/token', { credentials: 'same-origin' }).then((response) => response.text());
+        const response = await fetch(`/api/campaign/${encodeURIComponent(campaignId)}/quests/${encodeURIComponent(questId)}/goal/${action}`, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': token.trim() },
+          body: JSON.stringify(body),
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || !payload?.success) {
+          this.showQuestToast(`Not recorded: ${payload?.error || `HTTP ${response.status}`}`, 'error');
+          button.disabled = false;
+          return;
+        }
+        this.showQuestToast(action === 'resolve' ? 'Goal recorded as achieved.' : 'Way revealed to the players.', 'success');
+        this.bus.emit('quest:refresh-requested', { reason: `quest-goal-${action}` });
+      } catch (error) {
+        this.showQuestToast(`Not recorded: ${error?.message || 'network error'}`, 'error');
+        button.disabled = false;
+      }
+    };
+    list.addEventListener('click', handler);
+    this._unsubs.push(() => list.removeEventListener('click', handler));
   }
 
   destroy() {
@@ -168,6 +217,8 @@ export class QuestPanel {
     if (count) count.textContent = String(activeQuests.length + offeredQuests.length + leadQuests.length + completedQuests.length);
 
     const storylineIndexes = this.buildStorylineContextIndexes(managementTree);
+    storylineIndexes.statusById = new Map((Array.isArray(summary.storylines) ? summary.storylines : [])
+      .map((storyline) => [String(storyline.storyline_id), storyline]));
 
     list.innerHTML = this.renderStorylineFirstJournal({
       activeQuests,
@@ -198,6 +249,10 @@ export class QuestPanel {
     const addQuest = (quest, status) => {
       const context = this.resolveQuestStorylineContext(quest, storylineIndexes, status);
       const bucket = ensureGroup(context);
+      // The server states each storyline's status; standalone quest groups
+      // have none and are never listed as a completed storyline.
+      const reported = storylineIndexes.statusById.get(context.storylineId);
+      bucket.isCompleted = String(reported?.status || '').toLowerCase() === 'completed';
       if (status === 'active') {
         bucket.active.push(this.renderActiveQuestNodeHtml(quest));
       } else if (status === 'offered') {
@@ -232,22 +287,30 @@ export class QuestPanel {
     leadQuests.forEach((quest) => addQuest(quest, 'lead'));
     completedQuests.forEach((quest) => addQuest(quest, 'completed'));
 
-    return Array.from(grouped.values())
-      .sort((a, b) => a.context.name.localeCompare(b.context.name))
-      .map(({ context, active, offered, leads, completed }) => {
-        const body = [];
-        if (active.length > 0) body.push(this.renderQuestSectionLabelHtml('Active Quests'), ...active);
-        if (offered.length > 0 || leads.length > 0) body.push(this.renderQuestSectionLabelHtml('Available Quests'), ...offered, ...leads);
-        if (completed.length > 0) body.push(this.renderQuestSectionLabelHtml('Completed Quests'), ...completed);
-        return renderQuestTreeNodeHtml({
-          itemClass: 'quest-entry quest-entry--storyline',
-          title: context.name,
-          titlePrefix: '🧭',
-          metaLines: [`Next: ${context.nextStep || 'Review this storyline.'}`, ...(context.synopsis ? [context.synopsis] : [])],
-          bodyHtml: `<ul class="quest-objectives">${body.join('')}</ul>`,
-        });
-      })
-      .join('');
+    const renderGroup = ({ context, active, offered, leads, completed, isCompleted }) => {
+      const body = [];
+      if (active.length > 0) body.push(this.renderQuestSectionLabelHtml('Active Quests'), ...active);
+      if (offered.length > 0 || leads.length > 0) body.push(this.renderQuestSectionLabelHtml('Available Quests'), ...offered, ...leads);
+      if (completed.length > 0) body.push(this.renderQuestSectionLabelHtml('Completed Quests'), ...completed);
+      return renderQuestTreeNodeHtml({
+        itemClass: `quest-entry quest-entry--storyline${isCompleted ? ' quest-entry--storyline-completed' : ''}`,
+        title: context.name,
+        titlePrefix: isCompleted ? '✅' : '🧭',
+        metaLines: isCompleted
+          ? ['Status: Completed']
+          : [`Next: ${context.nextStep || 'Review this storyline.'}`, ...(context.synopsis ? [context.synopsis] : [])],
+        bodyHtml: `<ul class="quest-objectives">${body.join('')}</ul>`,
+      });
+    };
+
+    const groups = Array.from(grouped.values()).sort((a, b) => a.context.name.localeCompare(b.context.name));
+    const open = groups.filter((group) => !group.isCompleted);
+    const done = groups.filter((group) => group.isCompleted);
+    const html = open.map(renderGroup);
+    if (done.length > 0) {
+      html.push(this.renderQuestSectionLabelHtml('Completed Storylines'), ...done.map(renderGroup));
+    }
+    return html.join('');
   }
 
   renderActiveQuestNodeHtml(quest) {
@@ -280,9 +343,13 @@ export class QuestPanel {
       });
     }
 
+    const goalOpen = quest.goal && !quest.goal.resolved;
     let objectiveHtml = objectiveRows.join('');
-    if (!objectiveHtml) {
+    if (!objectiveHtml && !goalOpen) {
       objectiveHtml = '<li class="quest-objective">✅ All objectives complete</li>';
+    }
+    if (!nextStep && goalOpen) {
+      nextStep = quest.goal.goal_text;
     }
 
     return renderQuestTreeNodeHtml({
@@ -290,7 +357,7 @@ export class QuestPanel {
       title,
       titlePrefix: '📜',
       metaLines: [`Status: ${status}`, nextStep ? `Next: ${nextStep}` : 'Next: Review quest completion.'],
-      bodyHtml: `<ul class="quest-objectives">${this.renderQuestRewardLine(quest)}${objectiveHtml}</ul>`,
+      bodyHtml: `<ul class="quest-objectives">${this.renderQuestRewardLine(quest)}${this.renderQuestGoalHtml(quest)}${objectiveHtml}</ul>`,
     });
   }
 
@@ -384,7 +451,7 @@ export class QuestPanel {
     const objectives = (Array.isArray(phases) ? phases : [])
       .flatMap((phase) => flattenQuestObjectives(phase.objectives || []))
       .filter((objective) => !objective?.hidden || objective?.revealed || objective?.completed);
-    const lines = [rewardLine];
+    const lines = [rewardLine, this.renderQuestGoalHtml(quest)];
     const objectiveLines = objectives.slice(0, 3).map((objective) => {
       const merged = mergeObjectiveProgress(objective, objectiveIndex);
       const description = String(merged?.description || merged?.objective_id || '').trim();
@@ -402,10 +469,56 @@ export class QuestPanel {
     }).filter(Boolean);
     if (objectiveLines.length > 0) {
       lines.push(...objectiveLines);
-    } else {
+    } else if (!quest.goal) {
       lines.push(`<li class="quest-objective">${fallbackLine}</li>`);
     }
     return lines.join('');
+  }
+
+  /**
+   * The quest's goal and the ways to reach it, as the server sent them for
+   * this viewer. Game Master mode also receives hidden ways and GM notes.
+   */
+  renderQuestGoalHtml(quest) {
+    const goal = quest.goal;
+    if (!goal) {
+      return '';
+    }
+    const rows = [`<li class="quest-objective quest-goal">🎯 <strong>Goal:</strong> ${escapeQuestHtml(goal.goal_text)}</li>`];
+    if (goal.gm_notes) {
+      rows.push(`<li class="quest-objective quest-goal__gm">🔒 GM notes: ${escapeQuestHtml(goal.gm_notes)}</li>`);
+    }
+    if (goal.resolved) {
+      rows.push(`<li class="quest-objective quest-objective--done">✅ <strong>Resolved:</strong> ${escapeQuestHtml(goal.resolved.outcome_label)}</li>`);
+      if (goal.resolved.evidence) {
+        rows.push(`<li class="quest-objective quest-goal__gm">🔒 How: ${escapeQuestHtml(goal.resolved.evidence)}</li>`);
+      }
+    }
+    const isGmView = 'open_resolution' in goal;
+    // Only an active quest's goal can be achieved or have ways revealed.
+    const canResolve = !goal.resolved && ['active', 'ready_for_turn_in'].includes(String(quest.status || '').toLowerCase());
+    const ways = goal.ways.filter((way) => isGmView || !goal.resolved);
+    if (ways.length > 0) {
+      rows.push(`<li class="quest-section-heading" role="presentation">${isGmView ? 'All ways (Game Master view)' : 'Ways you know of'}</li>`);
+      ways.forEach((way) => {
+        const notes = [];
+        if (way.achieved) notes.push('achieved');
+        if (way.judged) notes.push('the Game Master decides when this is achieved');
+        if (isGmView && !way.revealed) notes.push(`🔒 hidden from players (${way.visibility})`);
+        const goalButton = (action, text) => `<button type="button" class="btn btn-secondary btn-sm" data-quest-goal-action="${action}" data-campaign-id="${escapeQuestHtml(quest.campaign_id)}" data-quest-id="${escapeQuestHtml(quest.quest_id)}" data-approach-id="${escapeQuestHtml(way.approach_id)}" data-label="${escapeQuestHtml(way.label)}">${text}</button>`;
+        const buttons = isGmView && canResolve
+          ? ` ${goalButton('resolve', 'Mark achieved')}${way.revealed ? '' : ` ${goalButton('reveal', 'Reveal to players')}`}`
+          : '';
+        rows.push(`<li class="quest-objective quest-goal__way${way.achieved ? ' quest-objective--done' : ''}">➤ ${escapeQuestHtml(way.label)}${notes.length ? ` <em>— ${escapeQuestHtml(notes.join('; '))}</em>` : ''}${buttons}</li>`);
+      });
+    }
+    if (isGmView && canResolve && goal.open_resolution) {
+      rows.push(`<li class="quest-objective quest-goal__way"><button type="button" class="btn btn-secondary btn-sm" data-quest-goal-action="resolve" data-campaign-id="${escapeQuestHtml(quest.campaign_id)}" data-quest-id="${escapeQuestHtml(quest.quest_id)}" data-approach-id="other" data-label="an unplanned way">Achieved another way…</button></li>`);
+    }
+    if (goal.other_ways) {
+      rows.push('<li class="quest-objective quest-goal__hint"><em>There may be other ways.</em></li>');
+    }
+    return rows.join('');
   }
 
   buildQuestLeadFallbackLine(quest) {

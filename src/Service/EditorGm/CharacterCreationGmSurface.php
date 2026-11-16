@@ -32,6 +32,7 @@ final class CharacterCreationGmSurface implements EditorGmSurfaceInterface {
       new CharacterCatalogTool(FALSE),
       new CharacterDraftTool('plan_character_draft_updates'),
       new CharacterDraftTool('apply_character_draft_updates'),
+      new CharacterDraftTool('autofill_character_draft'),
       new ValidateDraftTool(),
       new ExplainValidationFindingsTool(),
       new ActorTool('inspect_actor'),

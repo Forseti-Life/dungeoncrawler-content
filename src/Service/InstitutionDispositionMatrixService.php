@@ -188,12 +188,25 @@ class InstitutionDispositionMatrixService {
     string $source_subject_id,
     string $target_subject_id,
     int $score,
-    string $seed_profile_key
+    string $seed_profile_key,
+    ?array $existing_edges = NULL
   ): int {
-    $existing = $this->loadInstitutionDispositionEdge($campaign_id, $source_subject_id, $target_subject_id);
+    $relationship_id = $this->composeRelationshipId($source_subject_id, $target_subject_id);
+    $existing = is_array($existing_edges)
+      ? ($existing_edges[$relationship_id] ?? NULL)
+      : $this->loadInstitutionDispositionEdge($campaign_id, $source_subject_id, $target_subject_id);
     if ($existing !== NULL) {
       $state = is_array($existing['relationship_state'] ?? NULL) ? $existing['relationship_state'] : [];
       if (($state['mutation_state'] ?? 'seeded') === 'mutated' || ($state['matrix_state'] ?? 'defaulted') === 'mutated') {
+        return 0;
+      }
+      $expected_seed_profile_key = trim($seed_profile_key) !== '' ? $seed_profile_key : self::DEFAULT_SEED_PROFILE_KEY;
+      $existing_score = isset($state['score']) && is_numeric($state['score']) ? (int) $state['score'] : NULL;
+      if (
+        $existing_score === $this->clampMatrixScore($score)
+        && (string) ($state['seed_profile_key'] ?? '') === $expected_seed_profile_key
+        && (string) ($state['knowledge_state'] ?? '') === self::DEFAULT_KNOWLEDGE_STATE
+      ) {
         return 0;
       }
     }
@@ -213,6 +226,39 @@ class InstitutionDispositionMatrixService {
   }
 
   /**
+   * Load all existing institution disposition edges for a campaign in one query.
+   *
+   * @return array<string,array<string,mixed>>
+   *   Rows keyed by relationship_id with decoded relationship_state.
+   */
+  protected function loadExistingInstitutionDispositionEdges(int $campaign_id): array {
+    if ($campaign_id <= 0 || !$this->relationshipManager->isRelationshipStorageReady()) {
+      return [];
+    }
+
+    $rows = $this->database->select('dc_campaign_relationships', 'r')
+      ->fields('r')
+      ->condition('campaign_id', $campaign_id)
+      ->condition('source_type', 'institution')
+      ->condition('target_type', 'institution')
+      ->condition('relationship_type', self::RELATIONSHIP_TYPE)
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+    $indexed = [];
+    foreach ($rows as $row) {
+      $rel_id = trim((string) ($row['relationship_id'] ?? ''));
+      if ($rel_id === '') {
+        continue;
+      }
+      $row['relationship_state'] = $this->decodeJsonColumn($row['relationship_state'] ?? NULL);
+      $indexed[$rel_id] = $row;
+    }
+
+    return $indexed;
+  }
+
+  /**
    * Seed default policy matrix edges for one campaign.
    *
    * @return array<string,int>
@@ -226,6 +272,7 @@ class InstitutionDispositionMatrixService {
       throw new \RuntimeException('Campaign relationship storage is not installed.');
     }
 
+    $existing_edges = $this->loadExistingInstitutionDispositionEdges($campaign_id);
     $rows = $this->loadInstitutionSubjectsByDomains($campaign_id, self::MATRIX_DOMAINS);
     $ancestries = [];
     $professions = [];
@@ -257,14 +304,16 @@ class InstitutionDispositionMatrixService {
           (string) $ancestry['subject_id'],
           (string) $profession['subject_id'],
           0,
-          self::DEFAULT_SEED_PROFILE_KEY
+          self::DEFAULT_SEED_PROFILE_KEY,
+          $existing_edges
         );
         $seeded += $this->ensureSeededPolicyInstitutionDispositionEdge(
           $campaign_id,
           (string) $profession['subject_id'],
           (string) $ancestry['subject_id'],
           0,
-          self::DEFAULT_SEED_PROFILE_KEY
+          self::DEFAULT_SEED_PROFILE_KEY,
+          $existing_edges
         );
       }
     }
@@ -277,7 +326,8 @@ class InstitutionDispositionMatrixService {
           (string) $source_profession['subject_id'],
           (string) $target_profession['subject_id'],
           $score,
-          $score === 0 ? self::DEFAULT_SEED_PROFILE_KEY : 'profession-target-bias-default'
+          $score === 0 ? self::DEFAULT_SEED_PROFILE_KEY : 'profession-target-bias-default',
+          $existing_edges
         );
       }
     }
@@ -301,7 +351,8 @@ class InstitutionDispositionMatrixService {
           (string) $source_ancestry['subject_id'],
           (string) $target_ancestry['subject_id'],
           $score,
-          $seed_profile_key
+          $seed_profile_key,
+          $existing_edges
         );
       }
     }

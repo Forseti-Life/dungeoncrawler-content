@@ -127,4 +127,89 @@ class CanonicalQuestTemplateService {
     ];
   }
 
+  /**
+   * Plans metadata-only repairs for exact linked canonical quest records.
+   */
+  public function planStorylineReferenceRepairs(array $template_ids, string $storyline_id): array {
+    if (trim($storyline_id) === '') {
+      throw new \InvalidArgumentException('quest_storyline_reference_target_required');
+    }
+    $repairs = [];
+    foreach (array_unique($template_ids) as $template_id) {
+      $this->requireCanonicalQuestTemplateRef($template_id);
+      $rows = $this->database->select(self::CANONICAL_TABLE, 'q')
+        ->fields('q')->condition('template_id', $template_id)
+        ->execute()->fetchAll(\PDO::FETCH_ASSOC);
+      if (count($rows) !== 1) {
+        throw new \DomainException('quest_storyline_reference_version_ambiguous:' . $template_id);
+      }
+      $row = $rows[0];
+      $impact = json_decode($row['story_impact'], TRUE, 512, JSON_THROW_ON_ERROR);
+      if (!is_array($impact)) {
+        throw new \UnexpectedValueException('quest_story_impact_invalid:' . $template_id);
+      }
+      if (($row['storyline_template_id'] ?? '') === $storyline_id && ($impact['storyline_id'] ?? '') === $storyline_id) {
+        continue;
+      }
+      $repairs[] = [
+        'action' => 'repair_storyline_references',
+        'template_id' => $template_id,
+        'version' => $row['version'],
+        'storyline_template_id' => $storyline_id,
+        'expected_row_hash' => hash('sha256', json_encode($row, JSON_THROW_ON_ERROR)),
+        'previous_storyline_template_id' => $row['storyline_template_id'],
+        'previous_story_impact_storyline_id' => $impact['storyline_id'] ?? NULL,
+      ];
+    }
+    return $repairs;
+  }
+
+  /**
+   * Repairs only storyline references, preserving quest content and instances.
+   */
+  public function applyStorylineReferenceRepair(array $plan): array {
+    $template_id = (string) ($plan['template_id'] ?? '');
+    $storyline_id = (string) ($plan['storyline_template_id'] ?? '');
+    $version = (string) ($plan['version'] ?? '');
+    if ($template_id === '' || $storyline_id === '' || $version === '' || !is_string($plan['expected_row_hash'] ?? NULL)) {
+      throw new \InvalidArgumentException('quest_storyline_reference_plan_invalid');
+    }
+    $this->requireCanonicalQuestTemplateRef($template_id, $version);
+    $transaction = $this->database->startTransaction();
+    $row = $this->database->select(self::CANONICAL_TABLE, 'q')->fields('q')
+      ->condition('template_id', $template_id)->condition('version', $version)
+      ->forUpdate()->execute()->fetchAssoc();
+    if (!is_array($row)) {
+      throw new \OutOfBoundsException('quest_template_missing:' . $template_id);
+    }
+    $impact = json_decode($row['story_impact'], TRUE, 512, JSON_THROW_ON_ERROR);
+    if (!is_array($impact)) {
+      throw new \UnexpectedValueException('quest_story_impact_invalid:' . $template_id);
+    }
+    if ($row['storyline_template_id'] === $storyline_id && ($impact['storyline_id'] ?? '') === $storyline_id) {
+      return ['template_id' => $template_id, 'version' => $version, 'created' => FALSE, 'updated' => FALSE, 'references_already_aligned' => TRUE];
+    }
+    if (!hash_equals($plan['expected_row_hash'], hash('sha256', json_encode($row, JSON_THROW_ON_ERROR)))) {
+      throw new \DomainException('quest_storyline_reference_revision_conflict:' . $template_id);
+    }
+    $impact['storyline_id'] = $storyline_id;
+    $fields = [
+      'storyline_template_id' => $storyline_id,
+      'story_impact' => json_encode($impact, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+      'updated_at' => time(),
+    ];
+    $contract = array_replace($row, $fields);
+    unset($contract['id'], $contract['created_at'], $contract['updated_at'], $contract['contract_hash']);
+    $fields['contract_hash'] = hash('sha256', json_encode($contract, JSON_THROW_ON_ERROR));
+    $this->database->update(self::CANONICAL_TABLE)->fields($fields)->condition('id', $row['id'])->execute();
+    return [
+      'template_id' => $template_id,
+      'version' => $version,
+      'created' => FALSE,
+      'updated' => TRUE,
+      'storyline_references_repaired' => TRUE,
+      'storyline_template_id' => $storyline_id,
+    ];
+  }
+
 }

@@ -74,6 +74,7 @@ class NpcService {
     protected readonly InstitutionMembershipService $institutionMembership,
     protected readonly FactionGenerationService $factionGeneration,
     protected readonly ?NameGeneratorService $nameGenerator = NULL,
+    protected readonly ?CampaignMembershipService $campaignMembership = NULL,
   ) {}
 
   // ── CRUD ───────────────────────────────────────────────────────────────────
@@ -574,18 +575,16 @@ class NpcService {
       throw new \InvalidArgumentException('Access denied', 403);
     }
 
-    $owner = $this->database->select('dc_campaigns', 'c')
-      ->fields('c', ['uid'])
+    $exists = $this->database->select('dc_campaigns', 'c')
+      ->fields('c', ['id'])
       ->condition('id', $campaign_id)
       ->execute()
       ->fetchField();
-
-    if ($owner === FALSE) {
+    if ($exists === FALSE) {
       throw new \InvalidArgumentException("Campaign {$campaign_id} not found", 404);
     }
 
-    // Allow site admins to bypass ownership check.
-    if ((int) $owner !== $uid && !$this->currentUser->hasPermission('administer dungeoncrawler content')) {
+    if (!$this->campaignMembership->isMember($campaign_id, $uid) && !$this->currentUser->hasPermission('administer dungeoncrawler content')) {
       throw new \InvalidArgumentException('Access denied to campaign', 403);
     }
   }

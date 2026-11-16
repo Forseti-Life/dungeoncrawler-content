@@ -52,5 +52,25 @@ class NpcPromptAssemblerTest extends UnitTestCase {
     $this->assertStringContainsString($availability, $prompt);
   }
 
+  /**
+   * @covers ::buildDirectReplyUserPrompt
+   * @covers ::buildRoomDialogueUserPrompt
+   */
+  public function testCanonicalFactsFollowContradictoryDialogueInBothLanes(): void {
+    $history = ['Courier Contact: The lantern is in the shed.'];
+    $facts = 'Authored backstory: the signal lantern is missing at the harbor.';
+    $direct = NpcPromptAssembler::buildDirectReplyUserPrompt(
+      '', [], $facts, '', 'Courier Contact', 'whisper', $history,
+    );
+    $room = NpcPromptAssembler::buildRoomDialogueUserPrompt(
+      '', '', $facts, '', '', $history, 'What about the lantern?', '', 'Courier Contact',
+    );
+
+    foreach ([$direct, $room] as $prompt) {
+      $this->assertGreaterThan(strpos($prompt, $history[0]), strpos($prompt, $facts),
+        'Canonical facts must be presented after prior mistaken claims instead of being overwritten by transcript anchoring.');
+    }
+  }
+
 }
 

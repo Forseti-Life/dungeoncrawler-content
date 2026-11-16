@@ -503,7 +503,14 @@ export class NavigationSystem {
 
     console.log('[Navigation] Transitioning to:', targetRoomId, nav.destination);
 
-    if (nav.dungeon_switch?.map_id) {
+    const currentMapId = String(
+      hexmap.dungeonData?.dungeon_id
+      || hexmap.dungeonData?.hex_map?.map_id
+      || hexmap.launchContext?.map_id
+      || ''
+    ).trim();
+    const switchMapId = String(nav.dungeon_switch?.map_id || nav.dungeon_switch?.dungeon_id || '').trim();
+    if (switchMapId && (!currentMapId || switchMapId !== currentMapId)) {
       this._appendChatLine('System', `🗺️ Traveling to ${nav.destination || targetRoomId}...`, 'system');
       void this.executeInSessionDungeonSwitch({
         ...nav.dungeon_switch,
@@ -523,12 +530,29 @@ export class NavigationSystem {
       hexmap.dungeonData.entities = [];
     }
     for (const entity of newEntities) {
-      // Avoid duplicates by instance_id.
+      const entityRef = entity.instance_id || entity.entity_instance_id;
       const existingIdx = hexmap.dungeonData.entities.findIndex(
-        (e) => (e.instance_id || e.entity_instance_id) === (entity.instance_id || entity.entity_instance_id)
+        (e) => (e.instance_id || e.entity_instance_id) === entityRef
       );
       if (existingIdx === -1) {
         hexmap.dungeonData.entities.push(entity);
+      } else {
+        hexmap.dungeonData.entities[existingIdx] = {
+          ...hexmap.dungeonData.entities[existingIdx],
+          ...entity,
+          placement: {
+            ...(hexmap.dungeonData.entities[existingIdx]?.placement || {}),
+            ...(entity?.placement || {}),
+          },
+          state: {
+            ...(hexmap.dungeonData.entities[existingIdx]?.state || {}),
+            ...(entity?.state || {}),
+            metadata: {
+              ...(hexmap.dungeonData.entities[existingIdx]?.state?.metadata || {}),
+              ...(entity?.state?.metadata || {}),
+            },
+          },
+        };
       }
     }
 
@@ -662,27 +686,26 @@ export class NavigationSystem {
       String(nav.destination || '').trim()
     );
 
-    hexmap.persistLaunchLocationContext?.(
-      targetRoomId,
-      destinationQ,
-      destinationR,
-      anchorEntityRef || null
-    );
-    persistedPartyMoves.forEach((move) => {
-      hexmap.persistLaunchLocationContext?.(targetRoomId, move.q, move.r, move.entityRef);
-    });
+    if (anchorEntityRef && hexmap.launchCharacter) {
+      hexmap.launchCharacter = {
+        ...hexmap.launchCharacter,
+        instanceId: anchorEntityRef,
+        instance_id: anchorEntityRef,
+      };
+      hexmap.characterData = hexmap.launchCharacter;
+    }
 
     // 5. Show travel notification in chat.
     this._appendChatLine('System', `🗺️ Traveling to ${nav.destination || newRoom?.name || targetRoomId}...`, 'system');
 
     // 6. Switch to the new room (triggers full re-render, chat reload, banner).
+    hexmap.updateLaunchLocationContext?.(targetRoomId, Number(entryHex.q), Number(entryHex.r));
     hexmap.setActiveRoom(targetRoomId);
     this.bus.emit('navigation:capabilities-updated', {
       roomId: String(targetRoomId || '').trim(),
       capabilityCount: Array.isArray(navigationCapabilities) ? navigationCapabilities.length : 0,
       source: 'navigation-receipt',
     });
-    hexmap.updateLaunchLocationContext?.(targetRoomId, Number(entryHex.q), Number(entryHex.r));
     if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
       window.dispatchEvent(new CustomEvent('dungeoncrawler:game-shell-tab-changed', {
         detail: { tabId: 'view' },

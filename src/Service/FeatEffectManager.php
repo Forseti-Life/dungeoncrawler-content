@@ -25,6 +25,10 @@ class FeatEffectManager {
     $effects = $this->createEffectsEnvelope();
 
     foreach ($this->extractSelectedFeatIds($character_data) as $feat_id) {
+      if (isset(ClassFeatEffects::EFFECTS[$feat_id])) {
+        $this->applyClassFeatEffects($effects, $feat_id, ClassFeatEffects::EFFECTS[$feat_id]);
+        continue;
+      }
       if ($this->routeFeatToTodoReview($effects, $feat_id, $character_data)) {
         continue;
       }
@@ -6269,6 +6273,37 @@ class FeatEffectManager {
     $this->finalizeEffectsEnvelope($effects, $base_speed);
 
     return $effects;
+  }
+
+  /**
+   * Applies one ClassFeatEffects entry to the effects envelope.
+   */
+  private function applyClassFeatEffects(array &$effects, string $feat_id, array $spec): void {
+    foreach ($spec['actions'] ?? [] as $action) {
+      $bucket = $action['bucket'] ?? 'at_will';
+      unset($action['bucket']);
+      $effects['available_actions'][$bucket][] = $action;
+    }
+    foreach ($spec['metamagic'] ?? [] as $augment) {
+      $effects['spell_augments']['metamagic'][] = $augment;
+    }
+    foreach ($spec['modifiers'] ?? [] as $modifier) {
+      $effects['conditional_modifiers'][] = $modifier;
+    }
+    foreach ($spec['flags'] ?? [] as $flag => $value) {
+      $effects['derived_adjustments']['flags'][$flag] = $value;
+    }
+    if (isset($spec['override'])) {
+      $effects['feat_overrides'][$feat_id] = $spec['override'];
+    }
+    foreach ($spec['skills'] ?? [] as $skill) {
+      $this->addSkillTraining($effects, $skill);
+    }
+    foreach ($spec['lore'] ?? [] as $lore) {
+      $this->addLoreTraining($effects, $lore);
+    }
+    $effects['notes'][] = $spec['note'];
+    $effects['applied_feats'][] = $feat_id;
   }
 
   /**

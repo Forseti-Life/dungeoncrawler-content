@@ -157,6 +157,7 @@ services:
       - '@dungeoncrawler_content.institution_membership'
       - '@dungeoncrawler_content.faction_generation'
       - '@dungeoncrawler_content.name_generator'
+      - '@dungeoncrawler_content.campaign_membership'
 
   dungeoncrawler_content.institution_normalization:
     class: Drupal\dungeoncrawler_content\Service\InstitutionNormalizationService
@@ -500,13 +501,22 @@ services:
       - '@datetime.time'
       - '@uuid'
       - '@current_user'
+      - '@dungeoncrawler_content.campaign_membership'
 
   dungeoncrawler_content.feat_effect_manager:
     class: Drupal\dungeoncrawler_content\Service\FeatEffectManager
 
+  dungeoncrawler_content.campaign_membership:
+    class: Drupal\dungeoncrawler_content\Service\CampaignMembershipService
+    arguments: ['@database', '@datetime.time']
+
+  dungeoncrawler_content.campaign_discord:
+    class: Drupal\dungeoncrawler_content\Service\CampaignDiscordService
+    arguments: ['@database', '@config.factory', '@http_client', '@datetime.time', '@dungeoncrawler_content.campaign_membership']
+
   dungeoncrawler_content.campaign_authorization:
     class: Drupal\dungeoncrawler_content\Service\CampaignAuthorizationService
-    arguments: ['@database']
+    arguments: ['@database', '@dungeoncrawler_content.campaign_membership']
 
   # Access Control Services
   dungeoncrawler_content.character_access_check:
@@ -728,6 +738,17 @@ services:
       - '@dungeoncrawler_content.canonical_definitions'
       - '@dungeoncrawler_content.editor_gm_intent_parser'
 
+  dungeoncrawler_content.storyline_actor_sheets:
+    class: Drupal\dungeoncrawler_content\Service\StorylineActorSheetService
+    arguments:
+      - '@database'
+      - '@lock'
+      - '@dungeoncrawler_content.storyline_authoring_drafts'
+      - '@dungeoncrawler_content.character_creation_gm'
+      - '@dungeoncrawler_content.canonical_definitions'
+      - '@dungeoncrawler_content.actor_definition_mirror'
+      - '@dungeoncrawler_content.canonical_generation'
+
   dungeoncrawler_content.editor_gm_surface.storyline_builder:
     class: Drupal\dungeoncrawler_content\Service\EditorGm\StorylineBuilderGmSurface
     arguments:
@@ -739,6 +760,8 @@ services:
       - '@dungeoncrawler_content.editor_canonical_generation_plan'
       - '@dungeoncrawler_content.room_editor'
       - '@uuid'
+      - '@dungeoncrawler_content.storyline_actor_sheets'
+      - '@dungeoncrawler_content.canonical_quest_template'
 
   dungeoncrawler_content.editor_gm_surface.character_creation:
     class: Drupal\dungeoncrawler_content\Service\EditorGm\CharacterCreationGmSurface
@@ -821,6 +844,7 @@ services:
       - '@dungeoncrawler_content.institution_membership'
       - '@dungeoncrawler_content.follower_subsystem'
       - '@datetime.time'
+      - '@dungeoncrawler_content.campaign_membership'
 
   dungeoncrawler_content.player_agent_runtime_adapter:
     class: Drupal\dungeoncrawler_content\Service\PlayerAgentRuntimeAdapter
@@ -1411,6 +1435,7 @@ services:
       - '@dungeoncrawler_content.campaign_initialization'
       - '@dungeoncrawler_content.relationship_manager'
       - '@dungeoncrawler_content.exit_connector_authority'
+      - '@dungeoncrawler_content.institution_membership'
 
   dungeoncrawler_content.storyline_generation_service:
     class: Drupal\dungeoncrawler_content\Service\StorylineGenerationService
@@ -1626,6 +1651,7 @@ services:
     arguments:
       - '@database'
       - '@current_user'
+      - '@dungeoncrawler_content.campaign_membership'
 
   dungeoncrawler_content.encounter_turn_guard:
     class: Drupal\dungeoncrawler_content\Service\RoomChat\EncounterTurnGuard
@@ -1801,6 +1827,7 @@ services:
       - '@?dungeoncrawler_content.module_conversion.release'
       - '@dungeoncrawler_content.canonical_quest_template'
       - '@dungeoncrawler_content.room_state_service'
+      - '@dungeoncrawler_content.campaign_membership'
 
   dungeoncrawler_content.room_state_service:
     class: Drupal\dungeoncrawler_content\Service\RoomStateService
@@ -1981,6 +2008,8 @@ services:
       - '@?dungeoncrawler_content.storyline_manager'
       - '@dungeoncrawler_content.quest_destination_validator'
       - '@dungeoncrawler_content.navigation_runtime'
+      - '@dungeoncrawler_content.campaign_authorization'
+      - '@current_user'
 
   dungeoncrawler_content.quest_tracker:
     class: Drupal\dungeoncrawler_content\Service\QuestTrackerService

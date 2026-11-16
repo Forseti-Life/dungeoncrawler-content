@@ -12,6 +12,7 @@
     "offers",
     "leads",
     "completed",
+    "storylines",
     "counts"
   ],
   "definitions": {
@@ -92,6 +93,19 @@
         "storyline"
       ],
       "properties": {
+        "goal": {
+          "description": "The quest's goal as this viewer may see it; null when the quest states none. Built by QuestGoalContract::view.",
+          "type": ["object", "null"],
+          "required": ["goal_text", "ways", "other_ways", "resolved"],
+          "properties": {
+            "goal_text": { "type": "string", "minLength": 1 },
+            "ways": { "type": "array", "items": { "type": "object", "required": ["approach_id", "label", "judged", "achieved"] } },
+            "other_ways": { "type": "boolean" },
+            "resolved": { "type": ["object", "null"] },
+            "gm_notes": { "type": "string" },
+            "open_resolution": { "type": "boolean" }
+          }
+        },
         "quest_id": { "type": "string", "minLength": 1, "maxLength": 160 },
         "campaign_id": { "type": "integer", "minimum": 0, "maximum": 999999999 },
         "quest_key": { "type": "string", "minLength": 1, "maxLength": 160 },
@@ -208,6 +222,20 @@
     "completed": {
       "type": "array",
       "items": { "$ref": "#/definitions/questEntry" }
+    },
+    "storylines": {
+      "type": "array",
+      "description": "Status of every storyline the campaign's quests belong to. The journal marks a storyline completed from this, not from the quests it happens to list.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["storyline_id", "name", "status"],
+        "properties": {
+          "storyline_id": { "type": "string", "minLength": 1, "maxLength": 160 },
+          "name": { "type": "string", "minLength": 1, "maxLength": 255 },
+          "status": { "type": "string", "minLength": 1, "maxLength": 32 }
+        }
+      }
     },
     "management_tree": {
       "type": "array",

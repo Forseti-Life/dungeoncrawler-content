@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Drupal\dungeoncrawler_content\Service;
 
 use Drupal\Core\Database\Connection;
+use Drupal\Core\Session\AccountInterface;
 use Drupal\dungeoncrawler_content\Service\Definition\DefinitionSchemaValidator;
 use Drupal\dungeoncrawler_content\Service\Definition\DefinitionValidationException;
+use Drupal\dungeoncrawler_content\Service\Actor\ActorDefinitionMirror;
 
 /**
  * The single authority for canonical placeable object definitions.
@@ -28,7 +30,11 @@ use Drupal\dungeoncrawler_content\Service\Definition\DefinitionValidationExcepti
  *  - creature, item, trap, hazard -> dungeoncrawler_content_registry
  *  - obstacle                     -> the same table, but content_type is
  *                                    'obstacle_object', not 'obstacle'
- *  - actor                        -> dc_canonical_actors
+ *  - actor (pc, npc)              -> the library actor row, read and
+ *                                    written only through
+ *                                    ActorDefinitionMirror
+ *  - actor (trap, obstacle, party) -> dc_canonical_actors, until those
+ *                                    placeables get their own home
  */
 class CanonicalDefinitionService {
 
@@ -38,9 +44,19 @@ class CanonicalDefinitionService {
   public const FAMILIES = ['creature', 'actor', 'item', 'obstacle', 'trap', 'hazard'];
 
   /**
-   * Families stored in dc_canonical_actors rather than the content registry.
+   * The family stored outside the content registry.
    */
   private const ACTOR_FAMILY = 'actor';
+
+  /**
+   * Actor types whose definition is a library actor row.
+   */
+  public const LIBRARY_ACTOR_TYPES = ['pc', 'npc'];
+
+  /**
+   * Keys the library row adds around a definition's state_data.
+   */
+  public const LIBRARY_ROW_KEYS = ['actor_id', 'canonical_actor_version', 'canonical_definition'];
 
   /**
    * Family to schema file, relative to config/schemas.
@@ -164,7 +180,6 @@ class CanonicalDefinitionService {
     if ($definition_id === '') {
       throw new \OutOfBoundsException('definition_missing:' . $family . ':');
     }
-
     $entry = $this->catalogEntry($family, $definition_id);
     if ($entry === NULL) {
       throw new \OutOfBoundsException('definition_missing:' . $family . ':' . $definition_id);
@@ -204,6 +219,108 @@ class CanonicalDefinitionService {
     return self::NAME_PROPERTIES[$family];
   }
 
+  public function definitionLifecycle(string $family, string $definition_id): array {
+    $this->assertFamily($family);
+    if ($this->currentVersion($family, $definition_id) === NULL) {
+      throw new \OutOfBoundsException('definition_not_found');
+    }
+    $state = $this->lifecycleState($family, $definition_id);
+    return $state + ['family' => $family, 'definition_id' => $definition_id, 'definition_version' => $this->currentVersion($family, $definition_id)];
+  }
+
+  private function lifecycleState(string $family, string $definition_id): array {
+    $row = $this->database->select('dungeoncrawler_content_definition_lifecycle', 'l')
+      ->fields('l')
+      ->condition('family', $family)
+      ->condition('definition_id', $definition_id)
+      ->execute()
+      ->fetchAssoc();
+    if (!$row) {
+      return ['status' => 'active', 'revision' => 0, 'reason' => '', 'changed_by' => NULL, 'changed_at' => NULL];
+    }
+    if (!in_array($row['status'], ['active', 'retired'], TRUE)) {
+      throw new \DomainException('definition_lifecycle_status_invalid:' . $family . ':' . $definition_id);
+    }
+    foreach (['revision', 'changed_by', 'changed_at'] as $key) {
+      $row[$key] = (int) $row[$key];
+    }
+    return $row;
+  }
+
+  public function assertDefinitionSelectable(string $family, string $definition_id): void {
+    $this->assertFamily($family);
+    if ($this->lifecycleState($family, $definition_id)['status'] === 'retired') {
+      throw new \DomainException('definition_retired:' . $family . ':' . $definition_id);
+    }
+  }
+
+  private function retiredDefinitionKeys(): array {
+    $keys = [];
+    $rows = $this->database->select('dungeoncrawler_content_definition_lifecycle', 'l')
+      ->fields('l', ['family', 'definition_id'])
+      ->condition('status', 'retired')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+    foreach ($rows as $row) {
+      $keys[$row['family'] . ':' . $row['definition_id']] = TRUE;
+    }
+    return $keys;
+  }
+
+  /**
+   * Change selection eligibility, never delete the definition or its references.
+   */
+  public function setDefinitionLifecycle(string $family, string $definition_id, string $status, string $expected_version, int $expected_revision, string $reason, AccountInterface $account): array {
+    if (!$account->hasPermission('administer dungeoncrawler content')) {
+      throw new \UnexpectedValueException('definition_lifecycle_access_denied');
+    }
+    if (!in_array($status, ['active', 'retired'], TRUE) || trim($reason) === '' || mb_strlen($reason) > 2000 || $expected_revision < 0) {
+      throw new \InvalidArgumentException('definition_lifecycle_request_invalid');
+    }
+    $transaction = $this->database->startTransaction();
+    try {
+      $state = $this->definitionLifecycle($family, $definition_id);
+      if ($state['definition_version'] !== $expected_version || $state['revision'] !== $expected_revision) {
+        throw new \RuntimeException('definition_lifecycle_conflict', 409);
+      }
+      if ($state['status'] === $status) {
+        throw new \DomainException('definition_lifecycle_already_' . $status);
+      }
+      $fields = [
+        'status' => $status,
+        'revision' => $expected_revision + 1,
+        'reason' => trim($reason),
+        'changed_by' => (int) $account->id(),
+        'changed_at' => time(),
+      ];
+      if ($expected_revision === 0) {
+        $this->database->insert('dungeoncrawler_content_definition_lifecycle')
+          ->fields($fields + ['family' => $family, 'definition_id' => $definition_id])
+          ->execute();
+      }
+      else {
+        $changed = $this->database->update('dungeoncrawler_content_definition_lifecycle')
+          ->fields($fields)
+          ->condition('family', $family)
+          ->condition('definition_id', $definition_id)
+          ->condition('revision', $expected_revision)
+          ->execute();
+        if ($changed !== 1) {
+          throw new \RuntimeException('definition_lifecycle_conflict', 409);
+        }
+      }
+      return $this->definitionLifecycle($family, $definition_id) + ['affected_published_rooms' => $this->publishedRoomsReferencing($family, $definition_id)];
+    }
+    catch (\Drupal\Core\Database\IntegrityConstraintViolationException $exception) {
+      $transaction->rollBack();
+      throw new \RuntimeException('definition_lifecycle_conflict', 409, $exception);
+    }
+    catch (\Throwable $exception) {
+      $transaction->rollBack();
+      throw $exception;
+    }
+  }
+
   /**
    * The schema-shaped payload for one stored definition.
    *
@@ -241,6 +358,25 @@ class CanonicalDefinitionService {
    */
   public function validateDefinition(string $family, array $payload): array {
     return $this->validator->validate($this->schemaForFamily($family), $payload);
+  }
+
+  /**
+   * Binds a native library sheet as its actor definition, without copying it.
+   */
+  public function attachCharacterSheet(string $actor_id, int $character_id, string $role, array $provenance): array {
+    $transaction = $this->database->startTransaction();
+    try {
+      $receipt = $this->actorLibrary()->attachCharacterSheet($actor_id, $character_id, $role, $provenance, \Drupal::currentUser());
+      $errors = $this->validateDefinition('actor', $this->definitionPayload('actor', $actor_id));
+      if ($errors !== []) {
+        throw new \RuntimeException('storyline_actor_sheet_definition_invalid:' . $actor_id . ':' . json_encode($errors, JSON_THROW_ON_ERROR));
+      }
+      return $receipt;
+    }
+    catch (\Throwable $exception) {
+      $transaction->rollBack();
+      throw $exception;
+    }
   }
 
   /**
@@ -366,31 +502,38 @@ class CanonicalDefinitionService {
       // The bumped version is written back into the payload so the stored
       // row and the schema-shaped payload cannot disagree.
       $payload['version'] = $version;
-      $fields = [
-        'version' => $version,
-        'actor_type' => (string) $payload['actor_type'],
-        'display_name' => $name,
-        'source_module' => isset($payload['source_module']) ? (string) $payload['source_module'] : NULL,
-        'metadata' => isset($payload['metadata']) ? $this->encode($payload['metadata']) : NULL,
-        'state_data' => $this->encode($payload['state_data']),
-        'updated_at' => $now,
-      ];
-      if ($creating) {
-        $this->database->insert('dc_canonical_actors')
-          ->fields($fields + ['actor_id' => $definition_id, 'created_at' => $now])
-          ->execute();
+      $library = in_array($payload['actor_type'], self::LIBRARY_ACTOR_TYPES, TRUE);
+      if (!$creating && $library !== ($this->actorRecords($definition_id)[0]['source_table'] === ActorDefinitionMirror::SOURCE_TABLE)) {
+        throw new \InvalidArgumentException('definition_actor_type_change_unsupported');
+      }
+      if ($library) {
+        // One name: the row name is display_name, and state_data repeats it.
+        $payload['state_data']['name'] = $name;
+        // The library actor row is the definition. A definition the actor
+        // contract cannot represent fails here.
+        $this->actorLibrary()->mirror($definition_id, $payload, \Drupal::currentUser());
       }
       else {
-        $this->database->update('dc_canonical_actors')
-          ->fields($fields)
-          ->condition('actor_id', $definition_id)
-          ->execute();
-      }
-      // Every actor definition has a library actor row, committed by the
-      // actor authority. Resolved on use: the actor services depend on this
-      // one. A definition the actor contract cannot represent fails here.
-      if (\Drupal::hasContainer() && \Drupal::hasService('dungeoncrawler_content.actor_definition_mirror')) {
-        \Drupal::service('dungeoncrawler_content.actor_definition_mirror')->mirror($definition_id, $payload, \Drupal::currentUser());
+        $fields = [
+          'version' => $version,
+          'actor_type' => (string) $payload['actor_type'],
+          'display_name' => $name,
+          'source_module' => isset($payload['source_module']) ? (string) $payload['source_module'] : NULL,
+          'metadata' => isset($payload['metadata']) ? $this->encode($payload['metadata']) : NULL,
+          'state_data' => $this->encode($payload['state_data']),
+          'updated_at' => $now,
+        ];
+        if ($creating) {
+          $this->database->insert('dc_canonical_actors')
+            ->fields($fields + ['actor_id' => $definition_id, 'created_at' => $now])
+            ->execute();
+        }
+        else {
+          $this->database->update('dc_canonical_actors')
+            ->fields($fields)
+            ->condition('actor_id', $definition_id)
+            ->execute();
+        }
       }
     }
     else {
@@ -441,22 +584,71 @@ class CanonicalDefinitionService {
   public function currentVersion(string $family, string $definition_id): ?string {
     $this->assertFamily($family);
     if ($family === self::ACTOR_FAMILY) {
-      $version = $this->database->select('dc_canonical_actors', 'a')
-        ->fields('a', ['version'])
-        ->condition('actor_id', $definition_id)
-        ->execute()
-        ->fetchField();
+      return $this->actorRecords($definition_id)[0]['version'] ?? NULL;
     }
-    else {
-      $version = $this->database->select('dungeoncrawler_content_registry', 'r')
-        ->fields('r', ['version'])
-        ->condition('content_type', $this->registryContentType($family))
-        ->condition('content_id', $definition_id)
-        ->execute()
-        ->fetchField();
-    }
+    $version = $this->database->select('dungeoncrawler_content_registry', 'r')
+      ->fields('r', ['version'])
+      ->condition('content_type', $this->registryContentType($family))
+      ->condition('content_id', $definition_id)
+      ->execute()
+      ->fetchField();
 
     return $version === FALSE ? NULL : (string) $version;
+  }
+
+  /**
+   * Actor definition id => version, for every actor definition.
+   *
+   * @return array<string, string>
+   *   Version by definition id.
+   */
+  public function actorDefinitionVersions(): array {
+    return array_column($this->actorRecords(), 'version', 'actor_id');
+  }
+
+  /**
+   * The actor library, which stores pc/npc definitions as actor rows.
+   *
+   * Resolved on use: the actor services depend on this one.
+   */
+  private function actorLibrary(): ActorDefinitionMirror {
+    return \Drupal::service('dungeoncrawler_content.actor_definition_mirror');
+  }
+
+  /**
+   * Stored actor definitions, from whichever store is their one home.
+   *
+   * @return array<int, array{actor_id: string, version: string, display_name: string, actor_type: string, source_module: ?string, metadata: ?array, state_data: array, updated_at: int, source_table: string}>
+   *   Definition records.
+   *
+   */
+  private function actorRecords(?string $definition_id = NULL, string $search = ''): array {
+    $records = $this->actorLibrary()->definitionRecords($definition_id, $search);
+    $other = $this->database->select('dc_canonical_actors', 'a')
+      ->fields('a', ['actor_id', 'version', 'display_name', 'actor_type', 'source_module', 'metadata', 'state_data', 'updated_at'])
+      ->condition('actor_type', self::LIBRARY_ACTOR_TYPES, 'NOT IN');
+    if ($definition_id !== NULL) {
+      $other->condition('actor_id', $definition_id);
+    }
+    if ($search !== '') {
+      $like = '%' . $this->database->escapeLike($search) . '%';
+      $other->condition($other->orConditionGroup()->condition('display_name', $like, 'LIKE')->condition('actor_id', $like, 'LIKE'));
+    }
+    foreach ($other->execute()->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+      $records[] = [
+        'actor_id' => (string) $row['actor_id'],
+        'version' => (string) $row['version'],
+        'display_name' => (string) $row['display_name'],
+        'actor_type' => (string) $row['actor_type'],
+        'source_module' => $row['source_module'],
+        'metadata' => json_decode((string) ($row['metadata'] ?? ''), TRUE) ?: NULL,
+        'state_data' => json_decode((string) $row['state_data'], TRUE) ?: [],
+        'updated_at' => (int) $row['updated_at'],
+        'source_table' => 'dc_canonical_actors',
+      ];
+    }
+
+    return $records;
   }
 
   /**
@@ -496,7 +688,7 @@ class CanonicalDefinitionService {
     $this->assertFamily($family);
 
     return $family === self::ACTOR_FAMILY
-      ? 'dc_canonical_actors'
+      ? ActorDefinitionMirror::SOURCE_TABLE . ', dc_canonical_actors'
       : 'dungeoncrawler_content_registry';
   }
 
@@ -514,24 +706,15 @@ class CanonicalDefinitionService {
 
     foreach ($families as $current_family) {
       if ($current_family === self::ACTOR_FAMILY) {
-        $query = $this->database->select('dc_canonical_actors', 'a')
-          ->fields('a', ['actor_id', 'version', 'display_name', 'actor_type', 'source_module', 'metadata', 'state_data']);
-        if ($search !== '') {
-          $or = $query->orConditionGroup()
-            ->condition('display_name', '%' . $this->database->escapeLike($search) . '%', 'LIKE')
-            ->condition('actor_id', '%' . $this->database->escapeLike($search) . '%', 'LIKE');
-          $query->condition($or);
-        }
-        foreach ($query->execute()->fetchAll() as $row) {
-          $data = json_decode((string) $row->state_data, TRUE) ?: [];
+        foreach ($this->actorRecords(NULL, $search) as $record) {
           $definitions[] = $this->normalizeDefinition(
             self::ACTOR_FAMILY,
-            $row->actor_id,
-            $row->version,
-            $row->display_name ?: ($data['name'] ?? $row->actor_id),
-            $row->actor_type ?: 'npc',
-            $data,
-            'dc_canonical_actors'
+            $record['actor_id'],
+            $record['version'],
+            $record['display_name'],
+            $record['actor_type'],
+            $record['state_data'],
+            $record['source_table']
           );
         }
         continue;
@@ -561,6 +744,10 @@ class CanonicalDefinitionService {
       }
     }
 
+    $retired = $this->retiredDefinitionKeys();
+    $definitions = array_values(array_filter($definitions, static fn(array $entry): bool =>
+      !isset($retired[$entry['family'] . ':' . $entry['definition_id']])
+    ));
     usort($definitions, static fn(array $a, array $b): int =>
       [$a['family'], strtolower($a['label']), $a['definition_id']]
       <=> [$b['family'], strtolower($b['label']), $b['definition_id']]
@@ -587,24 +774,19 @@ class CanonicalDefinitionService {
     }
 
     if ($family === self::ACTOR_FAMILY) {
-      $row = $this->database->select('dc_canonical_actors', 'a')
-        ->fields('a', ['actor_id', 'version', 'display_name', 'actor_type', 'source_module', 'metadata', 'state_data'])
-        ->condition('actor_id', $definition_id)
-        ->execute()
-        ->fetchAssoc();
-      if (!$row) {
+      $record = $this->actorRecords($definition_id)[0] ?? NULL;
+      if ($record === NULL) {
         return NULL;
       }
-      $data = json_decode((string) $row['state_data'], TRUE) ?: [];
 
       return $this->normalizeDefinition(
         self::ACTOR_FAMILY,
-        $row['actor_id'],
-        $row['version'],
-        $row['display_name'] ?: ($data['name'] ?? $row['actor_id']),
-        $row['actor_type'] ?: 'npc',
-        $data,
-        'dc_canonical_actors'
+        $record['actor_id'],
+        $record['version'],
+        $record['display_name'],
+        $record['actor_type'],
+        $record['state_data'],
+        $record['source_table']
       );
     }
 
@@ -674,7 +856,11 @@ class CanonicalDefinitionService {
       (array) ($criteria['tags_any'] ?? [])
     ), static fn(string $tag): bool => $tag !== ''));
     $definitions = [];
+    $retired = $this->retiredDefinitionKeys();
     foreach ($query->execute()->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+      if (isset($retired[$family . ':' . $row['content_id']])) {
+        continue;
+      }
       $payload = json_decode((string) ($row['schema_data'] ?? ''), TRUE);
       if (!is_array($payload) || $this->validateDefinition($family, $payload) !== []) {
         continue;
@@ -721,25 +907,21 @@ class CanonicalDefinitionService {
     }
 
     if ($family === self::ACTOR_FAMILY) {
-      $row = $this->database->select('dc_canonical_actors', 'a')
-        ->fields('a', ['actor_id', 'version', 'display_name', 'actor_type', 'source_module', 'metadata', 'state_data'])
-        ->condition('actor_id', $definition_id)
-        ->execute()
-        ->fetchAssoc();
-      if (!$row) {
+      $record = $this->actorRecords($definition_id)[0] ?? NULL;
+      if ($record === NULL) {
         throw new \OutOfBoundsException('definition_not_found');
       }
 
       return [
         'family' => self::ACTOR_FAMILY,
-        'definition_id' => $row['actor_id'],
-        'name' => (string) $row['display_name'],
-        'category' => (string) $row['actor_type'],
-        'version' => (string) $row['version'],
-        'schema_data' => json_decode((string) $row['state_data'], TRUE) ?: [],
-        'source_module' => $row['source_module'] ?? NULL,
-        'metadata' => json_decode((string) ($row['metadata'] ?? ''), TRUE) ?: NULL,
-        'source_table' => 'dc_canonical_actors',
+        'definition_id' => $record['actor_id'],
+        'name' => $record['display_name'],
+        'category' => $record['actor_type'],
+        'version' => $record['version'],
+        'schema_data' => $record['state_data'],
+        'source_module' => $record['source_module'],
+        'metadata' => $record['metadata'],
+        'source_table' => $record['source_table'],
       ];
     }
 
@@ -775,11 +957,7 @@ class CanonicalDefinitionService {
     $this->assertFamily($family);
 
     if ($family === self::ACTOR_FAMILY) {
-      $versions = $this->database->select('dc_canonical_actors', 'a')
-        ->fields('a', ['version'])
-        ->condition('actor_id', $definition_id)
-        ->execute()
-        ->fetchCol();
+      $versions = array_column($this->actorRecords($definition_id), 'version');
     }
     else {
       $versions = $this->database->select('dungeoncrawler_content_registry', 'r')
@@ -807,9 +985,15 @@ class CanonicalDefinitionService {
 
     $actor_query = $this->database->select('dc_canonical_actors', 'a');
     $actor_query->addExpression('MAX(updated_at)', 'max_updated');
-    $actor_max = (string) ($actor_query->execute()->fetchField() ?: '0');
+    $actor_max = ($actor_query->execute()->fetchField() ?: '0') . '|' . $this->actorLibrary()->catalogStamp();
 
-    return hash('sha256', $registry_max . '|' . $actor_max);
+    $lifecycle = $this->database->select('dungeoncrawler_content_definition_lifecycle', 'l')
+      ->fields('l', ['family', 'definition_id', 'status', 'revision'])
+      ->orderBy('family')
+      ->orderBy('definition_id')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+    return hash('sha256', $registry_max . '|' . $actor_max . '|' . json_encode($lifecycle, JSON_THROW_ON_ERROR));
   }
 
   /**

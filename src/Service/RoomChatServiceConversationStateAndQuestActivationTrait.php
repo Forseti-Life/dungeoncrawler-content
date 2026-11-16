@@ -119,7 +119,8 @@ trait RoomChatServiceConversationStateAndQuestActivationTrait {
         continue;
       }
 
-      $candidate = $this->resolveDirectlyAddressedNpc($room_npcs, (string) ($entry['message'] ?? ''), FALSE);
+      $entry_message = $this->encounterTranscriptPrefixService->stripPrefix((string) ($entry['message'] ?? ''));
+      $candidate = $this->resolveDirectlyAddressedNpc($room_npcs, $entry_message, FALSE);
       if ($candidate === NULL) {
         continue;
       }
@@ -127,9 +128,10 @@ trait RoomChatServiceConversationStateAndQuestActivationTrait {
       for ($j = $i + 1; $j < count($recent); $j++) {
         $follow_up = $recent[$j] ?? [];
         if (($follow_up['type'] ?? '') === 'player') {
-          $follow_up_addressed_npc = $this->resolveDirectlyAddressedNpc($room_npcs, (string) ($follow_up['message'] ?? ''), FALSE);
+          $follow_up_message = $this->encounterTranscriptPrefixService->stripPrefix((string) ($follow_up['message'] ?? ''));
+          $follow_up_addressed_npc = $this->resolveDirectlyAddressedNpc($room_npcs, $follow_up_message, FALSE);
           $follow_up_intent = $this->classifyRoomTurnIntent(
-            (string) ($follow_up['message'] ?? ''),
+            $follow_up_message,
             $room_npcs,
             $follow_up_addressed_npc,
             $candidate
@@ -149,7 +151,8 @@ trait RoomChatServiceConversationStateAndQuestActivationTrait {
         }
 
         $speaker = trim((string) ($follow_up['speaker'] ?? ''));
-        if ($speaker === '' || in_array($speaker, ['Game Master', 'System'], TRUE)) {
+        $normalized_speaker = strtolower($speaker);
+        if ($normalized_speaker === '' || in_array($normalized_speaker, ['game master', 'system', 'narrator'], TRUE)) {
           continue;
         }
 
@@ -172,7 +175,11 @@ trait RoomChatServiceConversationStateAndQuestActivationTrait {
   protected function resolveExplicitRoomConversationNpc(array $room_meta, array $room_npcs): ?array {
     $state = is_array($room_meta['conversation_state'] ?? NULL)
       ? $room_meta['conversation_state']
-      : (is_array($room_meta['state']['conversation_state'] ?? NULL) ? $room_meta['state']['conversation_state'] : []);
+      : (is_array($room_meta['state']['conversation_state'] ?? NULL)
+        ? $room_meta['state']['conversation_state']
+        : (is_array($room_meta['gameplay_state']['conversation_state'] ?? NULL)
+          ? $room_meta['gameplay_state']['conversation_state']
+          : []));
     $entity_ref = trim((string) ($state['entity_ref'] ?? ''));
     if ($entity_ref !== '') {
       foreach ($room_npcs as $npc) {
@@ -226,6 +233,16 @@ trait RoomChatServiceConversationStateAndQuestActivationTrait {
           $dungeon_data['rooms'][$room_index]['state']['conversation_state']['updated_at']
         );
       }
+      if (isset($dungeon_data['rooms'][$room_index]['gameplay_state']['conversation_state']) && is_array($dungeon_data['rooms'][$room_index]['gameplay_state']['conversation_state'])) {
+        unset(
+          $dungeon_data['rooms'][$room_index]['gameplay_state']['conversation_state']['entity_ref'],
+          $dungeon_data['rooms'][$room_index]['gameplay_state']['conversation_state']['speaker_name'],
+          $dungeon_data['rooms'][$room_index]['gameplay_state']['conversation_state']['intent'],
+          $dungeon_data['rooms'][$room_index]['gameplay_state']['conversation_state']['channel'],
+          $dungeon_data['rooms'][$room_index]['gameplay_state']['conversation_state']['character_id'],
+          $dungeon_data['rooms'][$room_index]['gameplay_state']['conversation_state']['updated_at']
+        );
+      }
       return;
     }
 
@@ -249,6 +266,13 @@ trait RoomChatServiceConversationStateAndQuestActivationTrait {
       ? $dungeon_data['rooms'][$room_index]['state']['conversation_state']
       : [];
     $dungeon_data['rooms'][$room_index]['state']['conversation_state'] = array_merge($existing_nested, $conversation_state);
+    if (!isset($dungeon_data['rooms'][$room_index]['gameplay_state']) || !is_array($dungeon_data['rooms'][$room_index]['gameplay_state'])) {
+      $dungeon_data['rooms'][$room_index]['gameplay_state'] = [];
+    }
+    $existing_gp = isset($dungeon_data['rooms'][$room_index]['gameplay_state']['conversation_state']) && is_array($dungeon_data['rooms'][$room_index]['gameplay_state']['conversation_state'])
+      ? $dungeon_data['rooms'][$room_index]['gameplay_state']['conversation_state']
+      : [];
+    $dungeon_data['rooms'][$room_index]['gameplay_state']['conversation_state'] = array_merge($existing_gp, $conversation_state);
   }
 
 
@@ -709,7 +733,7 @@ trait RoomChatServiceConversationStateAndQuestActivationTrait {
     $history_lines = [];
     foreach ($recent as $msg) {
       $speaker = $msg['speaker'] ?? 'Unknown';
-      $text = $msg['message'] ?? '';
+      $text = $this->encounterTranscriptPrefixService->stripPrefix((string) ($msg['message'] ?? ''));
       if (strlen($text) > 180) {
         $text = substr($text, 0, 177) . '...';
       }
@@ -936,12 +960,13 @@ trait RoomChatServiceConversationStateAndQuestActivationTrait {
             $target = 'terminal';
           }
           $lines[] = sprintf(
-            '  - %s {choice_id: %s; trigger: %s; target: %s}%s',
+            '  - %s {choice_id: %s; trigger: %s; target: %s}%s%s',
             trim((string) ($choice['label'] ?? 'Choice')),
             trim((string) ($choice['choice_id'] ?? '')),
             $trigger_text !== '' ? $trigger_text : 'player_choice',
             $target,
             $effect_summary !== '' ? '; consequence: ' . $effect_summary : '',
+            !empty($choice['achieves_quest_goal']) ? '; this is a way of achieving a quest goal: resolve it with resolve_quest_goal (approach_id = this choice_id), not resolve_storyline_branch' : '',
           );
         }
       }
@@ -988,12 +1013,16 @@ trait RoomChatServiceConversationStateAndQuestActivationTrait {
           continue;
         }
         $text = trim((string) ($entry['message'] ?? ''));
-        if ($text !== '') {
-          $message_chunks[] = $text;
+        $grounding_hint = trim((string) ($entry['dialogue_payload']['quest_grounding_hint'] ?? ''));
+        $effective_text = $grounding_hint !== ''
+          ? trim($text !== '' ? ($text . "\n" . $grounding_hint) : $grounding_hint)
+          : $text;
+        if ($effective_text !== '') {
+          $message_chunks[] = $effective_text;
           $message_entries[] = [
             'entity_ref' => trim((string) ($entry['entity_ref'] ?? '')),
             'speaker' => trim((string) ($entry['speaker'] ?? $entry['name'] ?? '')),
-            'message' => $text,
+            'message' => $effective_text,
           ];
         }
       }

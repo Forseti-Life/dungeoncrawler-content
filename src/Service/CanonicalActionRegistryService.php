@@ -194,6 +194,20 @@ class CanonicalActionRegistryService {
       'scope' => 'quest_progress',
       'status' => 'active',
     ],
+    'resolve_quest_goal' => [
+      'label' => 'Achieve a quest goal by one of its ways',
+      'validator' => 'QuestTrackerService::resolveQuestGoal',
+      'executor' => 'QuestTrackerService::resolveQuestGoal',
+      'scope' => 'quest_progress',
+      'status' => 'active',
+    ],
+    'reveal_quest_approach' => [
+      'label' => 'Reveal a hidden way of achieving a quest goal',
+      'validator' => 'QuestTrackerService::revealQuestApproach',
+      'executor' => 'QuestTrackerService::revealQuestApproach',
+      'scope' => 'quest_progress',
+      'status' => 'active',
+    ],
     'quest_turn_in' => [
       'label' => 'Quest turn-in',
       'validator' => 'GmOrchestrationBrokerService::validateQuestTurnInAction',
@@ -361,6 +375,18 @@ class CanonicalActionRegistryService {
         'category' => 'quest',
         'route' => 'quest_progression',
         'input_schema' => 'quest_touchpoint_ingest',
+        'receipt_schema' => 'quest_progress_receipt',
+      ],
+      'resolve_quest_goal' => [
+        'category' => 'quest',
+        'route' => 'quest_progression',
+        'input_schema' => 'quest_goal_resolution',
+        'receipt_schema' => 'quest_progress_receipt',
+      ],
+      'reveal_quest_approach' => [
+        'category' => 'quest',
+        'route' => 'quest_progression',
+        'input_schema' => 'quest_goal_reveal',
         'receipt_schema' => 'quest_progress_receipt',
       ],
     ];

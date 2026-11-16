@@ -31,6 +31,7 @@ final class DescribeStorylineAuthoringContractTool implements EditorGmToolInterf
       'operations' => StorylineAuthoringDraftService::OPERATION_CONTRACT,
       'operation_contract_description' => StorylineAuthoringDraftService::operationContractDescription(),
       'collection_contracts' => StorylineAuthoringDraftService::collectionAuthoringContract(),
+      'identity_contract' => StorylineAuthoringDraftService::identityAuthoringContract(),
       'branching_contract' => StorylineAuthoringDraftService::branchAuthoringContract(),
       'site_topology_contract' => CanonicalSiteTopologyContract::describe(),
       'path_format' => 'RFC 6901 JSON pointer rooted at the draft payload.',

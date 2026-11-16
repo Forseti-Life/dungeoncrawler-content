@@ -10305,6 +10305,1485 @@
                 "type": "skill"
             },
             "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "desperate-prayer",
+            "name": "Desperate Prayer",
+            "level": 1,
+            "schema_data": {
+                "id": "desperate-prayer",
+                "name": "Desperate Prayer",
+                "level": 1,
+                "traits": [
+                    "Champion"
+                ],
+                "prerequisites": "none",
+                "benefit": "Free action, once per day. Trigger: your turn begins and your focus pool is empty. You call on your deity and immediately regain 1 Focus Point.",
+                "class": "champion",
+                "feat_id": "desperate-prayer",
+                "content_id": "desperate-prayer",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "ranged-reprisal",
+            "name": "Ranged Reprisal",
+            "level": 1,
+            "schema_data": {
+                "id": "ranged-reprisal",
+                "name": "Ranged Reprisal",
+                "level": 1,
+                "traits": [
+                    "Champion"
+                ],
+                "prerequisites": "Paladin cause",
+                "benefit": "You can make your Retributive Strike with a ranged weapon. If the triggering foe is within 5 feet of your reach but outside it, you can Step as part of the reaction to bring the foe into reach before making a melee Retributive Strike.",
+                "class": "champion",
+                "feat_id": "ranged-reprisal",
+                "content_id": "ranged-reprisal",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "unimpeded-step",
+            "name": "Unimpeded Step",
+            "level": 1,
+            "schema_data": {
+                "id": "unimpeded-step",
+                "name": "Unimpeded Step",
+                "level": 1,
+                "traits": [
+                    "Champion"
+                ],
+                "prerequisites": "Liberator cause",
+                "benefit": "The movement an ally gains from your Liberating Step ignores difficult terrain, greater difficult terrain, narrow surfaces, and uneven ground.",
+                "class": "champion",
+                "feat_id": "unimpeded-step",
+                "content_id": "unimpeded-step",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "weight-of-guilt",
+            "name": "Weight of Guilt",
+            "level": 1,
+            "schema_data": {
+                "id": "weight-of-guilt",
+                "name": "Weight of Guilt",
+                "level": 1,
+                "traits": [
+                    "Champion"
+                ],
+                "prerequisites": "Redeemer cause",
+                "benefit": "When a foe ignores your Glimpse of Redemption, you can make it stupefied 2 instead of enfeebled 2, for the same duration.",
+                "class": "champion",
+                "feat_id": "weight-of-guilt",
+                "content_id": "weight-of-guilt",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "crane-stance",
+            "name": "Crane Stance",
+            "level": 1,
+            "schema_data": {
+                "id": "crane-stance",
+                "name": "Crane Stance",
+                "level": 1,
+                "traits": [
+                    "Monk",
+                    "Stance"
+                ],
+                "prerequisites": "none",
+                "benefit": "1 action. Requirement: you are unarmored. You gain a +1 circumstance bonus to AC, but the only Strikes you can make are crane wing attacks: 1d6 bludgeoning, brawling group, with the agile, finesse, nonlethal, and unarmed traits. In this stance the DCs of High Jump and Long Jump drop by 5, and a Leap carries you 5 feet farther horizontally or 2 feet higher.",
+                "class": "monk",
+                "feat_id": "crane-stance",
+                "content_id": "crane-stance",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "dragon-stance",
+            "name": "Dragon Stance",
+            "level": 1,
+            "schema_data": {
+                "id": "dragon-stance",
+                "name": "Dragon Stance",
+                "level": 1,
+                "traits": [
+                    "Monk",
+                    "Stance"
+                ],
+                "prerequisites": "none",
+                "benefit": "1 action. Requirement: you are unarmored. You can make dragon tail attacks: 1d10 bludgeoning, brawling group, with the backswing, nonlethal, and unarmed traits. In this stance you ignore the first square of difficult terrain when you Stride.",
+                "class": "monk",
+                "feat_id": "dragon-stance",
+                "content_id": "dragon-stance",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "mountain-stance",
+            "name": "Mountain Stance",
+            "level": 1,
+            "schema_data": {
+                "id": "mountain-stance",
+                "name": "Mountain Stance",
+                "level": 1,
+                "traits": [
+                    "Monk",
+                    "Stance"
+                ],
+                "prerequisites": "none",
+                "benefit": "1 action. Requirements: you are unarmored and touching the ground. The only Strikes you can make are falling stone attacks: 1d8 bludgeoning, brawling group, with the forceful, nonlethal, and unarmed traits. You gain a +4 item bonus to AC and a +2 circumstance bonus to defenses against Shove and Trip, but your Dexterity bonus to AC is capped at +0 and your Speeds drop by 5 feet.",
+                "class": "monk",
+                "feat_id": "mountain-stance",
+                "content_id": "mountain-stance",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "tiger-stance",
+            "name": "Tiger Stance",
+            "level": 1,
+            "schema_data": {
+                "id": "tiger-stance",
+                "name": "Tiger Stance",
+                "level": 1,
+                "traits": [
+                    "Monk",
+                    "Stance"
+                ],
+                "prerequisites": "none",
+                "benefit": "1 action. Requirement: you are unarmored. You can make tiger claw attacks: 1d8 slashing, brawling group, with the agile, finesse, nonlethal, and unarmed traits. A critical hit with tiger claws that deals damage also deals 1d4 persistent bleed damage. While your Speed is at least 20 feet, you can Step 10 feet.",
+                "class": "monk",
+                "feat_id": "tiger-stance",
+                "content_id": "tiger-stance",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "wolf-stance",
+            "name": "Wolf Stance",
+            "level": 1,
+            "schema_data": {
+                "id": "wolf-stance",
+                "name": "Wolf Stance",
+                "level": 1,
+                "traits": [
+                    "Monk",
+                    "Stance"
+                ],
+                "prerequisites": "none",
+                "benefit": "1 action. Requirement: you are unarmored. You can make wolf jaw attacks: 1d8 piercing, brawling group, with the agile, backstabber, finesse, nonlethal, and unarmed traits. While you flank a target, your wolf jaw attacks against it also have the trip trait.",
+                "class": "monk",
+                "feat_id": "wolf-stance",
+                "content_id": "wolf-stance",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "gorilla-stance",
+            "name": "Gorilla Stance",
+            "level": 1,
+            "schema_data": {
+                "id": "gorilla-stance",
+                "name": "Gorilla Stance",
+                "level": 1,
+                "traits": [
+                    "Monk",
+                    "Stance"
+                ],
+                "prerequisites": "none",
+                "benefit": "1 action. The only Strikes you can make are gorilla slam attacks: 1d8 bludgeoning, brawling group, with the backswing, forceful, grapple, nonlethal, and unarmed traits. You gain a +2 circumstance bonus to Athletics checks to Climb, and a success on such a check becomes a critical success.",
+                "class": "monk",
+                "feat_id": "gorilla-stance",
+                "content_id": "gorilla-stance",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "stumbling-stance",
+            "name": "Stumbling Stance",
+            "level": 1,
+            "schema_data": {
+                "id": "stumbling-stance",
+                "name": "Stumbling Stance",
+                "level": 1,
+                "traits": [
+                    "Monk",
+                    "Stance"
+                ],
+                "prerequisites": "Trained in Deception",
+                "benefit": "1 action. You gain a +1 circumstance bonus to Deception checks to Feint. The only Strikes you can make are stumbling swing attacks: 1d8 bludgeoning, brawling group, with the agile, backstabber, finesse, nonlethal, and unarmed traits. An enemy that hits you with a melee Strike is flat-footed against your next stumbling swing against it before the end of your next turn.",
+                "class": "monk",
+                "feat_id": "stumbling-stance",
+                "content_id": "stumbling-stance",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "ki-rush",
+            "name": "Ki Rush",
+            "level": 1,
+            "schema_data": {
+                "id": "ki-rush",
+                "name": "Ki Rush",
+                "level": 1,
+                "traits": [
+                    "Monk"
+                ],
+                "prerequisites": "none",
+                "benefit": "You learn the ki rush ki spell and gain a focus pool of 1 Focus Point. Ki rush lets you move twice with a single action while concealed by your own speed.",
+                "class": "monk",
+                "feat_id": "ki-rush",
+                "content_id": "ki-rush",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "ki-strike",
+            "name": "Ki Strike",
+            "level": 1,
+            "schema_data": {
+                "id": "ki-strike",
+                "name": "Ki Strike",
+                "level": 1,
+                "traits": [
+                    "Monk"
+                ],
+                "prerequisites": "none",
+                "benefit": "You learn the ki strike ki spell and gain a focus pool of 1 Focus Point. Ki strike sharpens an unarmed attack with a bonus to hit and extra damage.",
+                "class": "monk",
+                "feat_id": "ki-strike",
+                "content_id": "ki-strike",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "monastic-weaponry",
+            "name": "Monastic Weaponry",
+            "level": 1,
+            "schema_data": {
+                "id": "monastic-weaponry",
+                "name": "Monastic Weaponry",
+                "level": 1,
+                "traits": [
+                    "Monk"
+                ],
+                "prerequisites": "none",
+                "benefit": "You are trained in simple and martial weapons that have the monk trait, and you gain access to uncommon monk weapons. Your proficiency with them rises whenever your unarmed proficiency does. You can use melee monk weapons with monk feats and abilities that normally need unarmed attacks, unless the ability calls for one specific attack.",
+                "class": "monk",
+                "feat_id": "monastic-weaponry",
+                "content_id": "monastic-weaponry",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "trap-finder-investigator",
+            "name": "Trap Finder",
+            "level": 1,
+            "schema_data": {
+                "id": "trap-finder-investigator",
+                "name": "Trap Finder",
+                "level": 1,
+                "traits": [
+                    "Investigator"
+                ],
+                "prerequisites": "none",
+                "benefit": "You gain a +1 circumstance bonus to Perception checks to find traps, to AC against attacks made by traps, and to saves against traps. You get a check to find traps that normally require Searching even when you are not Searching, and you can disable traps that require master proficiency in Thievery.",
+                "class": "investigator",
+                "feat_id": "trap-finder-investigator",
+                "content_id": "trap-finder-investigator",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "flexible-studies",
+            "name": "Flexible Studies",
+            "level": 1,
+            "schema_data": {
+                "id": "flexible-studies",
+                "name": "Flexible Studies",
+                "level": 1,
+                "traits": [
+                    "Investigator"
+                ],
+                "prerequisites": "none",
+                "benefit": "During your daily preparations, choose one skill. You are trained in it until your next daily preparations. This temporary training cannot satisfy a prerequisite or a skill increase.",
+                "class": "investigator",
+                "feat_id": "flexible-studies",
+                "content_id": "flexible-studies",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "known-weaknesses",
+            "name": "Known Weaknesses",
+            "level": 1,
+            "schema_data": {
+                "id": "known-weaknesses",
+                "name": "Known Weaknesses",
+                "level": 1,
+                "traits": [
+                    "Investigator"
+                ],
+                "prerequisites": "none",
+                "benefit": "When you Devise a Stratagem, you can also Recall Knowledge as part of the action. On a critical success you gain a +1 circumstance bonus to that stratagem's attack roll, and if you share what you learned, each ally gains a +1 circumstance bonus to their next attack against the subject before your next turn begins.",
+                "class": "investigator",
+                "feat_id": "known-weaknesses",
+                "content_id": "known-weaknesses",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "takedown-expert",
+            "name": "Takedown Expert",
+            "level": 1,
+            "schema_data": {
+                "id": "takedown-expert",
+                "name": "Takedown Expert",
+                "level": 1,
+                "traits": [
+                    "Investigator"
+                ],
+                "prerequisites": "none",
+                "benefit": "When you Devise a Stratagem you can use Intelligence for the attack roll with a club-group weapon held in one hand, and those Strikes qualify for strategic strike. You can make any Strike nonlethal without the usual -2 penalty.",
+                "class": "investigator",
+                "feat_id": "takedown-expert",
+                "content_id": "takedown-expert",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "thats-odd",
+            "name": "That's Odd",
+            "level": 1,
+            "schema_data": {
+                "id": "thats-odd",
+                "name": "That's Odd",
+                "level": 1,
+                "traits": [
+                    "Investigator"
+                ],
+                "prerequisites": "none",
+                "benefit": "When you enter a new location, you immediately notice one thing that is out of the ordinary, if anything is. You learn only that it is unusual, not what it means, and you get no hint about whether a creature is suspicious.",
+                "class": "investigator",
+                "feat_id": "thats-odd",
+                "content_id": "thats-odd",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "underworld-investigator",
+            "name": "Underworld Investigator",
+            "level": 1,
+            "schema_data": {
+                "id": "underworld-investigator",
+                "name": "Underworld Investigator",
+                "level": 1,
+                "traits": [
+                    "Investigator"
+                ],
+                "prerequisites": "none",
+                "benefit": "You are trained in Underworld Lore. Your Pursue a Lead circumstance bonus also applies to Thievery checks made to investigate the subject of your lead.",
+                "class": "investigator",
+                "feat_id": "underworld-investigator",
+                "content_id": "underworld-investigator",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "nimble-dodge-swashbuckler",
+            "name": "Nimble Dodge",
+            "level": 1,
+            "schema_data": {
+                "id": "nimble-dodge-swashbuckler",
+                "name": "Nimble Dodge",
+                "level": 1,
+                "traits": [
+                    "Swashbuckler"
+                ],
+                "prerequisites": "none",
+                "benefit": "Reaction. Trigger: a creature you can see targets you with an attack. Requirement: you are not encumbered. You gain a +2 circumstance bonus to AC against the triggering attack.",
+                "class": "swashbuckler",
+                "feat_id": "nimble-dodge-swashbuckler",
+                "content_id": "nimble-dodge-swashbuckler",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "you-re-next-swashbuckler",
+            "name": "You're Next",
+            "level": 1,
+            "schema_data": {
+                "id": "you-re-next-swashbuckler",
+                "name": "You're Next",
+                "level": 1,
+                "traits": [
+                    "Emotion",
+                    "Fear",
+                    "Mental",
+                    "Swashbuckler"
+                ],
+                "prerequisites": "Trained in Intimidation",
+                "benefit": "Reaction. Trigger: you reduce an enemy to 0 Hit Points. Attempt to Demoralize one creature that you can see and that can see you, with a +2 circumstance bonus to the Intimidation check.",
+                "class": "swashbuckler",
+                "feat_id": "you-re-next-swashbuckler",
+                "content_id": "you-re-next-swashbuckler",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "buckler-expertise",
+            "name": "Buckler Expertise",
+            "level": 1,
+            "schema_data": {
+                "id": "buckler-expertise",
+                "name": "Buckler Expertise",
+                "level": 1,
+                "traits": [
+                    "Swashbuckler"
+                ],
+                "prerequisites": "none",
+                "benefit": "When you Raise a Shield with a buckler, its circumstance bonus to AC is +2 instead of +1.",
+                "class": "swashbuckler",
+                "feat_id": "buckler-expertise",
+                "content_id": "buckler-expertise",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "disarming-flair",
+            "name": "Disarming Flair",
+            "level": 1,
+            "schema_data": {
+                "id": "disarming-flair",
+                "name": "Disarming Flair",
+                "level": 1,
+                "traits": [
+                    "Swashbuckler"
+                ],
+                "prerequisites": "none",
+                "benefit": "When you succeed at an Athletics check to Disarm, the resulting bonus and penalty last until the end of your next turn instead of the start of the target's next turn. The target can Interact to end the effect. A gymnast who succeeds at the Disarm gains panache.",
+                "class": "swashbuckler",
+                "feat_id": "disarming-flair",
+                "content_id": "disarming-flair",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "dueling-parry-swashbuckler",
+            "name": "Dueling Parry",
+            "level": 1,
+            "schema_data": {
+                "id": "dueling-parry-swashbuckler",
+                "name": "Dueling Parry",
+                "level": 1,
+                "traits": [
+                    "Swashbuckler"
+                ],
+                "prerequisites": "none",
+                "benefit": "1 action. Requirement: you wield a single one-handed melee weapon and your other hand is free. You gain a +2 circumstance bonus to AC until the start of your next turn, as long as you still meet the requirement.",
+                "class": "swashbuckler",
+                "feat_id": "dueling-parry-swashbuckler",
+                "content_id": "dueling-parry-swashbuckler",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "goading-feint",
+            "name": "Goading Feint",
+            "level": 1,
+            "schema_data": {
+                "id": "goading-feint",
+                "name": "Goading Feint",
+                "level": 1,
+                "traits": [
+                    "Swashbuckler"
+                ],
+                "prerequisites": "Trained in Deception",
+                "benefit": "When you Feint, you can replace the normal results. Success: the target takes a -2 circumstance penalty to its next attack roll against you before the end of its next turn. Critical success: the penalty applies to all of its attack rolls against you before the end of its next turn.",
+                "class": "swashbuckler",
+                "feat_id": "goading-feint",
+                "content_id": "goading-feint",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "one-for-all",
+            "name": "One for All",
+            "level": 1,
+            "schema_data": {
+                "id": "one-for-all",
+                "name": "One for All",
+                "level": 1,
+                "traits": [
+                    "Auditory",
+                    "Concentrate",
+                    "Emotion",
+                    "Linguistic",
+                    "Mental",
+                    "Swashbuckler"
+                ],
+                "prerequisites": "Trained in Diplomacy",
+                "benefit": "1 action. Choose an ally within 30 feet. This counts as your preparation to Aid that ally, and when you use the Aid reaction for them you can roll Diplomacy instead of the usual check. A wit swashbuckler whose check meets the very hard DC for their level gains panache.",
+                "class": "swashbuckler",
+                "feat_id": "one-for-all",
+                "content_id": "one-for-all",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "blast-lock",
+            "name": "Blast Lock",
+            "level": 1,
+            "schema_data": {
+                "id": "blast-lock",
+                "name": "Blast Lock",
+                "level": 1,
+                "traits": [
+                    "Attack",
+                    "Gunslinger"
+                ],
+                "prerequisites": "none",
+                "benefit": "1 action. Requirement: you wield a loaded firearm. Shoot a lock within 10 feet, making an attack roll against the DC to Pick the Lock. Critical success: the lock opens, or you gain two successes on a complex lock. Success: the lock opens, or you gain one success. Failure: later attempts to pick or blast this lock take a -2 circumstance penalty. Critical failure: the penalty is -4.",
+                "class": "gunslinger",
+                "feat_id": "blast-lock",
+                "content_id": "blast-lock",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "cover-fire",
+            "name": "Cover Fire",
+            "level": 1,
+            "schema_data": {
+                "id": "cover-fire",
+                "name": "Cover Fire",
+                "level": 1,
+                "traits": [
+                    "Gunslinger"
+                ],
+                "prerequisites": "none",
+                "benefit": "1 action, once per round. Requirement: you wield a loaded firearm or crossbow. Make a Strike; before you roll, the target chooses whether to duck. If it ducks, it gains a +2 circumstance bonus to AC against the attack (+4 if it has cover) and takes a -2 circumstance penalty to ranged attack rolls until the end of its next turn. If it does not duck, you gain a +1 circumstance bonus to the attack roll.",
+                "class": "gunslinger",
+                "feat_id": "cover-fire",
+                "content_id": "cover-fire",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "crossbow-crack-shot",
+            "name": "Crossbow Crack Shot",
+            "level": 1,
+            "schema_data": {
+                "id": "crossbow-crack-shot",
+                "name": "Crossbow Crack Shot",
+                "level": 1,
+                "traits": [
+                    "Gunslinger"
+                ],
+                "prerequisites": "none",
+                "benefit": "The first time each round you Interact to reload a crossbow you wield, your next Strike with it gains 10 feet of range increment and deals 1 extra precision damage per weapon damage die. Against a flat-footed target, a backstabber crossbow deals 2 extra precision damage per die instead of its usual backstabber damage.",
+                "class": "gunslinger",
+                "feat_id": "crossbow-crack-shot",
+                "content_id": "crossbow-crack-shot",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "dual-weapon-reload-gunslinger",
+            "name": "Dual-Weapon Reload",
+            "level": 1,
+            "schema_data": {
+                "id": "dual-weapon-reload-gunslinger",
+                "name": "Dual-Weapon Reload",
+                "level": 1,
+                "traits": [
+                    "Gunslinger"
+                ],
+                "prerequisites": "none",
+                "benefit": "While you wield two one-handed weapons, one in each hand, you do not need a free hand to reload a one-handed ranged weapon you are wielding.",
+                "class": "gunslinger",
+                "feat_id": "dual-weapon-reload-gunslinger",
+                "content_id": "dual-weapon-reload-gunslinger",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "hit-the-dirt",
+            "name": "Hit the Dirt!",
+            "level": 1,
+            "schema_data": {
+                "id": "hit-the-dirt",
+                "name": "Hit the Dirt!",
+                "level": 1,
+                "traits": [
+                    "Gunslinger"
+                ],
+                "prerequisites": "none",
+                "benefit": "Reaction. Trigger: a creature you can see makes a ranged Strike against you. You Leap and gain a +2 circumstance bonus to AC against the triggering attack. Whether or not the attack hits, you land prone.",
+                "class": "gunslinger",
+                "feat_id": "hit-the-dirt",
+                "content_id": "hit-the-dirt",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "munitions-crafter",
+            "name": "Munitions Crafter",
+            "level": 1,
+            "schema_data": {
+                "id": "munitions-crafter",
+                "name": "Munitions Crafter",
+                "level": 1,
+                "traits": [
+                    "Gunslinger"
+                ],
+                "prerequisites": "none",
+                "benefit": "You are trained in Crafting and gain Alchemical Crafting with four additional 1st-level alchemical formulas. Each day you gain batches of infused reagents equal to your level, usable through advanced alchemy (level 1) to make only bombs and alchemical ammunition. A batch spent on level-0 ammunition makes 10 rounds.",
+                "class": "gunslinger",
+                "feat_id": "munitions-crafter",
+                "content_id": "munitions-crafter",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "sword-and-pistol",
+            "name": "Sword and Pistol",
+            "level": 1,
+            "schema_data": {
+                "id": "sword-and-pistol",
+                "name": "Sword and Pistol",
+                "level": 1,
+                "traits": [
+                    "Gunslinger"
+                ],
+                "prerequisites": "none",
+                "benefit": "When you hit an enemy within your reach with a one-handed firearm or crossbow, it is flat-footed against your next melee attack with a one-handed melee weapon. When you hit an enemy with a one-handed melee weapon, your next ranged Strike against it with a one-handed firearm or crossbow does not trigger reactions that ranged attacks would. Each benefit lasts until the end of your next turn.",
+                "class": "gunslinger",
+                "feat_id": "sword-and-pistol",
+                "content_id": "sword-and-pistol",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "built-in-tools",
+            "name": "Built-In Tools",
+            "level": 1,
+            "schema_data": {
+                "id": "built-in-tools",
+                "name": "Built-In Tools",
+                "level": 1,
+                "traits": [
+                    "Inventor",
+                    "Modification"
+                ],
+                "prerequisites": "none",
+                "benefit": "Up to two sets of tools you own, totaling 2 Bulk or less, become part of your innovation without adding to its Bulk. While you wield, wear, or stand next to the innovation, you can draw on those tools as if you were wearing them, and they do not count against the number of tool sets you can wear.",
+                "class": "inventor",
+                "feat_id": "built-in-tools",
+                "content_id": "built-in-tools",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "explosive-leap",
+            "name": "Explosive Leap",
+            "level": 1,
+            "schema_data": {
+                "id": "explosive-leap",
+                "name": "Explosive Leap",
+                "level": 1,
+                "traits": [
+                    "Fire",
+                    "Inventor",
+                    "Move",
+                    "Unstable"
+                ],
+                "prerequisites": "none",
+                "benefit": "1 action, unstable. You jump up to 30 feet in any direction without touching the ground. If you do not land on solid ground, you fall after your next action, or at the end of your turn.",
+                "class": "inventor",
+                "feat_id": "explosive-leap",
+                "content_id": "explosive-leap",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "haphazard-repair",
+            "name": "Haphazard Repair",
+            "level": 1,
+            "schema_data": {
+                "id": "haphazard-repair",
+                "name": "Haphazard Repair",
+                "level": 1,
+                "traits": [
+                    "Inventor",
+                    "Unstable"
+                ],
+                "prerequisites": "none",
+                "benefit": "1 action, unstable. You Repair your innovation at once. You must be adjacent to it and have a repair kit, but it does not need to rest on a flat surface.",
+                "class": "inventor",
+                "feat_id": "haphazard-repair",
+                "content_id": "haphazard-repair",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "tamper",
+            "name": "Tamper",
+            "level": 1,
+            "schema_data": {
+                "id": "tamper",
+                "name": "Tamper",
+                "level": 1,
+                "traits": [
+                    "Inventor",
+                    "Manipulate"
+                ],
+                "prerequisites": "none",
+                "benefit": "1 action. Requirement: a free hand. Choose a weapon held or armor worn by an enemy in your reach and attempt a Crafting check against its Reflex DC. Critical success: a tampered weapon takes a -2 circumstance penalty to attack and damage rolls; tampered armor makes the wearer flat-footed with a -10-foot penalty to Speeds; either lasts until the enemy Interacts to end it. Success: the same, ending at the start of your next turn. Critical failure: you take fire damage equal to your level.",
+                "class": "inventor",
+                "feat_id": "tamper",
+                "content_id": "tamper",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "reach-spell-oracle",
+            "name": "Reach Spell",
+            "level": 1,
+            "schema_data": {
+                "id": "reach-spell-oracle",
+                "name": "Reach Spell",
+                "level": 1,
+                "traits": [
+                    "Concentrate",
+                    "Metamagic",
+                    "Oracle"
+                ],
+                "prerequisites": "none",
+                "benefit": "Metamagic, 1 action. If your next action is to Cast a Spell that has a range, that spell's range grows by 30 feet. A touch spell gains a range of 30 feet instead.",
+                "class": "oracle",
+                "feat_id": "reach-spell-oracle",
+                "content_id": "reach-spell-oracle",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "widen-spell-oracle",
+            "name": "Widen Spell",
+            "level": 1,
+            "schema_data": {
+                "id": "widen-spell-oracle",
+                "name": "Widen Spell",
+                "level": 1,
+                "traits": [
+                    "Manipulate",
+                    "Metamagic",
+                    "Oracle"
+                ],
+                "prerequisites": "none",
+                "benefit": "Metamagic, 1 action. If your next action is to Cast a Spell with no duration and a burst, cone, or line area, the area grows: a burst of at least 10 feet gains 5 feet of radius, a cone or line of 15 feet or less gains 5 feet of length, and a longer cone or line gains 10 feet.",
+                "class": "oracle",
+                "feat_id": "widen-spell-oracle",
+                "content_id": "widen-spell-oracle",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "glean-lore",
+            "name": "Glean Lore",
+            "level": 1,
+            "schema_data": {
+                "id": "glean-lore",
+                "name": "Glean Lore",
+                "level": 1,
+                "traits": [
+                    "Divination",
+                    "Divine",
+                    "Oracle",
+                    "Secret"
+                ],
+                "prerequisites": "none",
+                "benefit": "1 action. Attempt a secret Religion check against a DC the GM sets, as for Recall Knowledge. Critical success: you learn accurate lore or a useful clue. Success: you learn two pieces of information, one true and one false, without knowing which is which. Failure: you learn something false or misleading. Critical failure: you learn two false or misleading things.",
+                "class": "oracle",
+                "feat_id": "glean-lore",
+                "content_id": "glean-lore",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "cackle",
+            "name": "Cackle",
+            "level": 1,
+            "schema_data": {
+                "id": "cackle",
+                "name": "Cackle",
+                "level": 1,
+                "traits": [
+                    "Witch"
+                ],
+                "prerequisites": "none",
+                "benefit": "You learn the cackle hex, which Sustains one of your active spells as a free action, and your focus pool grows by 1 Focus Point.",
+                "class": "witch",
+                "feat_id": "cackle",
+                "content_id": "cackle",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "cauldron",
+            "name": "Cauldron",
+            "level": 1,
+            "schema_data": {
+                "id": "cauldron",
+                "name": "Cauldron",
+                "level": 1,
+                "traits": [
+                    "Witch"
+                ],
+                "prerequisites": "none",
+                "benefit": "You can Craft oils and potions and learn the formulas for four common 1st-level oils or potions. At 4th level and every 2 levels after, you learn one more common oil or potion formula of your level or lower. A familiar can hold these formulas. When you Craft a batch of oils or potions, the batch can hold six instead of four.",
+                "class": "witch",
+                "feat_id": "cauldron",
+                "content_id": "cauldron",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "counterspell-witch",
+            "name": "Counterspell",
+            "level": 1,
+            "schema_data": {
+                "id": "counterspell-witch",
+                "name": "Counterspell",
+                "level": 1,
+                "traits": [
+                    "Abjuration",
+                    "Witch"
+                ],
+                "prerequisites": "none",
+                "benefit": "Reaction. Trigger: a creature Casts a Spell that you have prepared, and you can see its manifestations. Expend that prepared spell to attempt to counteract the triggering spell.",
+                "class": "witch",
+                "feat_id": "counterspell-witch",
+                "content_id": "counterspell-witch",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "reach-spell-witch",
+            "name": "Reach Spell",
+            "level": 1,
+            "schema_data": {
+                "id": "reach-spell-witch",
+                "name": "Reach Spell",
+                "level": 1,
+                "traits": [
+                    "Concentrate",
+                    "Metamagic",
+                    "Witch"
+                ],
+                "prerequisites": "none",
+                "benefit": "Metamagic, 1 action. If your next action is to Cast a Spell that has a range, that spell's range grows by 30 feet. A touch spell gains a range of 30 feet instead.",
+                "class": "witch",
+                "feat_id": "reach-spell-witch",
+                "content_id": "reach-spell-witch",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "widen-spell-witch",
+            "name": "Widen Spell",
+            "level": 1,
+            "schema_data": {
+                "id": "widen-spell-witch",
+                "name": "Widen Spell",
+                "level": 1,
+                "traits": [
+                    "Manipulate",
+                    "Metamagic",
+                    "Witch"
+                ],
+                "prerequisites": "none",
+                "benefit": "Metamagic, 1 action. If your next action is to Cast a Spell with no duration and a burst, cone, or line area, the area grows: a burst of at least 10 feet gains 5 feet of radius, a cone or line of 15 feet or less gains 5 feet of length, and a longer cone or line gains 10 feet.",
+                "class": "witch",
+                "feat_id": "widen-spell-witch",
+                "content_id": "widen-spell-witch",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "raise-a-tome",
+            "name": "Raise a Tome",
+            "level": 1,
+            "schema_data": {
+                "id": "raise-a-tome",
+                "name": "Raise a Tome",
+                "level": 1,
+                "traits": [
+                    "Magus"
+                ],
+                "prerequisites": "none",
+                "benefit": "1 action. Requirement: you hold a book. Until the start of your next turn you gain a +2 circumstance bonus to AC and a +1 circumstance bonus to Recall Knowledge checks that identify creatures with a skill the book covers (Arcana for your spellbook). If you have Shield Block, the raised book works as a shield with Hardness 3, 12 Hit Points, and a Broken Threshold of 6.",
+                "class": "magus",
+                "feat_id": "raise-a-tome",
+                "content_id": "raise-a-tome",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "arcane-fists",
+            "name": "Arcane Fists",
+            "level": 1,
+            "schema_data": {
+                "id": "arcane-fists",
+                "name": "Arcane Fists",
+                "level": 1,
+                "traits": [
+                    "Magus"
+                ],
+                "prerequisites": "none",
+                "benefit": "Your fist deals 1d6 damage instead of 1d4, and you take no penalty for making lethal attacks with unarmed attacks. Your unarmed attacks have the arcane trait and count as magical. At 5th level you gain the critical specialization effects of brawling attacks, using your spell DC.",
+                "class": "magus",
+                "feat_id": "arcane-fists",
+                "content_id": "arcane-fists",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "expanded-senses",
+            "name": "Expanded Senses",
+            "level": 1,
+            "schema_data": {
+                "id": "expanded-senses",
+                "name": "Expanded Senses",
+                "level": 1,
+                "traits": [
+                    "Evolution",
+                    "Summoner"
+                ],
+                "prerequisites": "none",
+                "benefit": "Your eidolon gains low-light vision, darkvision, and scent as an imprecise sense out to 30 feet.",
+                "class": "summoner",
+                "feat_id": "expanded-senses",
+                "content_id": "expanded-senses",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "extend-boost",
+            "name": "Extend Boost",
+            "level": 1,
+            "schema_data": {
+                "id": "extend-boost",
+                "name": "Extend Boost",
+                "level": 1,
+                "traits": [
+                    "Summoner"
+                ],
+                "prerequisites": "none",
+                "benefit": "You learn the extend boost link spell, which lengthens a boost you cast on your eidolon, and your focus pool grows by 1 Focus Point.",
+                "class": "summoner",
+                "feat_id": "extend-boost",
+                "content_id": "extend-boost",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "unfetter-eidolon",
+            "name": "Unfetter Eidolon",
+            "level": 1,
+            "schema_data": {
+                "id": "unfetter-eidolon",
+                "name": "Unfetter Eidolon",
+                "level": 1,
+                "traits": [
+                    "Summoner"
+                ],
+                "prerequisites": "none",
+                "benefit": "You learn the unfetter eidolon link spell, which lets your eidolon range far from your side for a short time, and your focus pool grows by 1 Focus Point.",
+                "class": "summoner",
+                "feat_id": "unfetter-eidolon",
+                "content_id": "unfetter-eidolon",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "meld-into-eidolon",
+            "name": "Meld into Eidolon",
+            "level": 1,
+            "schema_data": {
+                "id": "meld-into-eidolon",
+                "name": "Meld into Eidolon",
+                "level": 1,
+                "traits": [
+                    "Summoner"
+                ],
+                "prerequisites": "none",
+                "benefit": "3 actions. You Manifest your Eidolon by becoming it instead of calling it to an adjacent space. While melded you use the eidolon's statistics, cannot act except to have it unmanifest, and cannot be targeted separately. If the eidolon reaches 0 Hit Points it unmanifests and leaves you unconscious and dying. You can meld with an eidolon that is already manifested if it is adjacent.",
+                "class": "summoner",
+                "feat_id": "meld-into-eidolon",
+                "content_id": "meld-into-eidolon",
+                "type": "class"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "fighter-dedication",
+            "name": "Fighter Dedication",
+            "level": 2,
+            "schema_data": {
+                "id": "fighter-dedication",
+                "name": "Fighter Dedication",
+                "level": 2,
+                "traits": [
+                    "Archetype",
+                    "Dedication",
+                    "Multiclass"
+                ],
+                "prerequisites": "Strength 14 or Dexterity 14",
+                "benefit": "You become trained in your choice of simple or martial weapons. You gain the critical specialization effects of simple and martial weapons you wield. You become trained in Fighter class DC.",
+                "feat_id": "fighter-dedication",
+                "content_id": "fighter-dedication",
+                "type": "archetype"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "rogue-dedication",
+            "name": "Rogue Dedication",
+            "level": 2,
+            "schema_data": {
+                "id": "rogue-dedication",
+                "name": "Rogue Dedication",
+                "level": 2,
+                "traits": [
+                    "Archetype",
+                    "Dedication",
+                    "Multiclass"
+                ],
+                "prerequisites": "Dexterity 14",
+                "benefit": "You become trained in light armor, rapiers, shortbows, and shortswords. You become trained in Stealth or Thievery (or trained to expert if already trained). You become trained in Rogue class DC.",
+                "feat_id": "rogue-dedication",
+                "content_id": "rogue-dedication",
+                "type": "archetype"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "wizard-dedication",
+            "name": "Wizard Dedication",
+            "level": 2,
+            "schema_data": {
+                "id": "wizard-dedication",
+                "name": "Wizard Dedication",
+                "level": 2,
+                "traits": [
+                    "Archetype",
+                    "Dedication",
+                    "Multiclass"
+                ],
+                "prerequisites": "Intelligence 14",
+                "benefit": "You gain a spellbook and the ability to prepare two additional cantrips each day from the arcane tradition. You become trained in arcane spell attack rolls and spell DCs. You become trained in Wizard class DC.",
+                "feat_id": "wizard-dedication",
+                "content_id": "wizard-dedication",
+                "type": "archetype"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "cleric-dedication",
+            "name": "Cleric Dedication",
+            "level": 2,
+            "schema_data": {
+                "id": "cleric-dedication",
+                "name": "Cleric Dedication",
+                "level": 2,
+                "traits": [
+                    "Archetype",
+                    "Dedication",
+                    "Multiclass"
+                ],
+                "prerequisites": "Wisdom 14",
+                "benefit": "You become trained in divine spell attack rolls and spell DCs, and gain the ability to cast divine cantrips. You become trained in Cleric class DC. Choose a deity as you would a cleric.",
+                "feat_id": "cleric-dedication",
+                "content_id": "cleric-dedication",
+                "type": "archetype"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "ranger-dedication",
+            "name": "Ranger Dedication",
+            "level": 2,
+            "schema_data": {
+                "id": "ranger-dedication",
+                "name": "Ranger Dedication",
+                "level": 2,
+                "traits": [
+                    "Archetype",
+                    "Dedication",
+                    "Multiclass"
+                ],
+                "prerequisites": "Dexterity 14 or Strength 14",
+                "benefit": "You become trained in Nature and Survival (or increase rank if already trained). You gain the Hunt Prey action. You become trained in Ranger class DC.",
+                "feat_id": "ranger-dedication",
+                "content_id": "ranger-dedication",
+                "type": "archetype"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "bard-dedication",
+            "name": "Bard Dedication",
+            "level": 2,
+            "schema_data": {
+                "id": "bard-dedication",
+                "name": "Bard Dedication",
+                "level": 2,
+                "traits": [
+                    "Archetype",
+                    "Dedication",
+                    "Multiclass"
+                ],
+                "prerequisites": "Charisma 14",
+                "benefit": "You become trained in occult spell attack rolls and spell DCs, and gain the ability to cast occult cantrips using the composition mechanic. You become trained in Bard class DC.",
+                "feat_id": "bard-dedication",
+                "content_id": "bard-dedication",
+                "type": "archetype"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "barbarian-dedication",
+            "name": "Barbarian Dedication",
+            "level": 2,
+            "schema_data": {
+                "id": "barbarian-dedication",
+                "name": "Barbarian Dedication",
+                "level": 2,
+                "traits": [
+                    "Archetype",
+                    "Dedication",
+                    "Multiclass"
+                ],
+                "prerequisites": "Strength 14 and Constitution 14",
+                "benefit": "You become trained in Athletics and gain the Rage action. You become trained in Barbarian class DC.",
+                "feat_id": "barbarian-dedication",
+                "content_id": "barbarian-dedication",
+                "type": "archetype"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "champion-dedication",
+            "name": "Champion Dedication",
+            "level": 2,
+            "schema_data": {
+                "id": "champion-dedication",
+                "name": "Champion Dedication",
+                "level": 2,
+                "traits": [
+                    "Archetype",
+                    "Dedication",
+                    "Multiclass"
+                ],
+                "prerequisites": "Strength 14 and Charisma 14; must choose an alignment and deity as a champion would",
+                "benefit": "You become trained in martial weapons and heavy armor and gain the champion's reaction (Retributive Strike for good alignment or Expiating Strike for neutral). You become trained in Champion class DC.",
+                "feat_id": "champion-dedication",
+                "content_id": "champion-dedication",
+                "type": "archetype"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "druid-dedication",
+            "name": "Druid Dedication",
+            "level": 2,
+            "schema_data": {
+                "id": "druid-dedication",
+                "name": "Druid Dedication",
+                "level": 2,
+                "traits": [
+                    "Archetype",
+                    "Dedication",
+                    "Multiclass"
+                ],
+                "prerequisites": "Wisdom 14",
+                "benefit": "You become trained in primal spell attack rolls and spell DCs, and gain the ability to cast primal cantrips. You become trained in Nature. You become trained in Druid class DC.",
+                "feat_id": "druid-dedication",
+                "content_id": "druid-dedication",
+                "type": "archetype"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "monk-dedication",
+            "name": "Monk Dedication",
+            "level": 2,
+            "schema_data": {
+                "id": "monk-dedication",
+                "name": "Monk Dedication",
+                "level": 2,
+                "traits": [
+                    "Archetype",
+                    "Dedication",
+                    "Multiclass"
+                ],
+                "prerequisites": "Strength 14 or Dexterity 14",
+                "benefit": "You become trained in unarmed attacks and gain the Flurry of Blows monk class feature. You become trained in Monk class DC.",
+                "feat_id": "monk-dedication",
+                "content_id": "monk-dedication",
+                "type": "archetype"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "sorcerer-dedication",
+            "name": "Sorcerer Dedication",
+            "level": 2,
+            "schema_data": {
+                "id": "sorcerer-dedication",
+                "name": "Sorcerer Dedication",
+                "level": 2,
+                "traits": [
+                    "Archetype",
+                    "Dedication",
+                    "Multiclass"
+                ],
+                "prerequisites": "Charisma 14",
+                "benefit": "You become trained in spell attack rolls and spell DCs for your chosen bloodline's tradition. You can cast two additional cantrips from your bloodline. You become trained in Sorcerer class DC.",
+                "feat_id": "sorcerer-dedication",
+                "content_id": "sorcerer-dedication",
+                "type": "archetype"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "alchemist-dedication",
+            "name": "Alchemist Dedication",
+            "level": 2,
+            "schema_data": {
+                "id": "alchemist-dedication",
+                "name": "Alchemist Dedication",
+                "level": 2,
+                "traits": [
+                    "Archetype",
+                    "Dedication",
+                    "Multiclass"
+                ],
+                "prerequisites": "Intelligence 14",
+                "benefit": "You become trained in Crafting and Alchemical Lore and gain the alchemical crafting feat. You gain 4 common 1st-level alchemical formulas. You become trained in Alchemist class DC.",
+                "feat_id": "alchemist-dedication",
+                "content_id": "alchemist-dedication",
+                "type": "archetype"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "investigator-dedication",
+            "name": "Investigator Dedication",
+            "level": 2,
+            "schema_data": {
+                "id": "investigator-dedication",
+                "name": "Investigator Dedication",
+                "level": 2,
+                "traits": [
+                    "Archetype",
+                    "Dedication",
+                    "Multiclass"
+                ],
+                "prerequisites": "Intelligence 14",
+                "benefit": "You become trained in Society and Underworld Lore (or increase rank to expert if already trained in one). You gain the Devise a Stratagem action and become trained in Investigator class DC.",
+                "feat_id": "investigator-dedication",
+                "content_id": "investigator-dedication",
+                "type": "archetype"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "oracle-dedication",
+            "name": "Oracle Dedication",
+            "level": 2,
+            "schema_data": {
+                "id": "oracle-dedication",
+                "name": "Oracle Dedication",
+                "level": 2,
+                "traits": [
+                    "Archetype",
+                    "Dedication",
+                    "Multiclass"
+                ],
+                "prerequisites": "Charisma 14",
+                "benefit": "You choose a mystery and become trained in divine spell attack rolls and spell DCs. You can cast divine cantrips as an oracle. You become trained in Oracle class DC.",
+                "feat_id": "oracle-dedication",
+                "content_id": "oracle-dedication",
+                "type": "archetype"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "swashbuckler-dedication",
+            "name": "Swashbuckler Dedication",
+            "level": 2,
+            "schema_data": {
+                "id": "swashbuckler-dedication",
+                "name": "Swashbuckler Dedication",
+                "level": 2,
+                "traits": [
+                    "Archetype",
+                    "Dedication",
+                    "Multiclass"
+                ],
+                "prerequisites": "Dexterity 14",
+                "benefit": "You become trained in light armor and the rapier, saber, and whip. You gain the panache mechanic and Opportune Riposte reaction. You become trained in Swashbuckler class DC.",
+                "feat_id": "swashbuckler-dedication",
+                "content_id": "swashbuckler-dedication",
+                "type": "archetype"
+            },
+            "version": "character-manager-bootstrap-v1"
+        },
+        {
+            "content_type": "feat",
+            "content_id": "witch-dedication",
+            "name": "Witch Dedication",
+            "level": 2,
+            "schema_data": {
+                "id": "witch-dedication",
+                "name": "Witch Dedication",
+                "level": 2,
+                "traits": [
+                    "Archetype",
+                    "Dedication",
+                    "Multiclass"
+                ],
+                "prerequisites": "Intelligence 14",
+                "benefit": "You gain a familiar from a patron; choose a tradition (arcane/occult/divine/primal based on patron). You become trained in spell attack rolls and DCs for that tradition, and can cast cantrips from that tradition. You become trained in Witch class DC.",
+                "feat_id": "witch-dedication",
+                "content_id": "witch-dedication",
+                "type": "archetype"
+            },
+            "version": "character-manager-bootstrap-v1"
         }
     ],
     "version": "character-manager-bootstrap-v1"

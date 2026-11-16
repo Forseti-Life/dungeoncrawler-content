@@ -2,6 +2,7 @@
 
 namespace Drupal\dungeoncrawler_content\Service;
 
+use Drupal\Core\Session\AccountInterface;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\dungeoncrawler_content\Service\Generation\RuntimeGenerationException;
@@ -106,7 +107,9 @@ class QuestGeneratorService {
     ?ObjectiveTypeService $objective_type_service = NULL,
     ?StorylineManagerService $storyline_manager = NULL,
     ?QuestDestinationValidatorService $quest_destination_validator = NULL,
-    ?NavigationRuntimeService $navigation_runtime = NULL
+    ?NavigationRuntimeService $navigation_runtime = NULL,
+    protected ?CampaignAuthorizationService $campaignAuthorization = NULL,
+    protected ?AccountInterface $currentUser = NULL,
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler_content');
@@ -266,7 +269,12 @@ class QuestGeneratorService {
           'variables' => $this->sanitizeQuestVariablesForStorage($variables),
           'party_level' => $context['party_level'] ?? 1,
           'difficulty' => $context['difficulty'] ?? 'moderate',
-        ]),
+        ] + $this->generateQuestGoal(
+          $story_impact,
+          $generated_objectives,
+          $variables,
+          $this->storylineQuestNodeGoal($campaign_id, $storyline_id, $template_id)
+        ), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
         'generated_objectives' => json_encode($generated_objectives),
         'objective_states' => json_encode($generated_objectives),
         'generated_rewards' => json_encode($generated_rewards),
@@ -504,9 +512,44 @@ class QuestGeneratorService {
   }
 
   /**
-   * Normalize one quest row into the canonical quest summary entry contract.
+   * Which view of quest goals the current viewer gets.
+   *
+   * A campaign member in Game Master mode sees every approach and the GM
+   * notes. Everyone else, and any caller with no signed-in viewer, gets the
+   * player view.
    */
-  public function buildQuestSummaryEntry(array $quest_row): array {
+  public function viewerQuestAudience(int $campaign_id): string {
+    if ($campaign_id <= 0 || $this->campaignAuthorization === NULL || $this->currentUser === NULL) {
+      return 'player';
+    }
+    $access = $this->campaignAuthorization->buildCampaignAccessContext($campaign_id, (int) $this->currentUser->id());
+
+    return $access['is_member'] && $access['current_mode'] === 'gm' ? 'gm' : 'player';
+  }
+
+  /**
+   * Removes from objective phases what an audience may not yet see.
+   */
+  public function projectObjectivePhases(array $phases, array $goal, string $audience): array {
+    foreach ($phases as &$phase) {
+      $phase['objectives'] = array_values(array_filter(
+        (array) ($phase['objectives'] ?? []),
+        static fn($objective): bool => is_array($objective)
+          && QuestGoalContract::showsObjective($goal, (string) ($objective['objective_id'] ?? ''), $audience)
+      ));
+    }
+    unset($phase);
+
+    return $phases;
+  }
+
+  /**
+   * Normalize one quest row into the canonical quest summary entry contract.
+   *
+   * @param string $audience
+   *   `player` or `gm`: decides how much of the quest's goal is included.
+   */
+  public function buildQuestSummaryEntry(array $quest_row, string $audience = 'player'): array {
     $generated_objectives = $this->normalizeQuestObjectivePhases(
       $this->decodeQuestField($quest_row['generated_objectives'] ?? [])
     );
@@ -527,6 +570,16 @@ class QuestGeneratorService {
 
     $generated_rewards = $this->decodeQuestObjectField($quest_row['generated_rewards'] ?? []);
     $quest_data = $this->decodeQuestObjectField($quest_row['quest_data'] ?? []);
+    // The stored goal holds GM notes and unrevealed approaches. It never
+    // leaves the server whole: each audience gets its own view of it.
+    $goal_view = is_array($quest_row['goal'] ?? NULL) ? $quest_row['goal'] : NULL;
+    if (is_array($quest_data['goal'] ?? NULL)) {
+      $goal = $quest_data['goal'];
+      $generated_objectives = $this->projectObjectivePhases($generated_objectives, $goal, $audience);
+      $objective_states = $this->projectObjectivePhases($objective_states, $goal, $audience);
+      $goal_view = QuestGoalContract::view($goal, $audience);
+    }
+    unset($quest_data['goal']);
     $quest_name = trim((string) ($quest_row['quest_name'] ?? $quest_row['name'] ?? $quest_row['title'] ?? $quest_row['quest_id'] ?? ''));
 
     return [
@@ -543,6 +596,7 @@ class QuestGeneratorService {
       'generated_rewards' => $generated_rewards,
       'quest_data' => $quest_data,
       'location_id' => $this->normalizeNullableString($quest_row['location_id'] ?? NULL),
+      'goal' => $goal_view,
       'storyline' => [
         'storyline_id' => $this->normalizeNullableString($quest_row['storyline_id'] ?? NULL),
         'chapter_id' => $this->normalizeNullableString($quest_row['storyline_chapter_id'] ?? NULL),
@@ -1050,12 +1104,15 @@ class QuestGeneratorService {
     array $offers = [],
     array $leads = [],
     int $campaign_id = 0,
-    array $completed = []
+    array $completed = [],
+    ?string $audience = NULL
   ): array {
-    $active_entries = array_values(array_map([$this, 'buildQuestSummaryEntry'], $active));
-    $offer_entries = array_values(array_map([$this, 'buildQuestSummaryEntry'], $offers));
-    $lead_entries = array_values(array_map([$this, 'buildQuestSummaryEntry'], $leads));
-    $completed_entries = array_values(array_map([$this, 'buildQuestSummaryEntry'], $completed));
+    $audience ??= $this->viewerQuestAudience($campaign_id);
+    $entry = fn(array $quest_row): array => $this->buildQuestSummaryEntry($quest_row, $audience);
+    $active_entries = array_values(array_map($entry, $active));
+    $offer_entries = array_values(array_map($entry, $offers));
+    $lead_entries = array_values(array_map($entry, $leads));
+    $completed_entries = array_values(array_map($entry, $completed));
     $payload = [
       'schema_version' => self::QUEST_SUMMARY_SCHEMA_VERSION,
       'location_id' => $location_id !== NULL && trim($location_id) !== '' ? trim($location_id) : 'campaign',
@@ -1063,6 +1120,7 @@ class QuestGeneratorService {
       'offers' => $offer_entries,
       'leads' => $lead_entries,
       'completed' => $completed_entries,
+      'storylines' => $campaign_id > 0 ? $this->buildJournalStorylineStatuses($campaign_id) : [],
       'management_tree' => $campaign_id > 0
         ? $this->buildQuestManagementTree($campaign_id, $active_entries, array_merge($offer_entries, $lead_entries), $location_id)
         : [],
@@ -1080,6 +1138,40 @@ class QuestGeneratorService {
     }
 
     return $payload;
+  }
+
+  /**
+   * Status of every storyline the campaign's quests belong to.
+   *
+   * A storyline with a campaign record reports that record's status. A quest
+   * group with no record (the introduction quests) is completed once every
+   * quest the campaign holds for it is completed.
+   *
+   * @return array<int, array{storyline_id:string, name:string, status:string}>
+   */
+  protected function buildJournalStorylineStatuses(int $campaign_id): array {
+    $query = $this->database->select('dc_campaign_quests', 'q');
+    $query->leftJoin('dc_campaign_storylines', 's', 's.campaign_id = q.campaign_id AND s.storyline_id = q.storyline_id');
+    $query->addField('q', 'storyline_id');
+    $query->addExpression('MAX(s.name)', 'name');
+    $query->addExpression('MAX(s.status)', 'record_status');
+    $query->addExpression("SUM(CASE WHEN q.status = 'completed' THEN 0 ELSE 1 END)", 'open_quests');
+    $query->condition('q.campaign_id', $campaign_id)
+      ->isNotNull('q.storyline_id')
+      ->condition('q.storyline_id', '', '<>')
+      ->groupBy('q.storyline_id')
+      ->orderBy('q.storyline_id');
+
+    $storylines = [];
+    foreach ($query->execute()->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+      $storylines[] = [
+        'storyline_id' => (string) $row['storyline_id'],
+        'name' => (string) ($row['name'] ?? $this->humanizeIdentifier($row['storyline_id'])),
+        'status' => (string) ($row['record_status'] ?? ((int) $row['open_quests'] === 0 ? 'completed' : 'active')),
+      ];
+    }
+
+    return $storylines;
   }
 
   /**
@@ -1694,6 +1786,56 @@ class QuestGeneratorService {
     }
 
     return $this->applyDefaultObjectiveDependencies($objectives);
+  }
+
+  /**
+   * The quest's goal, when its template states one, ready for play.
+   *
+   * @return array{goal?: array}
+   *
+   * @throws \DomainException
+   *   `quest_goal_invalid:<messages>` when the template's goal is defective.
+   */
+  protected function generateQuestGoal(array $story_impact, array $generated_objectives, array $variables, ?array $storyline_goal = NULL): array {
+    // A standalone quest states its goal on its template; a storyline quest
+    // states it on the storyline. One quest has one author for its goal.
+    if (array_key_exists('goal', $story_impact) && $storyline_goal !== NULL) {
+      throw new \DomainException('quest_goal_declared_twice: on the quest template and on its storyline.');
+    }
+    if (!array_key_exists('goal', $story_impact) && $storyline_goal === NULL) {
+      return [];
+    }
+    $goal = $storyline_goal ?? $story_impact['goal'];
+    if (!is_array($goal)) {
+      throw new \DomainException('quest_goal_invalid:goal must be an object.');
+    }
+    QuestGoalContract::assertValid($goal, $generated_objectives);
+    $goal['goal_text'] = $this->resolveVariables($goal['goal_text'], $variables);
+    foreach ($goal['approaches'] as &$approach) {
+      $approach['label'] = $this->resolveVariables($approach['label'], $variables);
+      $approach['outcome_label'] = $this->resolveVariables($approach['outcome_label'], $variables);
+    }
+    unset($approach);
+
+    return ['goal' => QuestGoalContract::start($goal)];
+  }
+
+  /**
+   * The goal the campaign's storyline states for one of its quests.
+   */
+  protected function storylineQuestNodeGoal(int $campaign_id, ?string $storyline_id, string $template_id): ?array {
+    if ($storyline_id === NULL || $this->storylineManager === NULL) {
+      return NULL;
+    }
+    $storyline = $this->storylineManager->getCampaignStoryline($campaign_id, $storyline_id, FALSE);
+    $nodes = $storyline['storyline_data']['questline']['quest_nodes'] ?? ($storyline['questline']['quest_nodes'] ?? []);
+    foreach ((array) $nodes as $node) {
+      if (is_array($node) && (string) ($node['quest_id'] ?? '') === $template_id) {
+        return QuestGoalContract::fromStorylineNode($node);
+      }
+    }
+
+    return NULL;
   }
 
   /**

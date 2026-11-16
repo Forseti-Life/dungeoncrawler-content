@@ -120,6 +120,17 @@
               "unlocks_to": {"type": "array", "items": {"type": "string"}},
               "unlock_condition": {"type": "string"},
               "prerequisite_mode": {"enum": ["all", "any"]},
+              "goal": {
+                "description": "What the players are trying to achieve in this quest. The node's choices that carry `approach` are the ways to achieve it. See QuestGoalContract.",
+                "type": ["object", "null"],
+                "required": ["goal_text", "gm_notes", "open_resolution"],
+                "additionalProperties": false,
+                "properties": {
+                  "goal_text": {"type": "string", "minLength": 1},
+                  "gm_notes": {"type": "string"},
+                  "open_resolution": {"type": "boolean"}
+                }
+              },
               "choices": {
                 "type": "array",
                 "items": {
@@ -134,7 +145,20 @@
                     "effects": {"type": "object", "additionalProperties": true},
                     "target_quest_id": {"type": "string"},
                     "target_scene_id": {"type": "string"},
-                    "terminal": {"type": "boolean"}
+                    "terminal": {"type": "boolean"},
+                    "approach": {
+                      "description": "Present when the choice is a way of achieving its quest's goal.",
+                      "type": "object",
+                      "required": ["visibility", "outcome_label", "objective_ids"],
+                      "additionalProperties": false,
+                      "properties": {
+                        "visibility": {"enum": ["known", "discoverable", "secret"]},
+                        "reveal_when": {"type": "object"},
+                        "objective_ids": {"type": "array", "items": {"type": "string"}},
+                        "outcome_label": {"type": "string"},
+                        "rewards": {"type": "object"}
+                      }
+                    }
                   }
                 }
               }

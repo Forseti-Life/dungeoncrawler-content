@@ -24,7 +24,6 @@ class ContentRegistry {
   /**
    * Valid canonical feat categories accepted by registry imports.
    */
-  protected const FEAT_TYPES = ['ancestry', 'class', 'general', 'skill'];
 
   /**
    * The database connection.
@@ -902,8 +901,8 @@ class ContentRegistry {
     if ($feat_type === '') {
       $errors[] = 'Feat must have type';
     }
-    elseif (!in_array($feat_type, self::FEAT_TYPES, TRUE)) {
-      $errors[] = 'Feat type must be one of: ' . implode(', ', self::FEAT_TYPES);
+    elseif (!in_array($feat_type, FeatLibraryService::FEAT_TYPES, TRUE)) {
+      $errors[] = 'Feat type must be one of: ' . implode(', ', FeatLibraryService::FEAT_TYPES);
     }
 
     $level = $data['level'] ?? NULL;

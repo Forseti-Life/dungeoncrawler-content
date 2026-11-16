@@ -101,7 +101,7 @@ class CampaignUnarchiveForm extends ConfirmFormBase {
     }
 
     if (
-      (int) $this->campaign->uid !== (int) $this->currentUser->id()
+      !\Drupal::service('dungeoncrawler_content.campaign_membership')->isMember((int) $this->campaign->id, (int) $this->currentUser->id())
       && !$this->currentUser->hasPermission('administer dungeoncrawler content')
     ) {
       throw new AccessDeniedHttpException();

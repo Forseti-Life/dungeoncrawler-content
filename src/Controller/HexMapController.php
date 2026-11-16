@@ -307,8 +307,7 @@ class HexMapController extends ControllerBase {
     if ($campaign_id <= 0 || $uid <= 0) {
       return [
         'campaign_id' => $campaign_id,
-        'membership_role' => 'none',
-        'membership_status' => 'none',
+        'is_member' => FALSE,
         'can_use_player_mode' => FALSE,
         'can_use_gm_mode' => FALSE,
         'default_mode' => 'player',
@@ -881,12 +880,16 @@ class HexMapController extends ControllerBase {
     }
 
     $persisted_room_id = (string) ($record['last_room_id'] ?? $record['location_ref'] ?? '');
-    if ($persisted_room_id !== '') {
+    if ((!$room_explicit || trim((string) ($launch_context['room_id'] ?? '')) === '') && $persisted_room_id !== '') {
       $launch_context['room_id'] = $persisted_room_id;
     }
 
-    $launch_context['start_q'] = (int) ($record['position_q'] ?? $launch_context['start_q'] ?? 0);
-    $launch_context['start_r'] = (int) ($record['position_r'] ?? $launch_context['start_r'] ?? 0);
+    if (!$start_q_explicit) {
+      $launch_context['start_q'] = (int) ($record['position_q'] ?? $launch_context['start_q'] ?? 0);
+    }
+    if (!$start_r_explicit) {
+      $launch_context['start_r'] = (int) ($record['position_r'] ?? $launch_context['start_r'] ?? 0);
+    }
 
     return $launch_context;
   }
@@ -953,12 +956,16 @@ class HexMapController extends ControllerBase {
     $launch_context['character_id'] = (int) ($record['id'] ?? $requested_character_id);
 
     $persisted_room_id = (string) ($record['last_room_id'] ?? $record['location_ref'] ?? '');
-    if ($persisted_room_id !== '') {
+    if ((!$room_explicit || trim((string) ($launch_context['room_id'] ?? '')) === '') && $persisted_room_id !== '') {
       $launch_context['room_id'] = $persisted_room_id;
     }
 
-    $launch_context['start_q'] = (int) ($record['position_q'] ?? $launch_context['start_q'] ?? 0);
-    $launch_context['start_r'] = (int) ($record['position_r'] ?? $launch_context['start_r'] ?? 0);
+    if (!$start_q_explicit) {
+      $launch_context['start_q'] = (int) ($record['position_q'] ?? $launch_context['start_q'] ?? 0);
+    }
+    if (!$start_r_explicit) {
+      $launch_context['start_r'] = (int) ($record['position_r'] ?? $launch_context['start_r'] ?? 0);
+    }
 
     return $launch_context;
   }
@@ -1273,19 +1280,6 @@ class HexMapController extends ControllerBase {
 
     $spells['cantrips'] = is_array($spells['cantrips'] ?? NULL) ? $spells['cantrips'] : [];
     $spells['first_level'] = is_array($spells['first_level'] ?? NULL) ? $spells['first_level'] : [];
-
-    $class_key = strtolower(trim($class));
-    $tradition = strtolower(trim((string) ($spells['tradition'] ?? '')));
-    $spellbook_size = (int) ($spells['spellbook_size'] ?? 0);
-    if (
-      $class_key === 'wizard'
-      && $tradition !== ''
-      && $spellbook_size > 0
-      && empty($spells['first_level'])
-    ) {
-      $first_rank_spells = $this->characterManager->getSpellsByTradition($tradition, 1);
-      $spells['first_level'] = array_column(array_slice($first_rank_spells, 0, $spellbook_size), 'id');
-    }
 
     return $spells;
   }

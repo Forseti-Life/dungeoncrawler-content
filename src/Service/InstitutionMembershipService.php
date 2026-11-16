@@ -95,6 +95,81 @@ class InstitutionMembershipService {
   }
 
   /**
+   * Domains in which an actor can hold only one membership.
+   *
+   * @return string[]
+   */
+  public static function singleMembershipDomains(): array {
+    return array_values(array_map(
+      static fn(array $definition): string => $definition['domain'],
+      array_filter(self::STRUCTURED_AFFILIATION_REF_FIELDS, static fn(array $definition): bool => !$definition['multiple'])
+    ));
+  }
+
+  /**
+   * Gives a storyline's realized NPCs the institution memberships their
+   * contacts were authored with.
+   *
+   * Each contact's `relationship_state.affiliations` selections are placed in
+   * the NPC's structured affiliation fields and synchronized like any other
+   * NPC's memberships. Contacts without affiliations are left alone.
+   *
+   * @return int
+   *   Number of NPCs synchronized.
+   */
+  public function syncStorylineContactMemberships(int $campaign_id, array $storyline): int {
+    $fields_by_domain = [];
+    foreach (self::STRUCTURED_AFFILIATION_REF_FIELDS as $field => $definition) {
+      $fields_by_domain[$definition['domain']] = ['field' => $field, 'multiple' => $definition['multiple']];
+    }
+
+    $synced = 0;
+    foreach ((array) ($storyline['storyline_data']['contacts'] ?? []) as $contact) {
+      $selections = is_array($contact) ? (array) ($contact['relationship_state']['affiliations'] ?? []) : [];
+      if ($selections === []) {
+        continue;
+      }
+      $entity_id = (string) ($contact['entity_id'] ?? '');
+      $instance_id = trim((string) ($contact['runtime_entity_id'] ?? ''));
+      if ($instance_id === '') {
+        throw new \RuntimeException(sprintf('Storyline contact "%s" has affiliations but no runtime_entity_id; realize the storyline NPCs first.', $entity_id));
+      }
+      $row = $this->database->select('dc_campaign_characters', 'c')
+        ->fields('c', ['ancestry', 'class', 'character_data'])
+        ->condition('campaign_id', $campaign_id)
+        ->condition('instance_id', $instance_id)
+        ->range(0, 1)
+        ->execute()
+        ->fetchAssoc();
+      if (!is_array($row)) {
+        throw new \RuntimeException(sprintf('Storyline contact "%s" has no campaign NPC "%s" in campaign %d.', $entity_id, $instance_id, $campaign_id));
+      }
+
+      $npc_data = $this->decodeJsonColumn($row['character_data']);
+      $npc_data['ancestry'] = trim((string) ($npc_data['ancestry'] ?? '')) ?: (string) $row['ancestry'];
+      $npc_data['class'] = trim((string) ($npc_data['class'] ?? '')) ?: (string) $row['class'];
+      foreach ($selections as $selection) {
+        $domain = (string) ($selection['domain'] ?? '');
+        if (!isset($fields_by_domain[$domain])) {
+          throw new \InvalidArgumentException(sprintf('Storyline contact "%s" affiliation domain "%s" is not an institution membership domain.', $entity_id, $domain));
+        }
+        $field = $fields_by_domain[$domain]['field'];
+        if ($fields_by_domain[$domain]['multiple']) {
+          $npc_data[$field] = array_merge(array_values((array) ($npc_data[$field] ?? [])), [$selection]);
+        }
+        else {
+          $npc_data[$field] = $selection;
+        }
+      }
+
+      $this->syncCampaignNpcMemberships($campaign_id, $instance_id, $npc_data);
+      $synced++;
+    }
+
+    return $synced;
+  }
+
+  /**
    * Builds deterministic institution-bearing inputs for a character payload.
    *
    * @return array<int, array<string, mixed>>

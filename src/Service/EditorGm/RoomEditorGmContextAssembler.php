@@ -31,6 +31,21 @@ final class RoomEditorGmContextAssembler implements EditorGmContextAssemblerInte
    */
   public function assemble(EditorGmToolContext $context): array {
     $context = RoomEditorGmToolContext::of($context);
+    if ($context->draftId === NULL) {
+      return [
+        'tool_id' => RoomEditorGmSurface::ID,
+        'draft' => NULL,
+        'room' => NULL,
+        'drafts' => $context->roomEditor->listAccessibleDrafts(),
+        'rooms' => $context->roomEditor->listRooms(),
+        'authority_boundary' => self::AUTHORITY_BOUNDARY,
+        'assistant' => [
+          'natural_language_available' => $this->intentParser->isAvailable(),
+          'natural_language_may_mutate' => FALSE,
+        ],
+        'tools' => $this->registry->manifest(),
+      ];
+    }
     $draft = $context->draft();
     $room = $context->room();
     $validation = $context->validation();

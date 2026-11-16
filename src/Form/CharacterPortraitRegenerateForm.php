@@ -99,6 +99,12 @@ class CharacterPortraitRegenerateForm extends FormBase {
         '@provider' => $provider,
       ]));
     }
+    elseif (($portrait_result['reason'] ?? '') === 'generation_failed') {
+      $provider_reason = trim((string) ($storage['message'] ?? ($portrait_result['result']['message'] ?? '')));
+      $this->messenger()->addWarning($provider_reason !== ''
+        ? $this->t('Portrait regeneration failed: @reason', ['@reason' => $provider_reason])
+        : $this->t('Portrait regeneration failed before an image could be stored.'));
+    }
     else {
       $reason = (string) ($storage['reason'] ?? ($portrait_result['reason'] ?? 'generation_failed'));
       $this->messenger()->addWarning($this->t('Portrait regeneration did not produce a stored image (@reason).', ['@reason' => $reason]));

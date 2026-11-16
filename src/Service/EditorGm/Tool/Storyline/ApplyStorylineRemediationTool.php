@@ -11,6 +11,7 @@ use Drupal\dungeoncrawler_content\Service\EditorGm\RoomEditorGmToolContext;
 use Drupal\dungeoncrawler_content\Service\EditorGm\StorylineBuilderGmToolContext;
 use Drupal\dungeoncrawler_content\Service\Generation\CanonicalDefinitionGenerationService;
 use Drupal\dungeoncrawler_content\Service\RoomEditorService;
+use Drupal\dungeoncrawler_content\Service\CanonicalQuestTemplateService;
 
 /**
  * Executes a validated Storyline remediation through existing authorities.
@@ -22,13 +23,14 @@ final class ApplyStorylineRemediationTool implements EditorGmToolInterface {
     private readonly EditorCanonicalGenerationPlanService $roomGeneration,
     private readonly RoomEditorService $roomEditor,
     private readonly UuidInterface $uuid,
+    private readonly CanonicalQuestTemplateService $questTemplates,
   ) {}
 
   public function definition(): EditorGmToolDefinition {
     return new EditorGmToolDefinition(
       'apply_storyline_remediation',
       EditorGmToolDefinition::FAMILY_EXECUTION,
-      'Create planned missing canonical assets, apply planned Storyline bindings, and return fresh validation.',
+      'Create planned missing canonical assets, repair planned linked-quest references, apply Storyline bindings, and return fresh validation.',
       TRUE,
       'CanonicalDefinitionService + RoomEditorService + StorylineAuthoringDraftService',
       [
@@ -36,6 +38,8 @@ final class ApplyStorylineRemediationTool implements EditorGmToolInterface {
         EditorGmToolDefinition::argument('operation_id', 'string', TRUE, 'Unique remediation operation id.'),
         EditorGmToolDefinition::argument('definitions', 'array', FALSE, 'Planned canonical definition generation specifications.'),
         EditorGmToolDefinition::argument('rooms', 'array', FALSE, 'Planned canonical room generation specifications.'),
+        EditorGmToolDefinition::argument('dungeons', 'array', FALSE, 'Planned canonical dungeon contract specifications.'),
+        EditorGmToolDefinition::argument('quests', 'array', FALSE, 'Planned canonical quest template specifications.'),
         EditorGmToolDefinition::argument('operations', 'array', FALSE, 'Planned Storyline draft operations.'),
       ],
     );
@@ -47,6 +51,8 @@ final class ApplyStorylineRemediationTool implements EditorGmToolInterface {
     $operation_id = EditorGmToolContext::requireString($arguments, 'operation_id');
     $definitions = $this->listArgument($arguments, 'definitions');
     $rooms = $this->listArgument($arguments, 'rooms');
+    $dungeons = $this->listArgument($arguments, 'dungeons');
+    $quests = $this->listArgument($arguments, 'quests');
     $operations = $this->listArgument($arguments, 'operations');
     if ((int) ($context->draft()['revision'] ?? 0) !== $expected_revision) {
       throw new \DomainException('storyline_draft_revision_conflict');
@@ -110,9 +116,6 @@ final class ApplyStorylineRemediationTool implements EditorGmToolInterface {
       if ((string) ($result['definition_id'] ?? '') !== $definition_id) {
         throw new \LogicException("storyline_remediation_definition_identity_mismatch:{$definition_id}");
       }
-      if ($family === 'actor' && isset($result['payload']) && is_array($result['payload']) && \Drupal::hasContainer() && \Drupal::getContainer()->has('dungeoncrawler_content.character_manager')) {
-        \Drupal::service('dungeoncrawler_content.character_manager')->saveCanonicalActorTemplate($definition_id, $result['payload'], 'storyline_remediation');
-      }
       $definition_receipts[] = ['family' => $family, 'definition_id' => $definition_id, 'created' => TRUE];
     }
 
@@ -169,12 +172,64 @@ final class ApplyStorylineRemediationTool implements EditorGmToolInterface {
       $room_receipts[] = ['room_id' => $room_id, 'created' => TRUE];
     }
 
+    $dungeon_receipts = [];
+    foreach ($dungeons as $spec) {
+      if (!is_array($spec)) {
+        continue;
+      }
+      $dungeon_id = trim((string) ($spec['dungeon_id'] ?? ''));
+      if ($dungeon_id === '') {
+        continue;
+      }
+      $sub_tool_calls[] = [
+        'tool' => 'publish_canonical_dungeon',
+        'message' => sprintf("Now publishing canonical dungeon contract '%s'…", $dungeon_id),
+      ];
+      $dungeon_receipts[] = $this->upsertCanonicalDungeon($spec, $deferred_tasks);
+    }
+
+    $quest_receipts = [];
+    foreach ($quests as $spec) {
+      if (!is_array($spec)) {
+        continue;
+      }
+      $template_id = trim((string) ($spec['template_id'] ?? ''));
+      if ($template_id === '') {
+        continue;
+      }
+      $repair = ($spec['action'] ?? '') === 'repair_storyline_references' ? $spec : ($spec['storyline_reference_repair'] ?? NULL);
+      if (is_array($repair)) {
+        $draft = $context->draft();
+        $task_ids = array_column($draft['payload']['process_flow']['tasks'] ?? [], 'task_id');
+        if (!in_array($template_id, $task_ids, TRUE)
+          || ($repair['template_id'] ?? '') !== $template_id
+          || ($repair['storyline_template_id'] ?? '') !== $draft['payload']['storyline_id']) {
+          throw new \DomainException('storyline_quest_reference_repair_outside_draft');
+        }
+        $quest_receipts[] = $this->questTemplates->applyStorylineReferenceRepair($repair);
+        $sub_tool_calls[] = [
+          'tool' => 'repair_linked_quest_references',
+          'message' => sprintf("Now aligning linked quest '%s' with its storyline…", $template_id),
+        ];
+        if (($spec['action'] ?? '') === 'repair_storyline_references') {
+          continue;
+        }
+      }
+      $sub_tool_calls[] = [
+        'tool' => 'publish_canonical_quest',
+        'message' => sprintf("Now publishing canonical quest template '%s'…", $template_id),
+      ];
+      $quest_receipts[] = $this->upsertCanonicalQuest($spec);
+    }
+
     $context->invalidate();
     $validation = $context->validation();
 
     return [
       'definitions' => $definition_receipts,
       'rooms' => $room_receipts,
+      'dungeons' => $dungeon_receipts,
+      'quests' => $quest_receipts,
       'draft' => $draft_receipt,
       'deferred_tasks' => $deferred_tasks,
       'tool_calls' => $sub_tool_calls,
@@ -186,6 +241,200 @@ final class ApplyStorylineRemediationTool implements EditorGmToolInterface {
         'warnings' => array_values((array) ($validation['warnings'] ?? [])),
       ],
     ];
+  }
+
+  private function upsertCanonicalDungeon(array $spec, array $deferred_tasks): array {
+    $dungeon_id = trim((string) ($spec['dungeon_id'] ?? ''));
+    $entrance_room = trim((string) ($spec['entrance_room'] ?? ''));
+    $rooms = array_values(array_unique(array_filter(array_map('strval', (array) ($spec['rooms'] ?? [])))));
+    if ($entrance_room === '' && $rooms !== []) {
+      $entrance_room = $rooms[0];
+    }
+    if ($entrance_room !== '' && !in_array($entrance_room, $rooms, TRUE)) {
+      array_unshift($rooms, $entrance_room);
+    }
+
+    foreach ($deferred_tasks as $deferred) {
+      if (($deferred['kind'] ?? '') === 'room' && in_array((string) ($deferred['room_id'] ?? ''), $rooms, TRUE)) {
+        return ['dungeon_id' => $dungeon_id, 'created' => FALSE, 'deferred' => TRUE];
+      }
+    }
+
+    if (!\Drupal::hasContainer() || !\Drupal::getContainer()->has('database')) {
+      return ['dungeon_id' => $dungeon_id, 'created' => FALSE];
+    }
+    $db = \Drupal::database();
+    if (!$db->schema()->tableExists('dungeoncrawler_content_dungeons')) {
+      return ['dungeon_id' => $dungeon_id, 'created' => FALSE];
+    }
+
+    $existing = $db->select('dungeoncrawler_content_dungeons', 'd')
+      ->fields('d')
+      ->condition('dungeon_id', $dungeon_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+
+    $now = time();
+    $storyline_id = trim((string) ($spec['storyline_id'] ?? ''));
+    $purpose = trim((string) ($spec['purpose'] ?? 'storyline-site')) ?: 'storyline-site';
+    $human_name = ucwords(str_replace(['-', '_'], ' ', $dungeon_id));
+
+    if (is_array($existing)) {
+      $decoded = is_string($existing['dungeon_data'] ?? NULL) ? json_decode($existing['dungeon_data'], TRUE) : [];
+      if (!is_array($decoded)) {
+        $decoded = [];
+      }
+      if (is_array($decoded['room_placements'] ?? NULL)) {
+        $placed_ids = [];
+        foreach ($decoded['room_placements'] as $placement) {
+          if (is_array($placement) && trim((string) ($placement['room_id'] ?? '')) !== '') {
+            $placed_ids[trim((string) $placement['room_id'])] = TRUE;
+          }
+        }
+        $offset = count($decoded['room_placements']);
+        foreach ($rooms as $r_id) {
+          if (isset($placed_ids[$r_id])) {
+            continue;
+          }
+          $decoded['room_placements'][] = [
+            'placement_id' => $this->uuid->generate(),
+            'room_id' => $r_id,
+            'origin' => ['q' => $offset * 6, 'r' => 0],
+            'rotation_steps' => 0,
+            'label' => ucwords(str_replace(['-', '_'], ' ', $r_id)),
+            'is_level_entrance' => $r_id === $entrance_room && $offset === 0,
+            'tags' => ['storyline_remediation'],
+          ];
+          $offset++;
+        }
+      }
+      else {
+        $merged_rooms = array_values(array_unique(array_merge(
+          array_map('strval', (array) ($decoded['rooms'] ?? [])),
+          $rooms,
+        )));
+        $decoded['schema_version'] = $decoded['schema_version'] ?? '1.0.0';
+        $decoded['entry_room'] = trim((string) ($decoded['entry_room'] ?? '')) ?: $entrance_room;
+        $decoded['rooms'] = $merged_rooms;
+      }
+
+      $db->update('dungeoncrawler_content_dungeons')
+        ->fields([
+          'dungeon_data' => json_encode($decoded, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+          'updated' => $now,
+        ])
+        ->condition('dungeon_id', $dungeon_id)
+        ->execute();
+
+      return ['dungeon_id' => $dungeon_id, 'created' => FALSE, 'updated' => TRUE];
+    }
+
+    $canonical_dungeon_data = [
+      'schema_version' => '1.0.0',
+      'storyline_id' => $storyline_id,
+      'goal_alignment' => $purpose,
+      'entry_room' => $entrance_room,
+      'rooms' => $rooms,
+      'generation_context' => [
+        'source' => 'storyline_remediation',
+        'generated_at' => gmdate('c', $now),
+      ],
+    ];
+
+    $db->merge('dungeoncrawler_content_dungeons')
+      ->keys(['dungeon_id' => $dungeon_id])
+      ->fields([
+        'name' => $human_name,
+        'description' => $purpose,
+        'theme' => 'forest',
+        'dungeon_data' => json_encode($canonical_dungeon_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'source_dungeon_id' => $storyline_id !== '' ? $storyline_id : NULL,
+        'updated' => $now,
+      ])
+      ->expression('created', 'COALESCE(created, :created)', [':created' => $now])
+      ->execute();
+
+    return ['dungeon_id' => $dungeon_id, 'created' => TRUE];
+  }
+
+  private function upsertCanonicalQuest(array $spec): array {
+    $template_id = trim((string) ($spec['template_id'] ?? ''));
+    if (!\Drupal::hasContainer() || !\Drupal::getContainer()->has('database')) {
+      return ['template_id' => $template_id, 'created' => FALSE];
+    }
+    $db = \Drupal::database();
+    if (!$db->schema()->tableExists('dc_canonical_quests')) {
+      return ['template_id' => $template_id, 'created' => FALSE];
+    }
+
+    $existing = $db->select('dc_canonical_quests', 'q')
+      ->fields('q')
+      ->condition('template_id', $template_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+
+    $now = time();
+    $version = trim((string) ($spec['version'] ?? '1.0.0')) ?: '1.0.0';
+
+    if (is_array($existing)) {
+      $existing_rewards = is_string($existing['rewards_schema'] ?? NULL) ? json_decode($existing['rewards_schema'], TRUE) : [];
+      if (!is_array($existing_rewards)) {
+        $existing_rewards = ['xp' => 60, 'gold' => 0, 'items' => []];
+      }
+      $new_rewards = is_array($spec['rewards_schema'] ?? NULL) ? $spec['rewards_schema'] : [];
+      $merged_items = array_values(array_unique(array_filter(array_merge(
+        array_map('strval', (array) ($existing_rewards['items'] ?? [])),
+        array_map('strval', (array) ($new_rewards['items'] ?? [])),
+      ))));
+      $existing_rewards['items'] = $merged_items;
+      if (isset($new_rewards['gold']) && (int) $new_rewards['gold'] > (int) ($existing_rewards['gold'] ?? 0)) {
+        $existing_rewards['gold'] = (int) $new_rewards['gold'];
+      }
+      $update_fields = [
+        'rewards_schema' => json_encode($existing_rewards, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'updated_at' => $now,
+      ];
+      if (!empty($spec['objectives_schema'])) {
+        $update_fields['objectives_schema'] = json_encode(array_values((array) $spec['objectives_schema']), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+      }
+      $db->update('dc_canonical_quests')
+        ->fields($update_fields)
+        ->condition('template_id', $template_id)
+        ->execute();
+
+      return ['template_id' => $template_id, 'created' => FALSE, 'updated' => TRUE];
+    }
+
+    $fields = [
+      'template_id' => $template_id,
+      'version' => $version,
+      'name' => trim((string) ($spec['name'] ?? $template_id)) ?: $template_id,
+      'description' => trim((string) ($spec['description'] ?? $template_id)) ?: $template_id,
+      'quest_type' => trim((string) ($spec['quest_type'] ?? 'module_story')) ?: 'module_story',
+      'level_min' => max(1, (int) ($spec['level_min'] ?? 1)),
+      'level_max' => max(1, (int) ($spec['level_max'] ?? 1)),
+      'tags' => json_encode(array_values((array) ($spec['tags'] ?? [])), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+      'prerequisites' => json_encode(array_values((array) ($spec['prerequisites'] ?? [])), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+      'estimated_duration_minutes' => max(5, (int) ($spec['estimated_duration_minutes'] ?? 20)),
+      'storyline_template_id' => $spec['storyline_template_id'] ?? NULL,
+      'entry_point_actor_id' => $spec['entry_point_actor_id'] ?? NULL,
+      'entry_point_location_id' => $spec['entry_point_location_id'] ?? NULL,
+      'contract_hash' => hash('sha256', json_encode($spec, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)),
+      'objectives_schema' => json_encode(array_values((array) ($spec['objectives_schema'] ?? [])), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+      'rewards_schema' => json_encode((array) ($spec['rewards_schema'] ?? ['xp' => 60, 'gold' => 0, 'items' => []]), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+      'story_impact' => json_encode((array) ($spec['story_impact'] ?? []), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+      'updated_at' => $now,
+    ];
+
+    $db->merge('dc_canonical_quests')
+      ->keys(['template_id' => $template_id, 'version' => $version])
+      ->fields($fields)
+      ->expression('created_at', 'COALESCE(created_at, :created_at)', [':created_at' => $now])
+      ->execute();
+
+    return ['template_id' => $template_id, 'created' => TRUE];
   }
 
   private function listArgument(array $arguments, string $name): array {

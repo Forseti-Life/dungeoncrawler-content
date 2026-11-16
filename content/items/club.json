@@ -5,18 +5,32 @@
   "item_type": "weapon",
   "level": 0,
   "rarity": "common",
-  "traits": ["simple", "club"],
+  "traits": [
+    "simple",
+    "club"
+  ],
   "description": "A stout piece of wood shaped or hardened for use as a weapon. Clubs are possibly the oldest weapons in existence.",
-  "price": { "cp": 0, "sp": 0, "gp": 0, "pp": 0 },
+  "price": {
+    "cp": 1,
+    "sp": 0,
+    "gp": 0,
+    "pp": 0
+  },
   "bulk": "1",
   "hands": "1",
   "weapon_stats": {
     "category": "simple",
     "group": "club",
-    "damage": { "dice_count": 1, "die_size": "d6", "damage_type": "bludgeoning" },
+    "damage": {
+      "dice_count": 1,
+      "die_size": "d6",
+      "damage_type": "bludgeoning"
+    },
     "range": null,
     "reload": null,
-    "weapon_traits": ["thrown 10 ft."]
+    "weapon_traits": [
+      "thrown 10 ft."
+    ]
   },
   "created_at": "2026-03-01T00:00:00Z",
   "updated_at": "2026-03-01T00:00:00Z",

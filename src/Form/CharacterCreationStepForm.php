@@ -559,6 +559,7 @@ class CharacterCreationStepForm extends FormBase {
    *   The character data for default values.
    */
   private function buildStepFields(array &$form, FormStateInterface $form_state, int $step, array $character_data): void {
+    $this->resetChoicesDependingOnChangedField($form_state);
     $schema_fields = $this->schemaLoader->getStepFields($step);
     $method = 'buildStep' . $step . 'Fields';
     if (method_exists($this, $method)) {
@@ -1062,7 +1063,7 @@ class CharacterCreationStepForm extends FormBase {
           ? array_values(array_filter($raw_spells, static fn($v) => $v !== 0 && $v !== '' && $v !== NULL))
           : [];
 
-        $spell_payload = CharacterManager::buildSpellSelectionPayload($selected_class, $tradition, $cantrip_ids, $spell_ids);
+        $spell_payload = CharacterManager::buildSpellSelectionPayload($selected_class, $tradition, $cantrip_ids, $spell_ids, strtolower(trim((string) ($character_data['subclass'] ?? ''))));
         $character_data['spells'] = $spell_payload['spells'];
       }
       else {
@@ -1723,9 +1724,17 @@ class CharacterCreationStepForm extends FormBase {
       return;
     }
 
+    if ($reason === 'generation_failed') {
+      $provider_reason = trim((string) ($result['storage']['message'] ?? ($result['result']['message'] ?? '')));
+      $this->messenger()->addWarning($provider_reason !== ''
+        ? $this->t('Portrait generation failed: @reason', ['@reason' => $provider_reason])
+        : $this->t('Portrait generation failed before an image could be stored.'));
+      return;
+    }
+
     if (!empty($result['attempted']) && !empty($result['storage']) && empty($result['storage']['stored'])) {
       $storage_reason = (string) ($result['storage']['reason'] ?? 'storage_failed');
-      $this->messenger()->addWarning($this->t('Portrait generation completed without a stored image (@reason).', [
+      $this->messenger()->addWarning($this->t('Portrait generation did not produce a stored image (@reason).', [
         '@reason' => $storage_reason,
       ]));
     }
@@ -1767,6 +1776,9 @@ class CharacterCreationStepForm extends FormBase {
       $character_data = $this->syncWizardDraftFromCharacterData($character_data);
 
       $schema_data = $this->characterManager->canonicalizeCharacterData($character_data);
+      if ($existing_record && isset($schema_data['canonical_actor_version']) && $existing_record->lifecycle_state === 'canonical_template') {
+        $schema_data['canonical_actor_version'] = \Drupal::service('dungeoncrawler_content.canonical_definitions')->incrementPatch($schema_data['canonical_actor_version']);
+      }
       if (empty($schema_data['created_at'])) {
         $schema_data['created_at'] = date('c', $now);
       }
@@ -2415,6 +2427,46 @@ class CharacterCreationStepForm extends FormBase {
   }
 
   /**
+   * Posted choices that only make sense under the field they depend on.
+   *
+   * Changed field => dependent inputs and the value each returns to. NULL
+   * removes the input so the field shows its own default.
+   */
+  private const DEPENDENT_CHOICES = [
+    'ancestry' => ['heritage' => '', 'ancestry_feat' => '', 'ancestry_boosts' => '[]', 'feat_selections' => NULL],
+    'background' => ['background_boosts' => '[]', 'scholar_skill_choice' => NULL],
+    'class' => ['class_feat' => NULL, 'class_key_ability' => NULL, 'subclass' => NULL, 'arcane_thesis' => NULL, 'cantrips' => NULL, 'spells_first' => NULL, 'feat_selections' => NULL],
+    'class_feat' => ['class_key_ability' => NULL, 'feat_selections' => NULL],
+    'subclass' => ['cantrips' => NULL, 'spells_first' => NULL],
+  ];
+
+  /**
+   * Clears choices made under the previous value of the field just changed.
+   *
+   * Runs before the step's fields are built, so the rebuilt controls and the
+   * next validation both see the cleared state. A boost picked for one
+   * background must not carry over to another whose fixed boost it equals.
+   */
+  private function resetChoicesDependingOnChangedField(FormStateInterface $form_state): void {
+    $changed = (string) ($form_state->getTriggeringElement()['#name'] ?? '');
+    if (!isset(self::DEPENDENT_CHOICES[$changed]) || !$form_state->isRebuilding()) {
+      return;
+    }
+    $input = $form_state->getUserInput();
+    foreach (self::DEPENDENT_CHOICES[$changed] as $field => $value) {
+      if ($value === NULL) {
+        unset($input[$field]);
+        $form_state->unsetValue($field);
+      }
+      else {
+        $input[$field] = $value;
+        $form_state->setValue($field, $value);
+      }
+    }
+    $form_state->setUserInput($input);
+  }
+
+  /**
    * AJAX callback to refresh ancestry-dependent Step 2 options.
    *
    * @param array $form
@@ -2426,28 +2478,6 @@ class CharacterCreationStepForm extends FormBase {
    *   The ancestry-dependent container.
    */
   public function updateHeritageOptions(array &$form, FormStateInterface $form_state): array {
-    $trigger = $form_state->getTriggeringElement();
-    $current_ancestry = (string) ($trigger['#value'] ?? $form_state->getValue('ancestry') ?? '');
-    $previous_ancestry = (string) ($form_state->get('previous_ancestry_selection') ?? '');
-
-    if ($current_ancestry !== $previous_ancestry) {
-      // Reset ancestry-dependent posted values when ancestry changes.
-      $form_state->setValue('heritage', '');
-      $form_state->setValue('ancestry_feat', '');
-      $form_state->setValue('ancestry_boosts', json_encode([]));
-
-      $user_input = $form_state->getUserInput();
-      if (is_array($user_input)) {
-        $user_input['heritage'] = '';
-        $user_input['ancestry_feat'] = '';
-        $user_input['ancestry_boosts'] = json_encode([]);
-        $user_input['ancestry'] = $current_ancestry;
-        $form_state->setUserInput($user_input);
-      }
-    }
-
-    $form_state->set('previous_ancestry_selection', $current_ancestry);
-
     // Clear any validation errors and messenger messages that may have
     // accumulated during form processing. With #limit_validation_errors absent
     // on the ancestry select, Drupal validates nothing by default for non-button
@@ -2480,25 +2510,6 @@ class CharacterCreationStepForm extends FormBase {
    * AJAX callback: Rebuilds background-dependent fields when background changes.
    */
   public function updateBackgroundOptions(array &$form, FormStateInterface $form_state): array {
-    $trigger = $form_state->getTriggeringElement();
-    $current_background = (string) ($trigger['#value'] ?? $form_state->getValue('background') ?? '');
-    $previous_background = (string) ($form_state->get('previous_background_selection') ?? '');
-
-    if ($current_background !== $previous_background) {
-      $form_state->setValue('background_boosts', json_encode([]));
-      $form_state->setValue('scholar_skill_choice', '');
-
-      $user_input = $form_state->getUserInput();
-      if (is_array($user_input)) {
-        $user_input['background'] = $current_background;
-        $user_input['background_boosts'] = json_encode([]);
-        $user_input['scholar_skill_choice'] = '';
-        $form_state->setUserInput($user_input);
-      }
-    }
-
-    $form_state->set('previous_background_selection', $current_background);
-
     if (method_exists($form_state, 'clearErrors')) {
       $form_state->clearErrors();
     }
@@ -2513,57 +2524,6 @@ class CharacterCreationStepForm extends FormBase {
    * AJAX callback: Rebuilds class-dependent fields when class or subclass changes.
    */
   public function updateClassOptions(array &$form, FormStateInterface $form_state): array {
-    $trigger = $form_state->getTriggeringElement();
-    $trigger_name = $trigger['#name'] ?? '';
-
-    // When the class itself changes, clear class-dependent selections.
-    if ($trigger_name === 'class') {
-      $form_state->setValue('class_feat', '');
-      $form_state->setValue('class_key_ability', '');
-      $form_state->setValue('subclass', '');
-      $form_state->setValue('arcane_thesis', '');
-      $form_state->setValue('cantrips', []);
-      $form_state->setValue('spells_first', []);
-
-      $user_input = $form_state->getUserInput();
-      if (is_array($user_input)) {
-        unset(
-          $user_input['class_feat'],
-          $user_input['class_key_ability'],
-          $user_input['subclass'],
-          $user_input['arcane_thesis'],
-          $user_input['cantrips'],
-          $user_input['spells_first']
-        );
-        $form_state->setUserInput($user_input);
-      }
-    }
-
-    if ($trigger_name === 'class_feat') {
-      $form_state->setValue('class_key_ability', '');
-      $user_input = $form_state->getUserInput();
-      if (is_array($user_input)) {
-        unset(
-          $user_input['class_key_ability'],
-          $user_input['feat_selections']['eldritch-trickster-racket'],
-          $user_input['feat_selections']['mastermind-racket']
-        );
-        $form_state->setUserInput($user_input);
-      }
-    }
-
-    // When subclass changes, clear spell selections.
-    if ($trigger_name === 'subclass') {
-      $form_state->setValue('cantrips', []);
-      $form_state->setValue('spells_first', []);
-
-      $user_input = $form_state->getUserInput();
-      if (is_array($user_input)) {
-        unset($user_input['cantrips'], $user_input['spells_first']);
-        $form_state->setUserInput($user_input);
-      }
-    }
-
     if (method_exists($form_state, 'clearErrors')) {
       $form_state->clearErrors();
     }

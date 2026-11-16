@@ -14,7 +14,7 @@ final class CheckStorylineCreationReadinessTool implements EditorGmToolInterface
     return new EditorGmToolDefinition(
       'check_storyline_creation_readiness',
       EditorGmToolDefinition::FAMILY_VALIDATION,
-      'Summarize blockers preventing canonical storyline creation.',
+      'Complete canonical review of the saved revision and report creation readiness. Read-only: final signoff is recorded by publish_storyline_draft, not a separate review flag.',
       FALSE,
       'StorylineAuthoringDraftService::validateDraft()',
     );
@@ -39,6 +39,8 @@ final class CheckStorylineCreationReadinessTool implements EditorGmToolInterface
     }
     return [
       'ready' => $blockers === [] && ($validation['valid'] ?? FALSE) === TRUE,
+      'review_completed' => ($validation['valid'] ?? FALSE) === TRUE,
+      'publication_receipt' => $draft['publication_receipt'] ?? NULL,
       'draft_id' => $context->draftId,
       'revision' => (int) ($draft['revision'] ?? 0),
       'status' => (string) ($draft['status'] ?? ''),

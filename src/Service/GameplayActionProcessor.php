@@ -503,7 +503,7 @@ The JSON block should declare ALL mechanical state changes that result from the 
 {
   "actions": [
     {
-      "type": "cast_spell|use_skill|use_feat|strike|stride|interact|recall_knowledge|perception_check|save|transfer_inventory|transfer_currency|consume_inventory|quest_turn_in|combat_initiation|other",
+      "type": "cast_spell|use_skill|use_feat|strike|stride|interact|recall_knowledge|perception_check|save|transfer_inventory|transfer_currency|consume_inventory|quest_turn_in|resolve_quest_goal|reveal_quest_approach|combat_initiation|other",
       "name": "Specific action name (e.g., 'Cast Light', 'Recall Knowledge: Arcana')",
       "details": {
         "spell_name": "light",
@@ -645,6 +645,38 @@ Quest turn-in format:
 }
 ```
 
+Quest goal formats (only for quests listed under QUEST GOALS, using the quest_id and approach_id given there):
+```json
+{
+  "actions": [
+    {
+      "type": "resolve_quest_goal",
+      "name": "The goblins agree to leave",
+      "details": {
+        "goal": {
+          "quest_id": "exact quest id from QUEST GOALS",
+          "approach_id": "exact approach_id from QUEST GOALS, or \"other\" when an unplanned way is allowed",
+          "evidence": "One sentence on what happened in play that achieved the goal"
+        }
+      },
+      "state_changes": { "character": {}, "room": {} }
+    },
+    {
+      "type": "reveal_quest_approach",
+      "name": "The captured goblin mentions the old mine",
+      "details": {
+        "goal": {
+          "quest_id": "exact quest id from QUEST GOALS",
+          "approach_id": "exact approach_id of a HIDDEN way",
+          "reason": "One sentence on how the party learned of it"
+        }
+      },
+      "state_changes": { "character": {}, "room": {} }
+    }
+  ]
+}
+```
+
 Combat initiation format:
 ```json
 {
@@ -692,6 +724,8 @@ Rules for mechanical responses:
 15. A transfer_inventory or consume_inventory action must reference the exact item_instance_id from the authoritative prompt context.
 16. Do not invent storage owner ids, item instance ids, or container ids. If the source/destination cannot be identified exactly, narrate uncertainty instead of claiming a completed transfer or consumption.
 17. For delivering or turning in a quest item/objective, use "quest_turn_in" with the quest payload instead of only describing it narratively.
+17a. When play achieves the goal of a quest listed under QUEST GOALS — by any listed way, including a HIDDEN one, or by an unplanned way when that is allowed — emit "resolve_quest_goal" in the same turn. Do not emit it for an attempt that has not yet succeeded.
+17b. When play uncovers a HIDDEN way without yet achieving the goal, emit "reveal_quest_approach". Never mention a HIDDEN way in narration before that.
 18. For starting a fight, use "combat_initiation" instead of only narrating that combat begins.
 19. If the player says or clearly implies an aggressive action against a present NPC or creature (for example, "I attack Gribbles"), emit a "combat_initiation" action immediately.
 20. When a target NPC or creature is listed in CURRENT ROOM, prefer that target's exact entity_instance_id for combat_initiation.target_entity_id. If only the exact name is available, use target_name/enemy_names with the exact grounded room name.
@@ -1592,6 +1626,26 @@ ENTRY_NARRATION_RULES;
         $quest_validation = $this->validateQuestTurnInStructure($action);
         if (empty($quest_validation['valid'])) {
           $action_errors = array_merge($action_errors, $quest_validation['errors'] ?? []);
+        }
+        if (!empty($action_errors)) {
+          $errors[] = [
+            'action_name' => $action_name,
+            'message' => "Cannot resolve {$action_name}: " . implode('; ', array_unique($action_errors)) . '.',
+          ];
+          continue;
+        }
+
+        $validated_actions[] = $action;
+        continue;
+      }
+
+      if (in_array($action['type'] ?? '', ['resolve_quest_goal', 'reveal_quest_approach'], TRUE)) {
+        $goal = $action['details']['goal'] ?? NULL;
+        $required = $action['type'] === 'resolve_quest_goal' ? ['quest_id', 'approach_id', 'evidence'] : ['quest_id', 'approach_id', 'reason'];
+        foreach ($required as $key) {
+          if (!is_array($goal) || trim((string) ($goal[$key] ?? '')) === '') {
+            $action_errors[] = "missing details.goal.{$key}";
+          }
         }
         if (!empty($action_errors)) {
           $errors[] = [

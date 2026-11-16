@@ -39,23 +39,25 @@ class StorylineManagementController extends ControllerBase {
    */
   public function listStorylines(): array {
     $uid = (int) $this->currentUser()->id();
-    $my_storylines = [];
-    $other_storylines = [];
-    $my_drafts = [];
-    $shared_drafts = [];
+    $storylines = [];
+    $draft_records = [];
+    $listed_draft_ids = [];
+    $template_names = [];
     $can_edit_storylines = $this->currentUser()->hasPermission('edit canonical dungeoncrawler storylines');
     $can_admin_storylines = $this->currentUser()->hasPermission('administer dungeoncrawler content')
       || $this->currentUser()->hasPermission('publish canonical dungeoncrawler storylines');
     $storylines_destination = Url::fromRoute('dungeoncrawler_content.storyline_management')->toString();
     try {
-      foreach ($this->storylineManager->listTemplates() as $template) {
+      $templates = $this->storylineManager->listTemplates();
+      $template_names = array_column($templates, 'name', 'template_id');
+      foreach ($templates as $template) {
         $template_id = trim((string) ($template['template_id'] ?? ''));
         if ($template_id === '') {
           continue;
         }
 
         $latest_draft = $can_edit_storylines
-          ? $this->drafts->findLatestDraftForTemplate($template_id)
+          ? $this->drafts->findLatestDraftForTemplate($template_id, TRUE)
           : NULL;
         $completeness = NULL;
         if ($can_edit_storylines && $latest_draft !== NULL && !empty($latest_draft['draft_id'])) {
@@ -70,11 +72,20 @@ class StorylineManagementController extends ControllerBase {
         }
         $is_mine = $this->isTemplateAuthoredByCurrentUser($template, $uid);
         $can_manage_template = $is_mine || $can_admin_storylines;
+        $has_working_draft = $latest_draft !== NULL
+          && ($latest_draft['payload']['storyline_id'] ?? '') === $template_id;
+        if ($has_working_draft) {
+          $listed_draft_ids[$latest_draft['draft_id']] = TRUE;
+        }
+        $history_draft_id = (string) ($template['template_data']['metadata']['storyline_consolidation']['history_draft_id'] ?? '');
         $record = [
           'template_id' => $template_id,
           'name' => (string) ($template['name'] ?? $template_id),
           'status' => 'canonical',
+          'has_working_draft' => $has_working_draft,
+          'updated_by_name' => (string) ($latest_draft['updated_by_name'] ?? ''),
           'source' => (string) ($template['source'] ?? ''),
+          'based_on' => (string) ($template_names[$template['template_data']['metadata']['source_template_id'] ?? ''] ?? ''),
           'goal' => (string) ($template['synopsis'] ?? ''),
           'updated' => !empty($latest_draft['updated_at'])
             ? date('M j, Y g:i a', (int) $latest_draft['updated_at'])
@@ -95,15 +106,15 @@ class StorylineManagementController extends ControllerBase {
               'query' => ['destination' => $storylines_destination],
             ])->toString()
             : '',
-          'action_label' => $latest_draft !== NULL ? 'Open Latest Version' : 'Edit Storyline',
+          'action_label' => $latest_draft !== NULL ? 'Continue Draft' : 'Create Draft',
+          'history_url' => $can_edit_storylines && $history_draft_id !== ''
+            ? Url::fromRoute('dungeoncrawler_content.gm_storyline_builder', [], [
+              'query' => ['draft_id' => $history_draft_id],
+            ])->toString()
+            : '',
         ];
 
-        if ($is_mine) {
-          $my_storylines[] = $record;
-        }
-        else {
-          $other_storylines[] = $record;
-        }
+        $storylines[] = $record;
       }
     }
     catch (\Throwable $e) {
@@ -111,20 +122,15 @@ class StorylineManagementController extends ControllerBase {
         '%error' => $e->getMessage(),
       ]));
     }
-    $draft_metrics = [
-      'total_drafts' => 0,
-      'my_drafts' => 0,
-      'shared_drafts' => 0,
-      'my_editing_drafts' => 0,
-      'my_archived_drafts' => 0,
-      'my_saved_versions' => 0,
-    ];
+    $canonical_total = count($storylines);
     try {
-      $draft_metrics = $this->drafts->summarizeDraftLibrary();
       $visible_drafts = $can_edit_storylines
         ? $this->drafts->listDrafts()
         : [];
       foreach ($visible_drafts as $draft) {
+        if (($draft['status'] ?? '') !== 'editing') {
+          continue;
+        }
         $draft_id = (string) ($draft['draft_id'] ?? '');
         if ($draft_id === '') {
           continue;
@@ -132,7 +138,11 @@ class StorylineManagementController extends ControllerBase {
         $record = [
           'draft_id' => $draft_id,
           'title' => (string) ($draft['title'] ?? 'Untitled storyline'),
+          'based_on' => ($draft['storyline_id'] ?? '') !== ($draft['source_template_id'] ?? '')
+            ? (string) ($template_names[$draft['source_template_id'] ?? ''] ?? '')
+            : '',
           'owner_name' => (string) ($draft['owner_name'] ?? ''),
+          'updated_by_name' => (string) ($draft['updated_by_name'] ?? ''),
           'revision' => (int) ($draft['revision'] ?? 0),
           'revision_count' => (int) ($draft['revision_count'] ?? 1),
           'status' => (string) ($draft['status'] ?? 'editing'),
@@ -151,12 +161,7 @@ class StorylineManagementController extends ControllerBase {
             ? Url::fromRoute('dungeoncrawler_content.api.storyline_builder_draft_delete', ['draft_id' => $draft_id])->toString()
             : '',
         ];
-        if (!empty($draft['is_owner'])) {
-          $my_drafts[] = $record;
-        }
-        else {
-          $shared_drafts[] = $record;
-        }
+        $draft_records[] = $record;
       }
     }
     catch (\Throwable $e) {
@@ -165,17 +170,39 @@ class StorylineManagementController extends ControllerBase {
       ]));
     }
     $metrics = [
-      'canonical_total' => count($my_storylines) + count($other_storylines),
-      'canonical_mine' => count($my_storylines),
-      'canonical_shared' => count($other_storylines),
-    ] + $draft_metrics;
+      'canonical_total' => $canonical_total,
+      'active_drafts' => count($draft_records),
+      'saved_versions' => array_sum(array_column($visible_drafts ?? [], 'revision_count')),
+    ];
+
+    foreach ($draft_records as $draft) {
+      if (isset($listed_draft_ids[$draft['draft_id']])) {
+        continue;
+      }
+      $storylines[] = [
+        'name' => $draft['title'],
+        'status' => 'draft',
+        'draft_status' => $draft['status'],
+        'template_id' => '',
+        'goal' => '',
+        'source' => '',
+        'based_on' => $draft['based_on'],
+        'updated_by_name' => $draft['updated_by_name'],
+        'updated' => $draft['updated'],
+        'latest_revision' => $draft['revision'],
+        'narrative_completeness' => NULL,
+        'structure_object_completeness' => NULL,
+        'overall_completeness' => NULL,
+        'edit_url' => $draft['edit_url'],
+        'archive_url' => $draft['archive_url'],
+        'action_label' => 'Continue Draft',
+      ];
+    }
 
     return [
       '#theme' => 'storyline_management_list',
-      '#my_storylines' => $my_storylines,
-      '#other_storylines' => $other_storylines,
-      '#my_drafts' => $my_drafts,
-      '#shared_drafts' => $shared_drafts,
+      '#storylines' => $storylines,
+      '#drafts' => $draft_records,
       '#metrics' => $metrics,
       '#builder_url' => Url::fromRoute('dungeoncrawler_content.gm_storyline_builder')->toString(),
       '#storyline_explorer_url' => Url::fromRoute('dungeoncrawler_content.storyline_explorer')->toString(),
@@ -635,7 +662,7 @@ class StorylineManagementController extends ControllerBase {
       return NULL;
     }
 
-    if ((int) $campaign->uid !== (int) $this->currentUser()->id()) {
+    if (!\Drupal::service('dungeoncrawler_content.campaign_membership')->isMember((int) $campaign->id, (int) $this->currentUser()->id())) {
       return NULL;
     }
 

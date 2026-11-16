@@ -74,7 +74,7 @@ character-creation-style:
     - dungeoncrawler_content/character-step-base
 
 character-creation-gm-chat:
-  version: 20261109-character-gm-authority-2
+  version: 20261115-character-gm-autofill-2
   css:
     theme:
       css/character-creation-gm-chat.css: {}
@@ -88,7 +88,7 @@ character-creation-gm-chat:
     - core/drupalSettings
 
 character-setup-tabs:
-  version: 20261109-character-gm-authority-2
+  version: 20261115-character-gm-autofill-2
   css:
     theme:
       css/character-setup-tabs.css: {}
@@ -102,17 +102,30 @@ character-setup-tabs:
     - core/drupal.ajax
 
 editor-gm-chat-style:
-  version: 20261109-character-gm-panel-1
+  version: 20261116-storyline-flow-3
   css:
     theme:
       css/gm-storyline-builder.css: {}
 
+gm-storyline-actor-graph:
+  version: 20261116-engine-3
+  css:
+    theme:
+      css/gm-storyline-actor-graph.css: {}
+  js:
+    js/gm-storyline-actor-graph.js: {}
+  dependencies:
+    - core/drupal
+    - core/once
+    - core/drupalSettings
+
 gm-storyline-builder:
-  version: 20261024-tool-calls-1
+  version: 20261116-storyline-final-signoff-1
   js:
     js/gm-storyline-builder.js: { attributes: { type: module } }
   dependencies:
     - dungeoncrawler_content/editor-gm-chat-style
+    - dungeoncrawler_content/diagram-framework
     - core/drupal
     - core/once
     - core/drupalSettings
@@ -229,7 +242,7 @@ hexmap:
 # All js/v2/** modules are imported inside hexmap-v2.js (ES module imports);
 # only the entry point is listed here.
 hexmap-v2:
-  version: 20261115-player-setup-1
+  version: 20261115-quest-goals-4
   js:
     # PixiJS CDN (version locked — same as hexmap library)
     https://cdn.jsdelivr.net/npm/pixi.js@7.3.2/dist/pixi.min.js: { type: external, minified: true }
@@ -247,7 +260,7 @@ hexmap-v2:
     - core/once
 
 room-editor:
-  version: 20261024-tool-calls-1
+  version: 20261116-gm-lifecycle-1
   js:
     https://cdn.jsdelivr.net/npm/pixi.js@7.3.2/dist/pixi.min.js: { type: external, minified: true }
     js/room-editor.js: { attributes: { type: module } }
@@ -301,7 +314,7 @@ module-explorer:
     - core/once
 
 dungeon-editor:
-  version: 20261024-tool-calls-1
+  version: 20261115-auto-id-1
   js:
     https://cdn.jsdelivr.net/npm/pixi.js@7.3.2/dist/pixi.min.js: { type: external, minified: true }
     js/dungeon-editor.js: { attributes: { type: module } }
@@ -316,7 +329,7 @@ dungeon-editor:
     - core/once
 
 definition-editor:
-  version: 20261024-tool-calls-1
+  version: 20261115-auto-id-1
   js:
     js/definition-editor.js: { attributes: { type: module } }
   css:
@@ -342,14 +355,20 @@ architecture:
   dependencies:
     - core/drupal
 
+diagram-framework:
+  version: 20261116-1
+  js:
+    https://cdn.jsdelivr.net/npm/mermaid@11.6.0/dist/mermaid.min.js: { type: external, minified: true }
+    https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js: { type: external, minified: true }
+
 world-game-flow:
   css:
     theme:
       css/world-game-flow.css: {}
   js:
-    https://cdn.jsdelivr.net/npm/mermaid@11.6.0/dist/mermaid.min.js: { type: external, minified: true }
     js/world-game-flow.js: {}
   dependencies:
+    - dungeoncrawler_content/diagram-framework
     - dungeoncrawler_content/architecture
     - core/drupal
     - core/once
@@ -366,11 +385,10 @@ dungeon-analysis:
     theme:
       css/dungeon-analysis.css: {}
   js:
-    https://cdn.jsdelivr.net/npm/mermaid@11.6.0/dist/mermaid.min.js: { type: external, minified: true }
-    https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js: { type: external, minified: true }
     js/hexmap-render-contract.js: {}
     js/dungeon-analysis.js: {}
   dependencies:
+    - dungeoncrawler_content/diagram-framework
     - core/drupal
     - core/drupalSettings
     - core/once

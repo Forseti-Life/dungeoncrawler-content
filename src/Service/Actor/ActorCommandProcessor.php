@@ -68,7 +68,7 @@ class ActorCommandProcessor {
       'lifecycle_state',
     ],
     'actor.template.import' => [
-      'type', 'role', 'name', 'level', 'ancestry', 'class', 'hp_current', 'hp_max', 'armor_class',
+      'instance_id', 'type', 'role', 'name', 'level', 'ancestry', 'class', 'hp_current', 'hp_max', 'armor_class',
       'character_data', 'status', 'lifecycle_state',
     ],
   ];
@@ -260,6 +260,11 @@ class ActorCommandProcessor {
         return $plan['failure'];
       }
       $row = $plan['row'];
+      if ($row['lifecycle_state'] === 'canonical_template' && (int) $row['campaign_id'] === 0) {
+        // The row is a canonical definition; its versioning and room impact
+        // are owned by CanonicalDefinitionService::saveDefinition().
+        return $this->failure($command, 'actor_definition_owned', 'This actor is a canonical definition and is changed through the definition tools.', FALSE, ['Use the actor tools on the Definition Editor or Storyline Builder.']);
+      }
       $revision = $plan['revision'];
       $new_revision = $revision;
       $now = $this->time->getRequestTime();

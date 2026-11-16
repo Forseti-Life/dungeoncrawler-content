@@ -7,6 +7,7 @@ use Drupal\Core\Cache\Cache;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Database\Connection;
 use Drupal\dungeoncrawler_content\Service\CampaignLifecycleService;
+use Drupal\dungeoncrawler_content\Service\CampaignMembershipService;
 use Drupal\Core\Form\FormBuilderInterface;
 use Drupal\Core\Url;
 use Drupal\dungeoncrawler_content\Form\CampaignCreateForm;
@@ -44,7 +45,7 @@ class CampaignController extends ControllerBase {
   protected TimeInterface $time;
   protected CampaignLifecycleService $campaignLifecycle;
 
-  public function __construct(Connection $database, CharacterManager $character_manager, FormBuilderInterface $form_builder, GeneratedImageRepository $image_repository, InstitutionMembershipService $institution_membership, CampaignCharacterRuntimeResolverService $runtime_resolver, GameCoordinatorService $game_coordinator, NavigationService $navigation_service, RuntimeBootstrapService $runtime_bootstrap, TimeInterface $time, CampaignLifecycleService $campaign_lifecycle) {
+  public function __construct(Connection $database, CharacterManager $character_manager, FormBuilderInterface $form_builder, GeneratedImageRepository $image_repository, InstitutionMembershipService $institution_membership, CampaignCharacterRuntimeResolverService $runtime_resolver, GameCoordinatorService $game_coordinator, NavigationService $navigation_service, RuntimeBootstrapService $runtime_bootstrap, TimeInterface $time, CampaignLifecycleService $campaign_lifecycle, protected CampaignMembershipService $campaignMembership) {
     $this->database = $database;
     $this->characterManager = $character_manager;
     $this->formBuilderService = $form_builder;
@@ -74,6 +75,7 @@ class CampaignController extends ControllerBase {
       $container->get('dungeoncrawler_content.runtime_bootstrap'),
       $container->get('datetime.time'),
       $container->get('dungeoncrawler_content.campaign_lifecycle'),
+      $container->get('dungeoncrawler_content.campaign_membership'),
     );
   }
 
@@ -103,11 +105,13 @@ class CampaignController extends ControllerBase {
   public function listCampaigns() {
     $uid = (int) $this->currentUser()->id();
 
-    $campaigns = $this->database->select('dc_campaigns', 'c')
+    $campaign_query = $this->database->select('dc_campaigns', 'c');
+    $campaign_query->join('dc_campaign_members', 'm', 'm.campaign_id = c.id AND m.uid = :uid', [':uid' => $uid]);
+    $campaign_query->addField('m', 'default_character_id', 'member_character_id');
+    $campaigns = $campaign_query
       ->fields('c')
-      ->condition('uid', $uid)
-      ->condition('status', 'archived', '<>')
-      ->orderBy('changed', 'DESC')
+      ->condition('c.status', 'archived', '<>')
+      ->orderBy('c.changed', 'DESC')
       ->execute()
       ->fetchAll();
 
@@ -115,8 +119,8 @@ class CampaignController extends ControllerBase {
     $active_character_ids = [];
     foreach ($campaigns as $campaign) {
       $campaign_ids[] = (int) $campaign->id;
-      if (!empty($campaign->active_character_id)) {
-        $active_character_ids[] = (int) $campaign->active_character_id;
+      if (!empty($campaign->member_character_id)) {
+        $active_character_ids[] = (int) $campaign->member_character_id;
       }
     }
 
@@ -152,7 +156,7 @@ class CampaignController extends ControllerBase {
     $campaigns_destination = Url::fromRoute('dungeoncrawler_content.campaigns')->toString();
     foreach ($campaigns as $campaign) {
       $campaign_id = (int) $campaign->id;
-      $active_character_id = (int) ($campaign->active_character_id ?? 0);
+      $active_character_id = (int) ($campaign->member_character_id ?? 0);
       $active_character_name = $active_character_id > 0
         ? ($active_character_names[$active_character_id] ?? $this->t('Unknown'))
         : $this->t('None selected');
@@ -208,7 +212,7 @@ class CampaignController extends ControllerBase {
 
     $campaigns = $this->database->select('dc_campaigns', 'c')
       ->fields('c')
-      ->condition('uid', $uid)
+      ->condition('id', $this->campaignMembership->campaignIds($uid) ?: [0], 'IN')
       ->condition('status', 'archived')
       ->orderBy('changed', 'DESC')
       ->execute()
@@ -237,11 +241,11 @@ class CampaignController extends ControllerBase {
         ], [
           'query' => ['destination' => $archived_destination],
         ])->toString(),
-        'delete_url' => Url::fromRoute('dungeoncrawler_content.campaign_delete_direct', [
+        'delete_url' => (int) $campaign->uid === $uid ? Url::fromRoute('dungeoncrawler_content.campaign_delete_direct', [
           'campaign_id' => $campaign_id,
         ], [
           'query' => ['destination' => $archived_destination],
-        ])->toString(),
+        ])->toString() : NULL,
       ];
     }
 
@@ -280,7 +284,7 @@ class CampaignController extends ControllerBase {
       throw new NotFoundHttpException();
     }
 
-    if ((int) $campaign->uid !== (int) $this->currentUser()->id()) {
+    if (!$this->campaignMembership->isMember((int) $campaign->id, (int) $this->currentUser()->id())) {
       throw new AccessDeniedHttpException();
     }
 
@@ -292,7 +296,7 @@ class CampaignController extends ControllerBase {
 
     foreach ($this->database->select('dc_campaigns', 'c')
       ->fields('c', ['id', 'name'])
-      ->condition('uid', (int) $this->currentUser()->id())
+      ->condition('id', $this->campaignMembership->campaignIds((int) $this->currentUser()->id()) ?: [0], 'IN')
       ->execute() as $campaign_row) {
       $campaign_names[(int) $campaign_row->id] = (string) $campaign_row->name;
     }
@@ -461,7 +465,7 @@ class CampaignController extends ControllerBase {
    */
   public function listCampaignDungeons(int $campaign_id): array {
     $campaign = $this->database->select('dc_campaigns', 'c')
-      ->fields('c', ['id', 'uid', 'name', 'theme', 'difficulty', 'status', 'active_character_id'])
+      ->fields('c', ['id', 'uid', 'name', 'theme', 'difficulty', 'status'])
       ->condition('id', $campaign_id)
       ->execute()
       ->fetchObject();
@@ -470,9 +474,11 @@ class CampaignController extends ControllerBase {
       throw new NotFoundHttpException();
     }
 
-    if ((int) $campaign->uid !== (int) $this->currentUser()->id()) {
+    if (!$this->campaignMembership->isMember((int) $campaign->id, (int) $this->currentUser()->id())) {
       throw new AccessDeniedHttpException();
     }
+
+    $member_character_id = (int) $this->campaignMembership->characterId($campaign_id, (int) $this->currentUser()->id());
 
     $this->ensureDefaultTavernDungeonExists($campaign_id, (string) ($campaign->theme ?? 'classic_dungeon'));
 
@@ -491,11 +497,11 @@ class CampaignController extends ControllerBase {
       }
 
       $enter_url = NULL;
-      if (!empty($campaign->active_character_id)) {
+      if ($member_character_id > 0) {
         $enter_url = Url::fromRoute('dungeoncrawler_content.hexmap_demo', [], [
           'query' => $this->buildHexmapLaunchQuery(
             $campaign_id,
-            (int) $campaign->active_character_id,
+            $member_character_id,
             $decoded,
             (string) $dungeon->dungeon_id
           ),
@@ -523,7 +529,7 @@ class CampaignController extends ControllerBase {
         'theme' => ucfirst(str_replace('_', ' ', (string) $campaign->theme)),
         'difficulty' => ucfirst((string) $campaign->difficulty),
         'status' => ucfirst((string) $campaign->status),
-        'active_character_id' => (int) ($campaign->active_character_id ?? 0),
+        'active_character_id' => $member_character_id,
       ],
       '#dungeons' => $dungeon_cards,
       '#back_url' => Url::fromRoute('dungeoncrawler_content.campaigns')->toString(),
@@ -557,7 +563,7 @@ class CampaignController extends ControllerBase {
       throw new NotFoundHttpException();
     }
 
-    if ((int) $campaign->uid !== (int) $this->currentUser()->id()) {
+    if (!$this->campaignMembership->isMember((int) $campaign->id, (int) $this->currentUser()->id())) {
       throw new AccessDeniedHttpException();
     }
 
@@ -1544,7 +1550,7 @@ class CampaignController extends ControllerBase {
       throw new NotFoundHttpException();
     }
 
-    if ((int) $campaign->uid !== (int) $this->currentUser()->id()) {
+    if (!$this->campaignMembership->isMember((int) $campaign->id, (int) $this->currentUser()->id())) {
       throw new AccessDeniedHttpException();
     }
 
@@ -1586,7 +1592,7 @@ class CampaignController extends ControllerBase {
       throw new NotFoundHttpException();
     }
 
-    if ((int) $campaign->uid !== (int) $this->currentUser()->id()) {
+    if (!$this->campaignMembership->isMember((int) $campaign->id, (int) $this->currentUser()->id())) {
       throw new AccessDeniedHttpException();
     }
 
@@ -1597,6 +1603,10 @@ class CampaignController extends ControllerBase {
 
     if (!$this->characterManager->isOwner($selected_character)) {
       throw new AccessDeniedHttpException();
+    }
+
+    if ((int) $selected_character->status === 2) {
+      throw new AccessDeniedHttpException(sprintf('Character %d is archived; restore it before joining a campaign.', $character_id));
     }
 
     $character = $selected_character;
@@ -1674,7 +1684,7 @@ class CampaignController extends ControllerBase {
 
     $current_user = $this->currentUser();
     if (
-      (int) $campaign->uid !== (int) $current_user->id()
+      !$this->campaignMembership->isMember($campaign_id, (int) $current_user->id())
       && !$current_user->hasPermission('administer dungeoncrawler content')
     ) {
       throw new AccessDeniedHttpException();
@@ -1715,7 +1725,7 @@ class CampaignController extends ControllerBase {
 
     $current_user = $this->currentUser();
     if (
-      (int) $campaign->uid !== (int) $current_user->id()
+      !$this->campaignMembership->isCreator($campaign_id, (int) $current_user->id())
       && !$current_user->hasPermission('administer dungeoncrawler content')
     ) {
       throw new AccessDeniedHttpException();
@@ -1754,6 +1764,7 @@ class CampaignController extends ControllerBase {
 
     $campaigns = $this->database->select('dc_campaigns', 'c')
       ->fields('c', ['id', 'name'])
+      // Only the creator may delete a campaign.
       ->condition('uid', $uid)
       ->condition('status', 'archived')
       ->orderBy('changed', 'DESC')
@@ -1795,6 +1806,8 @@ class CampaignController extends ControllerBase {
       'dc_campaign_room_states',
       'dc_campaign_rooms',
       'dc_campaign_dungeons',
+      'dc_campaign_members',
+      'dc_campaign_discord',
       'dc_campaign_characters',
     ] as $table) {
       $this->deleteCampaignScopedRowsBulk($table, $campaign_ids);
@@ -1864,6 +1877,8 @@ class CampaignController extends ControllerBase {
       'dc_campaign_room_states',
       'dc_campaign_rooms',
       'dc_campaign_dungeons',
+      'dc_campaign_members',
+      'dc_campaign_discord',
     ] as $table) {
       $this->deleteCampaignScopedRows($table, $campaign_id);
     }

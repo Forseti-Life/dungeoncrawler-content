@@ -137,6 +137,35 @@ function makeOption(value, label, selected) {
   return option;
 }
 
+function sanitizeIdentifier(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) {
+    return '';
+  }
+  let normalized = raw;
+  if (typeof normalized.normalize === 'function') {
+    normalized = normalized.normalize('NFKD').replace(/[\u0300-\u036f]/g, '');
+  }
+  return normalized
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .replace(/-{2,}/g, '-');
+}
+
+function nextAvailableIdentifier(preferred, existing, fallback = 'id') {
+  const base = sanitizeIdentifier(preferred) || sanitizeIdentifier(fallback) || 'id';
+  const used = new Set((Array.isArray(existing) ? existing : [])
+    .map((value) => String(value || '').trim())
+    .filter((value) => value !== ''));
+  let candidate = base;
+  let suffix = 2;
+  while (used.has(candidate)) {
+    candidate = `${base}-${suffix}`;
+    suffix += 1;
+  }
+  return candidate;
+}
+
 export class RoomEditorShell {
   /**
    * @param {HTMLElement} container Root element carrying [data-room-editor].
@@ -231,11 +260,21 @@ export class RoomEditorShell {
     this._keydownHandler = (event) => this._handleKeydown(event);
     document.addEventListener('keydown', this._keydownHandler);
 
+    const initialDraftId = new URLSearchParams(window.location.search).get('draft_id');
     const initialRoomId = this.settings.selectedRoomId || null;
-    if (initialRoomId) {
+    if (initialDraftId) {
+      this._runExclusive(async () => {
+        const result = await this._getJson(this._urlFor('draft', initialDraftId));
+        if (result.data.status !== 'active') {
+          throw new Error('draft_not_active');
+        }
+        this._setDraft(result.data, 'Resumed room draft.');
+      });
+    } else if (initialRoomId) {
       this.loadRoom(initialRoomId);
     } else {
       this._setStatus('Select a room to edit, or start a new one.', 'info');
+      this._refreshGmContext();
     }
   }
 
@@ -1329,7 +1368,17 @@ export class RoomEditorShell {
       this._history = [];
       this._redoStack = [];
       this.selection = null;
+      this._clipboard = null;
+      this._lastHoverAxial = null;
+      this._setGmPlan(null);
       this._updateHistoryButtons();
+      const url = new URL(window.location.href);
+      if (draft?.draft_id) {
+        url.searchParams.set('draft_id', draft.draft_id);
+      } else {
+        url.searchParams.delete('draft_id');
+      }
+      window.history.replaceState(null, '', url);
     } else if (previousSelection?.type === 'hex') {
       this.selection = this._findRoomHex(previousSelection.q, previousSelection.r)
         ? previousSelection
@@ -1787,7 +1836,7 @@ export class RoomEditorShell {
     status.textContent = `Draft ${this.draft.draft_id} - revision ${this.draft.revision} - status ${this.draft.status}`;
     wrapper.appendChild(status);
 
-    wrapper.appendChild(this._labeledInput('room-id', 'Room ID', 'text', room.room_id || ''));
+    wrapper.appendChild(this._labeledInput('room-id', 'Room ID (auto if blank)', 'text', room.room_id || ''));
     wrapper.appendChild(this._labeledInput('room-name', 'Name', 'text', room.name || ''));
     wrapper.appendChild(this._labeledTextarea('room-description', 'Description', room.description || ''));
     wrapper.appendChild(this._labeledSelect('room-type', 'Room type', ROOM_TYPES, room.room_type || ''));
@@ -2121,15 +2170,27 @@ export class RoomEditorShell {
 
     switch (action) {
       case 'apply-room-metadata':
+        {
+          const submittedRoomId = String(val('room-id') || '').trim();
+          const generatedRoomId = submittedRoomId || this.draft?.room?.room_id || nextAvailableIdentifier(
+            val('room-name'),
+            [this.draft?.room?.room_id],
+            'room'
+          );
+          const roomIdInput = body.querySelector('#room-editor-room-id');
+          if (roomIdInput && submittedRoomId === '') {
+            roomIdInput.value = generatedRoomId;
+          }
         this._sendCommand('set_room_metadata', {
           changes: {
-            room_id: val('room-id'),
+            room_id: generatedRoomId,
             name: val('room-name'),
             description: val('room-description'),
             room_type: val('room-type'),
             size_category: val('room-size'),
           },
         });
+        }
         break;
       case 'apply-hex-terrain':
         if (this.selection?.type === 'hex') {
@@ -2455,16 +2516,22 @@ export class RoomEditorShell {
    * from the same draft the manual tools mutate.
    */
   async _refreshGmContext() {
-    if (!this._gm || !this.draft?.draft_id || !this.urls.gm) {
+    if (!this._gm || (!this.urls.gm && !this.urls.gmBootstrap)) {
       return;
     }
     const profile = this._dom.validateProfile?.value || 'editing';
-    const url = `${this._urlFor('gm', this.draft.draft_id)}?profile=${encodeURIComponent(profile)}`;
+    const groundedDraftId = this.draft?.draft_id || null;
+    const groundedRevision = this.draft?.revision;
+    const endpoint = this.draft?.draft_id ? this._urlFor('gm', this.draft.draft_id) : this.urls.gmBootstrap;
+    const url = `${endpoint}?profile=${encodeURIComponent(profile)}`;
     try {
       const result = await this._getJson(url);
+      if (groundedDraftId !== (this.draft?.draft_id || null) || groundedRevision !== this.draft?.revision) {
+        return;
+      }
       this._gm.context = result?.data?.context_snapshot || null;
       this._gm.manifest = this._gm.context?.tools || null;
-      if (this._gm.restoredDraftId !== this.draft.draft_id) {
+      if (this.draft?.draft_id && this._gm.restoredDraftId !== this.draft.draft_id) {
         this._gm.restoredDraftId = this.draft.draft_id;
         restoreEditorGmConversation(this._dom.gmTranscript, result?.data?.conversation, {
           onSelectOption: (selectionText) => this._submitNaturalLanguageMessage(selectionText),
@@ -2472,7 +2539,9 @@ export class RoomEditorShell {
       }
       this._renderGmContext();
       this._renderGmToolset();
-      this._setGmState(`Grounded on revision ${this._gm.context?.draft?.revision ?? '?'}.`);
+      this._setGmState(this._gm.context?.draft
+        ? `Grounded on revision ${this._gm.context.draft.revision}.`
+        : 'Ready to create or load a room draft.');
     } catch (err) {
       this._gm.context = null;
       this._gm.manifest = null;
@@ -2566,7 +2635,7 @@ export class RoomEditorShell {
     if (parsed.kind === 'natural_language') {
       await this._sendGmRequest(
         { type: 'natural_language', utterance: parsed.utterance },
-        false,
+        !!this._dom.gmDryRun?.checked,
         'assistant',
       );
       return;
@@ -2666,19 +2735,15 @@ export class RoomEditorShell {
    * Posts one request envelope and folds the response into shared editor state.
    */
   async _sendGmRequest(intent, dryRun, label) {
-    if (!this.draft?.draft_id) {
-      this._appendGmMessage('error', 'Load or create a room before using the assistant.');
-      return null;
-    }
-    if (!this.urls.gm) {
+    if (!this.urls.gm && !this.urls.gmBootstrap) {
       this._appendGmMessage('error', 'Editor GM harness endpoint is not configured.');
       return null;
     }
     const profile = this._dom.validateProfile?.value || 'editing';
-    const url = this._urlFor('gm', this.draft.draft_id);
+    const url = this.draft?.draft_id ? this._urlFor('gm', this.draft.draft_id) : this.urls.gmBootstrap;
     const body = buildEditorGmRequest({
       toolId: 'room_editor',
-      draftId: this.draft.draft_id,
+      draftId: this.draft?.draft_id,
       validationProfile: profile,
       intent,
       dryRun,
@@ -2713,9 +2778,15 @@ export class RoomEditorShell {
       );
 
       const applied = envelope.tool_result?.draft;
-      if (applied) {
+      const handoff = Object.hasOwn(envelope.tool_result || {}, 'active_draft_id');
+      if (handoff && envelope.tool_result.active_draft_id === null) {
+        this._setDraft(null, 'Draft abandoned; its history and published room are preserved.');
+      } else if (applied) {
         this._setDraft(applied, null);
         this._setStatus(`Assistant applied ${toolName} (revision ${this.draft.revision}).`, 'success');
+      }
+      if (['retire_canonical_definition', 'restore_canonical_definition'].includes(envelope.tool_result?.tool)) {
+        this._selectedCatalogDefinition = null;
       }
       if ((toolName === 'create_canonical_definition' || toolName === 'update_canonical_definition') && envelope.tool_result?.definition_id) {
         const defFamily = envelope.tool_result.family || '';
@@ -2743,7 +2814,9 @@ export class RoomEditorShell {
           this._appendGmMessage(message.level === 'error' ? 'error' : 'info', message.text);
         });
       }
-      this._setGmState(`Grounded on revision ${this._gm.context?.draft?.revision ?? '?'}.`);
+      this._setGmState(this._gm.context?.draft
+        ? `Grounded on revision ${this._gm.context.draft.revision}.`
+        : 'Ready to create or load a room draft.');
       return envelope;
     });
   }
@@ -2754,8 +2827,15 @@ export class RoomEditorShell {
    * tool_call intent, so the mutation is always author-authorised.
    */
   _renderGmProposal(result) {
+    const proposalDraftId = this.draft?.draft_id || null;
     renderEditorGmProposal(this._dom.gmTranscript, result, {
-      onApprove: (proposal) => this._invokeGmTool(proposal.tool_name, proposal.arguments || {}, false),
+      onApprove: (proposal) => {
+        if (proposalDraftId !== (this.draft?.draft_id || null)) {
+          this._appendGmMessage('error', 'This proposal belongs to another draft. Ask the GM again.');
+          return;
+        }
+        this._invokeGmTool(proposal.tool_name, proposal.arguments || {}, false);
+      },
     });
   }
 

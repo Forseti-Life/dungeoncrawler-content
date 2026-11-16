@@ -367,6 +367,22 @@ class QuestTrackerController extends ControllerBase {
         ], 500);
       }
 
+      // The caller gets only the objectives its view of the goal includes.
+      $quest_row = $this->database->select('dc_campaign_quests', 'q')
+        ->fields('q', ['quest_data'])
+        ->condition('campaign_id', $campaign_id)
+        ->condition('quest_id', $quest_id)
+        ->execute()
+        ->fetchAssoc();
+      $goal = is_array($quest_row) ? $this->questTracker->loadQuestGoal($quest_row) : NULL;
+      if ($goal !== NULL && is_array($result['objective_states'] ?? NULL)) {
+        $result['objective_states'] = $this->questGenerator->projectObjectivePhases(
+          $result['objective_states'],
+          $goal,
+          $this->questGenerator->viewerQuestAudience($campaign_id)
+        );
+      }
+
       return new JsonResponse([
         'success' => TRUE,
         'objective_state' => $result,
@@ -562,6 +578,70 @@ class QuestTrackerController extends ControllerBase {
         'success' => FALSE,
         'error' => 'Internal server error',
       ], 500);
+    }
+  }
+
+  /**
+   * POST /api/campaign/{campaign_id}/quests/{quest_id}/goal/resolve.
+   *
+   * A member in Game Master mode records that a quest's goal was achieved by
+   * one of its ways. Body: {approach_id, evidence}.
+   */
+  public function resolveQuestGoal(int $campaign_id, string $quest_id, Request $request): JsonResponse {
+    return $this->questGoalChange($campaign_id, $request, function (array $body) use ($campaign_id, $quest_id): array {
+      $character_id = (int) $this->database->select('dc_campaign_characters', 'c')
+        ->fields('c', ['id'])
+        ->condition('campaign_id', $campaign_id)
+        ->condition('uid', (int) $this->currentUser()->id())
+        ->condition('type', 'pc')
+        ->condition('role', 'player')
+        ->condition('is_active', 1)
+        ->orderBy('id')
+        ->range(0, 1)
+        ->execute()
+        ->fetchField();
+      if ($character_id <= 0) {
+        throw new \DomainException('quest_goal_character_required: you have no character in this campaign.');
+      }
+      $completion = $this->questTracker->resolveQuestGoal($campaign_id, $quest_id, trim((string) ($body['approach_id'] ?? '')), $character_id, trim((string) ($body['evidence'] ?? '')));
+
+      return ['goal' => $completion['goal'], 'rewards_applied' => $completion['rewards_applied']];
+    });
+  }
+
+  /**
+   * POST /api/campaign/{campaign_id}/quests/{quest_id}/goal/reveal.
+   *
+   * A member in Game Master mode lets the party learn of a hidden way.
+   * Body: {approach_id, reason}.
+   */
+  public function revealQuestApproach(int $campaign_id, string $quest_id, Request $request): JsonResponse {
+    return $this->questGoalChange($campaign_id, $request, fn(array $body): array => [
+      'goal' => $this->questTracker->revealQuestApproach(
+        $campaign_id,
+        $quest_id,
+        trim((string) ($body['approach_id'] ?? '')),
+        trim((string) ($body['reason'] ?? '')) ?: 'Revealed by the Game Master.'
+      ),
+    ]);
+  }
+
+  /**
+   * Runs a quest goal change for a member who is in Game Master mode.
+   */
+  protected function questGoalChange(int $campaign_id, Request $request, callable $change): JsonResponse {
+    if ($this->questGenerator->viewerQuestAudience($campaign_id) !== 'gm') {
+      return new JsonResponse(['success' => FALSE, 'error' => 'game_master_mode_required'], 403);
+    }
+    $body = json_decode((string) $request->getContent(), TRUE);
+    if (!is_array($body)) {
+      return new JsonResponse(['success' => FALSE, 'error' => 'quest_goal_body_invalid'], 400);
+    }
+    try {
+      return new JsonResponse(['success' => TRUE] + $change($body));
+    }
+    catch (\DomainException $e) {
+      return new JsonResponse(['success' => FALSE, 'error' => $e->getMessage()], 409);
     }
   }
 

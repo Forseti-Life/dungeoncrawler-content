@@ -42,6 +42,18 @@ class RoomRuntimeStateStore {
         continue;
       }
       $state = is_array($room['gameplay_state'] ?? NULL) ? $room['gameplay_state'] : [];
+      if (isset($room['conversation_state']) && is_array($room['conversation_state']) && $room['conversation_state'] !== []) {
+        $state['conversation_state'] = $room['conversation_state'];
+      }
+      elseif (isset($room['state']['conversation_state']) && is_array($room['state']['conversation_state']) && $room['state']['conversation_state'] !== []) {
+        $state['conversation_state'] = $room['state']['conversation_state'];
+      }
+      if (isset($room['chat']) && is_array($room['chat'])) {
+        $state['chat'] = array_slice($room['chat'], -50);
+      }
+      if (isset($room['npc_response_consumption']) && is_array($room['npc_response_consumption']) && $room['npc_response_consumption'] !== []) {
+        $state['npc_response_consumption'] = $room['npc_response_consumption'];
+      }
       $encoded = json_encode($state, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
       if (!is_string($encoded) || $encoded === '') {
         throw new \RuntimeException(sprintf(
@@ -104,10 +116,21 @@ class RoomRuntimeStateStore {
         continue;
       }
       $decoded = json_decode((string) ($row->room_state ?? '{}'), TRUE);
-      $result[$room_id] = [
+      $gameplay_state = is_array($decoded) ? $decoded : [];
+      $room_entry = [
         'room_id' => $room_id,
-        'gameplay_state' => is_array($decoded) ? $decoded : [],
+        'gameplay_state' => $gameplay_state,
       ];
+      if (isset($gameplay_state['conversation_state']) && is_array($gameplay_state['conversation_state'])) {
+        $room_entry['conversation_state'] = $gameplay_state['conversation_state'];
+      }
+      if (isset($gameplay_state['chat']) && is_array($gameplay_state['chat'])) {
+        $room_entry['chat'] = $gameplay_state['chat'];
+      }
+      if (isset($gameplay_state['npc_response_consumption']) && is_array($gameplay_state['npc_response_consumption'])) {
+        $room_entry['npc_response_consumption'] = $gameplay_state['npc_response_consumption'];
+      }
+      $result[$room_id] = $room_entry;
     }
     return $result;
   }

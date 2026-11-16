@@ -370,12 +370,6 @@
             <option value="">{{ 'No characters available'|t }}</option>
           </select>
         </div>
-        <section id="party-player-setup" hidden aria-labelledby="party-player-setup-title">
-          <h3 id="party-player-setup-title">{{ 'Marching and Camping'|t }}</h3>
-          <p>{{ 'Arrange reusable party and escort positions in the Playersetup dungeon. Your adventure stays where it is.'|t }}</p>
-          <a data-party-setup-room="camping" target="_blank" rel="noopener">{{ 'Arrange campsite'|t }}</a>
-          <a data-party-setup-room="marching" target="_blank" rel="noopener">{{ 'Arrange road marching order'|t }}</a>
-        </section>
         <div class="game-layout__sidebar">
 
   {# Sidebar Tab Bar #}
@@ -384,6 +378,7 @@
     <button class="sidebar-tab" data-sidebar-tab="relationships">{{ 'Relationships'|t }}</button>
     <button class="sidebar-tab" data-sidebar-tab="spells-feats">{{ 'Spells & Feats'|t }}</button>
     <button class="sidebar-tab" data-sidebar-tab="inventory">{{ 'Inventory'|t }}</button>
+    <button class="sidebar-tab" data-sidebar-tab="marching-camping">{{ 'Marching & Camping'|t }}</button>
     <button class="sidebar-tab" data-sidebar-tab="quests">{{ 'Quests'|t }}</button>
   </div>
 
@@ -696,6 +691,19 @@
     </div>
   </div>{# /.sidebar-panel-inventory #}
 
+  {# === Marching and Camping Tab Panel === #}
+  <div class="sidebar-panel" id="sidebar-panel-marching-camping" style="display:none;" data-panel="marching-camping">
+    <section class="party-player-setup" id="party-player-setup" aria-labelledby="party-player-setup-title">
+      <h3 id="party-player-setup-title">{{ 'Marching and Camping'|t }}</h3>
+      <p>{{ 'Arrange reusable party and escort positions in the Playersetup dungeon. Your adventure stays where it is.'|t }}</p>
+      <div class="party-player-setup__actions">
+        <button type="button" class="btn btn-primary" data-party-setup-room="camping">{{ 'Arrange campsite'|t }}</button>
+        <button type="button" class="btn btn-primary" data-party-setup-room="marching">{{ 'Arrange road marching order'|t }}</button>
+      </div>
+      <p class="muted" id="party-player-setup-waiting" hidden>{{ 'Waiting on the server: the campaign has not loaded yet.'|t }}</p>
+    </section>
+  </div>{# /.sidebar-panel-marching-camping #}
+
   {# === Quests Tab Panel === #}
   <div class="sidebar-panel" id="sidebar-panel-quests" style="display:none;" data-panel="quest">
     <div class="hexmap-quest-journal hexmap-quest-journal--sidebar" id="quest-journal">
@@ -737,61 +745,52 @@
           <div>
             <p class="eyebrow">{{ 'Campaign Settings'|t }}</p>
             <h3 id="campaign-settings-title">{{ 'Campaign settings'|t }}</h3>
-            <p id="campaign-settings-status" class="campaign-settings-panel__status">{{ 'Loading campaign settings...'|t }}</p>
+            <p id="campaign-settings-launch" class="campaign-settings-panel__status"></p>
+            <p id="campaign-settings-status" class="campaign-settings-panel__status" role="status" aria-live="polite">{{ 'Loading campaign settings...'|t }}</p>
           </div>
         </div>
-        <div class="campaign-settings-panel__mode">
-          <span class="campaign-settings-panel__label">{{ 'Mode'|t }}</span>
-          <div class="campaign-settings-panel__mode-actions">
-            <button type="button" class="btn btn-secondary btn-sm" id="campaign-mode-player" data-campaign-mode="player">{{ 'Player mode'|t }}</button>
-            <button type="button" class="btn btn-secondary btn-sm" id="campaign-mode-gm" data-campaign-mode="gm">{{ 'Game Master mode'|t }}</button>
-          </div>
-        </div>
-        <div class="campaign-settings-panel__members">
-          <h4>{{ 'Campaign launch defaults'|t }}</h4>
-          <div class="campaign-settings-panel__member-list">
-            <label for="campaign-source-start-from" class="campaign-settings-panel__label">{{ 'Start from'|t }}</label>
-            <select id="campaign-source-start-from" class="merchant-trade-panel__select">
-              <option value="theme">{{ 'Theme'|t }}</option>
-              <option value="published_dungeon">{{ 'Published dungeon'|t }}</option>
-              <option value="module_release">{{ 'Module release'|t }}</option>
-            </select>
-            <label for="campaign-source-theme" class="campaign-settings-panel__label">{{ 'Theme'|t }}</label>
-            <select id="campaign-source-theme" class="merchant-trade-panel__select">
-              <option value="classic_dungeon">{{ 'Classic Dungeon'|t }}</option>
-              <option value="goblin_warrens">{{ 'Goblin Warrens'|t }}</option>
-              <option value="undead_crypt">{{ 'Undead Crypt'|t }}</option>
-            </select>
-            <label for="campaign-source-published-dungeon" class="campaign-settings-panel__label">{{ 'Published dungeon'|t }}</label>
-            <select id="campaign-source-published-dungeon" class="merchant-trade-panel__select">
-              <option value="">{{ 'No published dungeons available'|t }}</option>
-            </select>
-            <label for="campaign-source-module-release" class="campaign-settings-panel__label">{{ 'Module release'|t }}</label>
-            <select id="campaign-source-module-release" class="merchant-trade-panel__select">
-              <option value="">{{ 'No launchable module releases available'|t }}</option>
-            </select>
+        <div class="campaign-settings-panel__section">
+          <div class="campaign-settings-panel__mode">
+            <h4>{{ 'Your view'|t }}</h4>
             <div class="campaign-settings-panel__mode-actions">
-              <button type="button" class="btn btn-secondary btn-sm" id="campaign-source-save-defaults">{{ 'Save defaults'|t }}</button>
-              <button type="button" class="btn btn-primary btn-sm" id="campaign-source-apply-now">{{ 'Apply to current campaign'|t }}</button>
+              <button type="button" class="btn btn-secondary btn-sm" id="campaign-mode-player" data-campaign-mode="player">{{ 'Player mode'|t }}</button>
+              <button type="button" class="btn btn-secondary btn-sm" id="campaign-mode-gm" data-campaign-mode="gm">{{ 'Game Master mode'|t }}</button>
             </div>
           </div>
+          <p class="muted">{{ 'Player mode plays your own character. Game Master mode adds the GM tools and the private GM channel, and lets you act for any character. This only changes your own view.'|t }}</p>
         </div>
-        <div class="campaign-settings-panel__members campaign-storyline-settings">
+        <div class="campaign-settings-panel__section">
+          <h4>{{ 'Players'|t }}</h4>
+          <p class="muted">{{ 'Everyone in the campaign is equal: any player can add or remove players. Only the player who created the campaign can delete it.'|t }}</p>
+          <div class="campaign-settings-panel__member-list" id="campaign-member-list">
+            <p class="muted">{{ 'No member data loaded yet.'|t }}</p>
+          </div>
+          <label for="campaign-member-filter" class="campaign-settings-panel__label">{{ 'Add a player'|t }}</label>
+          <input id="campaign-member-filter" class="campaign-settings-panel__input" type="search" autocomplete="off" placeholder="{{ 'Type a name to filter the user list'|t }}">
+          <div class="campaign-settings-panel__member-list campaign-settings-panel__candidate-list" id="campaign-member-candidates"></div>
+          <p id="campaign-member-status" class="campaign-settings-panel__status" role="status" aria-live="polite"></p>
+        </div>
+        <div class="campaign-settings-panel__section">
+          <h4>{{ 'Discord'|t }}</h4>
+          <div class="campaign-settings-panel__member-list" id="campaign-discord"></div>
+          <p id="campaign-discord-status" class="campaign-settings-panel__status" role="status" aria-live="polite"></p>
+        </div>
+        <div class="campaign-settings-panel__section campaign-storyline-settings">
           <h4>{{ 'Storylines'|t }}</h4>
-          <p class="muted">{{ 'Attach canonical storylines to this campaign. Successful attachments activate automatically.'|t }}</p>
-          <div class="campaign-settings-panel__member-list">
-            <label for="campaign-storyline-template" class="campaign-settings-panel__label">{{ 'Canonical storyline'|t }}</label>
-            <select id="campaign-storyline-template" class="merchant-trade-panel__select">
-              <option value="">{{ 'Select a storyline'|t }}</option>
-            </select>
+          <input id="campaign-storyline-filter" class="campaign-settings-panel__input" type="search" autocomplete="off" aria-label="{{ 'Filter storylines'|t }}" placeholder="{{ 'Type to filter storylines by name or description'|t }}">
+          <h5 class="campaign-settings-panel__subheading">{{ 'In this campaign'|t }} <span id="campaign-storyline-attached-count"></span></h5>
+          <div id="campaign-storyline-attached-list" class="campaign-settings-panel__member-list campaign-storyline-settings__attached">
+            <p class="muted">{{ 'No storyline data loaded yet.'|t }}</p>
+          </div>
+          <h5 class="campaign-settings-panel__subheading">{{ 'Available to add'|t }} <span id="campaign-storyline-available-count"></span></h5>
+          <p class="muted">{{ 'Adding a storyline first checks how it fits this campaign, then asks you to confirm. It starts as soon as it is added.'|t }}</p>
+          <div id="campaign-storyline-available-list" class="campaign-settings-panel__member-list"></div>
+          <div id="campaign-storyline-add" class="campaign-settings-panel__member-list" hidden>
+            <strong id="campaign-storyline-add-title"></strong>
             <label class="campaign-settings-panel__label">
               <input type="checkbox" id="campaign-storyline-primary">
               {{ 'Make this the primary storyline'|t }}
             </label>
-            <div class="campaign-settings-panel__mode-actions">
-              <button type="button" class="btn btn-secondary btn-sm" id="campaign-storyline-preview">{{ 'Preview attachment'|t }}</button>
-              <button type="button" class="btn btn-primary btn-sm" id="campaign-storyline-apply" hidden>{{ 'Attach and activate'|t }}</button>
-            </div>
             <div id="campaign-storyline-plan" class="campaign-storyline-settings__plan" hidden>
               <strong id="campaign-storyline-plan-summary"></strong>
               <p id="campaign-storyline-hook"></p>
@@ -806,20 +805,12 @@
               <div id="campaign-storyline-findings"></div>
               <button type="button" class="btn btn-secondary btn-sm" id="campaign-storyline-recheck">{{ 'Recheck decisions'|t }}</button>
             </div>
-            <p id="campaign-storyline-status" class="campaign-settings-panel__status" role="status" aria-live="polite"></p>
-            <div>
-              <strong>{{ 'Attached storylines'|t }}</strong>
-              <div id="campaign-storyline-attached-list" class="campaign-storyline-settings__attached">
-                <p class="muted">{{ 'No storyline data loaded yet.'|t }}</p>
-              </div>
+            <div class="campaign-settings-panel__mode-actions">
+              <button type="button" class="btn btn-primary btn-sm" id="campaign-storyline-apply" hidden>{{ 'Add to campaign'|t }}</button>
+              <button type="button" class="btn btn-secondary btn-sm" id="campaign-storyline-cancel">{{ 'Cancel'|t }}</button>
             </div>
           </div>
-        </div>
-        <div class="campaign-settings-panel__members">
-          <h4>{{ 'Campaign members'|t }}</h4>
-          <div class="campaign-settings-panel__member-list" id="campaign-member-list">
-            <p class="muted">{{ 'No member data loaded yet.'|t }}</p>
-          </div>
+          <p id="campaign-storyline-status" class="campaign-settings-panel__status" role="status" aria-live="polite"></p>
         </div>
       </section>
     </div>

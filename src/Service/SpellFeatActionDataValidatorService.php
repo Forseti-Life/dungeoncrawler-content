@@ -93,7 +93,9 @@ class SpellFeatActionDataValidatorService {
     $is_focus_spell = strtolower(trim((string) ($spell['spell_type'] ?? ''))) === 'focus'
       || strtolower(trim((string) ($spell['focus_class'] ?? 'none'))) !== 'none'
       || strtolower(trim((string) ($spell['focus_domain'] ?? 'none'))) !== 'none';
-    if ((!is_array($traditions) || $traditions === []) && !$is_focus_spell) {
+    // Focus spells and rituals belong to no tradition.
+    $is_ritual = strtolower(trim((string) ($spell['spell_type'] ?? ''))) === 'ritual';
+    if ((!is_array($traditions) || $traditions === []) && !$is_focus_spell && !$is_ritual) {
       $errors[] = 'Spell traditions must be a non-empty array.';
     }
     elseif (is_array($traditions)) {
@@ -248,7 +250,7 @@ class SpellFeatActionDataValidatorService {
     if ($type === '') {
       $errors[] = 'Feat type is required.';
     }
-    elseif (!in_array($type, FeatLibraryService::FEAT_TYPES, TRUE) && !in_array($type, ['class'], TRUE)) {
+    elseif (!in_array($type, FeatLibraryService::FEAT_TYPES, TRUE)) {
       $errors[] = 'Feat type is invalid.';
     }
 

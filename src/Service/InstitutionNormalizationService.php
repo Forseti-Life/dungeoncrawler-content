@@ -10,6 +10,33 @@ class InstitutionNormalizationService {
   /**
    * Canonical institution domains supported by the first slice.
    */
+  /**
+   * Institution domains an author may place an actor in, with their labels.
+   *
+   * These are the canonical domains of the institution engine. Ancestry and
+   * profession are also domains, but an actor's membership in them is derived
+   * from its ancestry and class, not authored.
+   */
+  public const AUTHORABLE_DOMAINS = [
+    'family' => 'Family, house or clan',
+    'government' => 'State or nation',
+    'allegiance' => 'Faction',
+    'settlement' => 'Home settlement',
+    'religion' => 'Religion',
+    'employer' => 'Guild or employer',
+    'education' => 'Order or school',
+    'noble' => 'Noble patronage',
+    'security' => 'Law or military',
+    'criminal' => 'Criminal or covert group',
+    'culture' => 'Culture or tribe',
+  ];
+
+  /** Domains whose membership follows from the actor's own sheet. */
+  public const DERIVED_DOMAINS = [
+    'ancestry' => 'Ancestry',
+    'profession' => 'Class or profession',
+  ];
+
   private const DOMAIN_ALIASES = [
     'ancestry' => 'ancestry',
     'race' => 'ancestry',

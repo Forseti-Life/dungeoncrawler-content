@@ -44,7 +44,7 @@ class CharacterListController extends ControllerBase {
         ->execute()
         ->fetchObject();
 
-      if (!$campaign || (int) $campaign->uid !== (int) $this->currentUser()->id()) {
+      if (!$campaign || !\Drupal::service('dungeoncrawler_content.campaign_membership')->isMember((int) $campaign->id, (int) $this->currentUser()->id())) {
         throw new \Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException();
       }
 
@@ -211,6 +211,7 @@ class CharacterListController extends ControllerBase {
       ->fields('c')
       ->condition('uid', $uid)
       ->condition('status', 2)
+      ->condition('lifecycle_state', 'canonical_template', '<>')
       ->orderBy('changed', 'DESC')
       ->execute()
       ->fetchAll();

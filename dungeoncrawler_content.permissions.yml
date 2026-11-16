@@ -46,7 +46,7 @@ publish canonical dungeoncrawler dungeons:
 
 edit canonical dungeoncrawler storylines:
   title: 'Edit Canonical Dungeon Crawler Storylines'
-  description: 'Create, resume, validate, and edit owner-scoped storyline authoring drafts.'
+  description: 'Create, resume, validate, and collaboratively edit shared storyline drafts and inspect their revision history.'
   restrict access: true
 
 publish canonical dungeoncrawler storylines:

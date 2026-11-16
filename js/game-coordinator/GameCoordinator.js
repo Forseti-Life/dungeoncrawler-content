@@ -686,24 +686,94 @@ export class GameCoordinator {
         this._emitRuntimeTelemetry('action_contract_age_ms_max', { value: contractAgeMs, source });
       }
     } catch (error) {
+      const errorMessage = error?.message || String(error || '');
       this.runtimeStateStore.noteSyncFailure({
         code: 'runtime_snapshot_commit_failed',
         source,
-        error: error?.message || String(error || ''),
+        error: errorMessage,
       });
       this.hexmap?.stateManager?.set?.('runtimeSyncHealth', this.runtimeStateStore.getSyncHealth());
       this.hexmap?.bus?.emit?.('runtime:sync-health-changed', {
         syncHealth: this.runtimeStateStore.getSyncHealth(),
         source,
-        error: error?.message || String(error || ''),
+        error: errorMessage,
       });
       this._emitRuntimeTelemetry('authoritative_read_failure', {
         code: 'runtime_snapshot_commit_failed',
         source,
-        error: error?.message || String(error || ''),
+        error: errorMessage,
       });
       console.error('[GameCoordinator] runtime snapshot commit failed', { source, error });
+      if (source !== 'auto-resync') {
+        void this._scheduleSilentAuthoritativeResync(source, errorMessage);
+      }
     }
+  }
+
+  /**
+   * Automatically and silently resync authoritative state from `/state` when a
+   * response payload fails snapshot commit or ordering validation, so transient
+   * or out-of-order responses self-heal without locking the UI into
+   * `read_only_desynced`.
+   *
+   * @param {string} triggerSource
+   * @param {string} reasonText
+   * @returns {Promise<boolean>}
+   * @private
+   */
+  async _scheduleSilentAuthoritativeResync(triggerSource = 'unknown', reasonText = '') {
+    if (this._silentResyncInFlight) {
+      return this._silentResyncInFlight;
+    }
+    if (!this.api?.getState) {
+      return false;
+    }
+
+    this._silentResyncInFlight = (async () => {
+      try {
+        const runtimeContext = this.hexmap?.resolveLaunchCharacterRuntimeContext?.() || {};
+        const state = await this.api.getState({
+          actor: runtimeContext.instanceId || null,
+          characterId: Number(runtimeContext.characterId || 0) || null,
+        });
+        if (!state?.success || !state?.game_state) {
+          return false;
+        }
+        // If the previous local snapshot had a stale/higher version or cursor
+        // that caused a regression error against the server's true state,
+        // reset the store baseline before committing the fresh `/state` read.
+        if (/regressed/i.test(String(reasonText || ''))) {
+          this.runtimeStateStore._snapshot = null;
+        }
+        this._commitRuntimeState(state, 'auto-resync');
+        this._syncEncounterCacheFromAuthoritativeResult(state);
+        this.phaseManager.applyServerState(
+          this._buildStatePayloadFromResponse(state),
+          state.available_actions,
+          state.action_contract || null
+        );
+        const serverCursor = Number(
+          state.event_cursor
+          ?? state.event_log_cursor
+          ?? state.game_state?.event_log_cursor
+          ?? 0
+        );
+        if (serverCursor > this.eventCursor) {
+          this.eventCursor = serverCursor;
+        }
+        return this.runtimeStateStore.getSyncHealth() === 'healthy';
+      } catch (resyncErr) {
+        console.warn('[GameCoordinator] silent authoritative resync failed', {
+          triggerSource,
+          error: resyncErr?.message || String(resyncErr || ''),
+        });
+        return false;
+      } finally {
+        this._silentResyncInFlight = null;
+      }
+    })();
+
+    return this._silentResyncInFlight;
   }
 
   _syncEncounterCacheFromAuthoritativeResult(response = {}) {
@@ -915,6 +985,9 @@ export class GameCoordinator {
         this.runtimeStateStore.noteEventStreamSuccess({
           code: 'event_poll_ok',
         });
+        if (this.runtimeStateStore.getSyncHealth() !== 'healthy') {
+          void this._scheduleSilentAuthoritativeResync('event-poll-recovery', 'sync_health_not_healthy');
+        }
         if (result?.events?.length > 0) {
           this._processNewEvents(result.events);
         }

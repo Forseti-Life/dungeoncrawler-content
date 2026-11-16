@@ -443,7 +443,18 @@ class NavigationService {
     $destination_type = $this->resolveDestinationType($connection);
     $destination_id = $this->resolveDestinationId($connection, $target_room_id, $destination_type);
     $from_dungeon_id = trim((string) ($connection['from_dungeon_id'] ?? $connection['dungeon_id'] ?? ''));
+    if ($from_dungeon_id === '') {
+      throw new \RuntimeException(sprintf(
+        'Navigation capability contract violation: connection %s (%s -> %s) is missing from_dungeon_id.',
+        $this->deriveConnectionId($connection),
+        $room_id,
+        $target_room_id
+      ));
+    }
     $to_dungeon_id = trim((string) ($connection['to_dungeon_id'] ?? ''));
+    if ($to_dungeon_id === '') {
+      $to_dungeon_id = $from_dungeon_id;
+    }
     $origin_dungeon_id = $travels_forward ? $from_dungeon_id : $to_dungeon_id;
     $destination_dungeon_id = $travels_forward ? $to_dungeon_id : $from_dungeon_id;
     $distance = $this->resolveDistance($connection, $destination_type);

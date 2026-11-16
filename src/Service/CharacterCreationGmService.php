@@ -14,6 +14,11 @@ use Drupal\dungeoncrawler_content\Form\CharacterCreationStepForm;
  */
 class CharacterCreationGmService {
 
+  /**
+   * The candidate character of the most recent planUpdates() call.
+   */
+  private array $plannedCandidate = [];
+
   protected const GM_FACTION_CREATE_LABELS_FIELD = 'faction_refs_create_labels';
   protected const GM_FACTION_CREATE_ROLE_FIELD = 'faction_refs_create_role';
   protected const GM_FACTION_CREATE_WHY_FIELD = 'faction_refs_create_why';
@@ -141,6 +146,8 @@ class CharacterCreationGmService {
       'character_id' => $character_id,
       'revision' => (int) ($record->version ?? 0),
       'campaign_id' => (int) ($record->campaign_id ?? 0),
+      'status' => (int) ($record->status ?? 0),
+      'lifecycle_state' => (string) ($record->lifecycle_state ?? ''),
       'payload' => $data,
       'summary' => $this->buildSummary($data),
     ];
@@ -215,6 +222,7 @@ class CharacterCreationGmService {
       return array_key_exists($field, $sanitized)
         || !in_array($issue['path'] . ':' . $issue['message'], $existing_errors, TRUE);
     }));
+    $this->plannedCandidate = $data;
     return [
       'intent' => 'proposed_execution',
       'expected_revision' => $draft['revision'],
@@ -229,6 +237,94 @@ class CharacterCreationGmService {
         'arguments' => ['expected_revision' => $draft['revision'], 'updates' => $sanitized],
       ] : NULL,
     ];
+  }
+
+  /**
+   * Builds the whole character from the native wizard rules in one save.
+   *
+   * The player's preferences are applied first; every remaining open choice
+   * is then filled from the options the validation authority offers for the
+   * candidate character, re-read after each pick because one choice changes
+   * the next. Nothing is invented and nothing is skipped: an invalid
+   * preference, an offered option the rules then reject, or a required
+   * decision the wizard offers no options for is a defect and fails the
+   * request. Only the character's name may stay open.
+   *
+   * @return array<string, mixed>
+   *   The applyDraftUpdates() result plus `autofill`.
+   *
+   * @throws \InvalidArgumentException
+   *   422 when the player's preferences fail validation.
+   * @throws \RuntimeException
+   *   `character_wizard_offered_option_rejected` or
+   *   `character_wizard_decision_not_offered`: a wizard rules defect.
+   */
+  public function autofillDraft(int $character_id, array $preferences = []): array {
+    $draft = $this->getDraft($character_id);
+    $plan = $this->planUpdates($character_id, $preferences);
+    if ($plan['blocking_errors'] !== []) {
+      throw new \InvalidArgumentException('Character updates failed validation: ' . implode('; ', array_column($plan['blocking_errors'], 'message')), 422);
+    }
+    $kept = array_keys($plan['updates']);
+    $seed = $character_id . ':' . $draft['revision'];
+    $chosen = [];
+    while (($open = $this->nextOpenDecision($plan['validation'])) !== NULL) {
+      [$issue, $choice] = $open;
+      $field = $issue['field'];
+      $options = array_map('strval', array_values(array_diff(array_keys($choice['options'] ?? []), [''])));
+      if ($options === [] || isset($chosen[$field])) {
+        throw new \RuntimeException("character_wizard_decision_not_offered: step {$issue['step']} {$field}: {$issue['message']}");
+      }
+      usort($options, static fn(string $a, string $b): int => [crc32($seed . $field . $a), $a] <=> [crc32($seed . $field . $b), $b]);
+      if (!empty($choice['multiple']) && !isset($choice['selection_count'])) {
+        throw new \RuntimeException("character_wizard_choice_count_not_declared: step {$issue['step']} {$field}: {$issue['message']}");
+      }
+      // A choice may require some of its picks to come from a named subset
+      // (a specialist wizard's school spells); those are taken first.
+      $required = array_values(array_intersect($options, $choice['required_from']['options'] ?? []));
+      $required = array_slice($required, 0, $choice['required_from']['count'] ?? 0);
+      $value = empty($choice['multiple']) ? $options[0] : array_slice(array_values(array_unique([...$required, ...$options])), 0, $choice['selection_count']);
+      // A feat's own sub-choice is stored inside feat_selections.
+      $path = explode('][', $field);
+      $patch = $path[0] === 'feat_selections'
+        ? ['feat_selections' => array_replace($this->plannedCandidate['feat_selections'] ?? [], [$path[1] => [$path[2] => $value] + ($this->plannedCandidate['feat_selections'][$path[1]] ?? [])])]
+        : [$field => $value];
+      $plan = $this->planUpdates($character_id, $patch + $plan['updates']);
+      if ($plan['blocking_errors'] !== []) {
+        throw new \RuntimeException("character_wizard_offered_option_rejected: step {$issue['step']} {$field} = " . json_encode($value) . ': ' . implode('; ', array_column($plan['blocking_errors'], 'message')));
+      }
+      $chosen[$field] = implode(', ', array_map(static fn(string $id): string => ucfirst(trim(preg_split('/ [-—] /u', (string) $choice['options'][$id])[0])), (array) $value));
+    }
+
+    $updates = $plan['updates'];
+    $result = $this->applyDraftUpdates($character_id, $draft['revision'], $updates);
+    $result['autofill'] = ['kept_preferences' => $kept, 'chosen_for_player' => $chosen];
+    $name = static fn(string $field): string => ucfirst(str_replace(['feat_selections][', '][selected_', '][', '_'], ['', ' ', ' ', ' '], $field));
+    $list = static fn(string $heading, array $lines): string => $lines === [] ? '' : "\n\n{$heading}:\n- " . implode("\n- ", $lines);
+    $result['assistant_response'] = 'Saved ' . count($result['applied_fields']) . ' character choices.'
+      . $list('From your request', array_map(static fn(string $field): string => $name($field) . ': ' . (is_array($updates[$field]) ? implode(', ', array_filter($updates[$field], 'is_string')) : $updates[$field]), $kept))
+      . $list('Chosen for you', array_map(static fn(string $field): string => $name($field) . ': ' . $chosen[$field], array_keys($chosen)))
+      . "\n\n" . ($result['validation']['ready'] ? 'Every choice is filled in. You can change any of them.' : 'Your character still needs a name.');
+
+    return $result;
+  }
+
+  /**
+   * The first open decision in wizard order, other than the free-text name.
+   *
+   * @return array{0: array, 1: array}|null
+   *   The validation issue and the choice the wizard offers for it.
+   */
+  private function nextOpenDecision(array $validation): ?array {
+    foreach ($validation['steps'] as $step) {
+      foreach ($step['issues'] as $issue) {
+        if ($issue['field'] !== 'name') {
+          return [$issue, $step['choices'][$issue['field']] ?? []];
+        }
+      }
+    }
+
+    return NULL;
   }
 
   /**
@@ -313,7 +409,7 @@ class CharacterCreationGmService {
     }
     return array_map(
       static fn(array $issue): string => 'Step ' . $issue['step'] . ': ' . $issue['message'],
-      array_slice($validation['steps'][$validation['next_step'] - 1]['issues'], 0, 3),
+      array_slice($validation['steps'][$validation['next_step'] - 1]['issues'], 0, 1),
     );
   }
 

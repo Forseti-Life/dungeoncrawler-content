@@ -195,8 +195,8 @@ try {
     ]],
   ];
   $wizard_choices = $drafts->validateData(array_replace($payload, $wizard_updates))['steps'][3]['choices'];
-  $wizard_updates['cantrips'] = array_slice(array_keys($wizard_choices['cantrips']['options']), 0, 5);
-  $wizard_updates['spells_first'] = array_slice(array_keys($wizard_choices['spells_first']['options']), 0, 2);
+  $wizard_updates['cantrips'] = array_slice(array_keys($wizard_choices['cantrips']['options']), 0, $wizard_choices['cantrips']['selection_count']);
+  $wizard_updates['spells_first'] = array_slice(array_values(array_unique([...($wizard_choices['spells_first']['required_from']['options'] ?? []), ...array_keys($wizard_choices['spells_first']['options'])])), 0, $wizard_choices['spells_first']['selection_count']);
   $before_projection = $manager->loadCharacter($id)->character_data;
   $wizard_plan = $drafts->planUpdates($id, $wizard_updates);
   $check($wizard_plan['blocking_errors'] === [], 'Conditional class selections must validate: ' . json_encode($wizard_plan['blocking_errors']));
@@ -254,7 +254,7 @@ try {
     'repeated free boost' => [['free_boosts' => ['strength', 'strength', 'dexterity', 'wisdom']], 'free_boosts'],
     'unknown skill ID' => [['trained_skills' => ['original-unknown']], 'trained_skills'],
     'repeated trained skill' => [['trained_skills' => ['Arcana', 'Arcana', 'Arcana']], 'trained_skills'],
-    'repeated cantrip' => [['class' => 'wizard', 'cantrips' => array_fill(0, 5, $wizard_updates['cantrips'][0])], 'cantrips'],
+    'repeated cantrip' => [['class' => 'wizard', 'cantrips' => array_fill(0, count($wizard_updates['cantrips']), $wizard_updates['cantrips'][0])], 'cantrips'],
     'alignment option' => [['alignment' => 'original-unknown'], 'alignment'],
     'general feat eligibility' => [['general_feat' => 'original-unknown'], 'general_feat'],
     'unknown equipment' => [['weapons' => ['original-unknown']], 'weapons'],

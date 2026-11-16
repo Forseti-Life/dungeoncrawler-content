@@ -1150,12 +1150,6 @@ function dungeoncrawler_content_schema() {
         'not null' => TRUE,
         'default' => 'normal',
       ],
-      'active_character_id' => [
-        'type' => 'int',
-        'unsigned' => TRUE,
-        'not null' => FALSE,
-        'default' => NULL,
-      ],
       'campaign_data' => [
         'type' => 'text',
         'size' => 'big',
@@ -1181,6 +1175,8 @@ function dungeoncrawler_content_schema() {
       'status' => ['status'],
     ],
   ];
+  // Who belongs to a campaign. All members are equal; see
+  // CampaignMembershipService.
   $schema['dc_campaign_members'] = [
     'fields' => [
       'id' => [
@@ -1199,18 +1195,6 @@ function dungeoncrawler_content_schema() {
         'unsigned' => TRUE,
         'not null' => TRUE,
         'default' => 0,
-      ],
-      'role' => [
-        'type' => 'varchar',
-        'length' => 32,
-        'not null' => TRUE,
-        'default' => 'player',
-      ],
-      'status' => [
-        'type' => 'varchar',
-        'length' => 32,
-        'not null' => TRUE,
-        'default' => 'active',
       ],
       'default_character_id' => [
         'type' => 'int',
@@ -1242,9 +1226,9 @@ function dungeoncrawler_content_schema() {
     'indexes' => [
       'campaign_id' => ['campaign_id'],
       'uid' => ['uid'],
-      'role_status' => ['role', 'status'],
     ],
   ];
+  $schema['dc_campaign_discord'] = dungeoncrawler_content_campaign_discord_schema();
   $schema['dc_campaign_initialization_steps'] = [
     'fields' => [
       'id' => [
@@ -4284,7 +4268,12 @@ function dungeoncrawler_content_schema() {
       'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE],
       'draft_id' => ['type' => 'varchar', 'length' => 36, 'not null' => TRUE],
       'revision' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE],
-      'owner_uid' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE],
+      'owner_uid' => [
+        'description' => 'The editor who saved this revision; legacy column name retained.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ],
       'draft_payload' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE],
       'payload_hash' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE],
       'created_at' => ['type' => 'int', 'not null' => TRUE],
@@ -4464,6 +4453,7 @@ function dungeoncrawler_content_schema() {
 
   $schema += _dungeoncrawler_content_actor_authority_tables();
 
+  $schema['dungeoncrawler_content_definition_lifecycle'] = dungeoncrawler_content_definition_lifecycle_schema();
   return $schema;
 }
 function dungeoncrawler_content_install() {
@@ -6674,4 +6664,102 @@ function dungeoncrawler_content_update_10226(): string {
     ->execute();
 
   return "Reclassified {$updated} archived evidence fixture as a non-player actor.";
+}
+
+/**
+ * Drop the foreign keys that pinned actor refs to dc_canonical_actors.
+ *
+ * Canonical pc/npc definitions now live in their library actor rows. The
+ * storyline and objective actor refs are checked against
+ * CanonicalDefinitionService when they are written.
+ */
+function dungeoncrawler_content_update_10227(): string {
+  $database = \Drupal::database();
+  $dropped = [];
+  $constraints = $database->query("SELECT TABLE_NAME AS table_name, CONSTRAINT_NAME AS constraint_name FROM information_schema.REFERENTIAL_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = DATABASE() AND REFERENCED_TABLE_NAME = 'dc_canonical_actors'")->fetchAll();
+  foreach ($constraints as $constraint) {
+    if (!preg_match('/^[A-Za-z0-9_]+$/', $constraint->table_name . $constraint->constraint_name)) {
+      throw new \RuntimeException('actor_definition_constraint_name_invalid');
+    }
+    $database->query('ALTER TABLE `' . $constraint->table_name . '` DROP FOREIGN KEY `' . $constraint->constraint_name . '`');
+    $dropped[] = $constraint->table_name . '.' . $constraint->constraint_name;
+  }
+
+  return 'Dropped actor definition foreign keys: ' . ($dropped === [] ? 'none' : implode(', ', $dropped)) . '.';
+}
+
+/**
+ * Schema of the campaign's Discord voice channel record.
+ */
+function dungeoncrawler_content_campaign_discord_schema(): array {
+  return [
+    'description' => 'The Discord voice channel created for a campaign.',
+    'fields' => [
+      'campaign_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE],
+      'guild_id' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE],
+      'voice_channel_id' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE],
+      'voice_channel_name' => ['type' => 'varchar', 'length' => 128, 'not null' => TRUE],
+      'created_by_uid' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE],
+      'created' => ['type' => 'int', 'not null' => TRUE],
+    ],
+    'primary key' => ['campaign_id'],
+  ];
+}
+
+/**
+ * Make campaign membership the one authority for campaign access.
+ *
+ * Every campaign creator and every user with a player character in a campaign
+ * becomes a member; roles and invite states go away because all members are
+ * equal. The character a member plays moves from the single
+ * dc_campaigns.active_character_id to that member's row.
+ */
+function dungeoncrawler_content_update_10228(): string {
+  $database = \Drupal::database();
+  $schema = $database->schema();
+
+  $database->query("DELETE FROM {dc_campaign_members} WHERE status = 'revoked'");
+  $before = (int) $database->query('SELECT COUNT(*) FROM {dc_campaign_members}')->fetchField();
+  $database->query("INSERT IGNORE INTO {dc_campaign_members} (campaign_id, uid, created, changed) SELECT c.id, c.uid, c.created, c.created FROM {dc_campaigns} c WHERE c.uid > 0");
+  $database->query("INSERT IGNORE INTO {dc_campaign_members} (campaign_id, uid, created, changed) SELECT cc.campaign_id, cc.uid, MIN(cc.created), MIN(cc.created) FROM {dc_campaign_characters} cc INNER JOIN {dc_campaigns} c ON c.id = cc.campaign_id WHERE cc.type = 'pc' AND cc.uid > 0 GROUP BY cc.campaign_id, cc.uid");
+  $enrolled = (int) $database->query('SELECT COUNT(*) FROM {dc_campaign_members}')->fetchField() - $before;
+  $database->query("UPDATE {dc_campaign_members} m INNER JOIN {dc_campaigns} c ON c.id = m.campaign_id AND c.uid = m.uid SET m.default_character_id = c.active_character_id WHERE c.active_character_id IS NOT NULL");
+
+  $schema->dropIndex('dc_campaign_members', 'role_status');
+  $schema->dropField('dc_campaign_members', 'role');
+  $schema->dropField('dc_campaign_members', 'status');
+  $schema->dropField('dc_campaigns', 'active_character_id');
+  $schema->createTable('dc_campaign_discord', dungeoncrawler_content_campaign_discord_schema());
+
+  return sprintf('Campaign membership: %d members enrolled; roles, invite states and dc_campaigns.active_character_id removed; dc_campaign_discord created.', $enrolled);
+}
+
+/**
+ * Reversible retirement state, separate from content and quarantine.
+ */
+function dungeoncrawler_content_definition_lifecycle_schema(): array {
+  return [
+    'description' => 'Auditable canonical definition retirement; payloads and published references remain intact.',
+    'fields' => [
+      'family' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE],
+      'definition_id' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE],
+      'status' => ['type' => 'varchar', 'length' => 16, 'not null' => TRUE],
+      'revision' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE],
+      'reason' => ['type' => 'text', 'not null' => TRUE],
+      'changed_by' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE],
+      'changed_at' => ['type' => 'int', 'not null' => TRUE],
+    ],
+    'primary key' => ['family', 'definition_id'],
+  ];
+}
+
+/**
+ * Install the definition lifecycle authority without altering content.
+ */
+function dungeoncrawler_content_update_10229(): string {
+  $schema = \Drupal::database()->schema();
+  if (!$schema->tableExists('dungeoncrawler_content_definition_lifecycle')) {
+    $schema->createTable('dungeoncrawler_content_definition_lifecycle', dungeoncrawler_content_definition_lifecycle_schema());
+  }
+  return 'Installed reversible canonical definition lifecycle state.';
 }

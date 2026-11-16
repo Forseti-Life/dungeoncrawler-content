@@ -2,6 +2,8 @@
 
 namespace Drupal\dungeoncrawler_content\Controller;
 
+use Drupal\dungeoncrawler_content\Service\InstitutionNormalizationService;
+use Drupal\dungeoncrawler_content\Service\RelationshipAttitudeService;
 use Drupal\Component\Utility\Html;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Link;
@@ -30,6 +32,54 @@ class GmStorylineBuilderController extends ControllerBase {
   /**
    * Render the GM storyline builder process map.
    */
+  /**
+   * Actor relationship graph for one storyline draft.
+   *
+   * The page only names the draft's API endpoints; the graph script loads
+   * and saves the draft through them, under the same access checks.
+   */
+  public function actorGraph(\Symfony\Component\HttpFoundation\Request $request): array {
+    $draft_id = (string) $request->query->get('draft_id', '');
+    if (preg_match('/^[0-9a-f-]{36}$/', $draft_id) !== 1) {
+      throw new \Symfony\Component\HttpKernel\Exception\NotFoundHttpException();
+    }
+    $draft_route = ['draft_id' => $draft_id];
+    $actor_url = Url::fromRoute('dungeoncrawler_content.actor_view', ['actor_id' => 'ACTORID'], ['query' => $draft_route])->toString();
+
+    return [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['actor-graph'], 'data-actor-graph-root' => ''],
+      '#cache' => ['max-age' => 0],
+      '#attached' => [
+        'library' => ['dungeoncrawler_content/gm-storyline-actor-graph'],
+        'drupalSettings' => [
+          'dungeoncrawlerStorylineActorGraph' => [
+            'loadUrl' => Url::fromRoute('dungeoncrawler_content.api.storyline_builder_draft_get', $draft_route)->toString(),
+            'saveUrl' => Url::fromRoute('dungeoncrawler_content.api.storyline_builder_draft_save', $draft_route)->toString(),
+            'actorUrlTemplate' => str_replace('ACTORID', '{actor_id}', $actor_url),
+            // The institution and relationship engines' own vocabularies.
+            'domains' => InstitutionNormalizationService::AUTHORABLE_DOMAINS,
+            'derivedDomains' => InstitutionNormalizationService::DERIVED_DOMAINS,
+            'attitudes' => RelationshipAttitudeService::ATTITUDES,
+          ],
+        ],
+      ],
+      'bar' => [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['actor-graph__bar']],
+        'back' => Link::fromTextAndUrl($this->t('← Back to the storyline draft'), Url::fromRoute('dungeoncrawler_content.gm_storyline_builder', [], ['query' => $draft_route]))->toRenderable(),
+        'group' => ['#markup' => '<div class="actor-graph__group" data-actor-graph-group></div>'],
+        'status' => ['#markup' => '<p class="actor-graph__status" data-actor-graph-status aria-live="polite"></p>'],
+      ],
+      'layout' => [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['actor-graph__layout']],
+        'canvas' => ['#markup' => '<div class="actor-graph__canvas" data-actor-graph-canvas></div>'],
+        'panel' => ['#markup' => '<aside class="actor-graph__panel" data-actor-graph-panel aria-label="Selected actor"></aside>'],
+      ],
+    ];
+  }
+
   public function page(): array {
     $initial_fields = $this->loadInitialWizardFields();
     $build = [
@@ -59,8 +109,8 @@ class GmStorylineBuilderController extends ControllerBase {
                   'revision' => 999999,
                 ])->toString()
               ),
+              'actorGraphUrl' => Url::fromRoute('dungeoncrawler_content.gm_storyline_actor_graph')->toString(),
               'saveUrlTemplate' => str_replace('00000000-0000-4000-8000-000000000000', '{draft_id}', Url::fromRoute('dungeoncrawler_content.api.storyline_builder_draft_save', ['draft_id' => '00000000-0000-4000-8000-000000000000'])->toString()),
-              'copyUrlTemplate' => str_replace('00000000-0000-4000-8000-000000000000', '{draft_id}', Url::fromRoute('dungeoncrawler_content.api.storyline_builder_draft_copy', ['draft_id' => '00000000-0000-4000-8000-000000000000'])->toString()),
               'deleteUrlTemplate' => str_replace('00000000-0000-4000-8000-000000000000', '{draft_id}', Url::fromRoute('dungeoncrawler_content.api.storyline_builder_draft_delete', ['draft_id' => '00000000-0000-4000-8000-000000000000'])->toString()),
             ],
             'publish' => [
@@ -579,31 +629,46 @@ class GmStorylineBuilderController extends ControllerBase {
               <button type="button" class="btn btn-secondary btn-sm" data-remove-row>Remove</button>
             </div></template>
           </div>
+          <div class="gm-storyline-wizard__quest-outline">
+            <h4 class="gm-storyline-wizard__section-title">Quests</h4>
+            <p>One card per quest. Write the <strong>goal</strong> — what the players are trying to achieve, not how — then add each <strong>way</strong> of achieving it: who knows about it, how it is achieved, what players read afterwards, and where the story goes next. “All fields” opens the full row for IDs, scenes, triggers and consequences.</p>
+            <div data-quest-outline aria-live="polite"></div>
+          </div>
+          <details class="gm-storyline-wizard__advanced">
+          <summary>All quest fields (IDs, chapter, scene, status)</summary>
           <div class="gm-storyline-wizard__collection" data-collection="task_entries">
-            <div class="gm-storyline-wizard__collection-header"><h4>Tasks and scene placement</h4><button type="button" class="btn btn-secondary btn-sm" data-add-row="task_entries">Add task</button></div>
-            <p>Task order supplies the default linear path. Authored decisions below replace outgoing edges with conditional choices.</p>
+            <div class="gm-storyline-wizard__collection-header"><h4>Quests, goals and scene placement</h4><button type="button" class="btn btn-secondary btn-sm" data-add-row="task_entries">Add quest</button></div>
+            <p>Quest order supplies the default linear path. Authored decisions below replace outgoing edges with conditional choices.</p>
+            <p>Give a quest a <strong>goal</strong> when there is more than one way to finish it: write what the players are trying to achieve (“End the goblin threat”), not how. Then mark the choices below that are ways of achieving it. GM notes are never shown to players.</p>
             <div class="gm-storyline-wizard__rows" data-rows="task_entries"></div>
             <template data-row-template="task_entries"><div class="gm-storyline-wizard__row">
               <input type="text" class="form-text" placeholder="Quest ID" aria-label="Quest ID" data-col-field="task_id">
               <input type="text" class="form-text" placeholder="Chapter ID" aria-label="Quest chapter ID" data-col-field="chapter_id">
               <input type="text" class="form-text" placeholder="Scene ID" aria-label="Quest scene ID" data-col-field="scene_id">
               <select class="form-select" aria-label="Quest status" data-col-field="status"><option value="available">Available</option><option value="active">Active</option><option value="completed">Completed</option><option value="locked">Locked</option></select>
+              <input type="text" class="form-text" placeholder="Goal: what the players are trying to achieve" aria-label="Quest goal" data-col-field="goal_text">
+              <input type="text" class="form-text" placeholder="GM notes on the goal (never shown to players)" aria-label="GM notes" data-col-field="gm_notes">
+              <select class="form-select" aria-label="Unplanned ways" data-col-field="open_resolution"><option value="false">Only the authored ways count</option><option value="true">An unplanned way may also count</option></select>
               <button type="button" class="btn btn-secondary btn-sm" data-remove-row>Remove</button>
             </div></template>
           </div>
+          </details>
           <h4 class="gm-storyline-wizard__section-title">Player decisions and consequences</h4>
           <div class="gm-storyline-wizard__section-help">
             <p>These records become executable branch contracts in the published storyline, not standalone tools.</p>
             <ol>
-              <li>Author at least two choices for a decision and define the trigger that makes each choice eligible.</li>
+              <li>Author at least two choices for a decision and define the trigger that makes each choice eligible. A decision whose choices are ways of achieving a quest goal may have just one.</li>
+              <li>Mark a choice as a <strong>way of achieving the quest goal</strong> to make resolving it complete the quest. Players see known ways in their journal, discover hidden ones in play, and never see secret ones before they are used.</li>
               <li>Publication compiles the choices into runtime questline nodes and exposes their decision and choice IDs.</li>
               <li>During play, the GM receives current decisions in its prompt context and can inspect or resolve them through the standard GM tools. Other runtime callers may submit the same decision/choice pair through storyline advancement.</li>
               <li>The engine records the selection, applies actor/environment/storyline state changes, moves to the target task or scene, and completes terminal branches.</li>
             </ol>
             <p>Action, skill, state, timer, and GM-decision triggers tell the gameplay GM when a choice is eligible. They are not background polling jobs; the GM or another runtime caller resolves the matching choice after play establishes the outcome.</p>
           </div>
+          <details class="gm-storyline-wizard__advanced">
+          <summary>All choice fields (decision and choice IDs, triggers, targets)</summary>
           <div class="gm-storyline-wizard__collection" data-collection="branch_choice_entries">
-            <div class="gm-storyline-wizard__collection-header"><h4>Choices and triggers</h4><button type="button" class="btn btn-secondary btn-sm" data-add-row="branch_choice_entries">Add choice</button></div>
+            <div class="gm-storyline-wizard__collection-header"><h4>Choices, approaches and triggers</h4><button type="button" class="btn btn-secondary btn-sm" data-add-row="branch_choice_entries">Add choice</button></div>
             <div class="gm-storyline-wizard__rows" data-rows="branch_choice_entries"></div>
             <template data-row-template="branch_choice_entries"><div class="gm-storyline-wizard__row gm-storyline-wizard__row--analysis">
               <input type="text" class="form-text" placeholder="Decision ID" aria-label="Decision ID" data-col-field="decision_id">
@@ -618,9 +683,16 @@ class GmStorylineBuilderController extends ControllerBase {
               <input type="text" class="form-text" placeholder="Target task ID" aria-label="Target task ID" data-col-field="target_task_id">
               <input type="text" class="form-text" placeholder="Target scene ID" aria-label="Target scene ID" data-col-field="target_scene_id">
               <select class="form-select" aria-label="Terminal outcome" data-col-field="terminal"><option value="false">Continues story</option><option value="true">Terminal ending</option></select>
+              <select class="form-select" aria-label="Way of achieving the quest goal" data-col-field="approach_visibility"><option value="">Not a way of achieving the quest goal</option><option value="known">Way: players know it from the start</option><option value="discoverable">Way: hidden until discovered</option><option value="secret">Way: secret until used</option></select>
+              <input type="text" class="form-text" placeholder="Outcome players read afterwards (The goblins left peacefully)" aria-label="Approach outcome" data-col-field="approach_outcome_label">
+              <input type="text" class="form-text" placeholder="Discovered when: objective:ID or event:TYPE:REF" aria-label="Approach reveal condition" data-col-field="approach_reveal">
+              <input type="text" class="form-text" placeholder="Objective IDs for this way (blank: the GM judges it)" aria-label="Approach objective IDs" data-col-field="approach_objective_ids">
+              <input type="number" min="0" class="form-text" placeholder="Reward XP for this way" aria-label="Approach reward XP" data-col-field="approach_reward_xp">
+              <input type="number" min="0" class="form-text" placeholder="Reward gold for this way" aria-label="Approach reward gold" data-col-field="approach_reward_gold">
               <button type="button" class="btn btn-secondary btn-sm" data-remove-row>Remove</button>
             </div></template>
           </div>
+          </details>
           <div class="gm-storyline-wizard__collection" data-collection="branch_actor_effect_entries">
             <div class="gm-storyline-wizard__collection-header"><h4>Actor effects</h4><button type="button" class="btn btn-secondary btn-sm" data-add-row="branch_actor_effect_entries">Add actor effect</button></div>
             <div class="gm-storyline-wizard__rows" data-rows="branch_actor_effect_entries"></div>
@@ -662,6 +734,9 @@ class GmStorylineBuilderController extends ControllerBase {
               <button type="button" class="btn btn-secondary btn-sm" data-remove-row>Remove</button>
             </div></template>
           </div>
+          <details class="gm-storyline-wizard__advanced">
+          <summary>Objective completion criteria (one per quest; used by storyline validation)</summary>
+          <p>This states how completion of each quest is measured for validation. A quest with a goal is completed by one of its ways; this row does not change that.</p>
           <div class="gm-storyline-wizard__collection" data-collection="objective_entries">
             <div class="gm-storyline-wizard__collection-header"><h4>Objective completion criteria</h4><button type="button" class="btn btn-secondary btn-sm" data-add-row="objective_entries">Add objective</button></div>
             <div class="gm-storyline-wizard__rows" data-rows="objective_entries"></div>
@@ -674,6 +749,7 @@ class GmStorylineBuilderController extends ControllerBase {
               <button type="button" class="btn btn-secondary btn-sm" data-remove-row>Remove</button>
             </div></template>
           </div>
+          </details>
           <div class="gm-storyline-wizard__actions"><button type="button" class="btn btn-secondary" data-step-back="1">Back</button></div>
         </section>
 
@@ -785,7 +861,7 @@ class GmStorylineBuilderController extends ControllerBase {
           <section class="gm-storyline-wizard__analysis" aria-labelledby="gm-storyline-analysis-title">
             <h4 id="gm-storyline-analysis-title">Story timeline and conflict graph</h4>
             <p data-gm-template-analysis-summary>Validate the saved draft to generate the authoritative analysis.</p>
-            <div class="gm-storyline-wizard__analysis-graph" data-gm-template-analysis-graph role="img" aria-label="Story timeline and conflict relationship graph"></div>
+            <div class="gm-storyline-wizard__analysis-graph" data-gm-template-analysis-graph role="group" aria-label="Interactive story timeline and conflict relationship graph"></div>
           </section>
           <div class="gm-storyline-wizard__actions"><button type="button" class="btn btn-secondary" data-step-back="6">Back</button><button type="button" class="btn btn-secondary" data-gm-blueprint-copy>Copy object JSON</button><button type="button" class="btn btn-secondary" data-gm-template-validate>Generate and validate object</button><button type="button" class="btn btn-primary" data-gm-template-publish>Create canonical storyline</button></div>
         </section>

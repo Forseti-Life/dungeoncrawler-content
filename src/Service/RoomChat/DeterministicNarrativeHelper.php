@@ -196,9 +196,6 @@ final class DeterministicNarrativeHelper {
       'let us go there',
       'lets go',
       'let us go',
-      'do it',
-      'proceed',
-      'take it',
       'take that exit',
       'take that door',
     ]);

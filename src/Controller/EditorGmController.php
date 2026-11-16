@@ -88,6 +88,12 @@ class EditorGmController extends ControllerBase {
       if ($session) {
         $this->persistAssistantTurn($session, $data);
       }
+      $active_draft_id = $data['tool_result']['active_draft_id'] ?? NULL;
+      if ($_surface === 'room_editor' && is_string($active_draft_id) && $active_draft_id !== $draft_id) {
+        $target_session = $this->conversationSession($_surface, $active_draft_id);
+        $this->persistAuthorTurn($target_session, $body);
+        $this->persistAssistantTurn($target_session, $data);
+      }
       return new JsonResponse(['data' => $data]);
     }
 
@@ -130,6 +136,9 @@ class EditorGmController extends ControllerBase {
     }
     if ($surface === 'character_creation') {
       $this->harness->surface($surface)->createContext($draft_id, 'editing');
+    }
+    elseif ($surface === 'room_editor') {
+      $this->harness->surface($surface)->createContext($draft_id, 'editing')->draft();
     }
     if (!$create) {
       return $this->chatSessions->loadSession($this->chatSessions->editorGmSessionKey($surface, $draft_id));
@@ -290,6 +299,7 @@ class EditorGmController extends ControllerBase {
     $code = $exception->getMessage() ?: 'editor_gm_error';
     $status = match (TRUE) {
       $exception instanceof CanonicalGenerationException => $exception->httpStatus(),
+      $code === 'editor_gm_intent_output_truncated' => 502,
       $exception instanceof \InvalidArgumentException && $code === 'definition_exists' => 409,
       $exception instanceof \InvalidArgumentException && $exception->getCode() === 422 => 422,
       $exception instanceof \JsonException,
@@ -317,6 +327,9 @@ class EditorGmController extends ControllerBase {
       'code' => $code,
       'message' => str_replace('_', ' ', ucfirst($code)),
     ];
+    if ($code === 'editor_gm_intent_output_truncated') {
+      $error['message'] = 'The GM response exceeded its output limit. No action was executed. Request a smaller batch of edits.';
+    }
     if ($exception instanceof DefinitionValidationException) {
       $error['code'] = 'definition_validation_failed';
       $error['message'] = 'Definition validation failed';

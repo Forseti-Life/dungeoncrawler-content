@@ -37,6 +37,9 @@ use Drupal\dungeoncrawler_content\Service\Generation\CanonicalDefinitionGenerati
 use Drupal\dungeoncrawler_content\Service\RoomEditorService;
 use Drupal\Component\Uuid\UuidInterface;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Actor\DefinitionActorTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\StorylineActorSheetTool;
+use Drupal\dungeoncrawler_content\Service\StorylineActorSheetService;
+use Drupal\dungeoncrawler_content\Service\CanonicalQuestTemplateService;
 
 /**
  * Storyline Builder GM surface with draft-scoped storyline authoring tools.
@@ -59,15 +62,19 @@ final class StorylineBuilderGmSurface implements EditorGmSurfaceInterface {
     EditorCanonicalGenerationPlanService $roomGeneration,
     RoomEditorService $roomEditor,
     UuidInterface $uuid,
+    StorylineActorSheetService $actorSheets,
+    CanonicalQuestTemplateService $questTemplates,
   ) {
-    $remediationPlanner = new PlanStorylineRemediationTool($roomEditor);
-    $remediationExecutor = new ApplyStorylineRemediationTool($definitionGeneration, $roomGeneration, $roomEditor, $uuid);
+    $remediationPlanner = new PlanStorylineRemediationTool($questTemplates, $roomEditor);
+    $remediationExecutor = new ApplyStorylineRemediationTool($definitionGeneration, $roomGeneration, $roomEditor, $uuid, $questTemplates);
     $this->registry = new EditorGmToolRegistry([
       new DescribeStorylineAuthoringContractTool(),
       new LoadStorylineDraftSnapshotTool(),
       new GetStorylineDraftStatusTool(),
       new GetStorylineBranchingTool(),
       new GetStorylineSynopsisTool(),
+      new StorylineActorSheetTool($actorSheets, FALSE),
+      new StorylineActorSheetTool($actorSheets, TRUE),
       new PreviewStorylineDefinitionTool(),
       new ListCatalogDefinitionsTool(),
       new InspectCatalogEntryTool(),
@@ -95,7 +102,7 @@ final class StorylineBuilderGmSurface implements EditorGmSurfaceInterface {
       new DefinitionActorTool('plan_actor_changes'),
       new DefinitionActorTool('apply_actor_changes'),
     ], [], NULL);
-    $this->assembler = new StorylineBuilderGmContextAssembler($this->registry, $intentParser);
+    $this->assembler = new StorylineBuilderGmContextAssembler($this->registry, $intentParser, $remediationPlanner);
   }
 
   public function id(): string {

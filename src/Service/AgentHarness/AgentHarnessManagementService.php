@@ -56,14 +56,38 @@ class AgentHarnessManagementService {
    * Storyline Builder natural-language selectable entry tools.
    */
   private const STORYLINE_NL_TOOLS = [
+    'describe_storyline_authoring_contract',
+    'load_storyline_draft_snapshot',
+    'get_storyline_draft_status',
+    'get_storyline_branching',
+    'get_storyline_synopsis',
+    'inspect_storyline_actor_sheets',
+    'build_storyline_actor_sheets',
+    'preview_storyline_definition',
+    'validate_draft',
+    'explain_validation_findings',
+    'preview_storyline_narrative_analysis',
+    'check_storyline_creation_readiness',
     'plan_storyline_draft_operations',
+    'apply_storyline_draft_operations',
     'plan_storyline_remediation',
+    'apply_storyline_remediation',
     'publish_storyline_draft',
     'generate_canonical_definition',
     'create_canonical_definition',
     'update_canonical_definition',
+    'describe_canonical_definition_schema',
     'load_canonical_definition',
     'list_catalog_definitions',
+    'inspect_catalog_entry',
+    'validate_canonical_definition',
+    'plan_canonical_definition_patch',
+    'list_rooms',
+    'list_dungeons',
+    'find_dungeons_using_room',
+    'inspect_actor',
+    'plan_actor_changes',
+    'apply_actor_changes',
     'route_to_editor',
     self::TOOL_SUBMIT_BACKLOG_SUGGESTION,
   ];
@@ -345,8 +369,12 @@ class AgentHarnessManagementService {
       $tool_name === 'query_campaign_database' => 'Now looking up campaign database records…',
       $tool_name === 'inspect_storyline_branches' => 'Now looking up storyline branch state…',
       $tool_name === 'resolve_storyline_branch' => 'Now resolving storyline branch decision…',
+      $tool_name === 'resolve_quest_goal' => 'Now recording how the quest goal was achieved…',
+      $tool_name === 'reveal_quest_approach' => 'Now revealing a new way forward…',
       $tool_name === 'create_character_faction' => 'Now generating canonical faction for character…',
+      $tool_name === 'lookup_pathfinder_character_reference' => 'Now looking up Pathfinder character-creation reference file…',
       $tool_name === 'apply_character_draft_updates' => 'Now applying character sheet updates…',
+      $tool_name === 'autofill_character_draft' => 'Now building the character from the wizard\'s valid choices…',
       $tool_name === 'generate_canonical_definition' => $family !== '' && $definition_id !== ''
         ? sprintf("Now generating canonical %s definition '%s'…", $family, $definition_id)
         : ($family !== '' ? sprintf('Now generating canonical %s definition…', $family) : 'Now generating canonical definition…'),
@@ -647,6 +675,27 @@ class AgentHarnessManagementService {
       return NULL;
     }
 
+    if ($tool_name === 'check_storyline_creation_readiness') {
+      $revision = (int) $tool_result['revision'];
+      $receipt = $tool_result['publication_receipt'] ?? NULL;
+      if (is_array($receipt)) {
+        return [
+          'answer' => "Review Complete\nThe storyline is already published; its final signoff is recorded in the native publication receipt.",
+          'next_steps' => ['Open the published storyline or continue work in a new draft.'],
+        ];
+      }
+      if ($tool_result['ready']) {
+        return [
+          'answer' => sprintf("Review Complete\nRevision %d passes canonical validation. No separate review flag or signoff document is required. Publication records the final signoff; this review did not publish or change the draft.", $revision),
+          'next_steps' => ['Say "Review and create" to publish this revision and record its final signoff.'],
+        ];
+      }
+      return [
+        'answer' => "Review Blocked\n" . implode("\n", array_column($tool_result['blockers'], 'message')),
+        'next_steps' => ['Resolve the listed blockers before publication; no signoff was recorded.'],
+      ];
+    }
+
     if ($tool_name === 'apply_storyline_draft_operations') {
       return $this->buildStorylineDraftOperationsSummary($tool_result, $context_snapshot);
     }
@@ -731,10 +780,16 @@ class AgentHarnessManagementService {
   private function buildStorylineRemediationSummary(array $tool_result, array $context_snapshot): array {
     $definitions = is_array($tool_result['definitions'] ?? NULL) ? $tool_result['definitions'] : [];
     $rooms = is_array($tool_result['rooms'] ?? NULL) ? $tool_result['rooms'] : [];
+    $quests = is_array($tool_result['quests'] ?? NULL) ? $tool_result['quests'] : [];
     $draft = is_array($tool_result['draft'] ?? NULL) ? $tool_result['draft'] : [];
     $deferred = is_array($tool_result['deferred_tasks'] ?? NULL) ? $tool_result['deferred_tasks'] : [];
 
     $parts = [];
+    foreach ($quests as $quest) {
+      if (!empty($quest['storyline_references_repaired'])) {
+        $parts[] = sprintf("Aligned linked quest '%s' with its storyline, preserving its objectives, rewards, and narrative.", $quest['template_id']);
+      }
+    }
     $created_defs = array_filter($definitions, static fn($d): bool => !empty($d['created']));
     if ($created_defs !== []) {
       $labels = array_map(
@@ -798,7 +853,7 @@ class AgentHarnessManagementService {
   private function buildStorylinePublishSummary(array $tool_result, array $context_snapshot): array {
     $template_id = (string) ($tool_result['template_id'] ?? $context_snapshot['storyline']['storyline_id'] ?? 'storyline');
     $revision = (int) ($tool_result['published_revision'] ?? $context_snapshot['draft']['revision'] ?? 0);
-    $body = sprintf("Published storyline template '%s' from draft revision %d into the canonical storyline library.", $template_id, $revision);
+    $body = sprintf("Published storyline template '%s' from draft revision %d into the canonical storyline library. Canonical review is complete and the final signoff is stored in its publication receipt.", $template_id, $revision);
 
     return [
       'answer' => "Storyline Published\n{$body}",

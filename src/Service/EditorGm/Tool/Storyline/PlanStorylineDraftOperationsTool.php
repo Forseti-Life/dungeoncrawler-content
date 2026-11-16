@@ -15,7 +15,7 @@ final class PlanStorylineDraftOperationsTool implements EditorGmToolInterface {
     return new EditorGmToolDefinition(
       'plan_storyline_draft_operations',
       EditorGmToolDefinition::FAMILY_PLANNING,
-      'Preview structured set, append, replace, remove, and move operations against one draft revision.',
+      'Preview structured set, append, replace, patch, remove, and move operations against one draft revision. Use ID-matched patches for edits to existing row fields without repeating entire rows.',
       FALSE,
       'StorylineAuthoringDraftService::planDraftOperations()',
       [

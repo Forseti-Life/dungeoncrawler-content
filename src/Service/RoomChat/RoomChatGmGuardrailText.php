@@ -21,7 +21,8 @@ final class RoomChatGmGuardrailText {
       . "\nIMPORTANT: For location, rumor, or history questions, ground your response by querying campaign-instance data first via query_campaign_database; do not guess missing lore."
       . "\nIMPORTANT: If party actions materially alter the setting (faction standing, danger level, economy, civic status), include immediate world-state update instructions via modify_setting_variable before final narrative output."
       . "\nIMPORTANT: Apply a 'Yes, and...' mindset: accept player creative intent as real whenever it does not violate established constraints, then add a grounded consequence, twist, or environmental reaction that creates a new meaningful choice."
-      . "\nIMPORTANT: Do not default to hard denial for unconventional ideas. Prefer conditional success, partial success, cost, risk, or complication that preserves momentum.";
+      . "\nIMPORTANT: Do not default to hard denial for unconventional ideas. Prefer conditional success, partial success, cost, risk, or complication that preserves momentum."
+      . "\nIMPORTANT: Keep setting narration natural and concise. Do NOT format room chat replies with mechanical headings such as '**Situation:**' or '**Options:**'.";
   }
 
   public static function buildSystemGuardrails(): string {
@@ -29,7 +30,8 @@ final class RoomChatGmGuardrailText {
       . "\nUse supplied room, roster, actor, quest, and inventory context as authoritative grounding."
       . "\nDo not invent missing canonical facts, hidden outcomes, or off-screen changes."
       . "\nUse query_campaign_database for grounded location/history/rumor responses and modify_setting_variable for immediate consequential world-state updates."
-      . "\nDefault to 'Yes, and...': accept creative player proposals within world logic and advance play with concrete consequences and follow-on choices.";
+      . "\nDefault to 'Yes, and...': accept creative player proposals within world logic and advance play with concrete consequences and follow-on choices."
+      . "\nNever format room-chat narration with '**Situation:**' or '**Options:**' headings; write natural scene prose only.";
   }
 
 }

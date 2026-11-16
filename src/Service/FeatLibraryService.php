@@ -9,7 +9,7 @@ use Drupal\Core\Database\Connection;
  */
 class FeatLibraryService {
 
-  public const FEAT_TYPES = ['ancestry', 'class', 'general', 'skill'];
+  public const FEAT_TYPES = ['ancestry', 'class', 'general', 'skill', 'archetype'];
 
   /**
    * Cached normalized feat records keyed by canonical ID.

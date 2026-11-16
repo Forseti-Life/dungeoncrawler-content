@@ -268,10 +268,8 @@ function dungeoncrawler_content_theme(array $existing, string $type, string $the
     ],
     'storyline_management_list' => [
       'variables' => [
-        'my_storylines' => [],
-        'other_storylines' => [],
-        'my_drafts' => [],
-        'shared_drafts' => [],
+        'storylines' => [],
+        'drafts' => [],
         'metrics' => [],
         'campaigns' => [],
         'selected_campaign_id' => 0,

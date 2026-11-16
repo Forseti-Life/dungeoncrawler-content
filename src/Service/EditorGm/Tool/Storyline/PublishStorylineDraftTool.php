@@ -6,7 +6,6 @@ use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolContext;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolDefinition;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolInterface;
 use Drupal\dungeoncrawler_content\Service\EditorGm\StorylineBuilderGmToolContext;
-use Drupal\dungeoncrawler_content\Service\RoomEditorService;
 
 /**
  * Publishes one approved storyline draft to canonical template storage.
@@ -14,15 +13,15 @@ use Drupal\dungeoncrawler_content\Service\RoomEditorService;
 final class PublishStorylineDraftTool implements EditorGmToolInterface {
 
   public function __construct(
-    private readonly ?PlanStorylineRemediationTool $remediationPlanner = NULL,
-    private readonly ?ApplyStorylineRemediationTool $remediationExecutor = NULL,
+    private readonly PlanStorylineRemediationTool $remediationPlanner,
+    private readonly ApplyStorylineRemediationTool $remediationExecutor,
   ) {}
 
   public function definition(): EditorGmToolDefinition {
     return new EditorGmToolDefinition(
       'publish_storyline_draft',
       EditorGmToolDefinition::FAMILY_EXECUTION,
-      'Persist any missing authored canonical assets (actors, items, rooms) and publish an approved storyline draft revision to canonical templates.',
+      'Complete review and create/publish the approved storyline revision, persisting missing canonical assets and recording its native publication receipt as final signoff.',
       TRUE,
       'StorylineAuthoringDraftService::publishDraft()',
       [
@@ -34,34 +33,34 @@ final class PublishStorylineDraftTool implements EditorGmToolInterface {
   public function execute(array $arguments, EditorGmToolContext $context): array {
     $context = StorylineBuilderGmToolContext::of($context);
     $expected_revision = EditorGmToolContext::requireInt($arguments, 'expected_revision');
+    $draft = $context->draft();
+    if ((int) $draft['revision'] !== $expected_revision) {
+      throw new \DomainException('storyline_draft_revision_conflict');
+    }
     $remediation_result = NULL;
     $sub_tool_calls = [];
-    if ($this->remediationPlanner !== NULL && $this->remediationExecutor !== NULL) {
-      try {
+    if ($draft['status'] !== 'published') {
+      $sub_tool_calls[] = [
+        'tool' => 'plan_storyline_remediation',
+        'message' => 'Now looking up missing canonical assets before publication…',
+      ];
+      $planned = $this->remediationPlanner->execute([
+        'expected_revision' => $expected_revision,
+      ], $context);
+      $proposed_args = $planned['proposed_execution']['arguments'] ?? NULL;
+      if ($planned['has_changes']) {
+        if (!is_array($proposed_args)) {
+          throw new \LogicException('storyline_publication_remediation_plan_invalid');
+        }
         $sub_tool_calls[] = [
-          'tool' => 'plan_storyline_remediation',
-          'message' => 'Now looking up missing canonical assets before publication…',
+          'tool' => 'apply_storyline_remediation',
+          'message' => 'Now applying storyline canonical asset remediation…',
         ];
-        $planned = $this->remediationPlanner->execute([
-          'expected_revision' => $expected_revision,
-        ], $context);
-        $proposed_args = $planned['proposed_execution']['arguments'] ?? NULL;
-        if (is_array($proposed_args) && (!empty($proposed_args['definitions']) || !empty($proposed_args['rooms']))) {
-          $sub_tool_calls[] = [
-            'tool' => 'apply_storyline_remediation',
-            'message' => 'Now applying storyline canonical asset remediation…',
-          ];
-          $remediation_result = $this->remediationExecutor->execute($proposed_args, $context);
-          if (is_array($remediation_result['tool_calls'] ?? NULL)) {
-            $sub_tool_calls = array_merge($sub_tool_calls, $remediation_result['tool_calls']);
-          }
-          $context->invalidate();
+        $remediation_result = $this->remediationExecutor->execute($proposed_args, $context);
+        if (is_array($remediation_result['tool_calls'] ?? NULL)) {
+          $sub_tool_calls = array_merge($sub_tool_calls, $remediation_result['tool_calls']);
         }
-      }
-      catch (\InvalidArgumentException $e) {
-        if ($e->getMessage() !== 'storyline_remediation_empty') {
-          throw $e;
-        }
+        $context->invalidate();
       }
     }
     $result = $context->drafts->publishDraft($context->draftId, $expected_revision);
@@ -69,13 +68,15 @@ final class PublishStorylineDraftTool implements EditorGmToolInterface {
       $result['remediated_assets'] = [
         'definitions' => $remediation_result['definitions'] ?? [],
         'rooms' => $remediation_result['rooms'] ?? [],
+        'dungeons' => $remediation_result['dungeons'] ?? [],
+        'quests' => $remediation_result['quests'] ?? [],
       ];
     }
     if ($sub_tool_calls !== []) {
       $result['tool_calls'] = $sub_tool_calls;
     }
     $context->invalidate();
-    return $result + ['changed' => TRUE];
+    return $result + ['changed' => empty($result['idempotent_replay'])];
   }
 
 }

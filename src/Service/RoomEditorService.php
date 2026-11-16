@@ -88,9 +88,12 @@ class RoomEditorService {
   /**
    * Creates an active draft from a canonical room or a blank room.
    */
-  public function createDraft(?string $room_id = NULL): array {
+  public function createDraft(?string $room_id = NULL, ?string $name = NULL): array {
     $uid = (int) $this->currentUser->id();
     $room_id = $room_id !== NULL ? trim($room_id) : NULL;
+    if ($name !== NULL && (trim($name) === '' || mb_strlen($name) > 200 || $room_id !== NULL)) {
+      throw new \InvalidArgumentException('new_room_name_invalid');
+    }
     if ($room_id !== NULL && !preg_match('/^[a-z0-9][a-z0-9_-]{0,99}$/', $room_id)) {
       throw new \InvalidArgumentException('room_id_invalid');
     }
@@ -113,6 +116,9 @@ class RoomEditorService {
     $base_version_id = NULL;
     if ($room_id === NULL) {
       $room = $this->blankRoom();
+      if ($name !== NULL) {
+        $room['name'] = trim($name);
+      }
     }
     else {
       $row = $this->database->select('dungeoncrawler_content_rooms', 'r')
@@ -166,6 +172,70 @@ class RoomEditorService {
     }
     $this->assertDraftAccess($row);
     return $this->decodeDraft($row);
+  }
+
+  public function listAccessibleDrafts(): array {
+    $all = $this->currentUser->hasPermission('administer dungeoncrawler content')
+      || $this->currentUser->hasPermission('publish canonical dungeoncrawler rooms');
+    return $this->listDrafts($all ? NULL : (int) $this->currentUser->id());
+  }
+
+  /**
+   * Preserve an abandoned draft and its command log for audit.
+   */
+  public function abandonDraft(string $draft_id, int $expected_revision): array {
+    $draft = $this->getDraft($draft_id);
+    if ($draft['status'] !== 'active') {
+      throw new \DomainException('draft_not_active');
+    }
+    $changed = $this->database->update('dungeoncrawler_content_room_editor_drafts')
+      ->fields([
+        'status' => 'abandoned',
+        'revision' => $expected_revision + 1,
+        'updated_by' => (int) $this->currentUser->id(),
+        'updated_at' => time(),
+      ])
+      ->condition('draft_id', $draft_id)
+      ->condition('revision', $expected_revision)
+      ->condition('status', 'active')
+      ->execute();
+    if ($changed !== 1) {
+      throw new \RuntimeException('revision_conflict');
+    }
+    return $this->getDraft($draft_id);
+  }
+
+  /**
+   * Return bounded command history without exposing inverse snapshots.
+   */
+  public function commandHistory(string $draft_id, int $limit = 50, ?int $before_revision = NULL): array {
+    $draft = $this->getDraft($draft_id);
+    if ($limit < 1 || $limit > 100 || ($before_revision !== NULL && $before_revision < 1)) {
+      throw new \InvalidArgumentException('history_bounds_invalid');
+    }
+    $query = $this->database->select('dungeoncrawler_content_room_editor_commands', 'c')
+      ->fields('c', ['command_id', 'base_revision', 'result_revision', 'command_type', 'command_payload', 'issued_by', 'issued_at'])
+      ->condition('draft_id', $draft_id)
+      ->orderBy('result_revision', 'DESC')
+      ->range(0, $limit);
+    if ($before_revision !== NULL) {
+      $query->condition('result_revision', $before_revision, '<');
+    }
+    $commands = [];
+    foreach ($query->execute()->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+      $row['command'] = json_decode($row['command_payload'], TRUE, 512, JSON_THROW_ON_ERROR);
+      unset($row['command_payload']);
+      foreach (['base_revision', 'result_revision', 'issued_by', 'issued_at'] as $key) {
+        $row[$key] = (int) $row[$key];
+      }
+      $commands[] = $row;
+    }
+    return [
+      'draft_id' => $draft_id,
+      'revision' => $draft['revision'],
+      'commands' => $commands,
+      'next_before_revision' => count($commands) === $limit ? end($commands)['result_revision'] : NULL,
+    ];
   }
 
   /**
@@ -515,6 +585,7 @@ class RoomEditorService {
         if (!is_array($definition) || !in_array($definition['family'] ?? NULL, CanonicalDefinitionService::FAMILIES, TRUE)) {
           throw new \InvalidArgumentException('definition_ref_invalid');
         }
+        $this->definitions->assertDefinitionSelectable((string) $definition['family'], (string) ($definition['definition_id'] ?? ''));
         if (!$this->definitions->definitionExists(
           (string) $definition['family'],
           (string) ($definition['definition_id'] ?? ''),
@@ -595,6 +666,7 @@ class RoomEditorService {
           throw new \DomainException('placement_not_found');
         }
         $copy = $room['placements'][$index];
+        $this->definitions->assertDefinitionSelectable($copy['definition_ref']['family'], $copy['definition_ref']['definition_id']);
         $new_instance_id = (string) ($payload['new_instance_id'] ?? $this->uuid->generate());
         if (!$this->isUuid($new_instance_id)) {
           throw new \InvalidArgumentException('instance_id_invalid');
@@ -1345,8 +1417,8 @@ class RoomEditorService {
       if (is_array($hex) && is_numeric($hex['q'] ?? NULL) && is_numeric($hex['r'] ?? NULL)) {
         $existing_h3 = trim((string) ($hex['h3_index_res14'] ?? $hex['h3_index'] ?? ''));
         if ($existing_h3 === '') {
-          $latlng = \Drupal\dungeoncrawler_content\Utility\H3SpatialHelper::projectAxialHexToLatLng($room_id, (int) $hex['q'], (int) $hex['r']);
-          $existing_h3 = strtolower(\Drupal\dungeoncrawler_content\Utility\H3SpatialHelper::latLngToH3Index(
+          $latlng = \Drupal\dungeoncrawler_content\Support\H3SpatialHelper::projectAxialHexToLatLng($room_id, (int) $hex['q'], (int) $hex['r']);
+          $existing_h3 = strtolower(\Drupal\dungeoncrawler_content\Support\H3SpatialHelper::latLngToH3Index(
             (float) $latlng['latitude'],
             (float) $latlng['longitude'],
             14

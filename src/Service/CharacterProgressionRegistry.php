@@ -26,7 +26,7 @@ class CharacterProgressionRegistry {
     $feat_slots = $this->buildFeatSlots($class_id, $level);
     $skill_increases = $this->resolveSkillIncreaseCount($class_id, $level);
     $ability_boosts = in_array($level, [5, 10, 15, 20], TRUE) ? 4 : 0;
-    $spellcasting_deltas = $this->resolveSpellcastingDeltas($class_data, $level);
+    $spellcasting_deltas = $this->resolveSpellcastingDeltas($class_id, $level, $character_data);
 
     return [
       'class_id' => $class_id,
@@ -122,92 +122,37 @@ class CharacterProgressionRegistry {
   }
 
   /**
-   * Resolve spellcasting deltas from class metadata.
+   * Spellcasting at the target level, read from SpellcastingTables.
    */
-  private function resolveSpellcastingDeltas(array $class_data, int $level): array {
-    $slot_config = $this->findSpellSlotConfig($class_data);
-    $meta_config = $this->findSpellcastingMetadataConfig($class_data);
-    $config = array_replace(is_array($meta_config) ? $meta_config : [], is_array($slot_config) ? $slot_config : []);
-    if ($config === []) {
+  private function resolveSpellcastingDeltas(string $class_id, int $level, array $character_data): array {
+    if (!SpellcastingTables::isCaster($class_id)) {
       return [];
     }
-
-    $slot_table = $config['spell_slots_by_level'] ?? $this->buildDefaultFullCasterSlotTable($config);
-    $current_slots = $this->normalizeSpellSlotMap((array) ($slot_table[$level] ?? []));
-    $previous_slots = $this->normalizeSpellSlotMap((array) ($slot_table[$level - 1] ?? []));
+    $caster = SpellcastingTables::forClass($class_id);
+    $subclass = strtolower(trim((string) ($character_data['subclass'] ?? $character_data['basicInfo']['subclass'] ?? '')));
+    $current = SpellcastingTables::slots($class_id, $level, $subclass);
+    $previous = SpellcastingTables::slots($class_id, $level - 1, $subclass);
+    $cantrips = $current['cantrips'];
+    unset($current['cantrips'], $previous['cantrips']);
+    $current_slots = $this->normalizeSpellSlotMap($current);
+    $previous_slots = $this->normalizeSpellSlotMap($previous);
     $gained_slots = [];
-
-    foreach ($current_slots as $slot_key => $count) {
-      $previous = (int) ($previous_slots[$slot_key] ?? 0);
-      if ($count !== $previous) {
-        $gained_slots[$slot_key] = $count - $previous;
+    foreach ($current_slots + array_fill_keys(array_keys($previous_slots), 0) as $slot_key => $count) {
+      if ($count !== ($previous_slots[$slot_key] ?? 0)) {
+        $gained_slots[$slot_key] = $count - ($previous_slots[$slot_key] ?? 0);
       }
     }
-
-    $cantrip_total = (int) ($config['cantrips'] ?? $config['starting_cantrips'] ?? $config['cantrips_at_start'] ?? 0);
-    $spellbook_delta = (int) ($config['spells_per_level_gained'] ?? $config['spells_per_level_up'] ?? 0);
 
     return array_filter([
-      'tradition' => strtolower(trim((string) ($config['tradition'] ?? ''))),
-      'casting_ability' => strtolower(trim((string) ($config['ability'] ?? $config['spellcasting_ability'] ?? $class_data['key_ability'] ?? ''))),
-      'casting_type' => strtolower(trim((string) ($config['prepared_type'] ?? $config['casting_type'] ?? ''))),
+      'tradition' => $caster['tradition'],
+      'casting_ability' => CharacterManager::getClassSpellcastingAbility($class_id),
+      'casting_type' => $caster['casting'],
       'slots' => $current_slots,
       'gained_slots' => $gained_slots,
-      'cantrips' => $cantrip_total > 0 ? $cantrip_total : NULL,
-      'focus_pool_start' => (int) ($config['focus_pool_start'] ?? 0) ?: NULL,
-      'spellbook_size_delta' => $spellbook_delta > 0 ? $spellbook_delta : NULL,
+      'cantrips' => $cantrips,
+      'focus_pool_start' => $caster['focus_pool_start'] ?? NULL,
+      'spellbook_size_delta' => $caster['known_from'] === 'spellbook' ? $caster['spells_added_per_level'] : NULL,
     ], static fn($value): bool => $value !== NULL && $value !== [] && $value !== '');
-  }
-
-  /**
-   * Find the first spellcasting configuration nested under class metadata.
-   */
-  private function findSpellcastingConfig(array $class_data): ?array {
-    return $this->findSpellSlotConfig($class_data) ?? $this->findSpellcastingMetadataConfig($class_data);
-  }
-
-  /**
-   * Find the config block that owns the slot table.
-   */
-  private function findSpellSlotConfig(array $class_data): ?array {
-    foreach ($class_data as $value) {
-      if (is_array($value) && isset($value['spell_slots_by_level'])) {
-        return $value;
-      }
-    }
-
-    return NULL;
-  }
-
-  /**
-   * Find the config block that owns casting tradition/ability metadata.
-   */
-  private function findSpellcastingMetadataConfig(array $class_data): ?array {
-    foreach ($class_data as $value) {
-      if (!is_array($value)) {
-        continue;
-      }
-      if (isset($value['tradition']) || isset($value['ability']) || isset($value['spellcasting_ability'])) {
-        return $value;
-      }
-    }
-
-    foreach ($class_data as $value) {
-      if (!is_array($value)) {
-        continue;
-      }
-      if (isset($value['spell_slots_by_level'])
-        || isset($value['starting_cantrips'])
-        || isset($value['cantrips'])
-        || isset($value['cantrips_at_start'])
-        || isset($value['prepared_type'])
-        || isset($value['casting_type'])
-      ) {
-        return $value;
-      }
-    }
-
-    return NULL;
   }
 
   /**
@@ -216,53 +161,16 @@ class CharacterProgressionRegistry {
   private function normalizeSpellSlotMap(array $slot_map): array {
     $normalized = [];
     foreach ($slot_map as $rank => $count) {
-      $slot_key = $this->normalizeSpellSlotKey((string) $rank);
-      if ($slot_key === NULL) {
-        continue;
-      }
-      $normalized[$slot_key] = max(0, (int) $count);
+      $normalized[$this->normalizeSpellSlotKey((string) $rank)] = (int) $count;
     }
     ksort($normalized, SORT_NATURAL);
     return $normalized;
   }
 
   /**
-   * Build a fallback full-caster slot table when class data omits explicit rows.
-   */
-  private function buildDefaultFullCasterSlotTable(array $config): array {
-    $casting_type = strtolower(trim((string) ($config['prepared_type'] ?? $config['casting_type'] ?? $config['type'] ?? '')));
-    if ($casting_type !== 'prepared' && $casting_type !== 'spontaneous') {
-      return [];
-    }
-
-    return [
-      1 => ['1st' => 2],
-      2 => ['1st' => 3],
-      3 => ['1st' => 3, '2nd' => 2],
-      4 => ['1st' => 3, '2nd' => 3],
-      5 => ['1st' => 3, '2nd' => 3, '3rd' => 2],
-      6 => ['1st' => 3, '2nd' => 3, '3rd' => 3],
-      7 => ['1st' => 3, '2nd' => 3, '3rd' => 3, '4th' => 2],
-      8 => ['1st' => 3, '2nd' => 3, '3rd' => 3, '4th' => 3],
-      9 => ['1st' => 3, '2nd' => 3, '3rd' => 3, '4th' => 3, '5th' => 2],
-      10 => ['1st' => 3, '2nd' => 3, '3rd' => 3, '4th' => 3, '5th' => 3],
-      11 => ['1st' => 3, '2nd' => 3, '3rd' => 3, '4th' => 3, '5th' => 3, '6th' => 2],
-      12 => ['1st' => 3, '2nd' => 3, '3rd' => 3, '4th' => 3, '5th' => 3, '6th' => 3],
-      13 => ['1st' => 3, '2nd' => 3, '3rd' => 3, '4th' => 3, '5th' => 3, '6th' => 3, '7th' => 2],
-      14 => ['1st' => 3, '2nd' => 3, '3rd' => 3, '4th' => 3, '5th' => 3, '6th' => 3, '7th' => 3],
-      15 => ['1st' => 3, '2nd' => 3, '3rd' => 3, '4th' => 3, '5th' => 3, '6th' => 3, '7th' => 3, '8th' => 2],
-      16 => ['1st' => 3, '2nd' => 3, '3rd' => 3, '4th' => 3, '5th' => 3, '6th' => 3, '7th' => 3, '8th' => 3],
-      17 => ['1st' => 3, '2nd' => 3, '3rd' => 3, '4th' => 3, '5th' => 3, '6th' => 3, '7th' => 3, '8th' => 3, '9th' => 2],
-      18 => ['1st' => 3, '2nd' => 3, '3rd' => 3, '4th' => 3, '5th' => 3, '6th' => 3, '7th' => 3, '8th' => 3, '9th' => 3],
-      19 => ['1st' => 3, '2nd' => 3, '3rd' => 3, '4th' => 3, '5th' => 3, '6th' => 3, '7th' => 3, '8th' => 3, '9th' => 3],
-      20 => ['1st' => 3, '2nd' => 3, '3rd' => 3, '4th' => 3, '5th' => 3, '6th' => 3, '7th' => 3, '8th' => 3, '9th' => 3],
-    ];
-  }
-
-  /**
    * Normalize rank labels like 1 / 1st / first to the sheet slot keys.
    */
-  private function normalizeSpellSlotKey(string $rank): ?string {
+  private function normalizeSpellSlotKey(string $rank): string {
     $normalized = strtolower(trim($rank));
     return match ($normalized) {
       '1', '1st', 'first' => 'first',
@@ -274,7 +182,8 @@ class CharacterProgressionRegistry {
       '7', '7th', 'seventh' => 'seventh',
       '8', '8th', 'eighth' => 'eighth',
       '9', '9th', 'ninth' => 'ninth',
-      default => NULL,
+      '10', '10th', 'tenth' => 'tenth',
+      default => throw new \InvalidArgumentException('spell_rank_unknown:' . $rank),
     };
   }
 

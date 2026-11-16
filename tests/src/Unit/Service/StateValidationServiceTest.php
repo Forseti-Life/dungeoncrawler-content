@@ -254,6 +254,9 @@ class StateValidationServiceTest extends UnitTestCase {
       'offers' => [],
       'leads' => [],
       'completed' => [],
+      'storylines' => [
+        ['storyline_id' => 'introduction-to-game-mechanics', 'name' => 'Introduction To Game Mechanics', 'status' => 'completed'],
+      ],
       'management_tree' => [],
       'counts' => [
         'active' => 1,

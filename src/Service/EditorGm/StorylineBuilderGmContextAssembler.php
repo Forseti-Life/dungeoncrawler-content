@@ -3,6 +3,7 @@
 namespace Drupal\dungeoncrawler_content\Service\EditorGm;
 
 use Drupal\dungeoncrawler_content\Service\StorylineAuthoringDraftService;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\PlanStorylineRemediationTool;
 
 /**
  * Projects storyline draft context for GM assistant turns.
@@ -18,6 +19,7 @@ final class StorylineBuilderGmContextAssembler implements EditorGmContextAssembl
   public function __construct(
     private readonly EditorGmToolRegistry $registry,
     private readonly EditorGmIntentParser $intentParser,
+    private readonly PlanStorylineRemediationTool $remediationPlanner,
   ) {}
 
   public function assemble(EditorGmToolContext $context): array {
@@ -36,6 +38,17 @@ final class StorylineBuilderGmContextAssembler implements EditorGmContextAssembl
       ],
       'storyline' => $payload,
       'current_state' => $context->status(),
+      'actor_sheet_workflow' => [
+        'inspect_tool' => 'inspect_storyline_actor_sheets',
+        'build_tool' => 'build_storyline_actor_sheets',
+        'source_of_truth' => 'Native library actor rows through CharacterCreationGmService and CharacterManager',
+        'existing_character_context_required' => FALSE,
+        'whole_roster_is_supported' => TRUE,
+        'role_driven_native_choices_are_supported' => TRUE,
+        'retries_reuse_linked_sheets' => TRUE,
+        'campaign_runtime_mutation' => 'forbidden',
+        'instructions' => 'For an explicit request or selected option to build roster character sheets, execute build_storyline_actor_sheets immediately. Omit actor_ids for the whole roster. Do not ask for classes, draft IDs or confirmation; the tool derives native choices, creates missing drafts and links each actor atomically.',
+      ],
       'authoring_workflow' => [
         'updates_apply_immediately' => TRUE,
         'revision_conflicts_are_rejected' => TRUE,
@@ -44,8 +57,20 @@ final class StorylineBuilderGmContextAssembler implements EditorGmContextAssembl
         'optional_bindings_never_block_requested_work' => TRUE,
         'mutation_requests_must_use_plan_apply' => TRUE,
         'collection_contracts' => StorylineAuthoringDraftService::collectionAuthoringContract(),
+        'identity_contract' => StorylineAuthoringDraftService::identityAuthoringContract(),
         'branching_contract' => StorylineAuthoringDraftService::branchAuthoringContract(),
         'site_topology_contract' => CanonicalSiteTopologyContract::describe(),
+        'room_site_binding_plan' => $context->drafts->planRoomDungeonBindings($context->draftId),
+        'linked_quest_reference_repairs' => $this->remediationPlanner->planLinkedQuestReferenceRepairs($context),
+        'finalization' => [
+          'review_tool' => 'check_storyline_creation_readiness',
+          'signoff_tool' => 'publish_storyline_draft',
+          'review_is_current_canonical_validation' => TRUE,
+          'manual_review_flag_required' => FALSE,
+          'final_signoff_is_publication_receipt' => TRUE,
+          'publication_receipt' => $draft['publication_receipt'] ?? NULL,
+          'instructions' => 'Review runs canonical validation. There is no separate review-completed checkbox or signoff document to invent. An explicit "Review and create" or final-signoff command publishes the current revision through publish_storyline_draft and stores its native publication receipt. Never substitute another review or change story content for that command.',
+        ],
       ],
       'validation_summary' => [
         'valid' => (bool) ($validation['valid'] ?? FALSE),

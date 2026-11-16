@@ -60,6 +60,8 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
       $this->createMock(AiSessionManager::class),
       $this->createMock(ChatChannelManager::class),
       $this->psychologyService,
+      $this->createMock(\Drupal\dungeoncrawler_content\Service\StorylineQuestLifecycleService::class),
+      $this->createMock(\Drupal\dungeoncrawler_content\Service\DungeonPayloadStatePersistenceService::class),
       $this->createMock(NarrationEngine::class),
       $this->createMock(ChatSessionManager::class),
       $this->createMock(MapGeneratorService::class),
@@ -933,6 +935,8 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
       $this->createMock(AiSessionManager::class),
       $this->createMock(ChatChannelManager::class),
       $this->psychologyService,
+      $this->createMock(\Drupal\dungeoncrawler_content\Service\StorylineQuestLifecycleService::class),
+      $this->createMock(\Drupal\dungeoncrawler_content\Service\DungeonPayloadStatePersistenceService::class),
       $this->createMock(NarrationEngine::class),
       $this->createMock(ChatSessionManager::class),
       $this->createMock(MapGeneratorService::class),
@@ -997,6 +1001,8 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
       $this->createMock(AiSessionManager::class),
       $this->createMock(ChatChannelManager::class),
       $this->psychologyService,
+      $this->createMock(\Drupal\dungeoncrawler_content\Service\StorylineQuestLifecycleService::class),
+      $this->createMock(\Drupal\dungeoncrawler_content\Service\DungeonPayloadStatePersistenceService::class),
       $this->createMock(NarrationEngine::class),
       $this->createMock(ChatSessionManager::class),
       $this->createMock(MapGeneratorService::class),
@@ -1392,9 +1398,74 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
     ], 'Eldric');
 
     $this->assertSame(
-      "You're currently working on Gather Storyline Leads in the Tavern. Start by Gather his storyline lead",
+      "You're currently working on Gather Storyline Leads in the Tavern. Gather a storyline lead",
       $line
     );
+  }
+
+  /**
+   * @covers ::buildQuestgiverQuestDialogueLine
+   * @covers ::sanitizeQuestgiverObjectiveHintForSpeaker
+   */
+  public function testBuildQuestgiverQuestDialogueLineRewritesThirdPersonSelfReferenceIntoFirstPerson(): void {
+    $line = $this->roomChatService->publicBuildQuestgiverQuestDialogueLine((object) [
+      'quest_name' => 'Follow the Whispers',
+      'status' => 'offered',
+      'quest_description' => 'Look into the tavern whisper traffic.',
+      'generated_objectives' => '[{"phase":1,"objectives":[{"description":"Question Gribbles about current whisper traffic"}]}]',
+    ], 'Gribbles Rindsworth');
+
+    $this->assertSame(
+      'I have an assignment for you: Follow the Whispers. Ask me about current whisper traffic',
+      $line
+    );
+  }
+
+  /**
+   * @covers ::resolveActiveDirectConversationNpc
+   * @covers ::buildRoomConversationTranscript
+   */
+  public function testResolveActiveDirectConversationNpcIgnoresNarratorAndEncounterPrefixes(): void {
+    $room_npcs = [
+      [
+        'entity_ref' => 'npc_tavern_keeper',
+        'profile' => ['display_name' => 'Eldric', 'role' => 'quest_giver'],
+        'entity' => ['name' => 'Eldric'],
+      ],
+      [
+        'entity_ref' => 'npc_scholar',
+        'profile' => ['display_name' => 'Marta the Scholar', 'role' => 'quest_giver'],
+        'entity' => ['name' => 'Marta the Scholar'],
+      ],
+    ];
+    $chat = [
+      [
+        'type' => 'player',
+        'channel' => 'room',
+        'speaker' => 'Burasco',
+        'message' => 'Round 0: Turn 1: Actor Burasco: Eldric, you have any work?',
+      ],
+      [
+        'type' => 'npc',
+        'channel' => 'room',
+        'speaker' => 'Eldric',
+        'message' => 'Round 0: Turn 1: Actor Eldric: "I do."',
+      ],
+      [
+        'type' => 'narrative',
+        'channel' => 'room',
+        'speaker' => 'Narrator',
+        'message' => "Objective completed for Gather Storyline Leads in the Tavern: Gather Eldric's storyline lead.",
+      ],
+    ];
+
+    $active_npc = $this->roomChatService->publicResolveActiveDirectConversationNpc($chat, $room_npcs);
+    $this->assertNotNull($active_npc);
+    $this->assertSame('npc_tavern_keeper', $active_npc['entity_ref']);
+
+    $transcript = $this->roomChatService->publicBuildRoomConversationTranscript($chat, 8);
+    $this->assertStringNotContainsString('Round 0: Turn 1:', $transcript);
+    $this->assertStringContainsString('Burasco: Eldric, you have any work?', $transcript);
   }
 
   /**
@@ -3103,6 +3174,61 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
   /**
    * @covers ::buildDeterministicNpcDialogue
    */
+  public function testDeterministicNpcDialogueLeavesLinkedQuestHistoryToCanonicalContext(): void {
+    $narrative = $this->createMock(\Drupal\dungeoncrawler_content\Service\ActorNarrativeContextService::class);
+    $narrative->expects($this->once())
+      ->method('buildContextEnvelope')
+      ->with(22, 'courier-contact', 'contact-parlor')
+      ->willReturn([
+        'knowledge_directives' => ['knows_linked_objectives' => TRUE],
+        'quest_links' => ['as_giver' => [], 'as_contact' => [['status' => 'completed']]],
+      ]);
+    $property = new \ReflectionProperty(RoomChatService::class, 'actorNarrativeContextService');
+    $property->setValue($this->roomChatService, $narrative);
+    $this->psychologyService->method('loadProfile')->willReturn([
+      'display_name' => 'Courier Contact',
+      'attitude' => 'friendly',
+      'role' => 'contact',
+    ]);
+
+    $reply = $this->roomChatService->publicBuildDeterministicNpcDialogue(
+      22,
+      'courier-contact',
+      'Courier Contact',
+      'What about the work you gave me?',
+      'contact-parlor',
+    );
+
+    $this->assertNull($reply, 'Do not supply generic hiring/lead text as authoritative facts when a linked assignment exists.');
+  }
+
+  /**
+   * @covers ::buildDeterministicNpcDialogue
+   */
+  public function testDeterministicNpcDialoguePreservesAuthoredBrokerLeadsAfterEarlierWork(): void {
+    $chat = $this->getMockBuilder(TestableRoomChatService::class)
+      ->disableOriginalConstructor()
+      ->onlyMethods(['resolveActorDispositionAttitude', 'buildAvailableQuestgiverQuestDialogue', 'buildDirectEntryStorylineLeadDialogue'])
+      ->getMock();
+    $chat->method('resolveActorDispositionAttitude')->willReturn('friendly');
+    $chat->method('buildAvailableQuestgiverQuestDialogue')->willReturn(NULL);
+    $chat->expects($this->once())->method('buildDirectEntryStorylineLeadDialogue')->willReturn('"An authored broker lead."');
+    $this->psychologyService->method('loadProfile')->willReturn(['display_name' => 'Harbor Broker']);
+    $property = new \ReflectionProperty(RoomChatService::class, 'psychologyService');
+    $property->setValue($chat, $this->psychologyService);
+    $narrative = $this->createMock(\Drupal\dungeoncrawler_content\Service\ActorNarrativeContextService::class);
+    $narrative->expects($this->never())->method('buildContextEnvelope');
+    $property = new \ReflectionProperty(RoomChatService::class, 'actorNarrativeContextService');
+    $property->setValue($chat, $narrative);
+
+    $this->assertSame('"An authored broker lead."', $chat->publicBuildDeterministicNpcDialogue(
+      22, 'npc_tavern_keeper', 'Harbor Broker', 'Any new work?', 'broker-office',
+    ));
+  }
+
+  /**
+   * @covers ::buildDeterministicNpcDialogue
+   */
   public function testDeterministicNpcDialogueQuotesMerchantSaleAtHalfPrice(): void {
     $this->psychologyService->method('loadProfile')
       ->willReturnMap([
@@ -3407,6 +3533,92 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
  * Test wrapper exposing protected RoomChatService helpers.
  */
 class TestableRoomChatService extends RoomChatService {
+
+  public function __construct(
+    Connection $database,
+    \Drupal\dungeoncrawler_content\Service\DungeonStateService $dungeon_state_service,
+    LoggerChannelFactoryInterface $logger_factory,
+    AccountProxyInterface $current_user,
+    AIApiService $ai_api_service,
+    PromptManager $prompt_manager,
+    GameplayActionProcessor $action_processor,
+    AiSessionManager $session_manager,
+    ChatChannelManager $channel_manager,
+    NpcPsychologyService $psychology_service,
+    \Drupal\dungeoncrawler_content\Service\StorylineQuestLifecycleService $storyline_quest_lifecycle_service,
+    \Drupal\dungeoncrawler_content\Service\DungeonPayloadStatePersistenceService $dungeon_payload_state_persistence,
+    ?NarrationEngine $narration_engine = NULL,
+    ?ChatSessionManager $chat_session_manager = NULL,
+    ?MapGeneratorService $map_generator = NULL,
+    ?CanonicalActionRegistryService $canonical_action_registry = NULL,
+    ?GmOrchestrationBrokerService $gm_orchestration_broker = NULL,
+    ?\Drupal\dungeoncrawler_content\Service\QuestTrackerService $quest_tracker = NULL,
+    ?\Drupal\dungeoncrawler_content\Service\RelationshipManagerService $relationship_manager = NULL,
+    ?\Drupal\dungeoncrawler_content\Service\MerchantBotService $merchant_bot_service = NULL,
+    ?\GuzzleHttp\ClientInterface $http_client = NULL,
+    ?\Drupal\dungeoncrawler_content\Service\InventoryManagementService $inventory_management_service = NULL,
+    ?\Drupal\dungeoncrawler_content\Service\MerchantTransactionService $merchant_transaction_service = NULL,
+    ?\Drupal\dungeoncrawler_content\Service\QuestGeneratorService $quest_generator = NULL,
+    ?StateValidationService $state_validation_service = NULL
+  ) {
+    $validator = $state_validation_service ?? new StateValidationService($logger_factory);
+    $room_locator = new \Drupal\dungeoncrawler_content\Service\RoomChat\RoomLocator();
+    $history_projector = new \Drupal\dungeoncrawler_content\Service\RoomChat\RoomChatHistoryProjector();
+    $nav_runtime = new \Drupal\dungeoncrawler_content\Service\NavigationRuntimeService(
+      $database,
+      $map_generator ?? new class extends MapGeneratorService {
+        public function __construct() {}
+      },
+      $validator,
+      $room_locator,
+      $history_projector,
+      $session_manager,
+      $logger_factory
+    );
+    $h3_queue = new class extends \Drupal\dungeoncrawler_content\Service\H3ProjectionQueueService {
+      public function __construct() {}
+    };
+    $nav_pipeline = new \Drupal\dungeoncrawler_content\Service\NavigationTransitionPipeline($nav_runtime, $h3_queue);
+    $nav_orchestrator = new \Drupal\dungeoncrawler_content\Service\NavigationApplicationOrchestrator($nav_pipeline);
+    $graph_version = new class extends \Drupal\dungeoncrawler_content\Service\GraphVersionService {
+      public function __construct() {}
+    };
+    $runtime_graph = new \Drupal\dungeoncrawler_content\Service\RuntimeGraphAssemblerService($database, $graph_version);
+
+    parent::__construct(
+      database: $database,
+      dungeon_state_service: $dungeon_state_service,
+      logger_factory: $logger_factory,
+      current_user: $current_user,
+      ai_api_service: $ai_api_service,
+      prompt_manager: $prompt_manager,
+      action_processor: $action_processor,
+      session_manager: $session_manager,
+      channel_manager: $channel_manager,
+      psychology_service: $this->psychologyService = $psychology_service,
+      storyline_quest_lifecycle_service: $storyline_quest_lifecycle_service,
+      dungeon_payload_state_persistence: $dungeon_payload_state_persistence,
+      narration_engine: $narration_engine,
+      chat_session_manager: $chat_session_manager,
+      map_generator: $map_generator,
+      canonical_action_registry: $canonical_action_registry,
+      gm_orchestration_broker: $gm_orchestration_broker,
+      quest_tracker: $quest_tracker,
+      relationship_manager: $relationship_manager,
+      merchant_bot_service: $merchant_bot_service,
+      http_client: $http_client,
+      inventory_management_service: $inventory_management_service,
+      merchant_transaction_service: $merchant_transaction_service,
+      quest_generator: $quest_generator,
+      state_validation_service: $state_validation_service,
+      navigation_runtime_service: $nav_runtime,
+      navigation_transition_pipeline: $nav_pipeline,
+      navigation_application_orchestrator: $nav_orchestrator,
+      room_chat_history_projector: $history_projector,
+      room_locator: $room_locator,
+      runtime_graph_assembler: $runtime_graph,
+    );
+  }
 
   protected function resolveRoomSlugForQuery(int $campaign_id, string $room_id, array $dungeon_data): ?string {
     return $room_id !== '' ? $room_id : NULL;

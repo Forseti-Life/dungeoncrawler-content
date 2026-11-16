@@ -19,6 +19,7 @@ class CharacterWizardHardeningService {
     private TimeInterface $time,
     private UuidInterface $uuid,
     private AccountProxyInterface $currentUser,
+    private CampaignMembershipService $campaignMembership,
   ) {}
 
   /**
@@ -41,6 +42,9 @@ class CharacterWizardHardeningService {
    *   Persistence fields shared by the wizard save surfaces.
    */
   public function getCompletionFields(array $character_data, int $campaign_id): array {
+    if ($campaign_id === 0 && isset($character_data['actor_id'], $character_data['canonical_actor_version'], $character_data['canonical_definition'])) {
+      return ['status' => 1, 'lifecycle_state' => 'canonical_template'];
+    }
     $complete = !empty($character_data['wizard_complete']);
     return [
       'status' => $complete ? 1 : 0,
@@ -169,13 +173,7 @@ class CharacterWizardHardeningService {
       ->condition('id', $character_id)
       ->execute();
 
-    $this->database->update('dc_campaigns')
-      ->fields([
-        'active_character_id' => $library_row_id,
-        'changed' => $now,
-      ])
-      ->condition('id', $campaign_id)
-      ->execute();
+    $this->campaignMembership->setCharacter($campaign_id, (int) ($record->uid ?? $this->currentUser->id()), $library_row_id);
 
     $this->runtimeResolver->ensureCanonicalLibraryFollowerDataset($library_row_id);
   }

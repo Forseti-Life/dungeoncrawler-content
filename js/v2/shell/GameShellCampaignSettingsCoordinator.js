@@ -60,12 +60,6 @@ export class GameShellCampaignSettingsCoordinator {
     const memberListEl = document.getElementById('campaign-member-list');
     const playerBtn = document.getElementById('campaign-mode-player');
     const gmBtn = document.getElementById('campaign-mode-gm');
-    const sourceStartFromEl = document.getElementById('campaign-source-start-from');
-    const sourceThemeEl = document.getElementById('campaign-source-theme');
-    const sourcePublishedDungeonEl = document.getElementById('campaign-source-published-dungeon');
-    const sourceModuleReleaseEl = document.getElementById('campaign-source-module-release');
-    const sourceSaveDefaultsBtn = document.getElementById('campaign-source-save-defaults');
-    const sourceApplyNowBtn = document.getElementById('campaign-source-apply-now');
     if (!memberListEl || !playerBtn || !gmBtn) {
       return;
     }
@@ -88,15 +82,6 @@ export class GameShellCampaignSettingsCoordinator {
 
     playerBtn.onclick = () => this.setCampaignMode('player');
     gmBtn.onclick = () => this.setCampaignMode('gm');
-    if (sourceSaveDefaultsBtn) {
-      sourceSaveDefaultsBtn.onclick = () => this.updateCampaignSourceDefaults(false);
-      sourceSaveDefaultsBtn.disabled = !canManage;
-    }
-    if (sourceApplyNowBtn) {
-      sourceApplyNowBtn.onclick = () => this.updateCampaignSourceDefaults(true);
-      sourceApplyNowBtn.disabled = !canManage;
-    }
-
     shell.campaignAccess = this.normalizeCampaignAccess({
       ...(payload?.campaign_access || {}),
       campaign_id: Number(payload?.campaign_id || shell.campaignAccess?.campaign_id || 0),
@@ -106,246 +91,346 @@ export class GameShellCampaignSettingsCoordinator {
     });
     shell.activeCampaignMode = mode;
     this.applyCampaignModeGates();
-    this.renderCampaignSourceSelector(payload?.settings?.source_selector || {}, canManage, {
-      sourceStartFromEl,
-      sourceThemeEl,
-      sourcePublishedDungeonEl,
-      sourceModuleReleaseEl,
-    });
+    this.renderCampaignLaunchSummary(payload?.settings?.launch);
     this.renderCampaignStorylines(payload?.settings?.storylines || {}, canManage);
 
-    const members = Array.isArray(payload?.members) ? payload.members : [];
-    memberListEl.innerHTML = '';
-    if (!members.length) {
-      memberListEl.innerHTML = '<p class="muted">No campaign members found.</p>';
-    } else {
-      members.forEach((member) => {
-        const uid = Number(member?.uid || 0);
-        if (!uid) return;
-        const role = String(member?.role || 'player').trim().toLowerCase();
-        const status = String(member?.status || 'active').trim().toLowerCase();
-        const name = String(member?.display_name || `User ${uid}`).trim();
-        const email = String(member?.email || '').trim();
-        const row = document.createElement('div');
-        row.className = 'campaign-settings-panel__member-row';
-
-        const identity = document.createElement('div');
-        const identityName = document.createElement('strong');
-        identityName.textContent = name;
-        const identityMeta = document.createElement('p');
-        identityMeta.className = 'campaign-settings-panel__member-meta';
-        identityMeta.textContent = email || `UID ${uid}`;
-        identity.appendChild(identityName);
-        identity.appendChild(identityMeta);
-
-        const roleBadge = document.createElement('span');
-        roleBadge.className = 'pill pill-muted';
-        roleBadge.textContent = role === 'owner_gm' ? 'owner_gm' : role;
-
-        const roleControl = document.createElement('select');
-        roleControl.className = 'merchant-trade-panel__select';
-        roleControl.innerHTML = `
-          <option value="player"${role === 'player' ? ' selected' : ''}>player</option>
-          <option value="gm"${role === 'gm' ? ' selected' : ''}>gm</option>
-        `;
-        roleControl.disabled = !canManage || role === 'owner_gm' || status === 'revoked';
-        roleControl.onchange = () => this.updateCampaignMemberRole(uid, roleControl.value);
-
-        row.appendChild(identity);
-        row.appendChild(roleBadge);
-        row.appendChild(roleControl);
-        memberListEl.appendChild(row);
-      });
-    }
+    this.renderCampaignMembers(Array.isArray(payload?.members) ? payload.members : [], Number(payload?.membership?.uid || 0));
+    this.bindMemberCandidateFilter();
+    this.renderCampaignDiscord(payload?.discord || {});
 
     if (statusEl) {
-      statusEl.textContent = canManage
-        ? 'You can manage campaign members and GM mode.'
-        : 'You can switch your own mode; member management is GM-only.';
+      statusEl.textContent = '';
     }
   }
 
-  renderCampaignSourceSelector(selectorPayload, canManage, elements) {
-    const sourceStartFromEl = elements?.sourceStartFromEl || null;
-    const sourceThemeEl = elements?.sourceThemeEl || null;
-    const sourcePublishedDungeonEl = elements?.sourcePublishedDungeonEl || null;
-    const sourceModuleReleaseEl = elements?.sourceModuleReleaseEl || null;
-    if (!sourceStartFromEl || !sourceThemeEl || !sourcePublishedDungeonEl || !sourceModuleReleaseEl) {
-      return;
-    }
-    const defaults = selectorPayload?.defaults || {};
-    const startFrom = String(defaults.start_from || 'theme').trim();
-    sourceStartFromEl.value = ['theme', 'published_dungeon', 'module_release'].includes(startFrom) ? startFrom : 'theme';
-    sourceThemeEl.value = String(defaults.theme || 'classic_dungeon').trim() || 'classic_dungeon';
-    this.populateSelect(sourcePublishedDungeonEl, selectorPayload?.published_dungeon_options || {}, 'No published dungeons available');
-    this.populateSelect(
-      sourceModuleReleaseEl,
-      selectorPayload?.module_release_options || {},
-      'No module releases available',
-      selectorPayload?.module_release_unavailable_ids || [],
-    );
-    sourcePublishedDungeonEl.value = String(defaults.published_dungeon || '').trim();
-    sourceModuleReleaseEl.value = String(defaults.module_release || '').trim();
-    sourceStartFromEl.disabled = !canManage;
-    sourceThemeEl.disabled = !canManage;
-    sourcePublishedDungeonEl.disabled = !canManage;
-    sourceModuleReleaseEl.disabled = !canManage;
-    sourceStartFromEl.dataset.canManage = canManage ? '1' : '0';
-    sourceStartFromEl.onchange = () => this.applyCampaignSourceVisibility();
-    this.applyCampaignSourceVisibility();
-  }
+  renderCampaignMembers(members, currentUid) {
+    const memberListEl = document.getElementById('campaign-member-list');
+    if (!memberListEl) return;
+    memberListEl.innerHTML = '';
+    members.forEach((member) => {
+      const uid = Number(member.uid);
+      const row = document.createElement('div');
+      row.className = 'campaign-settings-panel__member-row';
 
-  populateSelect(selectEl, optionMap, emptyLabel, unavailableIds = []) {
-    if (!selectEl) return;
-    const entries = Object.entries(optionMap || {});
-    selectEl.innerHTML = '';
-    if (!entries.length) {
-      const option = document.createElement('option');
-      option.value = '';
-      option.textContent = emptyLabel;
-      selectEl.appendChild(option);
-      return;
-    }
-    const emptyOption = document.createElement('option');
-    emptyOption.value = '';
-    emptyOption.textContent = 'Select...';
-    selectEl.appendChild(emptyOption);
-    entries.forEach(([value, label]) => {
-      const option = document.createElement('option');
-      option.value = String(value);
-      option.textContent = String(label);
-      option.disabled = unavailableIds.includes(value);
-      selectEl.appendChild(option);
+      const identity = document.createElement('div');
+      const identityName = document.createElement('strong');
+      identityName.textContent = uid === currentUid ? `${member.display_name} (you)` : member.display_name;
+      const identityMeta = document.createElement('p');
+      identityMeta.className = 'campaign-settings-panel__member-meta';
+      const character = member.character_name ? `Playing ${member.character_name}` : 'No character chosen yet';
+      identityMeta.textContent = member.added_by_name ? `${character} · added by ${member.added_by_name}` : character;
+      identity.append(identityName, identityMeta);
+
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'btn btn-secondary btn-sm';
+      removeBtn.textContent = uid === currentUid ? 'Leave' : 'Remove';
+      if (members.length === 1) {
+        removeBtn.disabled = true;
+        removeBtn.title = 'A campaign keeps at least one player.';
+      }
+      removeBtn.onclick = () => this.changeCampaignMembers(`/members/${uid}/remove`, null, uid === currentUid);
+
+      row.append(identity, removeBtn);
+      memberListEl.appendChild(row);
     });
   }
 
-  applyCampaignSourceVisibility() {
-    const sourceStartFromEl = document.getElementById('campaign-source-start-from');
-    const sourceThemeEl = document.getElementById('campaign-source-theme');
-    const sourcePublishedDungeonEl = document.getElementById('campaign-source-published-dungeon');
-    const sourceModuleReleaseEl = document.getElementById('campaign-source-module-release');
-    const startFrom = String(sourceStartFromEl?.value || 'theme');
-    const canManage = sourceStartFromEl?.dataset?.canManage === '1';
-    if (sourceThemeEl) sourceThemeEl.disabled = !canManage || startFrom !== 'theme';
-    if (sourcePublishedDungeonEl) sourcePublishedDungeonEl.disabled = !canManage || startFrom !== 'published_dungeon';
-    if (sourceModuleReleaseEl) sourceModuleReleaseEl.disabled = !canManage || startFrom !== 'module_release';
+  bindMemberCandidateFilter() {
+    const filterEl = document.getElementById('campaign-member-filter');
+    if (!filterEl || filterEl.dataset.bound === '1') {
+      void this.loadMemberCandidates();
+      return;
+    }
+    filterEl.dataset.bound = '1';
+    let timer = null;
+    filterEl.addEventListener('input', () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => this.loadMemberCandidates(), 200);
+    });
+    void this.loadMemberCandidates();
   }
 
-  async updateCampaignSourceDefaults(applyNow = false) {
-    const shell = this.shell;
-    const campaignId = Number(shell.launchContext?.campaign_id || 0);
-    const statusEl = document.getElementById('campaign-settings-status');
-    if (!campaignId) return;
-    const startFrom = String(document.getElementById('campaign-source-start-from')?.value || 'theme').trim();
-    const theme = String(document.getElementById('campaign-source-theme')?.value || 'classic_dungeon').trim();
-    const publishedDungeon = String(document.getElementById('campaign-source-published-dungeon')?.value || '').trim();
-    const moduleRelease = String(document.getElementById('campaign-source-module-release')?.value || '').trim();
-    if (statusEl) statusEl.textContent = applyNow ? 'Applying source to campaign...' : 'Saving campaign launch defaults...';
-    try {
-      const response = await fetch(`/api/campaign/${campaignId}/settings/source`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest',
-        },
-        credentials: 'same-origin',
-        body: JSON.stringify({
-          start_from: startFrom,
-          theme,
-          published_dungeon: publishedDungeon,
-          module_release: moduleRelease,
-          apply_now: !!applyNow,
-        }),
-      });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok || !payload?.success) {
-        const error = String(payload?.error || `HTTP ${response.status}`).trim();
-        if (statusEl) statusEl.textContent = `Unable to update source defaults: ${error}`;
-        return;
-      }
-      await this.loadCampaignSettings(true);
-      if (statusEl) {
-        statusEl.textContent = applyNow
-          ? 'Campaign source applied. Reload the room view to enter the new source dungeon.'
-          : 'Campaign launch defaults saved.';
-      }
-    } catch (error) {
-      if (statusEl) statusEl.textContent = `Unable to update source defaults: ${error?.message || 'network error'}`;
+  async loadMemberCandidates() {
+    const campaignId = Number(this.shell.launchContext?.campaign_id || 0);
+    const filterEl = document.getElementById('campaign-member-filter');
+    const listEl = document.getElementById('campaign-member-candidates');
+    if (!campaignId || !filterEl || !listEl) return;
+    const filter = filterEl.value.trim();
+    const response = await fetch(`/api/campaign/${campaignId}/members/candidates?q=${encodeURIComponent(filter)}`, {
+      credentials: 'same-origin',
+      headers: { Accept: 'application/json' },
+    });
+    const payload = await response.json().catch(() => null);
+    if (filterEl.value.trim() !== filter) return;
+    listEl.innerHTML = '';
+    if (!response.ok || !payload?.success) {
+      this.setMemberStatus(`Unable to load users: ${payload?.error || `HTTP ${response.status}`}`);
+      return;
     }
+    if (!payload.candidates.length) {
+      const empty = document.createElement('p');
+      empty.className = 'muted';
+      empty.textContent = filter ? `No other users match “${filter}”.` : 'Every user is already in this campaign.';
+      listEl.appendChild(empty);
+      return;
+    }
+    payload.candidates.forEach((candidate) => {
+      const row = document.createElement('div');
+      row.className = 'campaign-settings-panel__member-row';
+      const name = document.createElement('strong');
+      name.textContent = candidate.display_name;
+      const addBtn = document.createElement('button');
+      addBtn.type = 'button';
+      addBtn.className = 'btn btn-primary btn-sm';
+      addBtn.textContent = 'Add';
+      addBtn.onclick = () => this.changeCampaignMembers('/members', { uid: Number(candidate.uid) }, false);
+      row.append(name, addBtn);
+      listEl.appendChild(row);
+    });
+    if (payload.candidates.length === Number(payload.limit)) {
+      const more = document.createElement('p');
+      more.className = 'muted';
+      more.textContent = `Showing the first ${payload.limit}. Type a name to narrow the list.`;
+      listEl.appendChild(more);
+    }
+  }
+
+  setMemberStatus(message) {
+    const statusEl = document.getElementById('campaign-member-status');
+    if (statusEl) statusEl.textContent = message;
+  }
+
+  async changeCampaignMembers(path, body, leaving) {
+    const campaignId = Number(this.shell.launchContext?.campaign_id || 0);
+    if (!campaignId) return;
+    this.setMemberStatus('Saving…');
+    const response = await fetch(`/api/campaign/${campaignId}${path}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': await this.getCsrfToken(),
+      },
+      credentials: 'same-origin',
+      body: JSON.stringify(body || {}),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !payload?.success) {
+      this.setMemberStatus(`Not saved: ${payload?.error || `HTTP ${response.status}`}`);
+      return;
+    }
+    if (leaving) {
+      window.location.assign('/campaigns');
+      return;
+    }
+    this.setMemberStatus('Saved.');
+    await this.loadCampaignSettings(true);
+  }
+
+  renderCampaignDiscord(discord) {
+    const el = document.getElementById('campaign-discord');
+    if (!el) return;
+    el.innerHTML = '';
+
+    const serverRow = document.createElement('div');
+    serverRow.className = 'campaign-settings-panel__member-row';
+    const serverLabel = document.createElement('strong');
+    serverLabel.textContent = 'Community Discord';
+    serverRow.appendChild(serverLabel);
+    if (discord.invite_url) {
+      serverRow.appendChild(this.externalLink(discord.invite_url, 'Open our Discord server'));
+    } else {
+      const missing = document.createElement('span');
+      missing.className = 'muted';
+      missing.textContent = 'Waiting on the site administrator: the Discord general-channel link has not been set yet.';
+      serverRow.appendChild(missing);
+    }
+    el.appendChild(serverRow);
+
+    const manualNote = document.createElement('p');
+    manualNote.className = 'muted';
+    manualNote.textContent = 'Create your own voice channels directly on the Discord server. Automatic campaign voice-channel creation is deferred.';
+    el.appendChild(manualNote);
+    if (!discord.invite_url && discord.settings_url) {
+      el.appendChild(this.externalLink(discord.settings_url, 'Configure the Discord general-channel link'));
+    }
+  }
+
+  externalLink(url, text) {
+    const link = document.createElement('a');
+    link.href = url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.textContent = text;
+    return link;
+  }
+
+  async createDiscordVoiceChannel(button) {
+    const campaignId = Number(this.shell.launchContext?.campaign_id || 0);
+    const statusEl = document.getElementById('campaign-discord-status');
+    if (!campaignId) return;
+    button.disabled = true;
+    if (statusEl) statusEl.textContent = 'Waiting on Discord to create the channel…';
+    const response = await fetch(`/api/campaign/${campaignId}/discord/voice-channel`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': await this.getCsrfToken(),
+      },
+      credentials: 'same-origin',
+      body: '{}',
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !payload?.success) {
+      if (statusEl) statusEl.textContent = `Not created: ${payload?.error || `HTTP ${response.status}`}`;
+      button.disabled = false;
+      return;
+    }
+    if (statusEl) statusEl.textContent = 'Voice channel created.';
+    this.renderCampaignDiscord(payload.discord);
+  }
+
+  renderCampaignLaunchSummary(launch) {
+    const el = document.getElementById('campaign-settings-launch');
+    if (!el || !launch) return;
+    const created = new Date(Number(launch.created) * 1000).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    el.textContent = `Theme: ${launch.theme} · Difficulty: ${launch.difficulty} · Created ${created} by ${launch.created_by}. These were set when the campaign was created and cannot be changed.`;
   }
 
   renderCampaignStorylines(storylinePayload, canManage) {
-        const templateSelect = document.getElementById('campaign-storyline-template');
-        const primaryInput = document.getElementById('campaign-storyline-primary');
-        const previewButton = document.getElementById('campaign-storyline-preview');
-        const applyButton = document.getElementById('campaign-storyline-apply');
-        const recheckButton = document.getElementById('campaign-storyline-recheck');
-        const attachedList = document.getElementById('campaign-storyline-attached-list');
-        if (!templateSelect || !primaryInput || !previewButton || !applyButton || !recheckButton || !attachedList) {
-          return;
-        }
+    const attachedList = document.getElementById('campaign-storyline-attached-list');
+    const availableList = document.getElementById('campaign-storyline-available-list');
+    const applyButton = document.getElementById('campaign-storyline-apply');
+    const recheckButton = document.getElementById('campaign-storyline-recheck');
+    const cancelButton = document.getElementById('campaign-storyline-cancel');
+    if (!attachedList || !availableList || !applyButton || !recheckButton || !cancelButton) {
+      return;
+    }
 
-        const state = this.storylineAttachmentState;
-        const requestedTemplateId = typeof window !== 'undefined'
-          ? String(new URLSearchParams(window.location.search).get('storyline_template_id') || '').trim()
-          : '';
-        const previousTemplateId = state.templateId || requestedTemplateId || templateSelect.value;
-        templateSelect.replaceChildren(new Option('Select a storyline', ''));
-        (Array.isArray(storylinePayload?.templates) ? storylinePayload.templates : []).forEach((template) => {
-          const templateId = String(template?.template_id || '').trim();
-          if (!templateId) return;
-          const version = String(template?.version || '').trim();
-          const label = `${String(template?.name || templateId)}${version ? ` - v${version}` : ''}`;
-          templateSelect.add(new Option(label, templateId));
-        });
-        templateSelect.value = previousTemplateId;
-        state.templateId = templateSelect.value;
-        templateSelect.disabled = !canManage;
-        primaryInput.disabled = !canManage;
-        previewButton.disabled = !canManage;
-        applyButton.disabled = !canManage;
-        recheckButton.disabled = !canManage;
+    const state = this.storylineAttachmentState;
+    const attached = Array.isArray(storylinePayload?.attached) ? storylinePayload.attached : [];
+    const attachedTemplateIds = new Set(attached.map((storyline) => String(storyline.template_id)));
+    const available = (Array.isArray(storylinePayload?.templates) ? storylinePayload.templates : [])
+      .filter((template) => !attachedTemplateIds.has(String(template.template_id)));
 
-        templateSelect.onchange = () => {
-          state.templateId = templateSelect.value;
-          state.plan = null;
-          state.decisions = {};
-          applyButton.hidden = true;
-          const planPanel = document.getElementById('campaign-storyline-plan');
-          if (planPanel) planPanel.hidden = true;
-        };
-        previewButton.onclick = () => this.requestStorylineAttachmentPlan({});
-        recheckButton.onclick = () => this.requestStorylineAttachmentPlan(this.buildStorylineAttachmentDecisions());
-        applyButton.onclick = () => this.applyStorylineAttachment();
+    document.getElementById('campaign-storyline-attached-count').textContent = `(${attached.length})`;
+    document.getElementById('campaign-storyline-available-count').textContent = `(${available.length})`;
 
-        attachedList.replaceChildren();
-        const attached = Array.isArray(storylinePayload?.attached) ? storylinePayload.attached : [];
-        if (!attached.length) {
-          const empty = document.createElement('p');
-          empty.className = 'muted';
-          empty.textContent = 'No storylines are attached to this campaign.';
-          attachedList.append(empty);
-        } else {
-          attached.forEach((storyline) => {
-            const row = document.createElement('div');
-            row.className = 'campaign-settings-panel__member-row';
-            const name = document.createElement('strong');
-            name.textContent = String(storyline?.name || storyline?.template_id || storyline?.storyline_id || 'Storyline');
-            const status = document.createElement('span');
-            status.className = 'pill pill-muted';
-            status.textContent = String(storyline?.status || 'attached');
-            const primary = document.createElement('span');
-            primary.textContent = storyline?.is_primary ? 'Primary' : 'Active';
-            row.append(name, status, primary);
-            attachedList.append(row);
-          });
-        }
-
-        if (requestedTemplateId && templateSelect.value === requestedTemplateId && !state.autoPreviewed && canManage) {
-          state.autoPreviewed = true;
-          void this.requestStorylineAttachmentPlan({});
-        }
+    attachedList.replaceChildren();
+    if (!attached.length) {
+      const empty = document.createElement('p');
+      empty.className = 'muted';
+      empty.textContent = 'This campaign has no storylines yet.';
+      attachedList.append(empty);
+    }
+    attached.forEach((storyline) => {
+      const row = document.createElement('div');
+      row.className = 'campaign-settings-panel__member-row';
+      const name = document.createElement('strong');
+      name.textContent = storyline.name;
+      const status = document.createElement('span');
+      status.className = 'pill pill-muted';
+      status.textContent = {
+        available: 'Not started',
+        lead: 'Not started',
+        bootstrapping: 'Preparing',
+        active: 'In progress',
+        completed: 'Completed',
+      }[String(storyline.status)] || String(storyline.status);
+      row.dataset.filterText = String(storyline.name).toLowerCase();
+      row.append(name, status);
+      if (storyline.is_primary) {
+        const primary = document.createElement('span');
+        primary.className = 'pill pill-strong';
+        primary.textContent = 'Primary';
+        row.append(primary);
       }
+      attachedList.append(row);
+    });
+
+    availableList.replaceChildren();
+    if (!available.length) {
+      const empty = document.createElement('p');
+      empty.className = 'muted';
+      empty.textContent = 'Every published storyline is already in this campaign.';
+      availableList.append(empty);
+    }
+    const startAdding = (template) => {
+      state.templateId = String(template.template_id);
+      state.plan = null;
+      state.decisions = {};
+      applyButton.hidden = true;
+      document.getElementById('campaign-storyline-plan').hidden = true;
+      document.getElementById('campaign-storyline-add-title').textContent = `Adding: ${template.name}`;
+      document.getElementById('campaign-storyline-add').hidden = false;
+      void this.requestStorylineAttachmentPlan({});
+    };
+    available.forEach((template) => {
+      const row = document.createElement('div');
+      row.className = 'campaign-settings-panel__member-row';
+      const identity = document.createElement('div');
+      const name = document.createElement('strong');
+      name.textContent = template.version ? `${template.name} (v${template.version})` : template.name;
+      const synopsis = document.createElement('p');
+      synopsis.className = 'campaign-settings-panel__member-meta';
+      synopsis.textContent = template.synopsis;
+      identity.append(name, synopsis);
+      const addButton = document.createElement('button');
+      addButton.type = 'button';
+      addButton.className = 'btn btn-primary btn-sm';
+      addButton.textContent = 'Add';
+      addButton.disabled = !canManage;
+      addButton.onclick = () => startAdding(template);
+      row.dataset.filterText = `${template.name} ${template.synopsis}`.toLowerCase();
+      row.append(identity, addButton);
+      availableList.append(row);
+    });
+
+    const filterInput = document.getElementById('campaign-storyline-filter');
+    const applyFilter = () => {
+      const needle = filterInput.value.trim().toLowerCase();
+      [[attachedList, 'campaign-storyline-attached-count', attached.length], [availableList, 'campaign-storyline-available-count', available.length]].forEach(([list, countId, total]) => {
+        let shown = 0;
+        list.querySelectorAll('[data-filter-text]').forEach((row) => {
+          row.hidden = !row.dataset.filterText.includes(needle);
+          if (!row.hidden) shown += 1;
+        });
+        list.querySelector('[data-filter-empty]')?.remove();
+        if (needle && total > 0 && shown === 0) {
+          const none = document.createElement('p');
+          none.className = 'muted';
+          none.dataset.filterEmpty = '1';
+          none.textContent = `None match “${filterInput.value.trim()}”.`;
+          list.append(none);
+        }
+        document.getElementById(countId).textContent = needle ? `(${shown} of ${total})` : `(${total})`;
+      });
+    };
+    filterInput.oninput = applyFilter;
+    applyFilter();
+
+    const addPanel = document.getElementById('campaign-storyline-add');
+    if (!available.some((template) => String(template.template_id) === state.templateId)) {
+      state.templateId = '';
+      addPanel.hidden = true;
+    }
+    recheckButton.onclick = () => this.requestStorylineAttachmentPlan(this.buildStorylineAttachmentDecisions());
+    applyButton.onclick = () => this.applyStorylineAttachment();
+    cancelButton.onclick = () => {
+      state.templateId = '';
+      state.plan = null;
+      state.decisions = {};
+      addPanel.hidden = true;
+      document.getElementById('campaign-storyline-status').textContent = '';
+    };
+
+    const requestedTemplateId = String(new URLSearchParams(window.location.search).get('storyline_template_id') || '').trim();
+    const requested = available.find((template) => String(template.template_id) === requestedTemplateId);
+    if (requested && !state.autoPreviewed && canManage) {
+      state.autoPreviewed = true;
+      startAdding(requested);
+    }
+  }
 
       async getCsrfToken() {
         this.csrfTokenPromise ||= fetch('/session/token', {
@@ -417,15 +502,12 @@ export class GameShellCampaignSettingsCoordinator {
 
       async requestStorylineAttachmentPlan(decisions = {}) {
         const campaignId = Number(this.shell.launchContext?.campaign_id || 0);
-        const templateSelect = document.getElementById('campaign-storyline-template');
         const status = document.getElementById('campaign-storyline-status');
-        const templateId = String(templateSelect?.value || this.storylineAttachmentState.templateId || '').trim();
+        const templateId = this.storylineAttachmentState.templateId;
         if (!campaignId || !templateId) {
-          if (status) status.textContent = 'Select a canonical storyline first.';
           return null;
         }
-        this.storylineAttachmentState.templateId = templateId;
-        if (status) status.textContent = 'Checking campaign gateways, canonical versions, and conflicts...';
+        if (status) status.textContent = 'Checking how this storyline fits the campaign…';
         try {
           const response = await fetch(`/api/campaign/${campaignId}/storylines/attachment-plan`, {
             method: 'POST',
@@ -444,12 +526,12 @@ export class GameShellCampaignSettingsCoordinator {
           this.renderStorylineAttachmentPlan(payload.plan);
           if (status) {
             status.textContent = payload.plan.can_apply
-              ? 'Attachment plan is ready. The storyline will activate automatically.'
-              : 'Resolve the listed campaign decisions before attachment.';
+              ? 'Ready to add. The storyline starts as soon as it is added.'
+              : 'Resolve the listed decisions before this storyline can be added.';
           }
           return payload.plan;
         } catch (error) {
-          if (status) status.textContent = `Unable to preview attachment: ${error?.message || 'network error'}`;
+          if (status) status.textContent = `Unable to check this storyline: ${error?.message || 'network error'}`;
           return null;
         }
       }
@@ -637,7 +719,7 @@ export class GameShellCampaignSettingsCoordinator {
           return;
         }
         if (applyButton) applyButton.disabled = true;
-        if (status) status.textContent = 'Attaching and activating storyline...';
+        if (status) status.textContent = 'Adding the storyline…';
         try {
           const response = await fetch(`/api/campaign/${campaignId}/storylines/attachment-apply`, {
             method: 'POST',
@@ -662,11 +744,11 @@ export class GameShellCampaignSettingsCoordinator {
           await this.loadCampaignSettings(true);
           if (status) {
             status.textContent = payload?.attachment?.idempotent
-              ? 'This storyline was already attached.'
-              : 'Storyline attached and activated.';
+              ? 'This storyline was already in the campaign.'
+              : 'Storyline added to the campaign.';
           }
         } catch (error) {
-          if (status) status.textContent = `Unable to attach storyline: ${error?.message || 'network error'}`;
+          if (status) status.textContent = `Unable to add the storyline: ${error?.message || 'network error'}`;
         } finally {
           if (applyButton) applyButton.disabled = false;
         }
@@ -732,8 +814,6 @@ export class GameShellCampaignSettingsCoordinator {
     }
     return {
       campaign_id: Number(access.campaign_id || shell.launchContext?.campaign_id || 0) || 0,
-      membership_role: String(access.membership_role || '').trim().toLowerCase() || 'player',
-      membership_status: String(access.membership_status || '').trim().toLowerCase() || 'active',
       can_use_player_mode: canUsePlayerMode,
       can_use_gm_mode: canUseGmMode,
       default_mode: defaultMode,
@@ -773,39 +853,6 @@ export class GameShellCampaignSettingsCoordinator {
     }
     if (!gmViewEnabled && shell.panels?.chat?.activeSessionView === 'gm-private') {
       shell.panels.chat.switchSessionView('room');
-    }
-  }
-
-  async updateCampaignMemberRole(memberUid, role) {
-    const shell = this.shell;
-    const campaignId = Number(shell.launchContext?.campaign_id || 0);
-    const uid = Number(memberUid || 0);
-    const normalizedRole = String(role || '').trim().toLowerCase();
-    if (!campaignId || !uid || !['player', 'gm'].includes(normalizedRole)) {
-      return;
-    }
-    const statusEl = document.getElementById('campaign-settings-status');
-    if (statusEl) statusEl.textContent = 'Saving member role...';
-
-    try {
-      const response = await fetch(`/api/campaign/${campaignId}/settings/members/${uid}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest',
-        },
-        credentials: 'same-origin',
-        body: JSON.stringify({ role: normalizedRole, status: 'active' }),
-      });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok || !payload?.success) {
-        const error = String(payload?.error || `HTTP ${response.status}`).trim();
-        if (statusEl) statusEl.textContent = `Unable to update member: ${error}`;
-        return;
-      }
-      await this.loadCampaignSettings(true);
-    } catch (error) {
-      if (statusEl) statusEl.textContent = `Unable to update member: ${error?.message || 'network error'}`;
     }
   }
 }

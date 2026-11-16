@@ -499,7 +499,6 @@ class TemplateImportService {
     $required_tables = [
       'dc_canonical_storylines',
       'dc_canonical_quests',
-      'dc_canonical_actors',
       'dc_canonical_locations',
       'dc_canonical_storyline_quests',
       'dc_canonical_storyline_actors',
@@ -545,39 +544,15 @@ class TemplateImportService {
         'dc_canonical_objective_refs',
         'dc_canonical_storylines',
         'dc_canonical_quests',
-        'dc_canonical_actors',
         'dc_canonical_locations',
       ] as $table_name) {
         $this->database->truncate($table_name)->execute();
       }
 
-      $actor_map = [];
-      $actor_rows = $this->database->select('dungeoncrawler_content_characters', 'c')
-        ->fields('c', ['instance_id', 'type', 'state_data'])
-        ->execute()
-        ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-      foreach ($actor_rows as $actor_row) {
-        $actor_id = trim((string) ($actor_row['instance_id'] ?? ''));
-        if ($actor_id === '') {
-          continue;
-        }
-        $state = $this->decodeJsonValue($actor_row['state_data'] ?? NULL);
-        $version = trim((string) ($state['version'] ?? '1.0.0')) ?: '1.0.0';
-        $actor_map[$actor_id] = $version;
-        $this->database->insert('dc_canonical_actors')
-          ->fields([
-            'actor_id' => $actor_id,
-            'version' => $version,
-            'actor_type' => trim((string) ($actor_row['type'] ?? 'npc')) ?: 'npc',
-            'display_name' => trim((string) ($state['name'] ?? $actor_id)),
-            'source_module' => trim((string) ($state['source_module'] ?? '')),
-            'state_data' => json_encode($state, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-            'created_at' => $now,
-            'updated_at' => $now,
-          ])
-          ->execute();
-        $counts['actors']++;
-      }
+      // Actor definitions are owned by CanonicalDefinitionService and are
+      // never rebuilt here; storyline and objective refs resolve against them.
+      $actor_map = \Drupal::service('dungeoncrawler_content.canonical_definitions')->actorDefinitionVersions();
+      $counts['actors'] = count($actor_map);
 
       $location_map = [];
       $pending_storyline_location_links = [];

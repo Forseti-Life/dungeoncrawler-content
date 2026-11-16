@@ -232,6 +232,14 @@ final class SchemaDrivenDefinitionForm extends FormBase {
     $schema = $this->definitions->schemaForFamily($family);
     $payload = $this->mapper->extract($schema, $form_state->getValue('definition'));
     $payload = is_array($payload) ? $payload : [];
+    $definition_id = $form_state->get('definition_id');
+    $id_property = $this->definitions->idProperty($family);
+    if ($definition_id === NULL && trim((string) ($payload[$id_property] ?? '')) === '') {
+      $generated_id = $this->generateDefinitionIdFromPayload($family, $payload);
+      if ($generated_id !== '') {
+        $payload[$id_property] = $generated_id;
+      }
+    }
     $form_state->set('payload', $payload);
 
     if ($form_state->get('discard_pointers') !== [] && !$form_state->getValue(['stored_findings', 'discard_confirmed'])) {
@@ -243,8 +251,6 @@ final class SchemaDrivenDefinitionForm extends FormBase {
       $form_state->setErrorByName($name, $this->t('@pointer: @message', ['@pointer' => $finding['pointer'], '@message' => $finding['message']]));
     }
 
-    $definition_id = $form_state->get('definition_id');
-    $id_property = $this->definitions->idProperty($family);
     $payload_id = (string) ($payload[$id_property] ?? '');
     if ($definition_id !== NULL && $payload_id !== $definition_id) {
       $form_state->setErrorByName($this->mapper->elementName('/' . $id_property) ?? 'definition', $this->t('definition_id_mismatch: @prop must stay @id.', ['@prop' => $id_property, '@id' => $definition_id]));
@@ -288,6 +294,42 @@ final class SchemaDrivenDefinitionForm extends FormBase {
       ));
     }
     $form_state->setRedirect('dungeoncrawler_content.definition_edit', ['family' => $family, 'definition_id' => $result['definition_id']]);
+  }
+
+  /**
+   * Generate a stable definition id candidate from the payload name.
+   */
+  private function generateDefinitionIdFromPayload(string $family, array $payload): string {
+    $name_property = $this->definitions->nameProperty($family);
+    $base = $this->sanitizeIdentifier((string) ($payload[$name_property] ?? ''));
+    if ($base === '') {
+      return '';
+    }
+    $candidate = $base;
+    $suffix = 2;
+    while ($this->definitions->currentVersion($family, $candidate) !== NULL) {
+      $candidate = $base . '-' . $suffix;
+      $suffix += 1;
+    }
+    return $candidate;
+  }
+
+  /**
+   * Normalize text to the canonical slug-like identifier pattern.
+   */
+  private function sanitizeIdentifier(string $value): string {
+    $value = trim(mb_strtolower($value));
+    if ($value === '') {
+      return '';
+    }
+    $normalized = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $value);
+    if (!is_string($normalized) || $normalized === '') {
+      $normalized = $value;
+    }
+    $normalized = preg_replace('/[^a-z0-9]+/', '-', $normalized) ?? '';
+    $normalized = trim($normalized, '-');
+    $normalized = preg_replace('/-+/', '-', $normalized) ?? '';
+    return $normalized;
   }
 
 }

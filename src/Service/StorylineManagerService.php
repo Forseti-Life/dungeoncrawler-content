@@ -5,6 +5,7 @@ namespace Drupal\dungeoncrawler_content\Service;
 use Drupal\Component\Uuid\UuidInterface;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
+use Drupal\Core\Session\AccountInterface;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -319,6 +320,44 @@ class StorylineManagerService {
       ->fetchAssoc();
 
     return $row ? $this->hydrateTemplateRow($row) : NULL;
+  }
+
+  /**
+   * Assigns an author without renormalizing an existing storyline definition.
+   */
+  public function setTemplateAuthor(string $template_id, AccountInterface $author): array {
+    if ((int) $author->id() <= 0) {
+      throw new \InvalidArgumentException('storyline_author_must_be_authenticated');
+    }
+    $this->assertCanonicalStorylineStorageReady();
+    $transaction = $this->database->startTransaction();
+    $row = $this->database->select(self::CANONICAL_STORYLINE_TABLE, 's')
+      ->fields('s')
+      ->condition('template_id', $template_id)
+      ->forUpdate()
+      ->execute()
+      ->fetchAssoc();
+    if (!$row) {
+      throw new \OutOfBoundsException('storyline_template_not_found');
+    }
+
+    $template = $this->hydrateTemplateRow($row);
+    $definition = $template['template_data'];
+    if (!is_array($definition['metadata'] ?? []) || !is_array($definition['metadata']['authorship'] ?? [])) {
+      throw new \UnexpectedValueException('storyline_template_authorship_metadata_invalid: ' . $template_id);
+    }
+    if (($definition['metadata']['authorship']['author_uid'] ?? NULL) === (int) $author->id()) {
+      return $template;
+    }
+    $definition['metadata']['authorship']['author_uid'] = (int) $author->id();
+    $this->database->update(self::CANONICAL_STORYLINE_TABLE)
+      ->fields([
+        'template_data' => json_encode($definition, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'updated_at' => time(),
+      ])
+      ->condition('template_id', $template_id)
+      ->execute();
+    return $this->getTemplate($template_id);
   }
 
   /**
@@ -972,6 +1011,8 @@ class StorylineManagerService {
           'label' => trim((string) ($choice['label'] ?? $choice_id)) ?: $choice_id,
           'trigger' => $choice['trigger'] ?? [],
           'effects' => $choice['effects'] ?? [],
+          // Set when the choice is a way of achieving its quest's goal.
+          'approach' => is_array($choice['approach'] ?? NULL) ? $choice['approach'] : NULL,
         ];
         $edges[] = ['source' => 'quest:' . $source_quest_id, 'target' => $decision_node, 'type' => 'presents_decision'];
         $edges[] = ['source' => $decision_node, 'target' => $choice_node, 'type' => 'offers_choice'];
@@ -2083,6 +2124,70 @@ class StorylineManagerService {
   }
 
   /**
+   * Resolves missing site links from canonical placements and authored links.
+   */
+  public function resolveAuthoredRoomDungeonBindings(array $rooms, array $dungeons): array {
+    $dungeon_ids = [];
+    $authored = [];
+    foreach ($dungeons as $dungeon) {
+      $id = trim((string) ($dungeon['dungeon_id'] ?? ''));
+      if ($id !== '') {
+        $dungeon_ids[$id] = TRUE;
+      }
+    }
+    foreach ($rooms as $room) {
+      $room_id = trim((string) ($room['room_id'] ?? ''));
+      $dungeon_id = trim((string) ($room['dungeon_id'] ?? ''));
+      if ($room_id !== '' && $dungeon_id !== '') {
+        $dungeon_ids[$dungeon_id] = TRUE;
+        $authored[$room_id][$dungeon_id] = TRUE;
+      }
+    }
+    $placements = [];
+    foreach (array_keys($dungeon_ids) as $dungeon_id) {
+      $dungeon = $this->loadCanonicalDungeonEntity($dungeon_id);
+      if ($dungeon === NULL) {
+        continue;
+      }
+      $data = $this->decodeJsonArrayValue($dungeon['dungeon_data']);
+      foreach ($this->resolveCanonicalDungeonRoomContract($data)['room_ids'] as $room_id) {
+        $placements[$room_id][$dungeon_id] = TRUE;
+      }
+    }
+
+    $resolved = [];
+    $unresolved = [];
+    foreach ($rooms as $index => &$room) {
+      if (trim((string) ($room['dungeon_id'] ?? '')) !== '') {
+        continue;
+      }
+      $room_id = trim((string) ($room['room_id'] ?? ''));
+      $candidates = $placements[$room_id] ?? [];
+      $explicit = $authored[$room_id] ?? [];
+      $choices = $explicit !== [] ? array_intersect_key($candidates, $explicit) : $candidates;
+      if ($room_id !== '' && count($choices) === 1 && count($explicit) <= 1) {
+        $room['dungeon_id'] = (string) array_key_first($choices);
+        $resolved[] = [
+          'index' => $index,
+          'room_id' => $room_id,
+          'dungeon_id' => $room['dungeon_id'],
+          'evidence' => $explicit !== [] ? 'authored_binding_and_canonical_placement' : 'unique_canonical_placement',
+        ];
+      }
+      else {
+        $unresolved[] = [
+          'index' => $index,
+          'room_id' => $room_id,
+          'candidate_dungeon_ids' => array_keys($candidates),
+          'reason' => $explicit !== [] ? 'authored_site_not_unique_or_not_placed' : (count($candidates) > 1 ? 'multiple_canonical_sites' : 'no_canonical_placement'),
+        ];
+      }
+    }
+    unset($room);
+    return ['rooms' => $rooms, 'resolved' => $resolved, 'unresolved' => $unresolved];
+  }
+
+  /**
    * Extract referenced dungeon ids from storyline payload.
    *
    * @return array<int, string>
@@ -2921,6 +3026,7 @@ class StorylineManagerService {
               'target_quest_id' => trim((string) ($choice['target_quest_id'] ?? '')),
               'target_scene_id' => trim((string) ($choice['target_scene_id'] ?? '')),
               'terminal' => ($choice['terminal'] ?? FALSE) === TRUE,
+              'achieves_quest_goal' => is_array($choice['approach'] ?? NULL),
             ];
             if ($selected_choice_id === $choice_id) {
               if (!$actor_scoped || $this->branchChoiceAffectsActor($summary, $actor_refs)) {
@@ -4380,6 +4486,16 @@ class StorylineManagerService {
     $status = (string) ($storyline_data['status'] ?? 'available');
     $events = [];
 
+    // A storyline is under way as soon as one of its quests is.
+    if (in_array($status, ['available', 'lead'], TRUE)) {
+      foreach ($storyline_data['linked_quests'] as $quest_link) {
+        if (in_array($quest_link['status'], ['active', 'ready_for_turn_in', 'completed'], TRUE)) {
+          $status = 'active';
+          break;
+        }
+      }
+    }
+
     if ($current_chapter_id === '' && !empty($storyline_data['chapters'][0]['chapter_id'])) {
       $current_chapter_id = (string) $storyline_data['chapters'][0]['chapter_id'];
     }
@@ -4604,6 +4720,7 @@ class StorylineManagerService {
         )))),
         'unlock_condition' => trim((string) ($node['unlock_condition'] ?? '')),
         'prerequisite_mode' => trim((string) ($node['prerequisite_mode'] ?? 'all')) ?: 'all',
+        'goal' => is_array($node['goal'] ?? NULL) ? $node['goal'] : NULL,
         'choices' => array_values(array_filter(
           is_array($node['choices'] ?? NULL) ? $node['choices'] : [],
           'is_array',
@@ -5126,6 +5243,22 @@ class StorylineManagerService {
         $terminal_nodes[$quest_id] = TRUE;
       }
       $choices = array_values(array_filter(is_array($node['choices'] ?? NULL) ? $node['choices'] : [], 'is_array'));
+      try {
+        $node_goal = QuestGoalContract::fromStorylineNode($node);
+        foreach ($node_goal !== NULL ? QuestGoalContract::validate($node_goal, NULL) : [] as $goal_error) {
+          $errors[] = "Questline node '{$quest_id}': {$goal_error}";
+        }
+      }
+      catch (\DomainException $e) {
+        $node_goal = NULL;
+        $errors[] = "Questline node '{$quest_id}' has a choice marked as an approach but states no goal.";
+      }
+      $approach_decisions = [];
+      foreach ($choices as $choice) {
+        if (is_array($choice['approach'] ?? NULL)) {
+          $approach_decisions[trim((string) ($choice['decision_id'] ?? ''))] = TRUE;
+        }
+      }
       if ($choices !== []) {
         $decision_choices = [];
         $seen_choices = [];
@@ -5176,7 +5309,7 @@ class StorylineManagerService {
           if (!$terminal && $target_scene_id === '') {
             $errors[] = "Non-terminal branch choice '{$choice_key}' on quest '{$quest_id}' must target a scene.";
           }
-          if ($target_quest_id !== '') {
+          if ($target_quest_id !== '' && $target_quest_id !== $quest_id) {
             $choice_targets[$quest_id][] = $target_quest_id;
             $choice_destinations[] = [
               'choice_key' => $choice_key,
@@ -5187,7 +5320,8 @@ class StorylineManagerService {
           }
         }
         foreach ($decision_choices as $decision_id => $choice_ids) {
-          if (count(array_unique($choice_ids)) < 2) {
+          // A goal may have a single way of achieving it.
+          if (count(array_unique($choice_ids)) < 2 && !isset($approach_decisions[$decision_id])) {
             $errors[] = "Branch decision '{$decision_id}' on quest '{$quest_id}' must provide at least two choices.";
           }
         }
@@ -8085,6 +8219,9 @@ class StorylineManagerService {
 
     if ($sync['status'] === 'completed' && empty($row['completed_at'])) {
       $fields['completed_at'] = time();
+    }
+    if ($sync['status'] === 'active' && empty($row['activated_at'])) {
+      $fields['activated_at'] = time();
     }
 
     $this->database->update('dc_campaign_storylines')

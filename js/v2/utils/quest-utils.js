@@ -157,6 +157,7 @@ export function normalizeQuestEntryPayload(quest) {
 
   return {
     quest_id: questId,
+    campaign_id: Number(quest.campaign_id || 0),
     quest_key: questKey,
     source_template_id: quest.source_template_id == null || quest.source_template_id === '' ? null : String(quest.source_template_id),
     title,
@@ -171,6 +172,7 @@ export function normalizeQuestEntryPayload(quest) {
       .filter(Boolean),
     generated_rewards: parseObject(quest.generated_rewards),
     quest_data: parseObject(quest.quest_data),
+    goal: quest.goal && typeof quest.goal === 'object' ? quest.goal : null,
     location_id: quest.location_id == null || quest.location_id === '' ? null : String(quest.location_id),
     storyline: {
       storyline_id: storyline.storyline_id == null || storyline.storyline_id === '' ? null : String(storyline.storyline_id),
@@ -212,6 +214,7 @@ export function normalizeQuestSummaryPayload(payload) {
     offers,
     leads,
     completed,
+    storylines: Array.isArray(source.storylines) ? source.storylines : [],
     management_tree: managementTree,
     counts: {
       active: active.length,

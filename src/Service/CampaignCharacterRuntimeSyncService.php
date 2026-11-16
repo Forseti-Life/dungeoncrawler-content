@@ -1048,6 +1048,9 @@ class CampaignCharacterRuntimeSyncService {
     if (!$this->npcSheetGenerationService && !$this->characterPortraitGenerator) {
       return;
     }
+    if ($this->isFollowerRuntimeCandidate($record, $state)) {
+      return;
+    }
 
     $character_data = $this->decodeCharacterData($record);
     $seed_data = $this->buildRuntimeNpcSeedData($campaign_id, $record, $state, $content_id, $character_data);
@@ -1126,6 +1129,19 @@ class CampaignCharacterRuntimeSyncService {
   }
 
   /**
+   * Determine whether a runtime row represents a PC-owned follower.
+   */
+  protected function isFollowerRuntimeCandidate(array $record, array $state = []): bool {
+    $instance_id = strtolower(trim((string) ($record['instance_id'] ?? '')));
+    $metadata = is_array($state['metadata'] ?? NULL) ? $state['metadata'] : [];
+    $role = strtolower(trim((string) ($record['role'] ?? $state['role'] ?? $metadata['role'] ?? '')));
+    $follower_kind = strtolower(trim((string) ($state['follower_kind'] ?? $metadata['follower_kind'] ?? '')));
+    return $follower_kind !== ''
+      || in_array($role, ['familiar', 'animal_companion', 'construct_companion', 'eidolon', 'companion', 'follower'], TRUE)
+      || preg_match('/^(?:familiar|animal-companion|construct-companion|eidolon)-\d+$/', $instance_id) === 1;
+  }
+
+  /**
    * Resolve canonical follower portrait from owner actor record when available.
    */
   protected function resolveCanonicalFollowerOwnerPortrait(int $campaign_id, array $record, array $state = []): string {
@@ -1133,10 +1149,7 @@ class CampaignCharacterRuntimeSyncService {
     $metadata = is_array($state['metadata'] ?? NULL) ? $state['metadata'] : [];
     $role = strtolower(trim((string) ($state['role'] ?? $metadata['role'] ?? '')));
     $follower_kind = strtolower(trim((string) ($metadata['follower_kind'] ?? '')));
-    $is_follower_candidate = $follower_kind !== ''
-      || in_array($role, ['familiar', 'animal_companion', 'construct_companion', 'eidolon'], TRUE)
-      || preg_match('/^(?:familiar|animal-companion|construct-companion|eidolon)-\d+$/', $instance_id) === 1;
-    if (!$is_follower_candidate) {
+    if (!$this->isFollowerRuntimeCandidate($record, $state)) {
       return '';
     }
 
@@ -3007,6 +3020,12 @@ class CampaignCharacterRuntimeSyncService {
   /**
    * Resolve follower placement from canonical runtime row when available.
    *
+   * Follower placement is always bound to its owner's room ($default_room_id).
+   * If the follower row is still recorded in a previous room (e.g. during a
+   * room transition before persistTraversingOwnerAndFollowers runs), return
+   * NULL so injectOwnedRuntimeFollowerEntities places the follower adjacent to
+   * its owner in the owner's room.
+   *
    * @return array<string,mixed>|null
    *   ['room_id' => string, 'placement' => ['q' => int, 'r' => int]] or NULL.
    */
@@ -3016,13 +3035,20 @@ class CampaignCharacterRuntimeSyncService {
     string $default_room_id,
     array $occupied = []
   ): ?array {
-    $room_id = trim((string) ($follower_runtime_record['last_room_id'] ?? ''));
-    if ($room_id === '') {
-      $room_id = $default_room_id;
+    $owner_room_id = trim($default_room_id);
+    if ($owner_room_id === '') {
+      throw new \RuntimeException(sprintf(
+        'Follower placement contract violation: owner room_id is empty for follower runtime row %d (%s).',
+        (int) ($follower_runtime_record['id'] ?? 0),
+        (string) ($follower_runtime_record['instance_id'] ?? '')
+      ));
     }
-    if ($room_id === '') {
+
+    $persisted_room_id = trim((string) ($follower_runtime_record['last_room_id'] ?? ''));
+    if ($persisted_room_id === '' || $persisted_room_id !== $owner_room_id) {
       return NULL;
     }
+    $room_id = $owner_room_id;
 
     $q = isset($follower_runtime_record['position_q']) ? (int) $follower_runtime_record['position_q'] : 0;
     $r = isset($follower_runtime_record['position_r']) ? (int) $follower_runtime_record['position_r'] : 0;

@@ -50,6 +50,7 @@ class GmOrchestrationBrokerService {
       'transfer_currency' => [],
       'consume_inventory' => [],
       'apply_quest_touchpoint' => [],
+      'quest_goal' => [],
     ];
     $errors = [];
     $receipts = [];
@@ -132,6 +133,19 @@ class GmOrchestrationBrokerService {
         continue;
       }
 
+      if ($type === 'resolve_quest_goal' || $type === 'reveal_quest_approach') {
+        $goal_result = $this->handleQuestGoalAction($campaign_id, $character_id, $action);
+        $results['quest_goal'][] = $goal_result;
+        $receipts[] = $this->buildReceipt('quest_progression', $type, $action, $goal_result);
+        if (empty($goal_result['success'])) {
+          $errors[] = [
+            'action_name' => $action['name'] ?? $type,
+            'message' => $goal_result['error'],
+          ];
+        }
+        continue;
+      }
+
       $remaining_actions[] = $action;
     }
 
@@ -142,6 +156,46 @@ class GmOrchestrationBrokerService {
       'receipts' => $receipts,
       'combat_runtime_snapshot' => $combat_runtime_snapshot,
     ];
+  }
+
+  /**
+   * Achieve a quest goal by one of its ways, or reveal a hidden way.
+   *
+   * The action carries details.goal: {quest_id, approach_id, evidence} to
+   * resolve, {quest_id, approach_id, reason} to reveal.
+   */
+  public function handleQuestGoalAction(int $campaign_id, ?int $character_id, array $action): array {
+    $type = (string) $action['type'];
+    $goal = is_array($action['details']['goal'] ?? NULL) ? $action['details']['goal'] : [];
+    $quest_id = trim((string) ($goal['quest_id'] ?? ''));
+    $approach_id = trim((string) ($goal['approach_id'] ?? ''));
+    $tracker = $this->serviceContainer->get('dungeoncrawler_content.quest_tracker');
+    try {
+      if ($type === 'resolve_quest_goal') {
+        if ((int) $character_id <= 0) {
+          throw new \DomainException('quest_goal_character_required');
+        }
+        $completion = $tracker->resolveQuestGoal($campaign_id, $quest_id, $approach_id, (int) $character_id, trim((string) ($goal['evidence'] ?? '')));
+        $result = [
+          'success' => TRUE,
+          'quest_id' => $quest_id,
+          'approach_id' => $approach_id,
+          'outcome' => $completion['goal']['resolved']['outcome_label'],
+          'rewards_applied' => $completion['rewards_applied'],
+        ];
+      }
+      else {
+        $tracker->revealQuestApproach($campaign_id, $quest_id, $approach_id, trim((string) ($goal['reason'] ?? '')) ?: 'Uncovered in play.', $character_id);
+        $result = ['success' => TRUE, 'quest_id' => $quest_id, 'approach_id' => $approach_id];
+      }
+    }
+    catch (\DomainException $e) {
+      $this->canonicalActionRegistry->recordUsage($campaign_id, $type, 'rejected', ['character_id' => $character_id, 'error' => $e->getMessage()]);
+      return ['success' => FALSE, 'error' => $e->getMessage()];
+    }
+    $this->canonicalActionRegistry->recordUsage($campaign_id, $type, 'executed', ['character_id' => $character_id] + $result);
+
+    return $result;
   }
 
   /**

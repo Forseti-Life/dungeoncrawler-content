@@ -396,6 +396,23 @@ class RuntimeGraphAssemblerService {
     if (isset($snapshot_room['chat']) && is_array($snapshot_room['chat'])) {
       $payload['chat'] = $snapshot_room['chat'];
     }
+    elseif (isset($payload['gameplay_state']['chat']) && is_array($payload['gameplay_state']['chat'])) {
+      $payload['chat'] = $payload['gameplay_state']['chat'];
+    }
+
+    if (isset($snapshot_room['conversation_state']) && is_array($snapshot_room['conversation_state'])) {
+      $payload['conversation_state'] = $snapshot_room['conversation_state'];
+    }
+    elseif (isset($payload['gameplay_state']['conversation_state']) && is_array($payload['gameplay_state']['conversation_state'])) {
+      $payload['conversation_state'] = $payload['gameplay_state']['conversation_state'];
+    }
+
+    if (isset($snapshot_room['npc_response_consumption']) && is_array($snapshot_room['npc_response_consumption'])) {
+      $payload['npc_response_consumption'] = $snapshot_room['npc_response_consumption'];
+    }
+    elseif (isset($payload['gameplay_state']['npc_response_consumption']) && is_array($payload['gameplay_state']['npc_response_consumption'])) {
+      $payload['npc_response_consumption'] = $payload['gameplay_state']['npc_response_consumption'];
+    }
 
     return $payload;
   }
@@ -581,16 +598,21 @@ class RuntimeGraphAssemblerService {
   protected function buildExitPayloadForRoom(array $connection, string $source_room_id, string $target_room_id, string $target_room_name, array $authored_exit = [], bool $reverse = FALSE): array {
     $origin_hex = !$reverse ? (array) ($connection['from_hex'] ?? []) : (array) ($connection['to_hex'] ?? []);
     $target_hex = !$reverse ? (array) ($connection['to_hex'] ?? []) : (array) ($connection['from_hex'] ?? []);
-    $origin_dungeon_id = trim((string) (
-      !$reverse
-        ? ($connection['from_dungeon_id'] ?? '')
-        : ($connection['to_dungeon_id'] ?? '')
-    ));
-    $destination_dungeon_id = trim((string) (
-      !$reverse
-        ? ($connection['to_dungeon_id'] ?? '')
-        : ($connection['from_dungeon_id'] ?? '')
-    ));
+    $from_dungeon_id = trim((string) ($connection['from_dungeon_id'] ?? $connection['dungeon_id'] ?? ''));
+    if ($from_dungeon_id === '') {
+      throw new \RuntimeException(sprintf(
+        'RuntimeGraphAssembler contract violation: connection %s (%s -> %s) is missing from_dungeon_id.',
+        (string) ($connection['connection_id'] ?? ''),
+        $source_room_id,
+        $target_room_id
+      ));
+    }
+    $to_dungeon_id = trim((string) ($connection['to_dungeon_id'] ?? ''));
+    if ($to_dungeon_id === '') {
+      $to_dungeon_id = $from_dungeon_id;
+    }
+    $origin_dungeon_id = !$reverse ? $from_dungeon_id : $to_dungeon_id;
+    $destination_dungeon_id = !$reverse ? $to_dungeon_id : $from_dungeon_id;
 
     $payload = [
       'connection_id' => (string) ($connection['connection_id'] ?? ''),
@@ -744,8 +766,15 @@ class RuntimeGraphAssemblerService {
     $state = trim((string) ($connection_row['state'] ?? 'open'));
 
     $from_dungeon_id = trim((string) ($connection_row['dungeon_id'] ?? ''));
-    $to_dungeon_id = trim((string) ($connection_row['to_dungeon_id'] ?? ''));
-    $is_gateway = $to_dungeon_id !== '';
+    if ($from_dungeon_id === '') {
+      throw new \RuntimeException(sprintf(
+        'RuntimeGraphAssembler contract violation: dc_campaign_connections row %s is missing dungeon_id.',
+        (string) ($connection_row['connection_id'] ?? $connection_row['id'] ?? 'unknown')
+      ));
+    }
+    $raw_to_dungeon_id = trim((string) ($connection_row['to_dungeon_id'] ?? ''));
+    $is_gateway = $raw_to_dungeon_id !== '' && $raw_to_dungeon_id !== $from_dungeon_id;
+    $to_dungeon_id = $raw_to_dungeon_id !== '' ? $raw_to_dungeon_id : $from_dungeon_id;
     $payload = [
       'connection_id' => trim((string) ($connection_row['connection_id'] ?? '')),
       'from_room' => $from_room_id,

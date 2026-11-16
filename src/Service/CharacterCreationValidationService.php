@@ -340,10 +340,18 @@ class CharacterCreationValidationService {
             ? array_filter($raw_spells, static fn($v) => $v !== 0 && $v !== '' && $v !== NULL)
             : [];
           $spell_count = count($selected_spells);
-          if ($spell_count > $first_spell_limit) {
-            $form_state->setErrorByName('spells_first', $this->t('Select at most @count spell(s). You have selected @selected.', [
+          $school_minimum = (int) $form_state->get('first_spell_school_minimum');
+          $school_count = count(array_intersect($selected_spells, (array) $form_state->get('first_spell_school_ids')));
+          if ($spell_count !== $first_spell_limit) {
+            $form_state->setErrorByName('spells_first', $this->t('Select exactly @count 1st-level spell(s). You have selected @selected.', [
               '@count' => $first_spell_limit,
               '@selected' => $spell_count,
+            ]));
+          }
+          elseif ($school_count < $school_minimum) {
+            $form_state->setErrorByName('spells_first', $this->t('At least @count of your 1st-level spells must belong to your arcane school. You have selected @selected.', [
+              '@count' => $school_minimum,
+              '@selected' => $school_count,
             ]));
           }
         }
@@ -1365,7 +1373,9 @@ class CharacterCreationValidationService {
         '#required' => TRUE,
         '#description' => $this->t('Your thesis determines wizard feat prerequisites such as Spell Combination.'),
       ];
-      $this->attachOptionCardSettings($form['class_dynamic'], 'arcane_thesis', $thesis_cards, 'single');
+      // The thesis that grants Familiar for free cannot join the Familiar feat.
+      $selected_wizard_feat = (string) ($form_state->getValue('class_feat') ?: ($character_data['class_feat'] ?? ''));
+      $this->attachOptionCardSettings($form['class_dynamic'], 'arcane_thesis', $thesis_cards, 'single', $selected_wizard_feat === 'familiar' ? ['improved-familiar-attunement'] : []);
     }
 
     // --- Spell Selection for ALL spellcasting classes ---
@@ -1374,33 +1384,27 @@ class CharacterCreationValidationService {
     $subclass_value = (string) ($form_state->getValue('subclass') ?: ($character_data['subclass'] ?? ''));
     $resolve_data = array_merge($character_data, $subclass_value ? ['subclass' => $subclass_value] : []);
     $tradition = $this->characterManager->resolveClassTradition($selected_class, $resolve_data);
-    $spell_slots = CharacterManager::CASTER_SPELL_SLOTS[$selected_class] ?? NULL;
-
-    if ($tradition && $spell_slots) {
+    if ($tradition && SpellcastingTables::isCaster($selected_class)) {
       $tradition_label = ucfirst($tradition);
       $class_label = ucfirst($selected_class);
-      $num_cantrips = $spell_slots['cantrips'];
-      $num_first = $spell_slots['first'];
-      $spellbook_size = $spell_slots['spellbook'] ?? NULL;
-
-      if ($selected_class === 'wizard') {
-        $spells_intro = $this->t('As a Wizard, you begin with knowledge of arcane magic. Choose your starting cantrips and spells for your spellbook.');
-        $first_label = $this->t('Choose up to @count First Level Spells (Spellbook)', ['@count' => $spellbook_size ?? $num_first]);
-        $first_help = $this->t('These spells are added to your spellbook. You can prepare @slots spells per day at level 1. Choose versatile spells.', ['@slots' => $num_first]);
-        $max_first = $spellbook_size ?? $num_first;
-      }
-      else {
-        $spells_intro = $this->t('As a @class, you tap into the @tradition spell tradition. Choose your starting cantrips and 1st-level spells.', [
-          '@class' => $class_label,
-          '@tradition' => $tradition_label,
-        ]);
-        $first_label = $this->t('Choose @count First Level Spells', ['@count' => $num_first]);
-        $first_help = $this->t('You can cast @count 1st-level @tradition spells per day at level 1.', [
-          '@count' => $num_first,
-          '@tradition' => $tradition_label,
-        ]);
-        $max_first = $num_first;
-      }
+      $caster = SpellcastingTables::forClass($selected_class);
+      $selection = SpellcastingTables::levelOneSelection($selected_class, $subclass_value);
+      $slots = SpellcastingTables::slots($selected_class, 1, $subclass_value);
+      $num_cantrips = $selection['cantrips'];
+      $max_first = $selection['first'];
+      $school_first = $selection['first_of_school'];
+      $school_label = ucfirst($subclass_value);
+      $per_day = $this->t('Each day you can cast @cantrips cantrips and @slots 1st-level spell(s).', ['@cantrips' => $slots['cantrips'], '@slots' => $slots[1]]);
+      $spells_intro = match ($caster['known_from']) {
+        'spellbook' => $this->t('Your spellbook starts with exactly @cantrips @tradition cantrips and @first 1st-level spells. You prepare your daily spells from it.', ['@cantrips' => $num_cantrips, '@first' => $max_first, '@tradition' => $tradition_label]),
+        'familiar' => $this->t('Your familiar starts knowing exactly @cantrips @tradition cantrips and @first 1st-level spells, plus what your patron grants. You prepare your daily spells from it.', ['@cantrips' => $num_cantrips, '@first' => $max_first, '@tradition' => $tradition_label]),
+        'tradition_list' => $this->t('As a @class you prepare from the whole @tradition list. Choose your first day: exactly @cantrips cantrips and @first 1st-level spells.', ['@class' => $class_label, '@cantrips' => $num_cantrips, '@first' => $max_first, '@tradition' => $tradition_label]),
+        'repertoire' => $this->t('Your spell repertoire starts with exactly @cantrips @tradition cantrips and @first 1st-level spells.', ['@cantrips' => $num_cantrips, '@first' => $max_first, '@tradition' => $tradition_label]),
+      };
+      $first_label = $this->t('Choose @count First Level Spells', ['@count' => $max_first]);
+      $first_help = $school_first > 0
+        ? $this->t('At least @school of them must be @label spells. @per_day', ['@school' => $school_first, '@label' => $school_label, '@per_day' => $per_day])
+        : $per_day;
 
       $form['class_dynamic']['spells_section'] = [
         '#markup' => '<div class="section-instructions spells-section">'
@@ -1413,6 +1417,11 @@ class CharacterCreationValidationService {
       $form_state->set('spell_tradition', $tradition);
       $form_state->set('cantrip_limit', $num_cantrips);
       $form_state->set('first_spell_limit', $max_first);
+      $form_state->set('first_spell_school_minimum', $school_first);
+      $form_state->set('first_spell_school_ids', $school_first > 0 ? array_column(array_filter(
+        $this->characterManager->getSpellsByTradition($tradition, 1),
+        static fn(array $spell): bool => strtolower((string) ($spell['school'] ?? '')) === $subclass_value,
+      ), 'id') : []);
 
       // Expose limits to JS for live checkbox guardrails.
       // Attached to class_dynamic (not $form) so settings travel with AJAX.
@@ -1452,6 +1461,7 @@ class CharacterCreationValidationService {
         '#default_value' => CharacterManager::getSelectedCantripIds($character_data),
         '#required' => FALSE,
         '#description' => $this->t('Select exactly @count cantrips from the @tradition spell list.', ['@count' => $num_cantrips, '@tradition' => $tradition_label]),
+        '#selection_count' => $num_cantrips,
       ];
       $this->attachOptionCardSettings($form['class_dynamic'], 'cantrips', $cantrip_cards, 'multiple');
 
@@ -1485,7 +1495,9 @@ class CharacterCreationValidationService {
         '#options' => $spell_options,
         '#default_value' => CharacterManager::getSelectedFirstLevelSpellIds($character_data),
         '#required' => FALSE,
-        '#description' => $this->t('Select your starting 1st-level @tradition spells.', ['@tradition' => $tradition_label]),
+        '#description' => $this->t('Select exactly @count 1st-level @tradition spells.', ['@count' => $max_first, '@tradition' => $tradition_label]),
+        '#selection_count' => $max_first,
+        '#required_from' => ['count' => $school_first, 'options' => $school_first > 0 ? $form_state->get('first_spell_school_ids') : []],
       ];
       $this->attachOptionCardSettings($form['class_dynamic'], 'spells_first', $spell_cards, 'multiple');
 
@@ -1786,6 +1798,7 @@ class CharacterCreationValidationService {
           '#options' => $all_skills,
           '#default_value' => $character_data['trained_skills'] ?? [],
           '#description' => $this->t('Select exactly @count skill(s). You can gain additional skills from feats and ancestry features.', ['@count' => $total_skill_picks]),
+          '#selection_count' => $total_skill_picks,
           '#required' => FALSE,
         ];
 
@@ -2363,48 +2376,19 @@ class CharacterCreationValidationService {
       || $class_id === 'witch';
   }
 
+  /**
+   * Starting equipment by category, from the content registry.
+   *
+   * @throws \RuntimeException
+   *   `starting_equipment_catalog_empty` when the registry offers nothing.
+   */
   public function getEquipmentCatalog(): array {
-    $template_catalog = $this->buildEquipmentCatalogFromTemplates();
-    if (!empty($template_catalog['weapons']) || !empty($template_catalog['armor']) || !empty($template_catalog['gear'])) {
-      return $template_catalog;
+    $catalog = $this->buildEquipmentCatalogFromTemplates();
+    if ($catalog['weapons'] === [] && $catalog['armor'] === [] && $catalog['gear'] === []) {
+      throw new \RuntimeException('starting_equipment_catalog_empty: the content registry holds no priced items from content/items/.');
     }
 
-    return [
-      'weapons' => [
-        ['id' => 'longsword', 'name' => 'Longsword', 'type' => 'weapon', 'cost' => 1.0, 'bulk' => 1, 'damage' => '1d8 S', 'hands' => 1, 'traits' => ['versatile P'], 'description' => 'A dependable martial blade that can slash or shift into piercing attacks.'],
-        ['id' => 'shortsword', 'name' => 'Shortsword', 'type' => 'weapon', 'cost' => 0.9, 'bulk' => 'L', 'damage' => '1d6 P', 'hands' => 1, 'traits' => ['agile', 'finesse', 'versatile S'], 'description' => 'A light dueling weapon suited to agile and Dexterity-focused fighting styles.'],
-        ['id' => 'dagger', 'name' => 'Dagger', 'type' => 'weapon', 'cost' => 0.2, 'bulk' => 'L', 'damage' => '1d4 P', 'hands' => 1, 'traits' => ['agile', 'finesse', 'thrown 10 ft.', 'versatile S'], 'description' => 'A compact backup weapon that works in melee or as a short-range thrown blade.'],
-        ['id' => 'rapier', 'name' => 'Rapier', 'type' => 'weapon', 'cost' => 2.0, 'bulk' => 1, 'damage' => '1d6 P', 'hands' => 1, 'traits' => ['deadly d8', 'disarm', 'finesse'], 'description' => 'A precise dueling blade built for finesse attacks and high-accuracy strikes.'],
-        ['id' => 'battleaxe', 'name' => 'Battle Axe', 'type' => 'weapon', 'cost' => 1.0, 'bulk' => 1, 'damage' => '1d8 S', 'hands' => 1, 'traits' => ['sweep'], 'description' => 'A hard-hitting axe that rewards pressuring multiple foes in close quarters.'],
-        ['id' => 'warhammer', 'name' => 'Warhammer', 'type' => 'weapon', 'cost' => 1.0, 'bulk' => 1, 'damage' => '1d8 B', 'hands' => 1, 'traits' => ['shove'], 'description' => 'A crushing melee weapon that pairs well with shield users and battlefield control.'],
-        ['id' => 'shortbow', 'name' => 'Shortbow', 'type' => 'weapon', 'cost' => 3.0, 'bulk' => 1, 'damage' => '1d6 P', 'hands' => 2, 'traits' => ['deadly d10', 'range 60 ft.'], 'description' => 'A compact ranged weapon for mobile archers who want steady attacks from safety.'],
-        ['id' => 'longbow', 'name' => 'Longbow', 'type' => 'weapon', 'cost' => 6.0, 'bulk' => 2, 'damage' => '1d8 P', 'hands' => 2, 'traits' => ['deadly d10', 'range 100 ft.', 'volley 30 ft.'], 'description' => 'A powerful bow with exceptional reach, best used when you can keep enemies at range.'],
-        ['id' => 'staff', 'name' => 'Staff', 'type' => 'weapon', 'cost' => 0.0, 'bulk' => 1, 'damage' => '1d4 B', 'hands' => 2, 'traits' => ['two-hand d8'], 'description' => 'A simple two-handed staff that doubles as an arcane focus and walking aid.'],
-      ],
-      'armor' => [
-        ['id' => 'leather', 'name' => 'Leather Armor', 'type' => 'armor', 'cost' => 2.0, 'bulk' => 1, 'ac' => '+1', 'traits' => [], 'description' => 'Flexible light armor that offers a modest defense boost with minimal encumbrance.'],
-        ['id' => 'studded_leather_armor', 'name' => 'Studded Leather Armor', 'type' => 'armor', 'cost' => 3.0, 'bulk' => 1, 'ac' => '+2', 'traits' => [], 'description' => 'Reinforced light armor for agile warriors who want stronger protection without heavy bulk.'],
-        ['id' => 'chain_shirt', 'name' => 'Chain Shirt', 'type' => 'armor', 'cost' => 5.0, 'bulk' => 1, 'ac' => '+2', 'traits' => ['flexible', 'noisy'], 'description' => 'A light layer of chain that balances defense with mobility, though it is harder to keep quiet.'],
-        ['id' => 'hide_armor', 'name' => 'Hide Armor', 'type' => 'armor', 'cost' => 2.0, 'bulk' => 2, 'ac' => '+3', 'traits' => [], 'description' => 'Sturdy hides favored by wilderness warriors who can handle extra weight for more protection.'],
-        ['id' => 'scale_mail', 'name' => 'Scale Mail', 'type' => 'armor', 'cost' => 4.0, 'bulk' => 2, 'ac' => '+3', 'traits' => [], 'description' => 'Overlapping scales provide solid early-game defense for front-line adventurers.'],
-        ['id' => 'chain_mail', 'name' => 'Chain Mail', 'type' => 'armor', 'cost' => 6.0, 'bulk' => 2, 'ac' => '+4', 'traits' => ['flexible', 'noisy'], 'description' => 'Heavy rings offer strong defense for martial builds that can tolerate the noise and weight.'],
-        ['id' => 'breastplate', 'name' => 'Breastplate', 'type' => 'armor', 'cost' => 8.0, 'bulk' => 2, 'ac' => '+4', 'traits' => [], 'description' => 'A solid torso plate that brings sturdy protection without a full suit of heavy armor.'],
-        ['id' => 'wooden_shield', 'name' => 'Wooden Shield', 'type' => 'armor', 'cost' => 1.0, 'bulk' => 1, 'ac' => '+2 circumstance', 'traits' => [], 'description' => 'A simple shield that improves survivability and enables shield-based defenses.'],
-      ],
-      'gear' => [
-        ['id' => 'backpack', 'name' => 'Backpack', 'type' => 'adventuring_gear', 'cost' => 0.1, 'bulk' => 'L', 'traits' => [], 'description' => 'A basic pack for carrying the rest of your kit into the field.'],
-        ['id' => 'bedroll', 'name' => 'Bedroll', 'type' => 'adventuring_gear', 'cost' => 0.1, 'bulk' => 'L', 'traits' => [], 'description' => 'A simple sleeping roll for overland travel, campouts, and dungeon rests.'],
-        ['id' => 'rope', 'name' => 'Rope (50 ft.)', 'type' => 'adventuring_gear', 'cost' => 0.5, 'bulk' => 'L', 'traits' => [], 'description' => 'Useful for climbing, tying gear, and solving all kinds of traversal problems.'],
-        ['id' => 'torches', 'name' => 'Torches (5)', 'type' => 'adventuring_gear', 'cost' => 0.05, 'bulk' => 'L', 'traits' => [], 'description' => 'Cheap, reliable light sources when the party cannot rely on magic.'],
-        ['id' => 'rations', 'name' => 'Rations (1 week)', 'type' => 'adventuring_gear', 'cost' => 0.4, 'bulk' => 'L', 'traits' => [], 'description' => 'Trail food for long journeys when inns and settlements are far away.'],
-        ['id' => 'waterskin', 'name' => 'Waterskin', 'type' => 'adventuring_gear', 'cost' => 0.05, 'bulk' => 'L', 'traits' => [], 'description' => 'A light container that keeps your character ready for travel and survival scenes.'],
-        ['id' => 'healers_tools', 'name' => "Healer's Tools", 'type' => 'adventuring_gear', 'cost' => 5.0, 'bulk' => 1, 'traits' => [], 'description' => 'Required for many Medicine actions, including key battlefield and downtime care.'],
-        ['id' => 'thieves_tools', 'name' => "Thieves' Tools", 'type' => 'adventuring_gear', 'cost' => 3.0, 'bulk' => 'L', 'traits' => [], 'description' => 'Essential picks and implements for locks, traps, and stealthy infiltration work.'],
-        ['id' => 'grappling_hook', 'name' => 'Grappling Hook', 'type' => 'adventuring_gear', 'cost' => 0.1, 'bulk' => 'L', 'traits' => [], 'description' => 'Pairs with rope to help the party scale walls, ledges, and ruined structures.'],
-        ['id' => 'hooded_lantern', 'name' => 'Hooded Lantern', 'type' => 'adventuring_gear', 'cost' => 0.7, 'bulk' => 'L', 'traits' => [], 'description' => 'A controlled light source that is safer and more practical than loose flames.'],
-        ['id' => 'oil_flask', 'name' => 'Oil (1 flask)', 'type' => 'adventuring_gear', 'cost' => 0.1, 'bulk' => 'L', 'traits' => [], 'description' => 'Fuel for lanterns and a handy utility consumable for improvised adventuring solutions.'],
-      ],
-    ];
+    return $catalog;
   }
 
   public function buildEquipmentCatalogFromTemplates(): array {
@@ -2414,13 +2398,8 @@ class CharacterCreationValidationService {
       'gear' => [],
     ];
 
-    if (!$this->database->schema()->tableExists('dungeoncrawler_content_registry')) {
-      return $catalog;
-    }
-
-    // Query curated starting equipment directly from the content registry.
-    // Filter: content_type = 'item', source from our content/items/ directory,
-    // level ≤ 1, and cost ≤ 15 gp (starter budget).
+    // Starting equipment: registry items packaged under content/items/ that
+    // state a price within the 15 gp starter budget.
     $query = $this->database->select('dungeoncrawler_content_registry', 'r');
     $query->fields('r', ['content_id', 'name', 'tags', 'schema_data']);
     $query->condition('r.content_type', 'item');
@@ -2439,12 +2418,23 @@ class CharacterCreationValidationService {
         $schema_data = [];
       }
 
+      // Only an item with a stated price is for sale. Scene props (a room's
+      // visible inventory) are items too, but they carry no price.
+      if (!is_array($schema_data['price'] ?? NULL)) {
+        continue;
+      }
+
       // Calculate cost in gp from the nested price object.
-      $price = $schema_data['price'] ?? [];
+      $price = $schema_data['price'];
       $cost_gp = (float) ($price['gp'] ?? 0)
         + (float) ($price['sp'] ?? 0) / 10
         + (float) ($price['cp'] ?? 0) / 100
         + (float) ($price['pp'] ?? 0) * 10;
+
+      // Nothing for sale is free: a zero price is a content defect.
+      if ($cost_gp <= 0) {
+        throw new \RuntimeException("starting_equipment_price_zero: item {$item_id} is for sale with a price of 0.");
+      }
 
       // Skip items over budget.
       if ($cost_gp > 15) {
@@ -3947,6 +3937,7 @@ class CharacterCreationValidationService {
       '#default_value' => $selected_skills,
       '#required' => FALSE,
       '#description' => $this->t('Select exactly two skills granted by Natural Skill.'),
+      '#selection_count' => 2,
     ];
   }
 
@@ -4027,6 +4018,7 @@ class CharacterCreationValidationService {
       '#default_value' => $selected_skills,
       '#required' => FALSE,
       '#description' => $this->t('Select exactly two skills granted temporarily by Ancestral Longevity.'),
+      '#selection_count' => 2,
     ];
   }
 
@@ -4647,6 +4639,7 @@ class CharacterCreationValidationService {
       '#description' => $this->t('Select exactly @count familiar abilities for this familiar.', [
         '@count' => $this->getFamiliarStartingAbilityCount($character_data, $source_feat_id),
       ]),
+      '#selection_count' => $this->getFamiliarStartingAbilityCount($character_data, $source_feat_id),
     ];
     $this->attachOptionCardSettings(
       $container['feat_selections'][$source_feat_id],
@@ -5584,6 +5577,15 @@ class CharacterCreationValidationService {
     if ((int) ($feat['level'] ?? 1) !== 1) {
       return FALSE;
     }
+    // A proficiency feat that would raise nothing for this class is not a
+    // choice; the same rule rejects it in validation.
+    $feat_id = (string) ($feat['id'] ?? '');
+    if ($feat_id === 'armor-proficiency' && $this->resolveArmorProficiencyTarget($character_data) === NULL) {
+      return FALSE;
+    }
+    if ($feat_id === 'weapon-proficiency' && (CharacterManager::resolveWeaponProficiencyGrant($character_data, 0)['mode'] ?? '') === 'no_upgrade') {
+      return FALSE;
+    }
 
     $prerequisites = trim((string) ($feat['prerequisites'] ?? ''));
     if ($prerequisites === '' || strtolower($prerequisites) === 'none') {
@@ -5896,8 +5898,14 @@ class CharacterCreationValidationService {
           'required' => !empty($element['#required']),
           'multiple' => $multiple,
           'description' => strip_tags((string) ($element['#description'] ?? '')),
-          'options' => array_map(static fn(mixed $label): string => (string) $label, $options),
+          // An option the form shows disabled is not offered.
+          'options' => array_diff_key(
+            array_map(static fn(mixed $label): string => (string) $label, $options),
+            array_flip($cards[(string) $key]['disabledValues'] ?? []),
+          ),
           ...($multiple ? ['unique_items' => TRUE] : []),
+          ...(isset($element['#selection_count']) ? ['selection_count' => (int) $element['#selection_count']] : []),
+          ...(!empty($element['#required_from']['count']) ? ['required_from' => $element['#required_from']] : []),
         ];
         $selected = $multiple ? self::normalizeList($value) : ($value === NULL || $value === '' ? [] : [$value]);
         foreach ($selected as $selection) {

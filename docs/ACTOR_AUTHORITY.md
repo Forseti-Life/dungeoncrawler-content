@@ -171,17 +171,35 @@ Definition Editor keeps its existing approval step for mutating tools.
 
 ## Canonical actor definitions
 
-Every `dc_canonical_actors` definition of type `pc` or `npc` has a library
-actor row (`lifecycle_state = canonical_template`, `instance_id` = the
-definition id). The definition's authored state is stored verbatim: no default
-class, ancestry, statistics or level clamp. Traps, obstacles and parties are
-not actors and get no row. `tools/actor-authority/fold-canonical-actors.php`
-folded the existing 110 actor definitions on 2026-11-14 (dry run by default;
-`ACTOR_FOLD_APPLY=1` to apply).
+A canonical actor definition of type `pc` or `npc` is stored in exactly one
+place: its library actor row (`campaign_id = 0`,
+`lifecycle_state = canonical_template`, `instance_id` = the definition id).
+`character_data` holds the definition's `state_data` verbatim plus three
+wrapper keys (`CanonicalDefinitionService::LIBRARY_ROW_KEYS`): `actor_id`,
+`canonical_actor_version`, and `canonical_definition` (`source_module`,
+`metadata`). No class, ancestry, statistics or level clamp is invented.
 
-`dc_canonical_actors` is still the store the definition editors read. Retiring
-it, and `CharacterManager::saveCanonicalActorTemplate()` with its invented
-defaults, is the next step of this fold.
+- `CanonicalDefinitionService` still owns definition identity, schema
+  validation, versioning and room impact. It reads and writes these rows only
+  through `ActorDefinitionMirror` (`definitionRecords`, `mirror`), which
+  commits through the actor authority.
+- Typed actor commands sent straight to a definition row are refused with
+  `actor_definition_owned`; the actor tools on the Definition Editor and
+  Storyline Builder go through the definition service.
+- `dc_canonical_actors` now holds only the four non-actor placeables (one
+  trap, one obstacle, two parties) until they get their own home (D20).
+- Template import no longer truncates and rebuilds actor definitions; storyline
+  and objective actor refs resolve against the definition service. Update
+  10227 dropped the two foreign keys that pointed at `dc_canonical_actors`.
+- `CharacterManager::loadActorBySlugOrId()` is read-only. The load-time
+  materializer, `saveCanonicalActorTemplate()` and
+  `instantiateCampaignActorFromTemplate()` (invented defaults) are removed.
+
+History: `fold-canonical-actors.php` created the 110 rows;
+`retire-canonical-actor-rows.php` (dry run by default, `ACTOR_RETIRE_APPLY=1`)
+moved the definitions on 2026-11-14, proving each read back identical before
+deleting the old row. A copy of the old table is kept as
+`zz_backup_dc_canonical_actors_20261114`.
 
 Wizard choices go through `plan_character_draft_updates` /
 `apply_character_draft_updates`, which execute `actor.build.apply_choices`.
@@ -191,3 +209,100 @@ The live validator resolves references against `ActorCatalogService`.
 Player-build choice
 eligibility is `not_checked` until the character creation rules are projected
 from the new document (slice S2). The shared actor tools are not implemented.
+
+## Character GM: build in one step, no confirmations (2026-11-14)
+
+- `autofill_character_draft` (`CharacterCreationGmService::autofillDraft`)
+  applies the player's stated preferences, then fills every open decision in
+  wizard order from the options the validation authority offers for the
+  candidate character, and saves once through `actor.build.apply_choices`.
+- It is strict. An invalid preference fails the request (422). A wizard
+  option the rules then reject (`character_wizard_offered_option_rejected`),
+  a decision with nothing offered (`character_wizard_decision_not_offered`)
+  or a multi-select with no declared count
+  (`character_wizard_choice_count_not_declared`) is a rules defect and fails
+  loudly. Only the character's name may stay open.
+- The character surface never returns a clarification, never asks for
+  approval, and returns exactly one next step, taken from validation after a
+  save.
+- Choice projection now states `selection_count` for every multi-select,
+  `required_from` for a subset rule, and leaves out options the form shows
+  disabled.
+
+Known open defects it reports (free-text decisions with no offered options):
+deity for Domain Initiate, the Multitalented language, the Gnome Obsession
+lore.
+
+## Spell tables (2026-11-14)
+
+`src/Service/SpellcastingTables.php` is the only source of spell counts for
+wizard, magus, witch, cleric, druid, bard, oracle, sorcerer and summoner:
+slots per day at every level, cantrips per day, where known spells live, and
+the exact number of cantrips and 1st-rank spells known at level 1. A wizard
+specialist gains one cantrip and one slot per rank 1-9 and two 1st-rank
+school spells in the starting spellbook. `CharacterManager::CASTER_SPELL_SLOTS`,
+the per-class `spell_slots_by_level` copies in `CharacterRulesCatalog` and the
+default slot table in `CharacterProgressionRegistry` are removed. Creation
+validation requires the exact counts.
+
+## Level-1 class feats (2026-11-14)
+
+52 level-1 class feats were authored for champion, monk, investigator,
+swashbuckler, gunslinger, inventor, oracle, witch, magus and summoner, which
+had none and could not finish creation. Their engine effects are data in
+`src/Service/ClassFeatEffects.php`, applied by `FeatEffectManager`. The 16
+multiclass dedication feats the Eldritch Trickster racket offers are in the
+feat catalog as type `archetype` (a bonus feat slot).
+
+## Spell catalog rebuild (2026-11-15)
+
+The packaged spell records (`content/intermediary/*_spells_intermediary.json`)
+were rebuilt against a rules reference, because the original text extraction
+had mixed page furniture, neighbouring spells and stat blocks into
+descriptions and had lost or misnamed records.
+
+- Facts (rank, school, traditions, traits, casting, range, area, targets,
+  duration, save) were corrected wherever they disagreed with the reference.
+- A record's text was kept only where it belongs to that spell; 67 bodies
+  filed under the wrong name moved to their true spell; 18 records named
+  after traits (`hex`, `cursebound`, `witch`, ...) are gone.
+- 21 spells whose text was unrecoverable have original descriptions.
+- Focus spells and rituals have no tradition, so they no longer appear in
+  tradition spell lists at character creation.
+- `raw_text_block` is `none` on rebuilt records.
+- Registry copy before the rebuild: `zz_backup_spell_registry_20261115`.
+
+Known limit: a sentence was removed only when it was page furniture, sidebar
+narrative, or provably another reference spell's text. Text from a spell that
+is not in the reference set could remain.
+
+## Storyline actor relationships (2026-11-15)
+
+- Affiliations and relationships follow the institution and relationship
+  engines (2026-11-16); the free-text `faction` and `relationship_type` are gone.
+- Draft schema: each actor spec may list `affiliations[] {domain, name}`.
+  Domains are `InstitutionNormalizationService::AUTHORABLE_DOMAINS`: family,
+  government (state or nation), allegiance (faction), settlement, religion,
+  employer (guild), education (order), noble, security, criminal, culture.
+  Ancestry and profession memberships are not authored; they follow the
+  actor's `ancestry` and `class`. One settlement and one government per actor.
+- `objects.actors.relationships` lists `{source_actor_id, target_actor_id,
+  attitude, bond?, notes?}`. `attitude` is one of
+  `RelationshipAttitudeService::ATTITUDES`; `bond` is a free label (spouse,
+  rival, serves). One relationship per ordered pair of actors.
+- Published definition: `contact.relationship_state.affiliations` holds the
+  engine's structured selections (`domain, display_name, source_asset_type:
+  storyline, source_asset_id: <storyline>:<domain>:<label>`). Relationships
+  become `introduces_to` entries of type `knows` carrying the attitude, with
+  `relationship_state.bond`, marked `authored_in: storyline_actor_relationships`.
+- Campaign: `StorylineCampaignAttachmentService::apply` calls
+  `InstitutionMembershipService::syncStorylineContactMemberships`, which puts
+  each contact's selections in the NPC's structured affiliation fields and
+  runs the normal NPC membership sync (`institution_member` edges). Bundled
+  storylines seeded by `CampaignInitializationService` do not take this path.
+- `/game-master/storyline-builder/actors?draft_id=…` groups actors by any one
+  domain ("Group by"), colours links by attitude, and manages both.
+- An actor that exists only as a draft spec opens a "not created yet" review
+  page (`/actors/{id}?draft_id=…`); nothing is created by viewing.
+- `StorylineAuthoringDraftController::decodeBody()` now decodes to arrays; it
+  returned nested objects, so the save endpoint rejected every payload.

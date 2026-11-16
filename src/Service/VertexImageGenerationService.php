@@ -9,6 +9,7 @@ use Drupal\Core\Database\Connection;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use GuzzleHttp\ClientInterface;
 use GuzzleHttp\Exception\GuzzleException;
+use GuzzleHttp\Exception\RequestException;
 
 /**
  * Vertex image generation integration service.
@@ -161,8 +162,21 @@ class VertexImageGenerationService {
     }
 
     $project_id = $this->resolveProjectId($config, $credentials);
-    $location = $this->resolveLocation($config);
     $model = $this->resolveModel($config);
+    $location = $this->resolveLocation($config);
+    $compatibility_error = $this->validateModelLocationCompatibility($model, $location);
+    if ($compatibility_error !== NULL) {
+      return [
+        'success' => FALSE,
+        'provider' => 'vertex',
+        'provider_model' => $model,
+        'mode' => 'live',
+        'request_id' => $request_id,
+        'status' => 'failed',
+        'message' => $compatibility_error,
+        'payload' => $normalized_payload,
+      ];
+    }
     if ($project_id === '') {
       return [
         'success' => FALSE,
@@ -183,7 +197,14 @@ class VertexImageGenerationService {
 
     $endpoint = $this->buildEndpoint($this->resolveEndpointTemplate($config), $project_id, $location, $model);
     $timeout = $this->resolveTimeout($config);
-    $request_body = $this->buildVertexRequestBody($normalized_payload);
+    $uses_gemini_generate_content = $this->isGeminiGenerateContentModel($model);
+    if ($uses_gemini_generate_content) {
+      $endpoint = $this->buildVertexGeminiEndpoint($project_id, $location, $model);
+      $request_body = $this->buildVertexGeminiRequestBody($normalized_payload);
+    }
+    else {
+      $request_body = $this->buildVertexRequestBody($normalized_payload);
+    }
 
     try {
       $access_token = $this->fetchAccessToken($credentials, $timeout);
@@ -202,7 +223,9 @@ class VertexImageGenerationService {
         throw new \RuntimeException('Vertex response was not valid JSON.');
       }
 
-      $parsed_output = $this->extractOutput($decoded);
+      $parsed_output = $uses_gemini_generate_content
+        ? $this->extractGeminiOutput($decoded)
+        : $this->extractOutput($decoded);
 
       $this->storeCacheEntry($normalized_payload, $model, $decoded, $parsed_output, 'ready');
 
@@ -225,9 +248,26 @@ class VertexImageGenerationService {
       ];
     }
       catch (GuzzleException | \RuntimeException $exception) {
-      $this->loggerFactory->get('dungeoncrawler_content')->error('Vertex image generation request failed.', [
+      $failure_message = $exception->getMessage();
+      if ($exception instanceof RequestException && $exception->hasResponse()) {
+        $response = $exception->getResponse();
+        $status_code = $response->getStatusCode();
+        $body = (string) $response->getBody();
+        $decoded = json_decode($body, TRUE);
+        if (is_array($decoded) && is_array($decoded['error'] ?? NULL) && !empty($decoded['error']['message'])) {
+          $failure_message = sprintf('HTTP %d: %s', $status_code, (string) $decoded['error']['message']);
+        }
+        elseif ($body !== '') {
+          $failure_message = sprintf('HTTP %d: %s', $status_code, substr(preg_replace('/\s+/', ' ', $body), 0, 400));
+        }
+        else {
+          $failure_message = sprintf('HTTP %d: %s', $status_code, $exception->getMessage());
+        }
+      }
+
+      $this->loggerFactory->get('dungeoncrawler_content')->error('Vertex image generation request failed: @message', [
+        '@message' => $failure_message,
         'request_id' => $request_id,
-        'message' => $exception->getMessage(),
       ]);
 
       $this->storeCacheEntry($normalized_payload, $model, [
@@ -241,7 +281,7 @@ class VertexImageGenerationService {
         'mode' => 'live',
         'request_id' => $request_id,
         'status' => 'failed',
-        'message' => 'Vertex request failed: ' . $exception->getMessage(),
+        'message' => 'Vertex request failed: ' . $failure_message,
         'payload' => $normalized_payload,
       ];
     }
@@ -525,6 +565,24 @@ class VertexImageGenerationService {
   }
 
   /**
+   * Validate known model/location constraints before hitting Vertex.
+   */
+  private function validateModelLocationCompatibility(string $model, string $location): ?string {
+    $normalized_model = strtolower(trim($model));
+    $normalized_location = strtolower(trim($location));
+
+    if ($normalized_model !== '' && str_starts_with($normalized_model, 'imagen-') && $normalized_location !== 'us-central1') {
+      return sprintf(
+        'Vertex request failed: model "%s" is configured with location "%s". Imagen publisher models must use location "us-central1".',
+        $model,
+        $location
+      );
+    }
+
+    return NULL;
+  }
+
+  /**
    * Build endpoint URL with location, project, and model.
    */
   private function buildEndpoint(string $template, string $project_id, string $location, string $model): string {
@@ -533,6 +591,19 @@ class VertexImageGenerationService {
     $endpoint = str_replace('{model}', rawurlencode($model), $endpoint);
 
     return $endpoint;
+  }
+
+  /**
+   * Build Vertex Gemini generateContent endpoint.
+   */
+  private function buildVertexGeminiEndpoint(string $project_id, string $location, string $model): string {
+    return sprintf(
+      'https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/google/models/%s:generateContent',
+      rawurlencode($location),
+      rawurlencode($project_id),
+      rawurlencode($location),
+      rawurlencode($model)
+    );
   }
 
   /**
@@ -664,6 +735,39 @@ class VertexImageGenerationService {
   }
 
   /**
+   * Build Vertex Gemini generateContent request body.
+   */
+  private function buildVertexGeminiRequestBody(array $normalized_payload): array {
+    $prompt = $normalized_payload['prompt'];
+    if ($normalized_payload['style'] !== '') {
+      $prompt .= "\nStyle: " . $normalized_payload['style'];
+    }
+    if ($normalized_payload['aspect_ratio'] !== '') {
+      $prompt .= "\nAspect ratio: " . $normalized_payload['aspect_ratio'];
+    }
+    if ($normalized_payload['negative_prompt'] !== '') {
+      $prompt .= "\nNegative prompt: " . $normalized_payload['negative_prompt'];
+    }
+    if ($normalized_payload['campaign_context'] !== '') {
+      $prompt .= "\nCampaign context: " . $normalized_payload['campaign_context'];
+    }
+
+    return [
+      'contents' => [
+        [
+          'role' => 'user',
+          'parts' => [
+            ['text' => $prompt],
+          ],
+        ],
+      ],
+      'generationConfig' => [
+        'responseModalities' => ['TEXT', 'IMAGE'],
+      ],
+    ];
+  }
+
+  /**
    * Normalize a value to a trimmed string.
    */
   private function normalizeString($value): string {
@@ -726,6 +830,68 @@ class VertexImageGenerationService {
     }
 
     return $output;
+  }
+
+  /**
+   * Extract text/image output from Vertex Gemini generateContent payload.
+   *
+   * @return array<string, string|null>
+   *   Parsed output values.
+   */
+  private function extractGeminiOutput(array $response): array {
+    $output = [
+      'text' => NULL,
+      'image_data_uri' => NULL,
+      'image_url' => NULL,
+    ];
+
+    $candidates = $response['candidates'] ?? [];
+    if (!is_array($candidates)) {
+      return $output;
+    }
+
+    foreach ($candidates as $candidate) {
+      if (!is_array($candidate)) {
+        continue;
+      }
+
+      $parts = $candidate['content']['parts'] ?? [];
+      if (!is_array($parts)) {
+        continue;
+      }
+
+      foreach ($parts as $part) {
+        if (!is_array($part)) {
+          continue;
+        }
+
+        if ($output['text'] === NULL && !empty($part['text']) && is_string($part['text'])) {
+          $output['text'] = $part['text'];
+        }
+
+        $inline = $part['inlineData'] ?? ($part['inline_data'] ?? NULL);
+        if (is_array($inline) && $output['image_data_uri'] === NULL) {
+          $mime = (string) ($inline['mimeType'] ?? $inline['mime_type'] ?? 'image/png');
+          $data = (string) ($inline['data'] ?? '');
+          if (strpos($mime, 'image/') === 0 && $data !== '') {
+            $output['image_data_uri'] = 'data:' . $mime . ';base64,' . $data;
+          }
+        }
+
+        if ($output['image_url'] === NULL && !empty($part['fileData']['fileUri']) && is_string($part['fileData']['fileUri'])) {
+          $output['image_url'] = $part['fileData']['fileUri'];
+        }
+      }
+    }
+
+    return $output;
+  }
+
+  /**
+   * Determines whether the model must use generateContent instead of predict.
+   */
+  private function isGeminiGenerateContentModel(string $model): bool {
+    return str_starts_with(strtolower(trim($model)), 'gemini-');
   }
 
 }

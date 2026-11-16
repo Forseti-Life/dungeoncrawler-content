@@ -103,9 +103,9 @@ class CharacterPortraitGenerationService {
     $integration_status = $this->integrationService->getIntegrationStatus();
     $requested_provider = strtolower(trim((string) ($options['provider'] ?? '')));
     $configured_provider = strtolower(trim((string) ($integration_status['configured_provider'] ?? $integration_status['default_provider'] ?? 'gemini')));
-    $provider = $this->integrationService->getReadyProvider($requested_provider !== '' ? $requested_provider : $configured_provider);
-    if ($provider === NULL) {
-      $provider = $requested_provider !== '' ? $requested_provider : $configured_provider;
+    $provider = $requested_provider !== '' ? $requested_provider : $configured_provider;
+    if (!in_array($provider, ['gemini', 'vertex'], TRUE)) {
+      $provider = $configured_provider;
     }
     $provider_status = is_array($integration_status['providers'][$provider] ?? NULL)
       ? $integration_status['providers'][$provider]
@@ -137,6 +137,21 @@ class CharacterPortraitGenerationService {
 
     try {
       $result = $this->integrationService->generateImage($payload, $provider);
+      if (empty($result['success'])) {
+        return [
+          'attempted' => TRUE,
+          'reason' => 'generation_failed',
+          'provider' => $provider,
+          'result' => $result,
+          'storage' => [
+            'stored' => FALSE,
+            'reason' => 'generation_failed',
+            'message' => trim((string) ($result['message'] ?? '')),
+            'status' => trim((string) ($result['status'] ?? 'failed')),
+          ],
+        ];
+      }
+
       $reused_storage = $this->reuseCachedPromptImage($result, $payload, $character_id, $owner_uid, $campaign_id);
       if (is_array($reused_storage)) {
         $this->syncLegacyPortraitColumn($character_id, (string) ($reused_storage['url'] ?? ''));

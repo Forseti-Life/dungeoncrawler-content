@@ -4,6 +4,7 @@ namespace Drupal\dungeoncrawler_content\Service\RoomChat;
 
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Session\AccountProxyInterface;
+use Drupal\dungeoncrawler_content\Service\CampaignMembershipService;
 
 /**
  * Access checks for campaign and character scoped room chat operations.
@@ -13,25 +14,14 @@ final class RoomChatAccessGuard {
   public function __construct(
     private readonly Connection $database,
     private readonly AccountProxyInterface $currentUser,
+    private readonly CampaignMembershipService $campaignMembership,
   ) {}
 
   /**
    * Check if current user has access to campaign.
    */
   public function hasCampaignAccess(int $campaign_id): bool {
-    if ($this->currentUserCanManageCampaign($campaign_id)) {
-      return TRUE;
-    }
-
-    $uid = $this->currentUser->id();
-    $user_in_campaign = $this->database->select('dc_campaign_characters', 'c')
-      ->condition('campaign_id', $campaign_id)
-      ->condition('uid', $uid)
-      ->countQuery()
-      ->execute()
-      ->fetchField();
-
-    return $user_in_campaign > 0;
+    return $this->currentUserCanManageCampaign($campaign_id);
   }
 
   /**
@@ -75,13 +65,7 @@ final class RoomChatAccessGuard {
       return TRUE;
     }
 
-    $owner_uid = $this->database->select('dc_campaigns', 'c')
-      ->fields('c', ['uid'])
-      ->condition('id', $campaign_id)
-      ->execute()
-      ->fetchField();
-
-    return $owner_uid && $owner_uid == $uid;
+    return $this->campaignMembership->isMember($campaign_id, (int) $uid);
   }
 
 }

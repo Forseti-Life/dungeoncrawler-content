@@ -106,7 +106,8 @@ class CampaignInitializationService {
     ?CanonicalRoomProjectionService $canonical_room_projection = NULL,
     ?ModuleConversionReleaseService $module_conversion_release_service = NULL,
     ?CanonicalQuestTemplateService $canonical_quest_template_service = NULL,
-    ?RoomStateService $room_state_service = NULL
+    ?RoomStateService $room_state_service = NULL,
+    protected ?CampaignMembershipService $campaignMembership = NULL,
   ) {
     $this->database = $database;
     $this->uuid = $uuid;
@@ -1304,6 +1305,7 @@ class CampaignInitializationService {
         'changed' => $now,
       ])
       ->execute();
+    $this->campaignMembership->enrolCreator($campaign_id, $uid);
     $this->enrollCampaignInLatencyCanaryIfEnabled($campaign_id);
     return $campaign_id;
   }

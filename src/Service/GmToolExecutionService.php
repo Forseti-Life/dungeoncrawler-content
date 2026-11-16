@@ -40,6 +40,8 @@ class GmToolExecutionService {
     'query_campaign_database' => 'Query campaign-instance tables for grounded lore, geography, and history context.',
     'inspect_storyline_branches' => 'List current pending and resolved storyline decisions using canonical runtime state.',
     'resolve_storyline_branch' => 'Resolve an authored storyline decision through the canonical Storyline Manager authority.',
+    'resolve_quest_goal' => 'Achieve a quest goal by one of its approaches, or an unplanned way when the quest allows it. Completes the quest, grants that way\'s reward and applies its story consequences.',
+    'reveal_quest_approach' => 'Let the party learn of a hidden way to achieve a quest goal.',
     'submit_backlog_suggestion' => 'Submit a system defect, bug report, user complaint, or feature suggestion into the project backlog.',
   ];
 
@@ -123,6 +125,16 @@ class GmToolExecutionService {
         $storyline_id = $this->requireNonEmptyStringPayload($tool, $payload, 'storyline_id');
         $decision_id = $this->requireNonEmptyStringPayload($tool, $payload, 'decision_id');
         $choice_id = $this->requireNonEmptyStringPayload($tool, $payload, 'choice_id');
+        // A choice that is a way of achieving a quest goal is resolved through
+        // the goal, so the quest, its reward and the story move together.
+        $quest_approach = $this->questTracker()->findQuestApproachForStorylineChoice($campaign_id, $storyline_id, $decision_id, $choice_id);
+        if ($quest_approach !== NULL) {
+          throw new \DomainException(sprintf(
+            'storyline_choice_is_quest_approach:%s:%s: use resolve_quest_goal.',
+            $quest_approach['quest_id'],
+            $quest_approach['approach_id']
+          ));
+        }
         $before = $this->storylineManager->getCampaignStoryline($campaign_id, $storyline_id, FALSE);
         if ($before === NULL) {
           throw new \OutOfBoundsException("storyline_not_found:{$storyline_id}", 404);
@@ -174,6 +186,69 @@ class GmToolExecutionService {
           ],
         );
 
+      case 'resolve_quest_goal':
+        $quest_id = $this->requireNonEmptyStringPayload($tool, $payload, 'quest_id');
+        $approach_id = $this->requireNonEmptyStringPayload($tool, $payload, 'approach_id');
+        $evidence = $this->requireNonEmptyStringPayload($tool, $payload, 'evidence');
+        $character_id = (int) ($payload['character_id'] ?? 0);
+        if ($character_id <= 0) {
+          throw new \InvalidArgumentException('resolve_quest_goal requires character_id: the player character who achieved the goal.', 400);
+        }
+        $completion = $this->questTracker()->resolveQuestGoal($campaign_id, $quest_id, $approach_id, $character_id, $evidence);
+        return $this->finalizeToolExecution(
+          [
+            'success' => TRUE,
+            'contract_version' => self::TOOL_CONTRACT_VERSION,
+            'tool' => $tool,
+            'campaign_id' => $campaign_id,
+            'quest_id' => $quest_id,
+            'approach_id' => $approach_id,
+            'goal' => $completion['goal'],
+            'rewards_applied' => $completion['rewards_applied'],
+          ],
+          $tool,
+          $campaign_id,
+          $principal,
+          $ownership_domain,
+          $correlation_id,
+          $payload_hash,
+          [
+            'operation' => 'resolve_goal',
+            'target_table' => 'dc_campaign_quests',
+            'before_hash' => $this->hashState(['quest_id' => $quest_id, 'resolved' => NULL]),
+            'after_hash' => $this->hashState($completion['goal']),
+          ],
+        );
+
+      case 'reveal_quest_approach':
+        $quest_id = $this->requireNonEmptyStringPayload($tool, $payload, 'quest_id');
+        $approach_id = $this->requireNonEmptyStringPayload($tool, $payload, 'approach_id');
+        $reason = $this->requireNonEmptyStringPayload($tool, $payload, 'reason');
+        $goal = $this->questTracker()->revealQuestApproach($campaign_id, $quest_id, $approach_id, $reason);
+        return $this->finalizeToolExecution(
+          [
+            'success' => TRUE,
+            'contract_version' => self::TOOL_CONTRACT_VERSION,
+            'tool' => $tool,
+            'campaign_id' => $campaign_id,
+            'quest_id' => $quest_id,
+            'approach_id' => $approach_id,
+            'goal' => $goal,
+          ],
+          $tool,
+          $campaign_id,
+          $principal,
+          $ownership_domain,
+          $correlation_id,
+          $payload_hash,
+          [
+            'operation' => 'reveal_approach',
+            'target_table' => 'dc_campaign_quests',
+            'before_hash' => $this->hashState(['quest_id' => $quest_id, 'approach_id' => $approach_id, 'revealed' => FALSE]),
+            'after_hash' => $this->hashState($goal),
+          ],
+        );
+
       case 'modify_campaign_character_instance':
         $mutation = $this->applyCampaignTablePatch('dc_campaign_characters', $campaign_id, $payload);
         return $this->finalizeToolExecution(
@@ -216,6 +291,7 @@ class GmToolExecutionService {
         );
 
       case 'modify_campaign_quest_progress':
+        $this->assertPatchDoesNotCompleteGoalQuest($campaign_id, $payload);
         $mutation = $this->applyCampaignTablePatch(
           $this->resolveAllowedTargetTable((string) ($payload['target_table'] ?? ''), [
             'dc_campaign_quest_progress',
@@ -532,6 +608,7 @@ class GmToolExecutionService {
       case 'modify_quest_state':
         $quest_id = $this->requireNonEmptyStringPayload($tool, $payload, 'quest_id');
         $patch = $this->requireNonEmptyPatchPayload($tool, $payload);
+        $this->assertPatchDoesNotCompleteGoalQuest($campaign_id, ['where' => ['quest_id' => $quest_id], 'fields' => $patch]);
         $record = $this->loadLatestDungeonRecord($campaign_id);
         $before = $record['dungeon_data'];
         $after = $this->applyQuestPatch($before, $quest_id, $patch);
@@ -672,6 +749,42 @@ class GmToolExecutionService {
     }
     if (str_starts_with($table, 'dungeoncrawler_content_') || str_starts_with($table, 'dc_library_') || str_starts_with($table, 'dc_canonical_')) {
       throw new \InvalidArgumentException(sprintf('GM tools cannot modify canonical/library tables: %s', $table), 403);
+    }
+  }
+
+  /**
+   * The quest tracker, resolved on use: it sits above this service in the
+   * container graph.
+   */
+  protected function questTracker(): QuestTrackerService {
+    return \Drupal::service('dungeoncrawler_content.quest_tracker');
+  }
+
+  /**
+   * Refuses a raw table patch that would complete a quest whose goal has not
+   * been achieved through an approach.
+   *
+   * @throws \DomainException
+   *   `quest_goal_unresolved:<quest_id>: use resolve_quest_goal.`
+   */
+  protected function assertPatchDoesNotCompleteGoalQuest(int $campaign_id, array $payload): void {
+    $fields = is_array($payload['fields'] ?? NULL) ? $payload['fields'] : [];
+    $completes = strtolower((string) ($fields['status'] ?? '')) === 'completed'
+      || !empty($fields['completed_at'])
+      || array_key_exists('objective_states', $fields);
+    $quest_id = (string) ($payload['where']['quest_id'] ?? $payload['keys']['quest_id'] ?? $fields['quest_id'] ?? '');
+    if (!$completes || $quest_id === '') {
+      return;
+    }
+    $quest = $this->database->select('dc_campaign_quests', 'q')
+      ->fields('q', ['quest_data'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('quest_id', $quest_id)
+      ->execute()
+      ->fetchAssoc();
+    $goal = is_array($quest) ? $this->questTracker()->loadQuestGoal($quest) : NULL;
+    if ($goal !== NULL && $goal['resolved'] === NULL) {
+      throw new \DomainException("quest_goal_unresolved:{$quest_id}: use resolve_quest_goal.");
     }
   }
 
@@ -898,19 +1011,6 @@ class GmToolExecutionService {
     ];
   }
 
-  protected function loadCampaignOwnerUid(int $campaign_id): int {
-    $owner_uid = (int) $this->database->select('dc_campaigns', 'c')
-      ->fields('c', ['uid'])
-      ->condition('id', $campaign_id)
-      ->range(0, 1)
-      ->execute()
-      ->fetchField();
-    if ($owner_uid <= 0) {
-      throw new \InvalidArgumentException(sprintf('GM tool execution principal entitlement failed: campaign %d has no valid GM owner.', $campaign_id), 403);
-    }
-    return $owner_uid;
-  }
-
   protected function loadCampaignCharacterPrincipal(int $campaign_id, int $gm_character_id): array {
     $query = $this->database->select('dc_campaign_characters', 'c')
       ->fields('c', ['id', 'uid', 'role', 'is_active'])
@@ -953,6 +1053,8 @@ class GmToolExecutionService {
       'query_campaign_database',
       'inspect_storyline_branches',
       'resolve_storyline_branch',
+      'resolve_quest_goal',
+      'reveal_quest_approach',
     ];
     $dungeon_tools = [
       'modify_dungeon_state',

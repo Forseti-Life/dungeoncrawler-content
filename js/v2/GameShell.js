@@ -29,26 +29,26 @@ import { HexCanvas } from './canvas/HexCanvas.js?v=20261009-module-background-1'
 import { HexTokenRenderer } from './canvas/HexTokenRenderer.js';
 import { HexFogOfWar } from './canvas/HexFogOfWar.js';
 import { HexInputHandler } from './canvas/HexInputHandler.js';
-import { EncounterSystem } from './systems/EncounterSystem.js?v=20261115-player-setup-1';
-import { NavigationSystem } from './systems/NavigationSystem.js?v=20261024-campaign-storylines-1';
+import { EncounterSystem } from './systems/EncounterSystem.js?v=20261115-marching-tab-1';
+import { NavigationSystem } from './systems/NavigationSystem.js?v=20261109-navigation-sync-1';
 import { PlayerAutomation } from './systems/PlayerAutomation.js?v=20260608-v2-chat-persistence-dev-1';
 import { QuestSystem } from './systems/QuestSystem.js?v=20260608-v2-quest-summary-merge-2';
 import { MerchantPanel } from './panels/MerchantPanel.js?v=20260909-tab-runtime-consistency-1';
 import { CombatPanel } from './panels/CombatPanel.js?v=20260827-v2-bootstrap-status-12';
 import { ActionRailPanel } from './panels/ActionRailPanel.js?v=20261024-campaign-storylines-1';
 import { ChatPanel } from './panels/ChatPanel.js?v=20261025-search-narrator-1';
-import { QuestPanel } from './panels/QuestPanel.js?v=20260723-v2-quest-storyline-grouping-2';
+import { QuestPanel } from './panels/QuestPanel.js?v=20261115-quest-goals-4';
 import { InventoryPanel } from './panels/InventoryPanel.js?v=20260909-tab-runtime-consistency-1';
-import { CharacterPanel } from './panels/CharacterPanel.js?v=20261115-player-setup-1';
+import { CharacterPanel } from './panels/CharacterPanel.js?v=20261115-marching-tab-1';
 import { RoomViewPanel } from './panels/RoomViewPanel.js?v=20261009-module-background-1';
 import { StatusPanel } from './panels/StatusPanel.js?v=20261109-visible-runtime-sync-1';
 import { normalizeInventoryState } from './utils/inventory-utils.js';
-import { normalizeQuestSummaryPayload } from './utils/quest-utils.js?v=20260607-quest-summary-const-4';
+import { normalizeQuestSummaryPayload } from './utils/quest-utils.js?v=20261115-quest-goals-4';
 import { normalizeAuthoritativeStateActorRef } from './utils/authoritative-state-utils.js';
 import { GameShellFetchBridge } from './shell/GameShellFetchBridge.js?v=20261008-chat-history-bus-guard-1';
-import { GameShellCampaignSettingsCoordinator } from './shell/GameShellCampaignSettingsCoordinator.js?v=20261025-setting-placement-2';
+import { GameShellCampaignSettingsCoordinator } from './shell/GameShellCampaignSettingsCoordinator.js?v=20261115-storyline-filter-1';
 import { GameShellTargetPickController } from './shell/GameShellTargetPickController.js';
-import { GameShellQuestCoordinator } from './shell/GameShellQuestCoordinator.js?v=20261024-campaign-storylines-1';
+import { GameShellQuestCoordinator } from './shell/GameShellQuestCoordinator.js?v=20261115-quest-goals-4';
 import { GameShellRoomGenerationCoordinator } from './shell/GameShellRoomGenerationCoordinator.js';
 import { SpriteService } from '../SpriteService.js?v=20260828-v5-map-actor-portraits-1';
 import { GameCoordinator } from '../game-coordinator/GameCoordinator.js?v=20261109-visible-runtime-sync-1';
@@ -874,8 +874,6 @@ export class GameShell {
     }
     return {
       campaign_id: Number(access.campaign_id || this.launchContext?.campaign_id || 0) || 0,
-      membership_role: String(access.membership_role || '').trim().toLowerCase() || 'player',
-      membership_status: String(access.membership_status || '').trim().toLowerCase() || 'active',
       can_use_player_mode: canUsePlayerMode,
       can_use_gm_mode: canUseGmMode,
       default_mode: defaultMode,
@@ -3801,8 +3799,18 @@ export class GameShell {
       return false;
     }
 
-    this.persistLaunchLocationContext(capability.target_room_id, capability.target_hex?.q ?? null, capability.target_hex?.r ?? null);
-    this.setActiveRoom(capability.target_room_id);
+    const button = typeof document !== 'undefined' && typeof document.createElement === 'function'
+      ? document.createElement('button')
+      : { dataset: {} };
+    button.dataset.roomId = String(capability.target_room_id || '').trim();
+    button.dataset.roomName = String(capability.target_room_name || capability.target_room_id || '').trim();
+    button.dataset.connectionId = String(capability.connection_id || '').trim();
+    button.dataset.originQ = String(q);
+    button.dataset.originR = String(r);
+    if (capability.dungeon_switch?.map_id) {
+      button.dataset.mapId = String(capability.dungeon_switch.map_id).trim();
+    }
+    this.bus?.emit('user:navigate', { button });
     return true;
   }
 

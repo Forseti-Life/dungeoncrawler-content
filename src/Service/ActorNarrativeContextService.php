@@ -9,7 +9,7 @@ use Drupal\Core\Database\Connection;
  */
 class ActorNarrativeContextService {
 
-  protected const CONTEXT_VERSION = 'actor-narrative-context-v2';
+  protected const CONTEXT_VERSION = 'actor-narrative-context-v3';
 
   protected Connection $database;
   protected ?RelationshipManagerService $relationshipManager;
@@ -40,7 +40,7 @@ class ActorNarrativeContextService {
     $actor_name = trim((string) ($actor_row['name'] ?? ''));
 
     $quest_links_as_giver = $this->loadQuestLinksAsGiver($campaign_id, $actor_id, $room_id);
-    $quest_links_as_contact = $this->loadQuestLinksAsContact($campaign_id, $entity_ref, $actor_name, $room_id);
+    $quest_links_as_contact = $this->loadQuestLinksAsContact($campaign_id, $entity_ref, $actor_name, $room_id, $actor_id);
     $storyline_links = $this->loadStorylineLinks($campaign_id, $entity_ref, $actor_name);
     $branch_context = [];
     if ($this->storylineManager) {
@@ -161,26 +161,24 @@ class ActorNarrativeContextService {
     $order_column = $this->firstExistingField('dc_campaign_quests', ['updated_at', 'created_at', 'available_at', 'id']) ?? 'id';
 
     $query = $this->database->select('dc_campaign_quests', 'q')
-      ->fields('q', ['quest_id', 'quest_name', 'status', 'location_id', 'storyline_id', 'storyline_chapter_id', 'storyline_scene_id'])
+      ->fields('q', ['quest_id', 'quest_name', 'quest_description', 'generated_objectives', 'status', 'location_id', 'storyline_id', 'storyline_chapter_id', 'storyline_scene_id'])
       ->condition('campaign_id', $campaign_id)
       ->condition('giver_npc_id', $actor_id)
-      ->condition('status', ['lead', 'offered', 'available', 'active', 'ready_for_turn_in'], 'IN')
-      ->orderBy($order_column, 'DESC')
-      ->range(0, 8);
+      ->condition('status', ['lead', 'offered', 'available', 'active', 'ready_for_turn_in', 'completed'], 'IN');
+    $query->addExpression("CASE WHEN q.status = 'completed' THEN 1 ELSE 0 END", 'history_order');
+    $query->orderBy('history_order')->orderBy($order_column, 'DESC')->range(0, 8);
     if ($phase_column !== NULL) {
       $query->addExpression('q.' . $phase_column, 'resolved_phase');
     }
-    if ($room_id !== '') {
-      $query->condition('location_id', [$room_id, $this->normalizeRoomIdForStorylineRoomMatch($room_id)], 'IN');
-    }
-
     $rows = $query->execute()->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-    return array_map(function (array $row): array {
+    return array_map(function (array $row) use ($campaign_id): array {
+      $progress = $this->loadQuestProgressContext($campaign_id, $row);
       return [
         'quest_id' => (string) ($row['quest_id'] ?? ''),
         'quest_name' => (string) ($row['quest_name'] ?? ''),
+        'quest_description' => (string) ($row['quest_description'] ?? ''),
         'status' => (string) ($row['status'] ?? ''),
-        'current_phase' => (int) ($row['resolved_phase'] ?? 1),
+        'current_phase' => $progress['current_phase'],
         'location_id' => (string) ($row['location_id'] ?? ''),
         'storyline_id' => (string) ($row['storyline_id'] ?? ''),
         'storyline_chapter_id' => (string) ($row['storyline_chapter_id'] ?? ''),
@@ -196,12 +194,15 @@ class ActorNarrativeContextService {
    * @return array<int, array<string, mixed>>
    *   Linked quest summaries.
    */
-  protected function loadQuestLinksAsContact(int $campaign_id, string $entity_ref, string $actor_name, string $room_id = ''): array {
+  protected function loadQuestLinksAsContact(int $campaign_id, string $entity_ref, string $actor_name, string $room_id = '', int $actor_id = 0): array {
     if ($campaign_id <= 0 || !$this->database->schema()->tableExists('dc_campaign_quests')) {
       return [];
     }
 
     $tokens = $this->buildQuestContactSearchTokens($entity_ref, $actor_name);
+    if ($actor_id > 0) {
+      $tokens[] = (string) $actor_id;
+    }
     if ($tokens === []) {
       return [];
     }
@@ -212,16 +213,12 @@ class ActorNarrativeContextService {
     $query = $this->database->select('dc_campaign_quests', 'q')
       ->fields('q', ['quest_id', 'quest_name', 'status', 'location_id', 'storyline_id', 'storyline_chapter_id', 'storyline_scene_id', 'generated_objectives'])
       ->condition('campaign_id', $campaign_id)
-      ->condition('status', ['lead', 'offered', 'available', 'active', 'ready_for_turn_in'], 'IN')
-      ->orderBy($order_column, 'DESC')
-      ->range(0, 16);
+      ->condition('status', ['lead', 'offered', 'available', 'active', 'ready_for_turn_in', 'completed'], 'IN');
+    $query->addExpression("CASE WHEN q.status = 'completed' THEN 1 ELSE 0 END", 'history_order');
+    $query->orderBy('history_order')->orderBy($order_column, 'DESC')->range(0, 16);
     if ($phase_column !== NULL) {
       $query->addExpression('q.' . $phase_column, 'resolved_phase');
     }
-    if ($room_id !== '') {
-      $query->condition('location_id', [$room_id, $this->normalizeRoomIdForStorylineRoomMatch($room_id)], 'IN');
-    }
-
     $objective_match = $query->orConditionGroup();
     foreach ($tokens as $token) {
       $objective_match->condition('generated_objectives', '%' . $this->database->escapeLike($token) . '%', 'LIKE');
@@ -230,25 +227,12 @@ class ActorNarrativeContextService {
 
     $linked = [];
     foreach ($rows as $row) {
-      $objectives = json_decode((string) ($row['generated_objectives'] ?? '[]'), TRUE);
-      if (!is_array($objectives)) {
-        continue;
-      }
-      $matched_objectives = [];
-      foreach ($objectives as $objective) {
-        if (!is_array($objective)) {
-          continue;
-        }
-        if (!$this->objectiveMatchesActor($objective, $tokens)) {
-          continue;
-        }
-        $matched_objectives[] = [
-          'objective_id' => (string) ($objective['objective_id'] ?? ''),
-          'description' => (string) ($objective['description'] ?? ''),
-          'target' => (string) ($objective['target'] ?? ''),
-          'npc_id' => (string) ($objective['npc_id'] ?? ''),
-        ];
-      }
+      $progress = $this->loadQuestProgressContext($campaign_id, $row);
+      $matched_objectives = $this->collectActorContactObjectives(
+        $progress['objectives'],
+        $tokens,
+        $progress['current_phase'],
+      );
       if ($matched_objectives === []) {
         continue;
       }
@@ -257,7 +241,7 @@ class ActorNarrativeContextService {
         'quest_id' => (string) ($row['quest_id'] ?? ''),
         'quest_name' => (string) ($row['quest_name'] ?? ''),
         'status' => (string) ($row['status'] ?? ''),
-        'current_phase' => (int) ($row['resolved_phase'] ?? 1),
+        'current_phase' => $progress['current_phase'],
         'location_id' => (string) ($row['location_id'] ?? ''),
         'storyline_id' => (string) ($row['storyline_id'] ?? ''),
         'storyline_chapter_id' => (string) ($row['storyline_chapter_id'] ?? ''),
@@ -268,6 +252,79 @@ class ActorNarrativeContextService {
     }
 
     return array_values($linked);
+  }
+
+  /**
+   * Use tracked visibility/completion without advancing or restarting a quest.
+   */
+  protected function loadQuestProgressContext(int $campaign_id, array $quest): array {
+    $progress = $this->database->select('dc_campaign_quest_progress', 'p')
+      ->fields('p', ['current_phase', 'objective_states'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('quest_id', $quest['quest_id'])
+      ->orderBy('last_updated', 'DESC')
+      ->orderBy('id', 'DESC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    $source = is_array($progress) ? 'objective_states' : 'generated_objectives';
+    try {
+      $objectives = json_decode((string) ($progress[$source] ?? $quest[$source] ?? '[]'), TRUE, 512, JSON_THROW_ON_ERROR);
+    }
+    catch (\JsonException $error) {
+      throw new \RuntimeException(sprintf(
+        'Actor quest context contract violation: invalid %s for campaign_id=%d quest_id=%s.',
+        $source,
+        $campaign_id,
+        $quest['quest_id'],
+      ), 0, $error);
+    }
+    if (!is_array($objectives)) {
+      throw new \RuntimeException(sprintf(
+        'Actor quest context contract violation: objectives must be an array for campaign_id=%d quest_id=%s.',
+        $campaign_id,
+        $quest['quest_id'],
+      ));
+    }
+    return [
+      'current_phase' => max(1, (int) ($progress['current_phase'] ?? $quest['resolved_phase'] ?? 1)),
+      'objectives' => $objectives,
+    ];
+  }
+
+  /**
+   * Match objective identities, not phase wrappers or incidental prose mentions.
+   */
+  protected function collectActorContactObjectives(array $nodes, array $tokens, int $current_phase): array {
+    $matched = [];
+    foreach ($nodes as $node) {
+      if (!is_array($node)) {
+        throw new \RuntimeException('Actor quest context contract violation: objective node must be an array.');
+      }
+      if ((!empty($node['hidden']) || (isset($node['revealed']) && !$node['revealed'])) && empty($node['completed'])) {
+        continue;
+      }
+      if (isset($node['objectives'])) {
+        if ((int) ($node['phase'] ?? 1) <= $current_phase) {
+          $matched = array_merge($matched, $this->collectActorContactObjectives($node['objectives'], $tokens, $current_phase));
+        }
+        continue;
+      }
+      if ($this->objectiveMatchesActor($node, $tokens)) {
+        $matched[] = [
+          'objective_id' => (string) ($node['objective_id'] ?? ''),
+          'description' => (string) ($node['description'] ?? ''),
+          'target' => (string) ($node['target'] ?? ''),
+          'npc_id' => (string) ($node['npc_id'] ?? ''),
+          'next_step' => (string) ($node['next_step'] ?? ''),
+          'completed' => !empty($node['completed']),
+        ];
+      }
+      if (!empty($node['children'])) {
+        $matched = array_merge($matched, $this->collectActorContactObjectives($node['children'], $tokens, $current_phase));
+      }
+    }
+    return $matched;
   }
 
   /**
@@ -293,19 +350,19 @@ class ActorNarrativeContextService {
    * Check objective payload for actor identity matches.
    */
   protected function objectiveMatchesActor(array $objective, array $tokens): bool {
-    $haystack_fields = [
+    $references = [
       strtolower(trim((string) ($objective['target'] ?? ''))),
       strtolower(trim((string) ($objective['npc_id'] ?? ''))),
       strtolower(trim((string) ($objective['target_label'] ?? ''))),
-      strtolower(trim((string) ($objective['description'] ?? ''))),
+      ...array_map(static fn(string $alias): string => strtolower(trim($alias)), (array) ($objective['target_aliases'] ?? [])),
     ];
     foreach ($tokens as $token) {
       $token = strtolower(trim($token));
       if ($token === '') {
         continue;
       }
-      foreach ($haystack_fields as $field_value) {
-        if ($field_value !== '' && str_contains($field_value, $token)) {
+      foreach ($references as $field_value) {
+        if ($field_value !== '' && $field_value === $token) {
           return TRUE;
         }
       }
@@ -377,13 +434,6 @@ class ActorNarrativeContextService {
   }
 
   /**
-   * Normalize room IDs used by quest/storyline table references.
-   */
-  protected function normalizeRoomIdForStorylineRoomMatch(string $room_id): string {
-    return strtolower(trim($room_id));
-  }
-
-  /**
    * Build role-scoped, spoiler-safe narrative context for actor prompts.
    */
   protected function buildScopedPromptContext(
@@ -395,13 +445,15 @@ class ActorNarrativeContextService {
   ): string {
     $lines = ['=== ACTOR NARRATIVE CONTEXT (ROLE-SCOPED) ==='];
     $lines[] = 'Only use these facts as this actor would reasonably know them. Do not reveal hidden future beats.';
+    $lines[] = 'Your authored character facts and these quest records take precedence over contradictory earlier dialogue. Correct earlier mistakes naturally; do not invent work, contacts, or item locations.';
+    $lines[] = 'Completed tasks are history, not new offers. Remember the handoff without restarting it, awarding rewards again, or claiming the entire storyline is finished.';
 
     $offerable = array_values(array_filter($quests_as_giver, static function (array $quest): bool {
       $status = strtolower(trim((string) ($quest['status'] ?? '')));
       return in_array($status, ['lead', 'offered', 'available'], TRUE);
     }));
     $active_giver = array_values(array_filter($quests_as_giver, static function (array $quest): bool {
-      return strtolower(trim((string) ($quest['status'] ?? ''))) === 'active';
+      return in_array(strtolower(trim((string) ($quest['status'] ?? ''))), ['active', 'ready_for_turn_in'], TRUE);
     }));
 
     if ($offerable !== []) {
@@ -421,6 +473,15 @@ class ActorNarrativeContextService {
       $lines[] = '- You are a contact in these objectives (share only contact-relevant guidance):';
       foreach (array_slice($quests_as_contact, 0, 3) as $quest) {
         $lines[] = '  - ' . $this->formatQuestLine($quest, TRUE);
+      }
+
+    }
+
+    $completed_giver = array_values(array_filter($quests_as_giver, static fn(array $quest): bool => ($quest['status'] ?? '') === 'completed'));
+    if ($completed_giver !== []) {
+      $lines[] = '- You remember these completed assignments (history only):';
+      foreach (array_slice($completed_giver, 0, 3) as $quest) {
+        $lines[] = '  - ' . $this->formatQuestLine($quest, FALSE);
       }
     }
 
@@ -467,6 +528,7 @@ class ActorNarrativeContextService {
     if (
       $offerable === []
       && $active_giver === []
+      && $completed_giver === []
       && $quests_as_contact === []
       && $storyline_links === []
       && $branch_context === []
@@ -485,15 +547,22 @@ class ActorNarrativeContextService {
     $name = trim((string) ($quest['quest_name'] ?? $quest['quest_id'] ?? 'Quest'));
     $status = trim((string) ($quest['status'] ?? ''));
     $phase = max(1, (int) ($quest['current_phase'] ?? 1));
-    $line = $name . ' [status: ' . ($status !== '' ? $status : 'unknown') . ', phase: ' . $phase . ']';
+    $line = $name . ' (internal topic summary — describe naturally in your own words without reciting this label verbatim; status: ' . ($status !== '' ? $status : 'unknown') . ', phase: ' . $phase . ')';
     if ($include_contact_objective) {
       $matched = array_values(array_filter((array) ($quest['matched_objectives'] ?? []), 'is_array'));
-      if ($matched !== []) {
-        $objective = trim((string) ($matched[0]['description'] ?? ''));
+      foreach (array_slice($matched, 0, 3) as $contact) {
+        $objective = trim((string) ($contact['description'] ?? ''));
         if ($objective !== '') {
           $line .= '; contact scope: ' . $objective;
         }
+        $next_step = trim((string) ($contact['next_step'] ?? ''));
+        if ($next_step !== '' && empty($contact['completed'])) {
+          $line .= '; contact next step: ' . $next_step;
+        }
       }
+    }
+    elseif (trim((string) ($quest['quest_description'] ?? '')) !== '') {
+      $line .= '; assignment: ' . trim($quest['quest_description']);
     }
     return $line;
   }

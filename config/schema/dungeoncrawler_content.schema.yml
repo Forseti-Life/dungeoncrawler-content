@@ -5,6 +5,15 @@ dungeoncrawler_content.settings:
     max_level:
       type: integer
       label: 'Maximum adventurer level'
+    discord_invite_url:
+      type: string
+      label: 'Discord server invite link'
+    discord_guild_id:
+      type: string
+      label: 'Discord server (guild) id'
+    discord_voice_category_id:
+      type: string
+      label: 'Discord category id for campaign voice channels'
     difficulty_levels:
       type: text
       label: 'Dungeon depth tiers'

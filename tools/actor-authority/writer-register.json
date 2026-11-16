@@ -14,12 +14,13 @@
   },
   "totals": {
     "files": 112,
-    "write_sites": 334
+    "write_sites": 325
   },
   "files": {
     "dungeoncrawler_content.install": {
       "slice": "frozen",
       "sites": {
+        "dynamic_sql_write:query:ALTER TABLE": 1,
         "dynamic_table_write:insert:$revision_table": 1,
         "dynamic_table_write:merge:$table": 1,
         "dynamic_table_write:update:$drafts": 1,
@@ -330,13 +331,9 @@
     "src/Service/CharacterManager.php": {
       "slice": "S2",
       "sites": {
-        "literal_table_write:insert:dc_campaign_characters": 3,
-        "literal_table_write:update:dc_campaign_characters": 4,
-        "mutation_entry_call:call:this->createCharacter": 1,
-        "mutation_entry_call:call:this->instantiateCampaignActorFromTemplate": 1,
-        "mutation_entry_call:call:this->loadActorBySlugOrId": 1,
-        "mutation_entry_call:call:this->materializeCanonicalActorToCharacterRecord": 1,
-        "mutation_entry_call:call:this->saveCanonicalActorTemplate": 2
+        "literal_table_write:insert:dc_campaign_characters": 1,
+        "literal_table_write:update:dc_campaign_characters": 2,
+        "mutation_entry_call:call:this->createCharacter": 1
       }
     },
     "src/Service/CharacterPortraitGenerationService.php": {
@@ -460,12 +457,6 @@
       "slice": "S2",
       "sites": {
         "mutation_entry_call:call:definitions->saveDefinition": 1
-      }
-    },
-    "src/Service/EditorGm/Tool/Storyline/ApplyStorylineRemediationTool.php": {
-      "slice": "S3",
-      "sites": {
-        "mutation_entry_call:call:)->saveCanonicalActorTemplate": 1
       }
     },
     "src/Service/EditorGm/Tool/UpdateCanonicalDefinitionTool.php": {
@@ -782,7 +773,6 @@
         "dynamic_table_write:merge:$table_name": 1,
         "dynamic_table_write:merge:$target_table": 1,
         "dynamic_table_write:truncate:$table_name": 1,
-        "literal_table_write:insert:dc_canonical_actors": 1,
         "literal_table_write:insert:dc_generated_image_links": 1,
         "literal_table_write:merge:dc_canonical_objective_actor_refs": 1,
         "literal_table_write:merge:dc_canonical_storyline_actors": 1
@@ -793,6 +783,12 @@
       "sites": {
         "dynamic_table_write:insert:$this->getPromptCacheTable()": 1,
         "dynamic_table_write:update:$this->getPromptCacheTable()": 2
+      }
+    },
+    "tools/actor-authority/retire-canonical-actor-rows.php": {
+      "slice": "S4",
+      "sites": {
+        "literal_table_write:delete:dc_canonical_actors": 1
       }
     },
     "tools/island_map_conversion_stage.php": {
@@ -922,22 +918,6 @@
       "disposition": "actor_authority",
       "reason": "replace with typed actor command"
     },
-    "src/Service/CharacterManager.php|this->instantiateCampaignActorFromTemplate": {
-      "disposition": "actor_authority",
-      "reason": "replace with typed actor command"
-    },
-    "src/Service/CharacterManager.php|this->loadActorBySlugOrId": {
-      "disposition": "actor_authority",
-      "reason": "replace with typed actor command"
-    },
-    "src/Service/CharacterManager.php|this->materializeCanonicalActorToCharacterRecord": {
-      "disposition": "actor_authority",
-      "reason": "replace with typed actor command"
-    },
-    "src/Service/CharacterManager.php|this->saveCanonicalActorTemplate": {
-      "disposition": "actor_authority",
-      "reason": "replace with typed actor command"
-    },
     "src/Service/CharacterTrackingService.php|this->createCharacter": {
       "disposition": "actor_authority",
       "reason": "replace with typed actor command"
@@ -989,10 +969,6 @@
     "src/Service/EditorGm/Tool/Definition/UpdateDefinitionTool.php|definitions->saveDefinition": {
       "disposition": "actor_authority",
       "reason": "actor/creature families route to facade; nonactor families keep CanonicalDefinitionService"
-    },
-    "src/Service/EditorGm/Tool/Storyline/ApplyStorylineRemediationTool.php|)->saveCanonicalActorTemplate": {
-      "disposition": "actor_authority",
-      "reason": "replace with typed actor command"
     },
     "src/Service/EditorGm/Tool/UpdateCanonicalDefinitionTool.php|definitions->saveDefinition": {
       "disposition": "actor_authority",
@@ -1129,6 +1105,10 @@
       "reason": "frozen hook_update; never rerun as runtime repair (A6)"
     },
     "dungeoncrawler_content.install|merge|$table": {
+      "disposition": "historical_migration",
+      "reason": "frozen hook_update; never rerun as runtime repair (A6)"
+    },
+    "dungeoncrawler_content.install|query|ALTER TABLE": {
       "disposition": "historical_migration",
       "reason": "frozen hook_update; never rerun as runtime repair (A6)"
     },

@@ -716,9 +716,14 @@ class QuestTrackerService {
         return ['success' => FALSE, 'error' => 'Objective not found'];
       }
 
+      $goal = !empty($quest) ? $this->loadQuestGoal($quest) : NULL;
+      if ($goal !== NULL && $goal['resolved'] === NULL) {
+        $goal = $this->advanceQuestGoalFromObjectives($campaign_id, $quest, $goal, $objective_states, (int) $progress_character_id);
+      }
+
       // Check if phase is complete
-      $phase_complete = $this->isPhaseComplete($objective_states, $current_phase);
-      $quest_complete = $this->isQuestCompleted($objective_states);
+      $phase_complete = $this->isPhaseComplete($objective_states, $current_phase, $goal);
+      $quest_complete = $this->isQuestCompleted($objective_states, $goal);
       $narrator_notes = [];
 
       // Log if objective completed
@@ -758,17 +763,15 @@ class QuestTrackerService {
         $current_phase
       );
 
-      if ($phase_complete) {
-        if ($quest_complete) {
-          $completion_result = $this->completeQuest($campaign_id, $quest_id, $progress_character_id);
-          $narrator_notes = array_values(array_merge(
-            $narrator_notes,
-            array_values(array_filter((array) ($completion_result['narrator_notes'] ?? []), 'is_string'))
-          ));
-        }
-        else {
-          $this->advancePhase($campaign_id, $quest_id, $progress_character_id);
-        }
+      if ($quest_complete) {
+        $completion_result = $this->completeQuest($campaign_id, $quest_id, $progress_character_id);
+        $narrator_notes = array_values(array_merge(
+          $narrator_notes,
+          array_values(array_filter((array) ($completion_result['narrator_notes'] ?? []), 'is_string'))
+        ));
+      }
+      elseif ($phase_complete && $this->hasPhase($objective_states, $current_phase + 1)) {
+        $this->advancePhase($campaign_id, $quest_id, $progress_character_id);
       }
 
       return [
@@ -788,6 +791,337 @@ class QuestTrackerService {
       $this->logger->error('Failed to update objective: @error', ['@error' => $e->getMessage()]);
       return ['success' => FALSE, 'error' => $e->getMessage()];
     }
+  }
+
+  /**
+   * The quest's goal with its runtime state, or NULL when it has none.
+   */
+  public function loadQuestGoal(array $quest): ?array {
+    $quest_data = json_decode((string) ($quest['quest_data'] ?? ''), TRUE);
+    $goal = is_array($quest_data) ? ($quest_data['goal'] ?? NULL) : NULL;
+
+    return is_array($goal) ? $goal : NULL;
+  }
+
+  protected function saveQuestGoal(int $campaign_id, string $quest_id, array $goal): void {
+    $quest = $this->loadCampaignQuest($campaign_id, $quest_id);
+    $quest_data = json_decode((string) ($quest['quest_data'] ?? ''), TRUE);
+    if (!is_array($quest) || !is_array($quest_data)) {
+      throw new \DomainException('quest_goal_quest_data_invalid:' . $quest_id);
+    }
+    $quest_data['goal'] = $goal;
+    $this->database->update('dc_campaign_quests')
+      ->fields(['quest_data' => json_encode($quest_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('quest_id', $quest_id)
+      ->execute();
+  }
+
+  /**
+   * Top-level objective ids completed in any phase.
+   *
+   * @return string[]
+   */
+  protected function completedTopLevelObjectiveIds(array $objective_states): array {
+    $ids = [];
+    foreach ($objective_states as $phase) {
+      foreach ((array) ($phase['objectives'] ?? []) as $objective) {
+        if (is_array($objective) && !empty($objective['completed'])) {
+          $ids[] = (string) ($objective['objective_id'] ?? '');
+        }
+      }
+    }
+
+    return $ids;
+  }
+
+  /**
+   * Reveals and achieves approaches that completed objectives now satisfy.
+   *
+   * @return array
+   *   The goal after any change.
+   */
+  protected function advanceQuestGoalFromObjectives(int $campaign_id, array $quest, array $goal, array $objective_states, int $character_id): array {
+    $quest_id = (string) $quest['quest_id'];
+    $completed = $this->completedTopLevelObjectiveIds($objective_states);
+    foreach (QuestGoalContract::revealedByObjectives($goal, $completed) as $approach_id) {
+      $goal = $this->recordApproachRevealed($campaign_id, $quest_id, $goal, $approach_id, 'An objective was completed.', $character_id);
+    }
+    $achieved = QuestGoalContract::achievedByObjectives($goal, $completed);
+    if ($achieved !== NULL) {
+      $goal = $this->recordGoalResolution($campaign_id, $quest, $goal, $achieved, 'criteria', $character_id, 'Its objectives were completed.', TRUE);
+    }
+
+    return $goal;
+  }
+
+  protected function recordApproachRevealed(int $campaign_id, string $quest_id, array $goal, string $approach_id, string $reason, ?int $character_id): array {
+    $goal['revealed'][] = $approach_id;
+    $this->saveQuestGoal($campaign_id, $quest_id, $goal);
+    $approach = QuestGoalContract::approach($goal, $approach_id);
+    $this->logQuestEvent(
+      $campaign_id,
+      $quest_id,
+      'approach_revealed',
+      ['approach_id' => $approach_id, 'reason' => $reason],
+      'New way forward: ' . $approach['label'],
+      $character_id
+    );
+
+    return $goal;
+  }
+
+  /**
+   * Records how the goal was achieved and applies the approach's storyline
+   * choice. It does not complete the quest; the caller does.
+   */
+  protected function recordGoalResolution(int $campaign_id, array $quest, array $goal, string $approach_id, string $resolved_by, int $character_id, string $evidence, bool $advance_storyline): array {
+    $quest_id = (string) $quest['quest_id'];
+    $approach = $approach_id === QuestGoalContract::UNPLANNED
+      ? ['label' => 'An unplanned way', 'outcome_label' => $evidence]
+      : QuestGoalContract::approach($goal, $approach_id);
+    $goal['resolved'] = [
+      'approach_id' => $approach_id,
+      'label' => $approach['label'],
+      'outcome_label' => $approach['outcome_label'],
+      'evidence' => $evidence,
+      'resolved_by' => $resolved_by,
+      'character_id' => $character_id,
+      'at' => $this->time->getRequestTime(),
+    ];
+    if ($approach_id !== QuestGoalContract::UNPLANNED && !QuestGoalContract::isRevealed($goal, $approach_id)) {
+      $goal['revealed'][] = $approach_id;
+    }
+    $this->saveQuestGoal($campaign_id, $quest_id, $goal);
+    $this->logQuestEvent(
+      $campaign_id,
+      $quest_id,
+      'goal_resolved',
+      $goal['resolved'],
+      'Goal achieved: ' . $approach['outcome_label'],
+      $character_id
+    );
+
+    $branch = $approach['branch'] ?? NULL;
+    $storyline_id = trim((string) ($quest['storyline_id'] ?? ''));
+    if ($advance_storyline && $branch !== NULL && $storyline_id !== '') {
+      $storyline_manager = $this->resolveStorylineManagerService();
+      if ($storyline_manager === NULL) {
+        throw new StorylineSyncContractException('quest_goal_storyline_manager_required:' . $quest_id);
+      }
+      $storyline_manager->advanceCampaignStoryline($campaign_id, $storyline_id, [
+        'branch_choice' => ['decision_id' => $branch['decision_id'], 'choice_id' => $branch['choice_id']],
+        'narrative_text' => $approach['outcome_label'],
+      ]);
+    }
+
+    return $goal;
+  }
+
+  /**
+   * The GM achieves a quest's goal by a named approach, or an unplanned one.
+   *
+   * @param string $approach_id
+   *   An approach of the goal, or QuestGoalContract::UNPLANNED.
+   * @param string $evidence
+   *   What happened in play that achieved the goal. For an unplanned way this
+   *   is also what players read as the outcome.
+   * @param bool $advance_storyline
+   *   FALSE when the caller already resolved the approach's storyline choice.
+   *
+   * @return array
+   *   The quest completion result plus `goal` (GM view).
+   *
+   * @throws \DomainException
+   *   `quest_unknown`, `quest_goal_missing`, `quest_not_active`,
+   *   `quest_goal_already_resolved`, `quest_goal_evidence_required`,
+   *   `quest_goal_approach_unknown`, `quest_goal_unplanned_not_allowed`.
+   */
+  public function resolveQuestGoal(int $campaign_id, string $quest_id, string $approach_id, int $character_id, string $evidence, bool $advance_storyline = TRUE): array {
+    $quest = $this->loadCampaignQuest($campaign_id, $quest_id);
+    if (!is_array($quest)) {
+      throw new \DomainException('quest_unknown:' . $quest_id);
+    }
+    $goal = $this->loadQuestGoal($quest);
+    if ($goal === NULL) {
+      throw new \DomainException('quest_goal_missing:' . $quest_id);
+    }
+    if (!in_array(strtolower((string) $quest['status']), ['active', 'ready_for_turn_in'], TRUE)) {
+      throw new \DomainException('quest_not_active:' . $quest_id . ':' . $quest['status']);
+    }
+    if ($goal['resolved'] !== NULL) {
+      throw new \DomainException('quest_goal_already_resolved:' . $quest_id . ':' . $goal['resolved']['approach_id']);
+    }
+    if (trim($evidence) === '') {
+      throw new \DomainException('quest_goal_evidence_required:' . $quest_id);
+    }
+    if ($approach_id === QuestGoalContract::UNPLANNED) {
+      if (($goal['open_resolution'] ?? FALSE) !== TRUE) {
+        throw new \DomainException('quest_goal_unplanned_not_allowed:' . $quest_id);
+      }
+    }
+    elseif (QuestGoalContract::approach($goal, $approach_id) === NULL) {
+      throw new \DomainException('quest_goal_approach_unknown:' . $quest_id . ':' . $approach_id);
+    }
+
+    $goal = $this->recordGoalResolution($campaign_id, $quest, $goal, $approach_id, 'gm', $character_id, trim($evidence), $advance_storyline);
+    $result = $this->completeQuest($campaign_id, $quest_id, $character_id);
+    $result['goal'] = QuestGoalContract::view($goal, 'gm');
+
+    return $result;
+  }
+
+  /**
+   * The GM lets the party learn of an approach.
+   *
+   * @return array
+   *   The goal (GM view).
+   *
+   * @throws \DomainException
+   *   `quest_unknown`, `quest_goal_missing`, `quest_goal_already_resolved`,
+   *   `quest_goal_approach_unknown`, `quest_goal_approach_already_revealed`.
+   */
+  public function revealQuestApproach(int $campaign_id, string $quest_id, string $approach_id, string $reason, ?int $character_id = NULL): array {
+    $quest = $this->loadCampaignQuest($campaign_id, $quest_id);
+    if (!is_array($quest)) {
+      throw new \DomainException('quest_unknown:' . $quest_id);
+    }
+    $goal = $this->loadQuestGoal($quest);
+    if ($goal === NULL) {
+      throw new \DomainException('quest_goal_missing:' . $quest_id);
+    }
+    if ($goal['resolved'] !== NULL) {
+      throw new \DomainException('quest_goal_already_resolved:' . $quest_id . ':' . $goal['resolved']['approach_id']);
+    }
+    if (QuestGoalContract::approach($goal, $approach_id) === NULL) {
+      throw new \DomainException('quest_goal_approach_unknown:' . $quest_id . ':' . $approach_id);
+    }
+    if (QuestGoalContract::isRevealed($goal, $approach_id)) {
+      throw new \DomainException('quest_goal_approach_already_revealed:' . $quest_id . ':' . $approach_id);
+    }
+
+    return QuestGoalContract::view($this->recordApproachRevealed($campaign_id, $quest_id, $goal, $approach_id, $reason, $character_id), 'gm');
+  }
+
+  /**
+   * Reveals discoverable approaches of the campaign's active quests that a
+   * game event has just uncovered.
+   *
+   * @return array<int, array{quest_id:string, approach_id:string, label:string}>
+   */
+  public function revealQuestApproachesForTouchpoint(int $campaign_id, array $touchpoint, ?int $character_id = NULL): array {
+    $quests = $this->database->select('dc_campaign_quests', 'q')
+      ->fields('q')
+      ->condition('campaign_id', $campaign_id)
+      ->condition('status', ['active', 'ready_for_turn_in'], 'IN')
+      ->condition('quest_data', '%"goal"%', 'LIKE')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+
+    $revealed = [];
+    foreach ($quests as $quest) {
+      $goal = $this->loadQuestGoal($quest);
+      if ($goal === NULL || $goal['resolved'] !== NULL) {
+        continue;
+      }
+      foreach (QuestGoalContract::revealedByTouchpoint($goal, $touchpoint) as $approach_id) {
+        $goal = $this->recordApproachRevealed($campaign_id, (string) $quest['quest_id'], $goal, $approach_id, 'A game event uncovered it.', $character_id);
+        $revealed[] = [
+          'quest_id' => (string) $quest['quest_id'],
+          'approach_id' => $approach_id,
+          'label' => QuestGoalContract::approach($goal, $approach_id)['label'],
+        ];
+      }
+    }
+
+    return $revealed;
+  }
+
+  /**
+   * Active campaign quests that state a goal not yet achieved.
+   *
+   * @return array<int, array{quest: array, goal: array}>
+   */
+  protected function openGoalQuests(int $campaign_id): array {
+    $quests = $this->database->select('dc_campaign_quests', 'q')
+      ->fields('q')
+      ->condition('campaign_id', $campaign_id)
+      ->condition('status', ['active', 'ready_for_turn_in'], 'IN')
+      ->condition('quest_data', '%"goal"%', 'LIKE')
+      ->orderBy('created_at')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+
+    $open = [];
+    foreach ($quests as $quest) {
+      $goal = $this->loadQuestGoal($quest);
+      if ($goal !== NULL && $goal['resolved'] === NULL) {
+        $open[] = ['quest' => $quest, 'goal' => $goal];
+      }
+    }
+
+    return $open;
+  }
+
+  /**
+   * The open quest approach a storyline choice belongs to, if any.
+   *
+   * @return array{quest_id:string, approach_id:string}|null
+   */
+  public function findQuestApproachForStorylineChoice(int $campaign_id, string $storyline_id, string $decision_id, string $choice_id): ?array {
+    foreach ($this->openGoalQuests($campaign_id) as ['quest' => $quest, 'goal' => $goal]) {
+      if ((string) ($quest['storyline_id'] ?? '') !== $storyline_id) {
+        continue;
+      }
+      foreach ($goal['approaches'] as $approach) {
+        $branch = $approach['branch'] ?? NULL;
+        if ($branch !== NULL && $branch['decision_id'] === $decision_id && $branch['choice_id'] === $choice_id) {
+          return ['quest_id' => (string) $quest['quest_id'], 'approach_id' => $approach['approach_id']];
+        }
+      }
+    }
+
+    return NULL;
+  }
+
+  /**
+   * What the gameplay GM needs to know about open quest goals.
+   *
+   * It lists every approach, including those the players have not learned
+   * of, and says so, so the GM can recognise one without giving it away.
+   */
+  public function buildQuestGoalPromptContext(int $campaign_id): string {
+    $open = $this->openGoalQuests($campaign_id);
+    if ($open === []) {
+      return '';
+    }
+
+    $lines = [
+      '=== QUEST GOALS ===',
+      'Each quest below has a goal that can be achieved in more than one way. Players see only the ways marked KNOWN TO PLAYERS. Never name or hint at a way marked HIDDEN unless play uncovers it.',
+    ];
+    foreach ($open as ['quest' => $quest, 'goal' => $goal]) {
+      $lines[] = sprintf('- %s {quest_id: %s} goal: %s', (string) $quest['quest_name'], (string) $quest['quest_id'], $goal['goal_text']);
+      if (trim((string) ($goal['gm_notes'] ?? '')) !== '') {
+        $lines[] = '  GM notes (never repeat to players): ' . trim($goal['gm_notes']);
+      }
+      foreach ($goal['approaches'] as $approach) {
+        $lines[] = sprintf(
+          '  approach_id %s [%s; %s]: %s',
+          $approach['approach_id'],
+          QuestGoalContract::isRevealed($goal, $approach['approach_id']) ? 'KNOWN TO PLAYERS' : 'HIDDEN',
+          ($approach['objective_ids'] ?? []) === [] ? 'you judge when it is achieved' : 'tracked by objectives ' . implode(', ', $approach['objective_ids']),
+          $approach['label']
+        );
+      }
+      if (($goal['open_resolution'] ?? FALSE) === TRUE) {
+        $lines[] = '  An unplanned way may also achieve this goal: use approach_id "' . QuestGoalContract::UNPLANNED . '".';
+      }
+    }
+    $lines[] = 'When play achieves a goal, emit a resolve_quest_goal action with details.goal {quest_id, approach_id, evidence}. It completes the quest, grants the reward for that way, and applies its story consequences. Narrate the outcome; do not emit it for an attempt that has not yet succeeded.';
+    $lines[] = 'When play uncovers a HIDDEN way without achieving the goal, emit a reveal_quest_approach action with details.goal {quest_id, approach_id, reason}.';
+
+    return implode("\n", $lines);
   }
 
   /**
@@ -826,14 +1160,24 @@ class QuestTrackerService {
       ));
     }
 
+    $goal = $this->loadQuestGoal($quest);
+    if ($goal !== NULL && $goal['resolved'] === NULL && strtolower(trim($outcome)) === 'success') {
+      // A goal is achieved through an approach, so the way is always on record.
+      throw new \DomainException('quest_goal_unresolved:' . $quest_id);
+    }
+
     $already_completed = !empty($progress_record['completed_at'])
       || strtolower((string) ($quest['status'] ?? '')) === 'completed';
     $progress_character_id = !empty($progress_record['character_id'])
       ? (int) $progress_record['character_id']
       : $character_id;
     // Validate reward contract and canonical reward target before mutating quest state.
+    $achieved_approach = $goal !== NULL && $goal['resolved'] !== NULL
+      ? QuestGoalContract::approach($goal, $goal['resolved']['approach_id'])
+      : NULL;
+    // The approach that achieved the goal may carry its own reward.
     $rewards = $this->assertQuestRewardContract(
-      json_decode((string) ($quest['generated_rewards'] ?? ''), TRUE),
+      $achieved_approach['rewards'] ?? json_decode((string) ($quest['generated_rewards'] ?? ''), TRUE),
       $quest_id
     );
     $reward_target = $this->resolveQuestRewardCharacterTarget($campaign_id, $character_id);
@@ -891,6 +1235,18 @@ class QuestTrackerService {
       $rewards_applied = $this->applyQuestRewardsToTarget($reward_target, $rewards);
       $this->finalizeQuestRewardGrant($campaign_id, $quest_id, $reward_claim_character_id, $rewards_applied);
     }
+    // Quests belong to the party: every other member earns the experience.
+    // Gold and items go once, to the character who completed the quest.
+    foreach ($this->partyCharacterRowIds($campaign_id) as $member_row_id) {
+      if ($member_row_id === $reward_claim_character_id || $rewards['xp'] <= 0) {
+        continue;
+      }
+      if ($this->beginQuestRewardGrant($campaign_id, $quest_id, $member_row_id)) {
+        $member_target = $this->resolveQuestRewardCharacterTarget($campaign_id, $member_row_id);
+        $this->applyQuestXpReward($member_target, $rewards['xp']);
+        $this->finalizeQuestRewardGrant($campaign_id, $quest_id, $member_row_id, ['xp' => $rewards['xp']]);
+      }
+    }
     unset($reward_transaction);
 
     // Log completion
@@ -898,7 +1254,7 @@ class QuestTrackerService {
       $campaign_id,
       $quest_id,
       'completed',
-      ['outcome' => $outcome, 'rewards' => $rewards, 'rewards_applied' => $rewards_applied],
+      ['outcome' => $outcome, 'rewards' => $rewards, 'rewards_applied' => $rewards_applied, 'approach' => $goal['resolved'] ?? NULL],
       "Quest completed with outcome: $outcome",
       $character_id
     );
@@ -964,7 +1320,12 @@ class QuestTrackerService {
    */
   protected function postQuestCompletionNarratorNote(int $campaign_id, array $quest, ?int $character_id): string {
     $quest_name = trim((string) ($quest['quest_name'] ?? $quest['name'] ?? $quest['quest_id'] ?? 'Quest'));
-    $message = sprintf('Quest completed: %s. All goals accomplished.', $quest_name);
+    // $quest was loaded before the goal was resolved, so read the goal fresh.
+    $current = $this->loadCampaignQuest($campaign_id, (string) ($quest['quest_id'] ?? ''));
+    $goal = is_array($current) ? $this->loadQuestGoal($current) : NULL;
+    $message = $goal !== NULL && $goal['resolved'] !== NULL
+      ? sprintf('Quest completed: %s. %s.', $quest_name, rtrim($goal['resolved']['outcome_label'], '.'))
+      : sprintf('Quest completed: %s. All goals accomplished.', $quest_name);
     $this->postQuestNarratorNote($campaign_id, $quest, $message, [
       'event' => 'quest_completed',
       'message_class' => 'quest_completion',
@@ -994,6 +1355,14 @@ class QuestTrackerService {
     }
 
     $this->appendQuestNarratorNoteToLegacyRoomChat($campaign_id, $dungeon_id, $room_id, $message, $metadata);
+
+    $source_template_id = strtolower(trim((string) ($quest['source_template_id'] ?? $quest['quest_id'] ?? '')));
+    if (
+      $source_template_id === 'tavern_storyline_leads'
+      && ($metadata['event'] ?? '') === 'quest_objective_completed'
+    ) {
+      return;
+    }
 
     $room_session = $this->chatSessionManager->ensureRoomSession($campaign_id, $dungeon_id, $room_id, $room_name);
     $session_id = (int) ($room_session['id'] ?? 0);
@@ -2542,6 +2911,7 @@ class QuestTrackerService {
       }
       $query->condition('character_id', $tracking_ids, 'IN');
       $query->condition('party_id', NULL, 'IS NULL');
+      $query->orderBy('started_at')->orderBy('id');
     }
     elseif ($party_id !== NULL) {
       $query->condition('party_id', $party_id);
@@ -2629,7 +2999,40 @@ class QuestTrackerService {
       }
     }
 
+    // Quest progress is shared by the party, so any member's lookup finds the
+    // state another member started.
+    if ($this->isPlayerCharacterQuestScope($campaign_id, $character_id)) {
+      $party = $this->database->select('dc_campaign_characters', 'c')
+        ->fields('c', ['id', 'character_id'])
+        ->condition('campaign_id', $campaign_id)
+        ->condition('type', 'pc')
+        ->condition('role', 'player')
+        ->condition('is_active', 1)
+        ->execute()
+        ->fetchAll(\PDO::FETCH_ASSOC);
+      foreach ($party as $member) {
+        $ids[] = (int) $member['id'];
+        $ids[] = (int) $member['character_id'];
+      }
+    }
+
     return array_values(array_unique(array_filter(array_map('intval', $ids), static fn(int $id): bool => $id > 0)));
+  }
+
+  /**
+   * Row ids of the player characters in the campaign's party.
+   *
+   * @return int[]
+   */
+  protected function partyCharacterRowIds(int $campaign_id): array {
+    return array_map('intval', $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c', ['id'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('type', 'pc')
+      ->condition('role', 'player')
+      ->condition('is_active', 1)
+      ->execute()
+      ->fetchCol());
   }
 
   /**
@@ -3583,7 +3986,7 @@ class QuestTrackerService {
       ->condition('completed_at', NULL, 'IS NULL');
 
     if ($character_id) {
-      $query->condition('character_id', $character_id);
+      $query->condition('character_id', $this->resolveQuestTrackingCharacterIds($campaign_id, $character_id), 'IN');
     }
     elseif ($party_id) {
       $query->condition('party_id', $party_id);
@@ -3698,10 +4101,29 @@ class QuestTrackerService {
    * @return bool
    *   TRUE if all objectives in phase are complete.
    */
-  protected function isPhaseComplete(array $objective_states, int $phase): bool {
+  protected function isPhaseComplete(array $objective_states, int $phase, ?array $goal = NULL): bool {
+    // Objectives that belong to an approach are alternatives; they never hold
+    // a phase open. The goal itself completes the quest.
+    $alternatives = $goal !== NULL ? QuestGoalContract::approachObjectives($goal) : [];
     foreach ($objective_states as $phase_data) {
       if ($phase_data['phase'] == $phase) {
-        return $this->areObjectiveCollectionCompleted(is_array($phase_data['objectives'] ?? NULL) ? $phase_data['objectives'] : []);
+        $objectives = is_array($phase_data['objectives'] ?? NULL) ? $phase_data['objectives'] : [];
+        return $this->areObjectiveCollectionCompleted(array_values(array_filter(
+          $objectives,
+          static fn($objective): bool => is_array($objective) && !isset($alternatives[(string) ($objective['objective_id'] ?? '')])
+        )));
+      }
+    }
+    return FALSE;
+  }
+
+  /**
+   * Whether the objective states hold the given phase.
+   */
+  protected function hasPhase(array $objective_states, int $phase): bool {
+    foreach ($objective_states as $phase_data) {
+      if ((int) ($phase_data['phase'] ?? 0) === $phase) {
+        return TRUE;
       }
     }
     return FALSE;
@@ -3716,7 +4138,10 @@ class QuestTrackerService {
    * @return bool
    *   TRUE if all objectives complete.
    */
-  protected function isQuestCompleted(array $objective_states): bool {
+  protected function isQuestCompleted(array $objective_states, ?array $goal = NULL): bool {
+    if ($goal !== NULL) {
+      return $goal['resolved'] !== NULL;
+    }
     foreach ($objective_states as $phase) {
       if (!$this->areObjectiveCollectionCompleted(is_array($phase['objectives'] ?? NULL) ? $phase['objectives'] : [])) {
         return FALSE;
@@ -3826,7 +4251,12 @@ class QuestTrackerService {
     $quest['objective_states'] = json_decode((string) ($quest['objective_states'] ?? '[]'), TRUE) ?? [];
     // Prompt relevance scoring does not consume quest_data. Avoid decoding large
     // embedded blobs (for example legacy inline dungeon_data) on chat paths.
-    $quest['quest_data'] = [];
+    // The goal is the exception: the quest summary needs it to decide what
+    // each viewer may see.
+    $goal = is_string($quest['quest_data'] ?? NULL) && str_contains($quest['quest_data'], '"goal"')
+      ? $this->loadQuestGoal($quest)
+      : NULL;
+    $quest['quest_data'] = $goal !== NULL ? ['goal' => $goal] : [];
     return $quest;
   }
 

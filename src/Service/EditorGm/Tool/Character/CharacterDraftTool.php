@@ -16,6 +16,7 @@ final class CharacterDraftTool implements EditorGmToolInterface {
     if (!in_array($operation, [
       'get_character_draft', 'get_character_creation_reference',
       'plan_character_draft_updates', 'apply_character_draft_updates',
+      'autofill_character_draft',
     ], TRUE)) {
       throw new \LogicException('Unsupported character draft tool: ' . $operation);
     }
@@ -24,7 +25,11 @@ final class CharacterDraftTool implements EditorGmToolInterface {
   public function definition(): EditorGmToolDefinition {
     $planning = $this->operation === 'plan_character_draft_updates';
     $applying = $this->operation === 'apply_character_draft_updates';
+    $autofill = $this->operation === 'autofill_character_draft';
     $arguments = [];
+    if ($autofill) {
+      $arguments[] = EditorGmToolDefinition::argument('preferences', 'object', FALSE, 'Character field patch holding everything the player asked for plus the free-text fields you write for them (name, concept, appearance, personality, backstory, age, gender, deity). Same fields and native IDs as plan_character_draft_updates. Omit rules choices the player left to you: they are filled from the native options.');
+    }
     if ($this->operation === 'get_character_creation_reference') {
       $arguments[] = EditorGmToolDefinition::argument('updates', 'object', FALSE, 'Read-only candidate ancestry/background/class patch. Returns native conditional choices for that proposed object without saving or approving it.');
       $arguments[] = EditorGmToolDefinition::argument('include_descriptions', 'boolean', FALSE, 'Include the actual native wizard option-card descriptions, facts, and disabled choices. Use for subclass, thesis, feature, or other wizard-option questions.');
@@ -38,14 +43,15 @@ final class CharacterDraftTool implements EditorGmToolInterface {
     }
     return new EditorGmToolDefinition(
       $this->operation,
-      $applying ? EditorGmToolDefinition::FAMILY_EXECUTION : ($planning ? EditorGmToolDefinition::FAMILY_PLANNING : EditorGmToolDefinition::FAMILY_CONTEXT),
+      $applying || $autofill ? EditorGmToolDefinition::FAMILY_EXECUTION : ($planning ? EditorGmToolDefinition::FAMILY_PLANNING : EditorGmToolDefinition::FAMILY_CONTEXT),
       match ($this->operation) {
         'get_character_draft' => 'Inspect the canonical character object, current revision, and saved choices.',
         'get_character_creation_reference' => 'Inspect allowed fields, native wizard choices, and optional full option-card descriptions, including conditional subclass and feature selections.',
         'plan_character_draft_updates' => 'Validate a character patch and return a revision-bound plan. Read-only when called directly; the harness immediately applies valid plans requested in conversation.',
+        'autofill_character_draft' => 'Build the character in one save. Applies the player\'s stated preferences, then fills every remaining required choice in every wizard step from the native options valid for that build, including dependent feats, spells, boosts and skills. Reports what was kept, chosen, rejected and still open. No approval; the player can change anything afterwards.',
         'apply_character_draft_updates' => 'Save a valid authoritative GM patch immediately against the latest locked character. Requested fields override older edits; other fields are preserved. No approval or conflict resolution is required.',
       },
-      $applying,
+      $applying || $autofill,
       'CharacterCreationGmService',
       $arguments,
     );
@@ -82,6 +88,15 @@ final class CharacterDraftTool implements EditorGmToolInterface {
         ];
       }
       return $reference;
+    }
+    if ($this->operation === 'autofill_character_draft') {
+      $preferences = $arguments['preferences'] ?? [];
+      if (!is_array($preferences)) {
+        throw new \InvalidArgumentException('preferences must be an object.');
+      }
+      $result = $context->drafts->autofillDraft($draft['character_id'], $preferences);
+      $context->invalidate();
+      return $result;
     }
     $updates = EditorGmToolContext::requireArray($arguments, 'updates');
     if ($this->operation === 'plan_character_draft_updates') {

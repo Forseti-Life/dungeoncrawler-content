@@ -18,6 +18,7 @@ final class StorylineCampaignAttachmentService {
     private readonly CampaignInitializationService $campaignInitialization,
     private readonly RelationshipManagerService $relationshipManager,
     private readonly ExitConnectorAuthorityService $connectorAuthority,
+    private readonly InstitutionMembershipService $institutionMembership,
   ) {}
 
   /**
@@ -939,6 +940,7 @@ final class StorylineCampaignAttachmentService {
         $storyline,
         ['attachment_plan_id' => (string) $plan['plan_id']]
       );
+      $this->institutionMembership->syncStorylineContactMemberships($campaign_id, $storyline);
       $this->relationshipManager->refreshCampaignStorylineContacts($campaign_id, 'npc_tavern_keeper');
 
       $storyline = $this->storylineManager->activateCampaignStoryline(

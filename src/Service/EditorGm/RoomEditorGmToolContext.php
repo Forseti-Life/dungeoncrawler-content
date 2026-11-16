@@ -16,7 +16,7 @@ final class RoomEditorGmToolContext extends EditorGmToolContext {
   private ?array $published = NULL;
 
   public function __construct(
-    string $draftId,
+    ?string $draftId,
     string $validationProfile,
     public readonly RoomEditorService $roomEditor,
     CanonicalDefinitionService $definitions,
@@ -29,6 +29,9 @@ final class RoomEditorGmToolContext extends EditorGmToolContext {
   }
 
   public function draft(): array {
+    if ($this->draftId === NULL) {
+      throw new \InvalidArgumentException('editor_gm_draft_required:room_editor');
+    }
     if ($this->draft === NULL) {
       $this->draft = $this->roomEditor->getDraft($this->draftId);
     }
@@ -56,6 +59,14 @@ final class RoomEditorGmToolContext extends EditorGmToolContext {
 
   public function validation(?string $profile = NULL): array {
     $profile = $profile ?? $this->validationProfile;
+    if ($this->draftId === NULL) {
+      return [
+        'profile' => $profile,
+        'valid' => FALSE,
+        'errors' => [['code' => 'room_draft_required', 'severity' => 'error', 'message' => 'Create or load a room draft before validation.', 'subject' => []]],
+        'warnings' => [],
+      ];
+    }
     if (!array_key_exists($profile, $this->validationByProfile)) {
       $this->validationByProfile[$profile] = $this->roomEditor->validateDraft($this->draftId, $profile);
     }

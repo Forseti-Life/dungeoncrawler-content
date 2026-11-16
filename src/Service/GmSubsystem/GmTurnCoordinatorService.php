@@ -48,10 +48,11 @@ class GmTurnCoordinatorService {
     $recent = array_slice($chat, -3);
     $latest_chat_entry = end($chat);
     $latest_player_message = is_array($latest_chat_entry) ? trim((string) ($latest_chat_entry['message'] ?? '')) : '';
+    $latest_player_message = $this->stripEncounterTranscriptPrefix($latest_player_message);
     $history_lines = [];
     foreach ($recent as $msg) {
       $speaker = $msg['speaker'] ?? 'Unknown';
-      $text = $msg['message'] ?? '';
+      $text = $this->stripEncounterTranscriptPrefix((string) ($msg['message'] ?? ''));
       if (strlen($text) > 240) {
         $text = substr($text, 0, 237) . '...';
       }
@@ -136,6 +137,18 @@ class GmTurnCoordinatorService {
 
     $npc = $room_npcs[0] ?? NULL;
     return is_array($npc) ? $npc : NULL;
+  }
+
+  /**
+   * Strip encounter transcript prefix before intent classification or prompt assembly.
+   */
+  protected function stripEncounterTranscriptPrefix(string $content): string {
+    $content = trim($content);
+    if ($content === '') {
+      return '';
+    }
+    $stripped = preg_replace('/^Round\s+[0-9\?]+:\s+(?:Turn\s+[0-9\?]+:\s+)?(?:Actor\s+)?[^\:]+\:\s+(?:Actions\s+[0-9\?]+\/[0-9\?]+:\s+)?/u', '', $content, 1);
+    return is_string($stripped) ? trim($stripped) : $content;
   }
 
   /**

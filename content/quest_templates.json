@@ -315,7 +315,29 @@
     "story_impact": {
       "storyline_id": "torment-and-legacy",
       "chapter_id": "onboarding",
-      "scene_id": "first-engagement"
+      "scene_id": "first-engagement",
+      "goal": {
+        "goal_text": "End the goblin threat near the town",
+        "gm_notes": "The chieftain cares most about keeping the band fed and alive. A credible offer of somewhere safer to live, or a show of strength that makes staying look fatal, can move the whole band without a fight.",
+        "open_resolution": true,
+        "approaches": [
+          {
+            "approach_id": "force",
+            "label": "Clear the den by force",
+            "visibility": "known",
+            "objective_ids": ["slay_goblins", "defeat_chieftain"],
+            "outcome_label": "The goblin den was cleared by force"
+          },
+          {
+            "approach_id": "parley",
+            "label": "Talk the chieftain into moving the band away",
+            "visibility": "discoverable",
+            "reveal_when": {"touchpoint": {"objective_type": "interact", "ref": "goblin_chieftain"}},
+            "objective_ids": [],
+            "outcome_label": "The goblins agreed to leave the area"
+          }
+        ]
+      }
     },
     "estimated_duration_minutes": "60",
     "created": "1772904063",
