@@ -331,6 +331,25 @@ class StorylineGmGuidanceTest extends UnitTestCase {
   }
 
   /**
+   * A duplicate of a library actor is resolved before sheets are built.
+   */
+  public function testLibraryActorDuplicateComesBeforeTheSheetBuild(): void {
+    $step = (new AgentHarnessManagementService())->storylineNextStepFromSavedState([
+      'current_state' => ['missing_content' => ['Every actor has a current character sheet'], 'error_count' => 2],
+      'validation_summary' => ['error_count' => 2, 'warning_count' => 0, 'stages' => [[
+        'stage' => 'actor_character_sheets',
+        'route' => 'actor_sheet_build',
+        'findings' => [
+          ['severity' => 'error', 'code' => 'actor_duplicates_library_actor', 'route' => 'draft_operation', 'message' => "Actor 'Celia' already exists in the library as 'tal-mission-handler'."],
+          ['severity' => 'error', 'code' => 'actor_sheet_missing', 'route' => 'actor_sheet_build', 'message' => "Actor 'Celia' has no character sheet."],
+        ],
+      ]]],
+    ])[0];
+    $this->assertStringContainsString("already exists in the library as 'tal-mission-handler'", $step);
+    $this->assertStringContainsString('use the existing library actor', $step);
+  }
+
+  /**
    * A sheet is current only while the authored actor is unchanged.
    */
   public function testEditedActorMakesItsSheetOutdated(): void {

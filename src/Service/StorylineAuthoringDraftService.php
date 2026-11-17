@@ -38,7 +38,9 @@ class StorylineAuthoringDraftService {
   /**
    * Findings whose fix differs from the rest of their stage.
    */
-  private const FINDING_FIX_ROUTES = [];
+  private const FINDING_FIX_ROUTES = [
+    'actor_duplicates_library_actor' => 'draft_operation',
+  ];
 
   private const TABLE = 'dungeoncrawler_content_storyline_authoring_drafts';
   private const REVISION_TABLE = 'dungeoncrawler_content_storyline_draft_revisions';
@@ -1028,7 +1030,10 @@ class StorylineAuthoringDraftService {
         'findings' => array_merge($choice_findings, (array) ($progression['findings'] ?? [])),
       ] + $progression;
     }
-    $sheet_findings = self::actorSheetFindings($draft['payload'] ?? []);
+    $sheet_findings = array_merge(
+      $this->libraryActorDuplicateFindings($draft['payload'] ?? []),
+      self::actorSheetFindings($draft['payload'] ?? []),
+    );
     $stages['actor_character_sheets'] = [
       'valid' => $sheet_findings === [],
       'errors' => array_column($sheet_findings, 'message'),
@@ -1249,6 +1254,55 @@ class StorylineAuthoringDraftService {
           'message' => sprintf("Actor '%s' was changed after its character sheet was built. Rebuild its character sheet.", $name),
         ];
       }
+    }
+    return $findings;
+  }
+
+  /**
+   * Roster actors that would duplicate a character already in the library.
+   *
+   * An actor with no sheet yet, named like a library character that has a
+   * different ID, is the same character under a second identity. Building
+   * its sheet would create the duplicate.
+   *
+   * @return array<int, array<string, mixed>>
+   */
+  public function libraryActorDuplicateFindings(array $payload): array {
+    $unbuilt = [];
+    foreach ((array) ($payload['objects']['actors']['generation_specs'] ?? []) as $spec) {
+      $name = is_array($spec) ? trim((string) ($spec['display_name'] ?? '')) : '';
+      if ($name !== '' && empty($spec['character_id']) && trim((string) ($spec['actor_id'] ?? '')) !== '') {
+        $unbuilt[mb_strtolower($name)] = $spec;
+      }
+    }
+    if ($unbuilt === []) {
+      return [];
+    }
+    $rows = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c', ['instance_id', 'name'])
+      ->condition('campaign_id', 0)
+      ->condition('name', array_values(array_map(static fn(array $spec): string => trim((string) $spec['display_name']), $unbuilt)), 'IN')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+    $findings = [];
+    foreach ($rows as $row) {
+      $spec = $unbuilt[mb_strtolower(trim((string) $row['name']))] ?? NULL;
+      if ($spec === NULL || (string) $row['instance_id'] === (string) $spec['actor_id']) {
+        continue;
+      }
+      $findings[] = [
+        'severity' => 'error',
+        'code' => 'actor_duplicates_library_actor',
+        'actor_id' => (string) $spec['actor_id'],
+        'library_actor_id' => (string) $row['instance_id'],
+        'display_name' => (string) $row['name'],
+        'message' => sprintf(
+          "Actor '%s' already exists in the library as '%s', but this storyline lists it under the new ID '%s'. Use the existing actor's ID everywhere this storyline names it, or give this actor a different name if it is a different character.",
+          (string) $row['name'],
+          (string) $row['instance_id'],
+          (string) $spec['actor_id'],
+        ),
+      ];
     }
     return $findings;
   }

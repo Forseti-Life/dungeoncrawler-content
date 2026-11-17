@@ -61,6 +61,12 @@ class StorylineActorSheetService {
         throw new \InvalidArgumentException('storyline_actor_sheet_actor_not_in_roster:' . json_encode($id));
       }
     }
+    // A sheet is never built for a second identity of a library character.
+    foreach ($this->drafts->libraryActorDuplicateFindings($draft['payload']) as $finding) {
+      if (in_array($finding['actor_id'], $ids, TRUE)) {
+        throw new \InvalidArgumentException('storyline_actor_sheet_duplicates_library_actor: ' . $finding['message']);
+      }
+    }
     if (array_diff(array_keys($preferences), $ids) !== []) {
       throw new \InvalidArgumentException('storyline_actor_sheet_preferences_outside_selection');
     }

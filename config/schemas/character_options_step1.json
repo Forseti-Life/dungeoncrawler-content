@@ -118,7 +118,7 @@
                 },
                 "pattern": {
                   "type": "string",
-                  "default": "^[A-Za-z][A-Za-z ]*$",
+                  "default": "^[A-Za-z][A-Za-z '-]*$",
                   "description": "Regex pattern for valid names"
                 },
                 "error_messages": {

@@ -342,6 +342,12 @@ Validation reports one blocking finding per actor in the stage
 Stage 3 is not complete, and the draft cannot be published, while any
 remain. The next step names it.
 
+An actor with no sheet whose name matches a character already in the
+library under a different ID is reported as `actor_duplicates_library_actor`
+and the sheet build refuses it: the storyline must use the existing actor's
+ID, or the actor must be renamed. Character names may contain letters,
+spaces, hyphens and apostrophes.
+
 ### Completion check
 
 Cast coverage, motivations, knowledge boundaries, relationship arcs, and

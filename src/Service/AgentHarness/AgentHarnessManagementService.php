@@ -1074,6 +1074,20 @@ class AgentHarnessManagementService {
     $state['warning_count'] = $validation['warning_count'] ?? $state['warning_count'] ?? count($validation['warnings'] ?? []);
     $next_steps = StorylineAuthoringDraftService::recommendNextAuthoringAction($state);
     $next = trim((string) ($next_steps[0] ?? ''));
+    if ($next === 'Have the GM build the character sheets for the roster.') {
+      // A sheet cannot be built for a second identity of a library actor,
+      // so that finding comes before the build.
+      foreach ((array) ($validation['stages'] ?? []) as $stage) {
+        foreach ((array) ($stage['findings'] ?? []) as $finding) {
+          if (is_array($finding) && ($finding['code'] ?? '') === 'actor_duplicates_library_actor') {
+            return [sprintf(
+              'Validation finding: %s Options: ask the GM to use the existing library actor, or rename this actor.',
+              (string) $finding['message'],
+            )];
+          }
+        }
+      }
+    }
     if ($next === 'Have the GM address the next validation finding.') {
       $process_flow = (array) ($context_snapshot['storyline']['process_flow'] ?? []);
       $finding = $this->firstValidationFinding($validation, 'error', 'draft_operation');
