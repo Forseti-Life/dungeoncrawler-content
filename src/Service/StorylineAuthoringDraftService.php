@@ -1216,10 +1216,7 @@ class StorylineAuthoringDraftService {
         'scenes' => count($rows($process_flow['journal_entries'] ?? [])),
         'tasks' => count($rows($process_flow['tasks'] ?? [])),
         'choices' => count($rows($process_flow['branch_choices'] ?? [])),
-        'decisions' => count(array_filter(
-          $decision_choice_counts,
-          static fn(int $choice_count): bool => $choice_count >= 2,
-        )),
+        'decisions' => count($decision_choice_counts),
         'objectives' => count($rows($process_flow['objective_completion_criteria'] ?? [])),
         'conflicts' => count($rows($process_flow['conflicts'] ?? [])),
         'actors' => count($rows($objects['actors']['generation_specs'] ?? [])),
@@ -1301,7 +1298,7 @@ class StorylineAuthoringDraftService {
           $counts['tasks'] > 0,
           $counts['objectives'] > 0,
           $counts['conflicts'] > 0,
-          $counts['decisions'] > 0 && $counts['choices'] >= 2,
+          $counts['decisions'] > 0,
         ], array_values($narrative['beat_checks']), array_values($narrative['requirement_checks'])),
         3 => [
           $counts['actors'] > 0,

@@ -932,6 +932,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         'finalization' => $context_snapshot['authoring_workflow']['finalization'] ?? [],
         'bounded_work' => $context_snapshot['authoring_workflow']['bounded_work'] ?? [],
         'next_step_contract' => $context_snapshot['authoring_workflow']['next_step_contract'] ?? [],
+        'branching_contract' => $context_snapshot['authoring_workflow']['branching_contract'] ?? [],
       ],
       'legacy_conversation' => $context_snapshot['legacy_conversation'] ?? [],
       'authority_boundary' => $context_snapshot['authority_boundary'] ?? [],
@@ -1134,6 +1135,10 @@ request. Tools are internal capabilities, not the conversational interface.
 Hard rules:
 - Reply by calling the answer function. Never answer in plain text.
 - Use only the tool result and grounded context as facts. Never invent content.
+- conversation_context records what was said earlier; it is not evidence.
+  State a validation rule or finding only when it appears in the tool result
+  or validation_summary. An earlier reply that named a rule does not make it
+  one.
 - Answer directly and explain what the evidence means.
 - Never mention tools, tool selection, tool results, schema keys, internal field
   names, or harness mechanics. Translate evidence into natural language.

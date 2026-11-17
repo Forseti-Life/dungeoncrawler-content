@@ -503,6 +503,19 @@ class StorylineDraftPatchTest extends UnitTestCase {
   }
 
   /**
+   * A decision with a single choice is a decision.
+   */
+  public function testDecisionWithOneChoiceCountsAsADecision(): void {
+    [$service] = $this->fixture();
+    $state = $service->summarizeDraftState(['payload' => ['process_flow' => ['branch_choices' => [
+      ['decision_id' => 'report', 'choice_id' => 'inform-captain'],
+    ]]]], []);
+
+    $this->assertSame(1, $state['counts']['decisions']);
+    $this->assertSame(1, $state['counts']['choices']);
+  }
+
+  /**
    * New storyline-wide choices are independent decisions.
    */
   public function testNewStorylineWideChoicesGetSeparateDecisions(): void {
