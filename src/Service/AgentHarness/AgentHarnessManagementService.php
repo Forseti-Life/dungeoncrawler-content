@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Drupal\dungeoncrawler_content\Service\AgentHarness;
 
+use Drupal\dungeoncrawler_content\Service\DungeonEditorService;
+use Drupal\dungeoncrawler_content\Service\RoomEditorService;
 use Drupal\dungeoncrawler_content\Service\StorylineAuthoringDraftService;
 use Drupal\ai_conversation\Service\AIApiService;
 
@@ -680,7 +682,7 @@ class AgentHarnessManagementService {
     if ($tool_name === self::TOOL_SUBMIT_BACKLOG_SUGGESTION) {
       $response = $this->buildBacklogSuggestionSummary($tool_result, $context_snapshot);
       if ($surface_label === 'Storyline Builder') {
-        $response['next_steps'] = $this->deriveStorylineNextSteps($tool_result, $context_snapshot);
+        $response['next_steps'] = $this->nextStepFromSavedState($context_snapshot, self::SURFACE_STORYLINE);
       }
       return $response;
     }
@@ -771,7 +773,7 @@ class AgentHarnessManagementService {
       $sections[] = sprintf("Current State\n%s", $this->describeStorylineCurrentState($context_snapshot));
       return [
         'answer' => implode("\n\n", $sections),
-        'next_steps' => $this->deriveStorylineNextSteps([], $context_snapshot),
+        'next_steps' => $this->nextStepFromSavedState($context_snapshot, self::SURFACE_STORYLINE),
       ];
     }
 
@@ -866,7 +868,7 @@ class AgentHarnessManagementService {
     }
 
     $status_body = $this->describeStorylineCurrentState($context_snapshot);
-    $next_steps = $this->deriveStorylineNextSteps($tool_result, $context_snapshot);
+    $next_steps = $this->nextStepFromSavedState($context_snapshot, self::SURFACE_STORYLINE);
 
     return [
       'answer' => "Applied Draft Updates\n{$applied_body}\n\nWhere The Draft Stands\n{$status_body}",
@@ -922,7 +924,7 @@ class AgentHarnessManagementService {
     }
 
     $status_body = $this->describeStorylineCurrentState($context_snapshot);
-    $next_steps = $this->deriveStorylineNextSteps($tool_result, $context_snapshot);
+    $next_steps = $this->nextStepFromSavedState($context_snapshot, self::SURFACE_STORYLINE);
 
     return [
       'answer' => "Canonical Library & Draft Remediation\n" . implode(' ', $parts) . "\n\nWhere The Draft Stands\n{$status_body}",
@@ -939,7 +941,7 @@ class AgentHarnessManagementService {
     $action = $tool_name === 'create_canonical_definition' ? 'Created' : 'Updated';
     $body = sprintf("%s canonical %s definition '%s' in the catalog library.", $action, $family, $id);
     $status_body = $this->describeStorylineCurrentState($context_snapshot);
-    $next_steps = $this->deriveStorylineNextSteps($tool_result, $context_snapshot);
+    $next_steps = $this->nextStepFromSavedState($context_snapshot, self::SURFACE_STORYLINE);
 
     return [
       'answer' => "Canonical Catalog Updated\n{$body}\n\nWhere The Draft Stands\n{$status_body}",
@@ -1048,21 +1050,66 @@ class AgentHarnessManagementService {
     }
   }
 
+  private const SURFACE_STORYLINE = 'Storyline Builder';
+
   /**
-   * The single next step the saved draft state calls for.
+   * Per authoring surface: who maps missing content to an action, and what
+   * the author is working on, as worded in error and warning options.
+   */
+  private const SURFACE_GUIDANCE = [
+    self::SURFACE_STORYLINE => [
+      'recommend' => [StorylineAuthoringDraftService::class, 'recommendNextAuthoringAction'],
+      'work' => 'story',
+      'warning_work' => 'story content',
+    ],
+    'Dungeon Editor' => [
+      'recommend' => [DungeonEditorService::class, 'recommendNextAuthoringAction'],
+      'work' => 'dungeon',
+      'warning_work' => 'dungeon',
+    ],
+    'Room Editor' => [
+      'recommend' => [RoomEditorService::class, 'recommendNextAuthoringAction'],
+      'work' => 'room',
+      'warning_work' => 'room',
+    ],
+  ];
+
+  /**
+   * Next-step wording per finding route, in the order errors are offered:
+   * those a draft edit fixes first, then those another authority fixes.
+   * Arguments: the finding, the surface's work noun, the room to open.
+   */
+  private const ERROR_ROUTE_STEPS = [
+    'draft_operation' => 'Validation finding: %s Options: ask the GM to fix this finding now, skip to the next finding, or switch focus to warnings.',
+    'draft_command' => 'Validation finding: %s Options: ask the GM to fix this finding now, skip to the next finding, or switch focus to warnings.',
+    'actor_sheet_build' => 'Validation finding: %s Options: ask the GM to build the character sheets for the roster, or continue %s changes.',
+    'canonical_remediation' => 'Validation finding: %s This needs canonical content published, not a draft edit. Options: ask the GM to publish the missing canonical content, or continue %s changes.',
+    'room_editor' => 'Validation finding: %s This needs work in the Room Editor, not a %s edit. Options: open %3$s in the Room Editor, or continue %2$s changes.',
+    'definition_editor' => 'Validation finding: %s This needs the object\'s definition fixed, not a %s edit. Options: fix the definition in the Definition Editor, or continue %2$s changes.',
+    'outside_editor' => 'Validation finding: %s No edit in this editor changes this. Options: continue %s changes.',
+  ];
+
+  /**
+   * The Storyline Builder's next step from saved state.
    *
    * @return string[]
    */
   public function storylineNextStepFromSavedState(array $context_snapshot): array {
-    return $this->deriveStorylineNextSteps([], $context_snapshot);
+    return $this->nextStepFromSavedState($context_snapshot, self::SURFACE_STORYLINE);
   }
 
   /**
-   * Derives one bounded next action from the saved state, never stale advice.
+   * The single next step an authoring surface's saved draft state calls for.
+   *
+   * In order: saved work in progress, missing content, the first error a
+   * draft edit fixes, the first error another authority fixes, the first
+   * warning. Never stale advice: only the snapshot is read.
    *
    * @return string[]
    */
-  private function deriveStorylineNextSteps(array $tool_result, array $context_snapshot): array {
+  public function nextStepFromSavedState(array $context_snapshot, string $surface_label): array {
+    $guidance = self::SURFACE_GUIDANCE[$surface_label]
+      ?? throw new \LogicException('next_step_surface_unsupported:' . $surface_label);
     if (!empty($context_snapshot['authoring_workflow']['bounded_work']['active_work'])) {
       if (!empty($context_snapshot['authoring_workflow']['bounded_work']['active_work']['revision_conflict'])) {
         return ['Stop saved work before planning changes against the newer draft revision.'];
@@ -1073,7 +1120,7 @@ class AgentHarnessManagementService {
     $validation = is_array($context_snapshot['validation_summary'] ?? NULL) ? $context_snapshot['validation_summary'] : [];
     $state['error_count'] = $validation['error_count'] ?? $state['error_count'] ?? count($validation['errors'] ?? []);
     $state['warning_count'] = $validation['warning_count'] ?? $state['warning_count'] ?? count($validation['warnings'] ?? []);
-    $next_steps = StorylineAuthoringDraftService::recommendNextAuthoringAction($state);
+    $next_steps = $guidance['recommend']($state);
     $next = trim((string) ($next_steps[0] ?? ''));
     if ($next === 'Have the GM build the character sheets for the roster.') {
       // A sheet cannot be built for a second identity of a library actor,
@@ -1090,35 +1137,27 @@ class AgentHarnessManagementService {
       }
     }
     if ($next === 'Have the GM address the next validation finding.') {
-      $process_flow = (array) ($context_snapshot['storyline']['process_flow'] ?? []);
-      $finding = $this->firstValidationFinding($validation, 'error', 'draft_operation');
-      if ($finding['message'] !== '') {
+      foreach (self::ERROR_ROUTE_STEPS as $route => $step) {
+        $found = $this->firstValidationFinding($validation, 'error', $route);
+        if ($found['message'] === '') {
+          continue;
+        }
         return [sprintf(
-          'Validation finding: %s Options: ask the GM to fix this finding now, skip to the next finding, or switch focus to warnings.',
-          $this->describeFinding($finding, $process_flow),
-        )];
-      }
-      $sheet = $this->firstValidationFinding($validation, 'error', 'actor_sheet_build');
-      if ($sheet['message'] !== '') {
-        return [sprintf(
-          'Validation finding: %s Options: ask the GM to build the character sheets for the roster, or continue story changes.',
-          $sheet['message'],
-        )];
-      }
-      $remediation = $this->firstValidationFinding($validation, 'error', 'canonical_remediation');
-      if ($remediation['message'] !== '') {
-        return [sprintf(
-          'Validation finding: %s This needs canonical content published, not a draft edit. Options: ask the GM to publish the missing canonical content, or continue story changes.',
-          $this->describeFinding($remediation, $process_flow),
+          $step,
+          // A sheet finding already names its actor.
+          $route === 'actor_sheet_build' ? $found['message'] : $this->describeFinding($found, $context_snapshot),
+          $guidance['work'],
+          $this->roomToOpen($found, $context_snapshot),
         )];
       }
     }
     if ($next === 'Have the GM address the next validation warning.') {
-      $finding = $this->firstValidationFinding($validation, 'warning');
-      if ($finding['message'] !== '') {
+      $found = $this->firstValidationFinding($validation, 'warning');
+      if ($found['message'] !== '') {
         return [sprintf(
-          'Validation warning: %s Options: ask the GM to fix this warning now, skip to the next warning, or continue story content changes.',
-          $this->describeFinding($finding, (array) ($context_snapshot['storyline']['process_flow'] ?? [])),
+          'Validation warning: %s Options: ask the GM to fix this warning now, skip to the next warning, or continue %s changes.',
+          $this->describeFinding($found, $context_snapshot),
+          $guidance['warning_work'],
         )];
       }
     }
@@ -1129,7 +1168,12 @@ class AgentHarnessManagementService {
    * Returns one concise validation finding by severity for next-step guidance.
    */
   private function firstValidationFinding(array $validation, string $severity, ?string $required_route = NULL): array {
-    foreach ((array) ($validation['stages'] ?? []) as $stage) {
+    $stages = (array) ($validation['stages'] ?? []);
+    if (is_array($validation['findings'] ?? NULL)) {
+      // Dungeon and Room validation is one routed list, not stages.
+      $stages[] = ['findings' => $validation['findings']];
+    }
+    foreach ($stages as $stage) {
       if (!is_array($stage)) {
         continue;
       }
@@ -1177,8 +1221,9 @@ class AgentHarnessManagementService {
   /**
    * States one finding in the author's terms, without internal identifiers.
    */
-  private function describeFinding(array $selected, array $process_flow): string {
+  private function describeFinding(array $selected, array $context_snapshot): string {
     $finding = is_array($selected['finding'] ?? NULL) ? $selected['finding'] : [];
+    $process_flow = (array) ($context_snapshot['storyline']['process_flow'] ?? []);
     return match ((string) ($finding['code'] ?? '')) {
       'quest_objective_missing' => sprintf(
         'The task "%s" has no objective, so the game cannot tell when it is done.',
@@ -1212,11 +1257,148 @@ class AgentHarnessManagementService {
         'The objective "%s" is not attached to any task.',
         $this->objectiveLabel((string) ($finding['objective_id'] ?? ''), $process_flow),
       ),
-      default => preg_replace(
+      'placement_version_unresolved' => sprintf(
+        'The place %s uses a version of %s that is not published.',
+        $this->placeNames($finding, $context_snapshot),
+        $this->roomToOpen($selected, $context_snapshot),
+      ),
+      'placement_overlap' => sprintf(
+        'The places %s overlap on the map.',
+        $this->placeNames($finding, $context_snapshot),
+      ),
+      'port_link_self_reference' => sprintf(
+        'A link %s joins a place to itself.',
+        $this->linkEnds($finding, $context_snapshot),
+      ),
+      'port_link_endpoint_missing' => sprintf(
+        'The link %s points at a place or doorway that does not exist.',
+        $this->linkEnds($finding, $context_snapshot),
+      ),
+      'port_link_direction_invalid' => sprintf(
+        'The link %s must run from an exit to an entrance.',
+        $this->linkEnds($finding, $context_snapshot),
+      ),
+      'port_link_not_adjacent' => sprintf(
+        'The link %s does not line up: its exit and its entrance are not on touching hexes.',
+        $this->linkEnds($finding, $context_snapshot),
+      ),
+      'port_already_linked' => sprintf(
+        'The exit "%s" on %s is used by %d links; at most one is allowed.',
+        implode('', $this->subjectIds($finding, 'port_id')),
+        $this->placeNames($finding, $context_snapshot),
+        count($this->subjectIds($finding, 'link_id')),
+      ),
+      'region_placement_unresolved' => sprintf(
+        'The region %s includes a place that no longer exists.',
+        $this->regionNames($finding, $context_snapshot),
+      ),
+      default => $this->roomFindingSubject($finding, $context_snapshot) . (preg_replace(
         '/draft-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}-(?:task|scene|choice|objective|decision|conflict)-/',
         '',
         (string) $selected['message'],
-      ) ?? (string) $selected['message'],
+      ) ?? (string) $selected['message']),
+    };
+  }
+
+  /**
+   * IDs of one kind among a Dungeon Editor finding's subjects.
+   *
+   * @return string[]
+   */
+  private function subjectIds(array $finding, string $key): array {
+    return array_values(array_filter(array_map(
+      static fn($subject): string => is_array($subject) ? (string) ($subject[$key] ?? '') : '',
+      (array) ($finding['subjects'] ?? []),
+    )));
+  }
+
+  /**
+   * One dungeon placement as the author named it, or NULL when it is gone.
+   */
+  private function dungeonPlacement(string $placement_id, array $context_snapshot): ?array {
+    foreach ((array) ($context_snapshot['dungeon']['placements'] ?? []) as $placement) {
+      if (is_array($placement) && ($placement['placement_id'] ?? NULL) === $placement_id) {
+        return $placement;
+      }
+    }
+    return NULL;
+  }
+
+  private function placeName(string $placement_id, array $context_snapshot): string {
+    $placement = $this->dungeonPlacement($placement_id, $context_snapshot);
+    return $placement === NULL ? 'a place that no longer exists' : '"' . $placement['label'] . '"';
+  }
+
+  /**
+   * The place names a finding is about, joined for a sentence.
+   */
+  private function placeNames(array $finding, array $context_snapshot): string {
+    return implode(' and ', array_map(
+      fn(string $id): string => $this->placeName($id, $context_snapshot),
+      $this->subjectIds($finding, 'placement_id'),
+    ));
+  }
+
+  /**
+   * A link stated by the two places it joins.
+   */
+  private function linkEnds(array $finding, array $context_snapshot): string {
+    $link_id = $this->subjectIds($finding, 'link_id')[0] ?? '';
+    foreach ((array) ($context_snapshot['dungeon']['port_links'] ?? []) as $link) {
+      if (is_array($link) && ($link['link_id'] ?? NULL) === $link_id) {
+        return sprintf(
+          'from %s to %s',
+          $this->placeName((string) $link['from']['placement_id'], $context_snapshot),
+          $this->placeName((string) $link['to']['placement_id'], $context_snapshot),
+        );
+      }
+    }
+    throw new \LogicException('finding_link_not_in_snapshot:' . $link_id);
+  }
+
+  private function regionNames(array $finding, array $context_snapshot): string {
+    $names = [];
+    foreach ((array) ($context_snapshot['dungeon']['regions'] ?? []) as $region) {
+      if (is_array($region) && in_array($region['region_id'] ?? NULL, $this->subjectIds($finding, 'region_id'), TRUE)) {
+        $names[] = '"' . $region['name'] . '"';
+      }
+    }
+    return implode(' and ', $names);
+  }
+
+  /**
+   * The room a room_editor finding sends the author to, by display name.
+   */
+  private function roomToOpen(array $selected, array $context_snapshot): string {
+    $finding = is_array($selected['finding'] ?? NULL) ? $selected['finding'] : [];
+    $names = [];
+    foreach ($this->subjectIds($finding, 'placement_id') as $placement_id) {
+      $name = $this->dungeonPlacement($placement_id, $context_snapshot)['room_name'] ?? NULL;
+      if (is_string($name) && $name !== '') {
+        $names['the room "' . $name . '"'] = TRUE;
+      }
+    }
+    // A finding about a link, or about a room no longer in the library,
+    // names no single room.
+    return $names === [] ? 'the room' : implode(' and ', array_keys($names));
+  }
+
+  /**
+   * Names what a Room Editor finding's path points at: an object or a port.
+   */
+  private function roomFindingSubject(array $finding, array $context_snapshot): string {
+    $room = $context_snapshot['room'] ?? NULL;
+    if (!is_array($room) || preg_match('#^/(placements|entry_ports|exit_ports)/(\d+)#', (string) ($finding['path'] ?? ''), $match) !== 1) {
+      return '';
+    }
+    $row = $room[$match[1]][(int) $match[2]] ?? NULL;
+    if (!is_array($row)) {
+      return '';
+    }
+    return match ($match[1]) {
+      'placements' => sprintf('The object "%s": ', $this->readableName((string) ($row['definition_ref']['definition_id'] ?? ''))),
+      'entry_ports' => sprintf('The entrance "%s": ', (string) ($row['label'] ?? $row['port_id'] ?? '')),
+      'exit_ports' => sprintf('The exit "%s": ', (string) ($row['label'] ?? $row['port_id'] ?? '')),
     };
   }
 

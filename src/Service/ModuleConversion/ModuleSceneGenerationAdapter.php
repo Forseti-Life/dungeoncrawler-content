@@ -145,7 +145,7 @@ final class ModuleSceneGenerationAdapter {
     }
     $initial = $context->roomEditor->simulateCommands($context->draftId, $commands, 'editing');
     $hexes = $initial['projected_room']['hexes'] ?? NULL;
-    if (empty($initial['applies_cleanly']) || empty($initial['validation']['valid']) || !is_array($hexes) || $hexes === []) {
+    if (empty($initial['applies_cleanly']) || empty($initial['validation']['is_valid']) || !is_array($hexes) || $hexes === []) {
       throw new \DomainException('module_scene_generation_projection_invalid');
     }
     $anchor = $hexes[0];
@@ -176,7 +176,7 @@ final class ModuleSceneGenerationAdapter {
       ];
     }
     $simulation = $context->roomEditor->simulateCommands($context->draftId, $commands, 'publication');
-    if (empty($simulation['applies_cleanly']) || empty($simulation['validation']['valid'])
+    if (empty($simulation['applies_cleanly']) || empty($simulation['validation']['is_valid'])
       || count((array) ($simulation['projected_room']['placements'] ?? [])) < count($originalDefinitionRefs)
       || empty($simulation['projected_room']['entry_ports'])
       || count((array) ($simulation['projected_room']['exit_ports'] ?? [])) !== ($terminal ? 0 : 1)) {
@@ -194,7 +194,7 @@ final class ModuleSceneGenerationAdapter {
     $context->invalidate();
     $validation = $context->validation('publication');
     $final = $context->draft();
-    if (empty($validation['valid'])
+    if (empty($validation['is_valid'])
       || count((array) ($final['room']['placements'] ?? [])) < count($originalDefinitionRefs)
       || empty($final['room']['entry_ports'])
       || count((array) ($final['room']['exit_ports'] ?? [])) !== ($terminal ? 0 : 1)) {

@@ -2,28 +2,40 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://dungeoncrawler.forseti.life/schemas/room_editor_validation_result.schema.json",
   "title": "Room Editor Validation Result",
+  "description": "Room aggregate validation findings, in the same result shape as dungeon_editor_validation_result.schema.json: one findings list, counts by severity, and a fix route on every finding.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["valid", "profile", "draft_id", "revision", "errors", "warnings", "validated_at"],
+  "required": ["schema_version", "profile", "draft_id", "revision", "is_valid", "findings", "counts", "validated_at"],
   "properties": {
-    "valid": {"type": "boolean"},
+    "schema_version": {"const": "room-editor-validation-result-v1"},
     "profile": {"enum": ["editing", "preview", "publication"]},
     "draft_id": {"type": "string", "format": "uuid"},
     "revision": {"type": "integer", "minimum": 0},
-    "errors": {"type": "array", "items": {"$ref": "#/$defs/finding"}},
-    "warnings": {"type": "array", "items": {"$ref": "#/$defs/finding"}},
+    "is_valid": {"type": "boolean"},
+    "findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}},
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["error", "warning", "info"],
+      "properties": {
+        "error": {"type": "integer", "minimum": 0},
+        "warning": {"type": "integer", "minimum": 0},
+        "info": {"type": "integer", "minimum": 0}
+      }
+    },
     "validated_at": {"type": "string", "format": "date-time"}
   },
   "$defs": {
     "finding": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["code", "message", "path", "severity", "context"],
+      "required": ["severity", "code", "message", "route", "path", "context"],
       "properties": {
+        "severity": {"enum": ["error", "warning"]},
         "code": {"type": "string", "minLength": 1},
         "message": {"type": "string", "minLength": 1},
+        "route": {"enum": ["draft_command", "definition_editor"]},
         "path": {"type": "string"},
-        "severity": {"enum": ["error", "warning"]},
         "context": {"type": "object"}
       }
     }

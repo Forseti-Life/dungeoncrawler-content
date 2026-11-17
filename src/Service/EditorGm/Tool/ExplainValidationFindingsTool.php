@@ -36,11 +36,17 @@ final class ExplainValidationFindingsTool implements EditorGmToolInterface {
     }
     $validation = $context->validation($profile);
 
+    // Room validation carries one routed findings list; Storyline and
+    // Character validation carry errors and warnings buckets.
+    $routed = array_key_exists('findings', $validation);
+    $buckets = $routed
+      ? ['findings' => $validation['findings']]
+      : ['errors' => (array) ($validation['errors'] ?? []), 'warnings' => (array) ($validation['warnings'] ?? [])];
     $by_code = [];
     $by_path = [];
     $findings = [];
-    foreach (['errors', 'warnings'] as $bucket) {
-      foreach ((array) ($validation[$bucket] ?? []) as $finding) {
+    foreach ($buckets as $bucket => $rows) {
+      foreach ($rows as $finding) {
         if (is_string($finding)) {
           $message = trim($finding);
           preg_match('/^\[([^\]]+)\]\s+([^\s]+)\s+\(/', $message, $matches);
@@ -70,15 +76,15 @@ final class ExplainValidationFindingsTool implements EditorGmToolInterface {
           'code' => $code,
           'path' => $path,
           'message' => $message,
-        ];
+        ] + ($routed ? ['route' => $finding['route']] : []);
       }
     }
 
     return [
       'profile' => $profile,
-      'valid' => (bool) ($validation['valid'] ?? FALSE),
-      'error_count' => count((array) ($validation['errors'] ?? [])),
-      'warning_count' => count((array) ($validation['warnings'] ?? [])),
+      'valid' => $routed ? $validation['is_valid'] : (bool) ($validation['valid'] ?? FALSE),
+      'error_count' => $routed ? $validation['counts']['error'] : count($buckets['errors']),
+      'warning_count' => $routed ? $validation['counts']['warning'] : count($buckets['warnings']),
       'by_code' => array_values($by_code),
       'by_path' => $by_path,
       'findings' => $findings,

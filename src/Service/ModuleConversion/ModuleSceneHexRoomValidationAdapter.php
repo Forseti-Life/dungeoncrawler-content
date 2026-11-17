@@ -55,7 +55,15 @@ final class ModuleSceneHexRoomValidationAdapter {
     $room['hexes'] = $trace['hexes'];
     $room['entry_ports'] = $trace['entry_ports'];
     $room['exit_ports'] = $exits;
-    $validation = $editor->validateAggregate($room, 'publication');
+    // The trace review keeps its own errors/warnings receipt shape.
+    $room_validation = $editor->validateAggregate($room, 'publication');
+    $validation = [
+      'errors' => RoomEditorService::errorFindings($room_validation),
+      'warnings' => array_values(array_filter(
+        $room_validation['findings'],
+        static fn(array $finding): bool => $finding['severity'] === 'warning',
+      )),
+    ];
     if ($validation['errors'] === []) {
       $hazards = array_filter($room['hexes'], static fn(array $hex): bool =>
         in_array($hex['terrain_type'] ?? NULL, ['water_deep', 'lava'], TRUE));

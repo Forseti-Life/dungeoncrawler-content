@@ -1,0 +1,135 @@
+<?php
+
+namespace Drupal\Tests\dungeoncrawler_content\Unit\Service;
+
+use Drupal\Component\Uuid\UuidInterface;
+use Drupal\Core\Database\Connection;
+use Drupal\Core\Session\AccountProxyInterface;
+use Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService;
+use Drupal\dungeoncrawler_content\Service\RoomEditorService;
+use PHPUnit\Framework\TestCase;
+
+/**
+ * Room Editor findings carry a route; the status reads only saved state.
+ *
+ * @group dungeoncrawler_content
+ */
+class RoomEditorStatusTest extends TestCase {
+
+  private function service(): RoomEditorService {
+    return new RoomEditorService(
+      $this->createMock(Connection::class),
+      $this->createMock(AccountProxyInterface::class),
+      $this->createMock(UuidInterface::class),
+      $this->createMock(CanonicalDefinitionService::class),
+    );
+  }
+
+  private function draft(array $overrides, string $status = 'active'): array {
+    return [
+      'draft_id' => '11111111-1111-4111-8111-111111111111',
+      'revision' => 7,
+      'status' => $status,
+      'published_version_id' => NULL,
+      'room' => $overrides + [
+        'schema_version' => 'canonical-room-v1',
+        'room_id' => 'status_room',
+        'name' => 'Untitled Room',
+        'description' => 'A new canonical room.',
+        'room_type' => 'chamber',
+        'size_category' => 'small',
+        'hexes' => [
+          ['q' => 0, 'r' => 0, 'terrain_type' => 'stone_floor', 'elevation_ft' => 0, 'lighting' => 'bright_light'],
+          ['q' => 1, 'r' => 0, 'terrain_type' => 'stone_floor', 'elevation_ft' => 0, 'lighting' => 'bright_light'],
+        ],
+        'terrain' => ['type' => 'stone_floor'],
+        'lighting' => ['level' => 'bright_light', 'light_sources' => []],
+        'entry_ports' => [[
+          'port_id' => 'entry-1',
+          'hex' => ['q' => 0, 'r' => 0],
+          'edge' => 3,
+          'label' => 'West door',
+          'arrival_facing' => 0,
+          'is_default' => TRUE,
+          'tags' => [],
+        ]],
+        'exit_ports' => [],
+        'placements' => [],
+        'environmental_effects' => [],
+        'gameplay_defaults' => ['safe_for_rest' => FALSE, 'visibility' => 'visible'],
+        'metadata' => ['tags' => [], 'provenance' => ['source' => 'test']],
+      ],
+    ];
+  }
+
+  private function object(): array {
+    return [
+      'instance_id' => '22222222-2222-4222-8222-222222222222',
+      'room_id' => 'status_room',
+      'definition_ref' => ['family' => 'item', 'definition_id' => 'iron-brazier', 'version' => '1.0.0'],
+      'anchor_hex' => ['q' => 5, 'r' => 5],
+      'footprint' => [['q' => 0, 'r' => 0]],
+      'facing' => 0,
+      'elevation_ft' => 0,
+      'overrides' => [],
+    ];
+  }
+
+  public function testEveryFindingCarriesCodeSeverityMessageAndRoute(): void {
+    // The mocked catalog holds no definition, so publication cannot find it.
+    $validation = $this->service()->validateAggregate($this->draft(['placements' => [$this->object()]])['room'], 'publication');
+
+    $routes = [];
+    foreach ($validation['findings'] as $finding) {
+      $this->assertContains($finding['severity'], ['error', 'warning']);
+      $this->assertNotSame('', $finding['message']);
+      $this->assertSame(RoomEditorService::FINDING_ROUTES[$finding['code']], $finding['route']);
+      $routes[$finding['code']] = $finding['route'];
+    }
+    $this->assertSame([
+      'placement_outside_room' => 'draft_command',
+      'definition_not_found' => 'definition_editor',
+    ], $routes);
+    $this->assertFalse($validation['is_valid']);
+    $this->assertSame(['error' => 2, 'warning' => 0, 'info' => 0], $validation['counts']);
+    $this->assertSame($validation['findings'], RoomEditorService::errorFindings($validation));
+  }
+
+  public function testAnUndeclaredFindingCodeThrows(): void {
+    $this->expectException(\LogicException::class);
+    $this->expectExceptionMessage('room_finding_route_undeclared:rule_nobody_declared');
+    RoomEditorService::finding('rule_nobody_declared', '/name', 'Unrouted.');
+  }
+
+  public function testStatusOfANewRoomStartsAtIdentity(): void {
+    $service = $this->service();
+    $draft = $this->draft([]);
+
+    $status = $service->summarizeDraftState($draft, ['profile' => 'editing'] + $service->validateAggregate($draft['room']));
+
+    $this->assertSame('room-draft-status-v1', $status['schema_version']);
+    $this->assertSame(7, $status['revision']);
+    $this->assertSame(1, $status['current_stage']);
+    // An empty room is not missing anything: placing objects is optional.
+    $this->assertSame(['Room name', 'Room description'], $status['missing_content']);
+    $this->assertSame([0, 100, 100, 100, 100, 50], array_column($status['stages'], 'completion_percent'));
+    $this->assertSame(75, $status['completion_percent']);
+    $this->assertSame(['Choose a name for this room.'], $status['next_steps']);
+  }
+
+  public function testStatusOfAFurnishedRoomWaitsOnItsValidationFinding(): void {
+    $service = $this->service();
+    $draft = $this->draft(['name' => 'Guard Post', 'description' => 'A cramped guard post.', 'placements' => [$this->object()]]);
+
+    $status = $service->summarizeDraftState($draft, ['profile' => 'editing'] + $service->validateAggregate($draft['room']));
+
+    $this->assertSame([], $status['missing_content']);
+    $this->assertSame(5, $status['current_stage']);
+    $this->assertSame(1, $status['error_count']);
+    $this->assertFalse($status['canonical_valid']);
+    $this->assertSame(6, $status['completed_checks']);
+    $this->assertSame(7, $status['total_checks']);
+    $this->assertSame(['Have the GM address the next validation finding.'], $status['next_steps']);
+  }
+
+}

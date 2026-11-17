@@ -121,8 +121,8 @@ class RoomPortEdgePolicyCommands extends DrushCommands {
       }
 
       $validation = $this->roomEditor->validateDraft($draft['draft_id'], 'publication');
-      if (!$validation['valid']) {
-        throw new \RuntimeException(sprintf('room_policy_validation_failed:%s:%s', $plan['room_id'], json_encode($validation['errors'], JSON_UNESCAPED_SLASHES)));
+      if (!$validation['is_valid']) {
+        throw new \RuntimeException(sprintf('room_policy_validation_failed:%s:%s', $plan['room_id'], json_encode(RoomEditorService::errorFindings($validation), JSON_UNESCAPED_SLASHES)));
       }
       if ($plan['commands'] === [] && $draft['revision'] === 0) {
         continue;
@@ -227,7 +227,7 @@ class RoomPortEdgePolicyCommands extends DrushCommands {
       }
     }
 
-    $publication_errors = $this->roomEditor->validateAggregate($planned_room, 'publication')['errors'];
+    $publication_errors = RoomEditorService::errorFindings($this->roomEditor->validateAggregate($planned_room, 'publication'));
     return [
       'room_id' => $room_id,
       'base_version_id' => $version_id,
@@ -429,7 +429,7 @@ class RoomPortEdgePolicyCommands extends DrushCommands {
    */
   private function portEdgeErrorPaths(array $room): array {
     $paths = [];
-    foreach ($this->roomEditor->validateAggregate($room, 'publication')['errors'] as $error) {
+    foreach (RoomEditorService::errorFindings($this->roomEditor->validateAggregate($room, 'publication')) as $error) {
       if (($error['code'] ?? NULL) === 'port_edge_not_boundary') {
         $paths[(string) $error['path']] = TRUE;
       }

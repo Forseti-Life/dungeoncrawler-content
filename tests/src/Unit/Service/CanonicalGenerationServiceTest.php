@@ -135,7 +135,7 @@ final class CanonicalGenerationServiceTest extends TestCase {
       return [
         'applies_cleanly' => TRUE,
         'projected_room' => $room,
-        'validation' => ['valid' => TRUE, 'errors' => [], 'warnings' => []],
+        'validation' => ['is_valid' => TRUE, 'findings' => [], 'counts' => ['error' => 0, 'warning' => 0, 'info' => 0]],
       ];
     });
     return $editor;
@@ -302,7 +302,7 @@ final class CanonicalGenerationServiceTest extends TestCase {
           $projected['exit_ports'][] = $command['payload']['port'];
         }
       }
-      return ['applies_cleanly' => TRUE, 'projected_room' => $projected, 'validation' => ['valid' => TRUE]];
+      return ['applies_cleanly' => TRUE, 'projected_room' => $projected, 'validation' => ['is_valid' => TRUE]];
     });
     $plan = $this->service($this->ai([$this->conformingRoom()]), $definitions, $editor)->generateRoomLayout([
       'prompt' => 'original room',

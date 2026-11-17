@@ -40,6 +40,7 @@ final class ExplainDungeonValidationFindingsTool implements EditorGmToolInterfac
       $by_code[$code] ??= [
         'code' => $code,
         'severity' => (string) ($finding['severity'] ?? 'error'),
+        'route' => $finding['route'],
         'count' => 0,
         'messages' => [],
         'subjects' => [],

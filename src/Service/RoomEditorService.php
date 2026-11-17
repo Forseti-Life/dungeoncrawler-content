@@ -6,6 +6,7 @@ use Drupal\Core\Database\Connection;
 use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\Component\Uuid\UuidInterface;
 use Drupal\dungeoncrawler_content\Geometry\RoomPlacementTransformer;
+use Drupal\dungeoncrawler_content\Service\EditorGm\EditorDraftStatusProjection;
 
 /**
  * Canonical room authoring authority for drafts, commands, and publication.
@@ -30,6 +31,65 @@ class RoomEditorService {
   ];
 
   private const SIZE_CATEGORIES = ['tiny', 'small', 'medium', 'large', 'huge', 'gargantuan'];
+
+  /**
+   * Placeholder identity of a new room; not yet the author's own.
+   */
+  private const BLANK_NAME = 'Untitled Room';
+  private const BLANK_DESCRIPTION = 'A new canonical room.';
+
+  /**
+   * Where each finding is fixed, by code.
+   *
+   * draft_command: an edit in this editor. definition_editor: a placed
+   * object's definition is missing or invalid. A code missing here is a
+   * programming error and fails in finding().
+   */
+  public const FINDING_ROUTES = [
+    'required_field_missing' => 'draft_command',
+    'unknown_room_field' => 'draft_command',
+    'schema_version_invalid' => 'draft_command',
+    'room_id_invalid' => 'draft_command',
+    'room_name_invalid' => 'draft_command',
+    'room_description_invalid' => 'draft_command',
+    'room_type_invalid' => 'draft_command',
+    'size_category_invalid' => 'draft_command',
+    'room_terrain_invalid' => 'draft_command',
+    'room_lighting_invalid' => 'draft_command',
+    'room_hex_count_invalid' => 'draft_command',
+    'room_placement_count_invalid' => 'draft_command',
+    'room_entry_port_count_invalid' => 'draft_command',
+    'room_exit_port_count_invalid' => 'draft_command',
+    'hex_coordinate_invalid' => 'draft_command',
+    'duplicate_hex' => 'draft_command',
+    'terrain_type_invalid' => 'draft_command',
+    'hex_elevation_invalid' => 'draft_command',
+    'hex_lighting_invalid' => 'draft_command',
+    'placement_outside_room' => 'draft_command',
+    'placement_family_invalid' => 'draft_command',
+    'placement_definition_ref_invalid' => 'draft_command',
+    'placement_room_id_mismatch' => 'draft_command',
+    'placement_facing_invalid' => 'draft_command',
+    'placement_elevation_invalid' => 'draft_command',
+    'placement_footprint_invalid' => 'draft_command',
+    'placement_collision' => 'draft_command',
+    'definition_not_found' => 'definition_editor',
+    'environmental_effects_invalid' => 'draft_command',
+    'metadata_tags_invalid' => 'draft_command',
+    'gameplay_defaults_invalid' => 'draft_command',
+    'instance_id_invalid' => 'draft_command',
+    'instance_id_duplicate' => 'draft_command',
+    'port_outside_room' => 'draft_command',
+    'port_edge_not_boundary' => 'draft_command',
+    'port_id_duplicate' => 'draft_command',
+    'port_invalid' => 'draft_command',
+    'default_entry_required' => 'draft_command',
+    'room_has_no_placements' => 'draft_command',
+    // Raised by the GM tools around a draft, not by aggregate validation.
+    'room_draft_required' => 'draft_command',
+    'room_id_required' => 'draft_command',
+    'draft_not_active' => 'draft_command',
+  ];
 
   public function __construct(
     protected Connection $database,
@@ -344,16 +404,124 @@ class RoomEditorService {
    */
   public function validateDraft(string $draft_id, string $profile = 'editing'): array {
     $draft = $this->getDraft($draft_id);
-    $result = $this->validateAggregate($draft['room'], $profile);
     return [
-      'valid' => $result['errors'] === [],
+      'schema_version' => 'room-editor-validation-result-v1',
       'profile' => $profile,
       'draft_id' => $draft_id,
       'revision' => $draft['revision'],
-      'errors' => $result['errors'],
-      'warnings' => $result['warnings'],
+    ] + $this->validateAggregate($draft['room'], $profile) + [
       'validated_at' => gmdate(DATE_RFC3339),
     ];
+  }
+
+  /**
+   * Builds one status projection shared by the GM and the Room Editor UI.
+   *
+   * Every value comes from the saved draft and the given validation result.
+   */
+  public function summarizeDraftState(array $draft, array $validation): array {
+    $room = $draft['room'];
+    // Room drafts may predate the aggregate contract. A field validation
+    // reports as missing or malformed holds nothing to count.
+    $list = static fn(string $key): array => is_array($room[$key] ?? NULL) ? $room[$key] : [];
+    $text = static fn(string $key): string => is_string($room[$key] ?? NULL) ? trim($room[$key]) : '';
+    $default_entries = count(array_filter($list('entry_ports'), static fn($port): bool => is_array($port) && !empty($port['is_default'])));
+    $counts = [
+      'hexes' => count($list('hexes')),
+      'entry_ports' => count($list('entry_ports')),
+      'default_entry_ports' => $default_entries,
+      'exit_ports' => count($list('exit_ports')),
+      'placements' => count($list('placements')),
+    ];
+    $is = [
+      'name' => $text('name') !== '' && $text('name') !== self::BLANK_NAME,
+      'description' => $text('description') !== '' && $text('description') !== self::BLANK_DESCRIPTION,
+      'hexes' => $counts['hexes'] > 0,
+      'entry' => $counts['entry_ports'] > 0,
+      'default_entry' => $default_entries === 1,
+      'contents' => $counts['placements'] > 0,
+      'valid' => $validation['is_valid'],
+    ];
+    // Whatever is placed must exist in the library; nothing has to be placed.
+    $contents_resolve = array_filter(
+      $validation['findings'],
+      static fn(array $finding): bool => $finding['severity'] === 'error' && $finding['route'] === 'definition_editor',
+    ) === [];
+    $item = static fn(string $id, string $label, bool $complete, string $detail = '', string $group = 'minimum_content'): array
+      => compact('id', 'label', 'complete', 'group', 'detail');
+    $checklist = [
+      $item('identity_name', 'Room name', $is['name']),
+      $item('identity_description', 'Room description', $is['description']),
+      $item('layout_hexes', 'At least one floor hex', $is['hexes'], (string) $counts['hexes']),
+      $item('ports_entry', 'At least one entrance', $is['entry'], (string) $counts['entry_ports']),
+      $item('ports_default_entry', 'Exactly one default entrance', $is['default_entry'], (string) $default_entries),
+      // An empty room is a finished room: a road, a clearing, a corridor.
+      $item('contents_placed', 'At least one placed object', $is['contents'], (string) $counts['placements'], 'optional'),
+      $item('canonical_validation', 'Validation passes', $is['valid'], sprintf('%d errors, %d warnings', $validation['counts']['error'], $validation['counts']['warning']), 'validation'),
+    ];
+    $result = EditorDraftStatusProjection::project('room-draft-status-v1', $draft, $validation, $checklist, [
+      1 => [
+        'label' => 'Identity',
+        'checks' => [$is['name'], $is['description']],
+        'metrics' => ['room_type' => $text('room_type'), 'size_category' => $text('size_category')],
+      ],
+      2 => [
+        'label' => 'Layout',
+        'checks' => [$is['hexes']],
+        'metrics' => ['hexes' => $counts['hexes']],
+      ],
+      3 => [
+        'label' => 'Ports',
+        'checks' => [$is['entry'], $is['default_entry']],
+        'metrics' => ['entry_ports' => $counts['entry_ports'], 'default_entry_ports' => $default_entries, 'exit_ports' => $counts['exit_ports']],
+      ],
+      4 => [
+        'label' => 'Contents',
+        'checks' => [$contents_resolve],
+        'metrics' => ['placements' => $counts['placements']],
+      ],
+      5 => [
+        'label' => 'Validation',
+        'checks' => [$is['valid']],
+        'metrics' => ['errors' => $validation['counts']['error'], 'warnings' => $validation['counts']['warning']],
+      ],
+      6 => [
+        'label' => 'Published',
+        'checks' => [$is['valid'], $draft['status'] === 'published'],
+        'metrics' => ['published_version_id' => $draft['published_version_id']],
+      ],
+    ], $counts);
+    $result['next_steps'] = self::recommendNextAuthoringAction($result);
+    return $result;
+  }
+
+  /**
+   * Owns the single next author action for the Room Editor.
+   *
+   * @return string[]
+   */
+  public static function recommendNextAuthoringAction(array $state): array {
+    if ($state['status'] === 'published') {
+      return ['Open the published room.'];
+    }
+    if ($state['missing_content'] !== []) {
+      $label = $state['missing_content'][0];
+      return [match ($label) {
+        'Room name' => 'Choose a name for this room.',
+        'Room description' => 'Describe this room in one short paragraph.',
+        'At least one floor hex' => 'Have the GM lay out the room floor.',
+        'At least one entrance' => 'Have the GM add an entrance.',
+        'Exactly one default entrance' => 'Choose which entrance is the default.',
+        default => throw new \LogicException('room_status_label_unmapped:' . $label),
+      }];
+    }
+    if ($state['error_count'] > 0) {
+      return ['Have the GM address the next validation finding.'];
+    }
+    if ($state['warning_count'] > 0) {
+      return ['Have the GM address the next validation warning.'];
+    }
+    return ['Review the room and check its publication readiness.'];
   }
 
   /**
@@ -379,7 +547,7 @@ class RoomEditorService {
       throw new \RuntimeException('base_version_conflict');
     }
     $validation = $this->validateDraft($draft_id, 'publication');
-    if (!$validation['valid']) {
+    if (!$validation['is_valid']) {
       throw new \DomainException('publication_validation_failed');
     }
 
@@ -993,15 +1161,47 @@ class RoomEditorService {
     if ($profile === 'publication' && ($room['placements'] ?? []) === []) {
       $warnings[] = $this->finding('room_has_no_placements', '/placements', 'Room has no placeable objects.', 'warning');
     }
-    return ['errors' => $errors, 'warnings' => $warnings];
+    return self::validationResult(array_merge($errors, $warnings));
   }
 
-  private function finding(string $code, string $path, string $message, string $severity = 'error', array $context = []): array {
+  /**
+   * The validation result shape shared with the Dungeon Editor.
+   *
+   * @return array{is_valid: bool, findings: array, counts: array{error: int, warning: int, info: int}}
+   */
+  public static function validationResult(array $findings): array {
+    $counts = ['error' => 0, 'warning' => 0, 'info' => 0];
+    foreach ($findings as $finding) {
+      $counts[$finding['severity']]++;
+    }
     return [
+      'is_valid' => $counts['error'] === 0,
+      'findings' => array_values($findings),
+      'counts' => $counts,
+    ];
+  }
+
+  /**
+   * The error findings of a validation result.
+   */
+  public static function errorFindings(array $validation): array {
+    return array_values(array_filter(
+      $validation['findings'],
+      static fn(array $finding): bool => $finding['severity'] === 'error',
+    ));
+  }
+
+  /**
+   * Builds one finding; its route comes from FINDING_ROUTES.
+   */
+  public static function finding(string $code, string $path, string $message, string $severity = 'error', array $context = []): array {
+    return [
+      'severity' => $severity,
       'code' => $code,
       'message' => $message,
+      'route' => self::FINDING_ROUTES[$code]
+        ?? throw new \LogicException('room_finding_route_undeclared:' . $code),
       'path' => $path,
-      'severity' => $severity,
       'context' => $context,
     ];
   }
@@ -1016,8 +1216,8 @@ class RoomEditorService {
     return [
       'schema_version' => 'canonical-room-v1',
       'room_id' => 'new-room-' . substr($this->uuid->generate(), 0, 8),
-      'name' => 'Untitled Room',
-      'description' => 'A new canonical room.',
+      'name' => self::BLANK_NAME,
+      'description' => self::BLANK_DESCRIPTION,
       'room_type' => 'chamber',
       'size_category' => 'gargantuan',
       'hexes' => $hexes,
@@ -1097,7 +1297,7 @@ class RoomEditorService {
     }
 
     $blocked = array_values(array_filter($steps, static fn(array $s): bool => !$s['applies']));
-    $findings = $blocked === [] ? $this->validateAggregate($room, $profile) : ['errors' => [], 'warnings' => []];
+    $validation = $blocked === [] ? $this->validateAggregate($room, $profile) : self::validationResult([]);
 
     return [
       'draft_id' => $draft_id,
@@ -1106,12 +1306,7 @@ class RoomEditorService {
       'applies_cleanly' => $blocked === [],
       'steps' => $steps,
       'projected_room' => $room,
-      'validation' => [
-        'valid' => $blocked === [] && $findings['errors'] === [],
-        'profile' => $profile,
-        'errors' => $findings['errors'],
-        'warnings' => $findings['warnings'],
-      ],
+      'validation' => ['profile' => $profile, 'is_valid' => $blocked === [] && $validation['is_valid']] + $validation,
     ];
   }
 
@@ -1134,12 +1329,12 @@ class RoomEditorService {
    */
   private function introducedValidationErrors(array $before, array $after): array {
     $existing = [];
-    foreach ($this->validateAggregate($before)['errors'] as $error) {
+    foreach (self::errorFindings($this->validateAggregate($before)) as $error) {
       $existing[$this->validationErrorKey($error)] = TRUE;
     }
 
     $introduced = [];
-    foreach ($this->validateAggregate($after)['errors'] as $error) {
+    foreach (self::errorFindings($this->validateAggregate($after)) as $error) {
       if (!isset($existing[$this->validationErrorKey($error)])) {
         $introduced[] = $error;
       }

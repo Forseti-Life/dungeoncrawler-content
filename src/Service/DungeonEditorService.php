@@ -7,6 +7,7 @@ use Drupal\Core\Database\Connection;
 use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\dungeoncrawler_content\Geometry\RoomPlacementTransformer;
 use Drupal\dungeoncrawler_content\Service\Definition\DefinitionSchemaValidator;
+use Drupal\dungeoncrawler_content\Service\EditorGm\EditorDraftStatusProjection;
 
 /**
  * Canonical dungeon authoring authority.
@@ -62,6 +63,48 @@ class DungeonEditorService {
   private const REGION_KEYS = ['name', 'placement_ids', 'description', 'environmental_effects', 'ambient_hazard_level'];
 
   private const ID_PATTERN = '/^[a-z0-9][a-z0-9_-]{0,99}$/';
+
+  /**
+   * Placeholder identity of a new level; not yet the author's own.
+   */
+  private const BLANK_NAME = 'Untitled Dungeon';
+  private const BLANK_DESCRIPTION = 'A new canonical dungeon level.';
+  private const BLANK_THEME = 'unthemed';
+
+  /**
+   * Where each finding is fixed, by code.
+   *
+   * draft_command: an edit in this editor. room_editor: a room must be built,
+   * fixed or republished. outside_editor: no editor command changes it. A
+   * code missing here is a programming error and fails in routeFor().
+   */
+  public const FINDING_ROUTES = [
+    'placement_overlap' => 'draft_command',
+    'placement_version_unresolved' => 'room_editor',
+    'port_link_endpoint_missing' => 'draft_command',
+    'port_link_direction_invalid' => 'draft_command',
+    'port_link_not_adjacent' => 'draft_command',
+    'port_already_linked' => 'draft_command',
+    'port_link_self_reference' => 'draft_command',
+    'dungeon_entrance_missing' => 'draft_command',
+    'dungeon_entrance_ambiguous' => 'draft_command',
+    'placement_unreachable' => 'draft_command',
+    'exit_port_dangling' => 'draft_command',
+    'region_placement_unresolved' => 'draft_command',
+    // Command rejections.
+    'placement_id_duplicate' => 'draft_command',
+    'placement_origin_out_of_bounds' => 'draft_command',
+    'rotation_steps_invalid' => 'draft_command',
+    // Publication schema: the only rule editing relaxes is an empty level.
+    'min_items' => 'draft_command',
+    // Connector projection at publication.
+    'connection_id_duplicate_in_dungeon' => 'draft_command',
+    'connector_h3_endpoint_missing' => 'room_editor',
+    'dungeon_id_invalid' => 'outside_editor',
+    'dungeon_id_reserved' => 'outside_editor',
+    'dungeon_id_scope_mismatch' => 'outside_editor',
+    'publication_blocked_by_active_campaign' => 'outside_editor',
+  ];
 
   private ?array $aggregateSchema = NULL;
   private ?array $commandSchema = NULL;
@@ -715,6 +758,160 @@ class DungeonEditorService {
   }
 
   /**
+   * Builds one status projection shared by the GM and the Dungeon Editor UI.
+   *
+   * Every value comes from the saved draft, its pinned room versions and the
+   * given validation result.
+   */
+  public function summarizeDraftState(array $draft, array $validation): array {
+    $dungeon = $draft['dungeon'];
+    $placements = $dungeon['room_placements'];
+    $resolved = 0;
+    $with_contents = 0;
+    $with_encounter = 0;
+    foreach ($placements as $placement) {
+      $room = $this->roomVersion((string) $placement['version_id']);
+      if ($room === NULL) {
+        continue;
+      }
+      $resolved++;
+      $families = array_map(
+        static fn(array $object): string => (string) $object['definition_ref']['family'],
+        $room['placements'] ?? [],
+      );
+      $with_contents += $families !== [] ? 1 : 0;
+      $with_encounter += array_intersect($families, ['creature', 'actor']) !== [] ? 1 : 0;
+    }
+    $entrances = count(array_filter($placements, static fn(array $placement): bool => $placement['is_level_entrance']));
+    $finding_codes = array_count_values(array_column($validation['findings'], 'code'));
+    $unreachable = $finding_codes['placement_unreachable'] ?? 0;
+    $open_exits = $finding_codes['exit_port_dangling'] ?? 0;
+    $counts = [
+      'placements' => count($placements),
+      'placements_resolved' => $resolved,
+      'level_entrances' => $entrances,
+      'port_links' => count($dungeon['port_links']),
+      'regions' => count($dungeon['regions']),
+      'unreachable_placements' => $unreachable,
+      'open_exits' => $open_exits,
+      'rooms_with_contents' => $with_contents,
+      'rooms_with_encounter' => $with_encounter,
+    ];
+    $placed = $placements !== [];
+    $is = [
+      'name' => trim($dungeon['name']) !== '' && $dungeon['name'] !== self::BLANK_NAME,
+      'description' => trim($dungeon['description']) !== '' && $dungeon['description'] !== self::BLANK_DESCRIPTION,
+      'theme' => trim($dungeon['theme']) !== '' && $dungeon['theme'] !== self::BLANK_THEME,
+      'placed' => $placed,
+      'resolved' => $placed && $resolved === count($placements),
+      'entrance' => $entrances === 1,
+      'reachable' => $entrances === 1 && $unreachable === 0,
+      'exits' => $placed && $open_exits === 0,
+      'contents' => $with_contents > 0,
+      'valid' => $validation['is_valid'],
+    ];
+    $item = static fn(string $id, string $label, bool $complete, string $detail = '', string $group = 'minimum_content'): array
+      => compact('id', 'label', 'complete', 'group', 'detail');
+    $checklist = [
+      $item('identity_name', 'Dungeon name', $is['name']),
+      $item('identity_description', 'Dungeon description', $is['description']),
+      $item('identity_theme', 'Dungeon theme', $is['theme']),
+      $item('rooms_placed', 'At least one room placed', $is['placed'], (string) count($placements)),
+      $item('rooms_resolved', 'Every placed room uses a published room version', $is['resolved'], sprintf('%d/%d', $resolved, count($placements))),
+      $item('entrance_single', 'Exactly one level entrance', $is['entrance'], (string) $entrances),
+      $item('rooms_reachable', 'Every room can be reached from the entrance', $is['reachable'], sprintf('%d unreachable', $unreachable)),
+      $item('exits_linked', 'Every exit is linked', $is['exits'], sprintf('%d open', $open_exits)),
+      $item('contents_present', 'At least one placed room has contents', $is['contents'], sprintf('%d/%d', $with_contents, count($placements))),
+      // A level without creatures is legitimate, so this never blocks.
+      $item('encounter_present', 'At least one placed room has a creature or actor', $with_encounter > 0, sprintf('%d/%d', $with_encounter, count($placements)), 'optional'),
+      $item('canonical_validation', 'Validation passes', $is['valid'], sprintf('%d errors, %d warnings', $validation['counts']['error'], $validation['counts']['warning']), 'validation'),
+    ];
+    $result = EditorDraftStatusProjection::project('dungeon-draft-status-v1', $draft, $validation, $checklist, [
+      1 => [
+        'label' => 'Identity and purpose',
+        'checks' => [$is['name'], $is['description'], $is['theme']],
+        'metrics' => ['depth' => $dungeon['depth'], 'theme' => $dungeon['theme']],
+      ],
+      2 => [
+        'label' => 'Rooms placed',
+        'checks' => [$is['placed'], $is['resolved']],
+        'metrics' => ['placements' => count($placements), 'published_versions' => sprintf('%d/%d', $resolved, count($placements))],
+      ],
+      3 => [
+        'label' => 'Links and entrances',
+        'checks' => [$is['entrance'], $is['reachable'], $is['exits']],
+        'metrics' => ['level_entrances' => $entrances, 'port_links' => $counts['port_links'], 'unreachable' => $unreachable, 'open_exits' => $open_exits],
+      ],
+      4 => [
+        'label' => 'Contents and encounters',
+        'checks' => [$is['contents']],
+        'metrics' => ['rooms_with_contents' => $with_contents, 'rooms_with_encounter' => $with_encounter],
+      ],
+      5 => [
+        'label' => 'Validation',
+        'checks' => [$is['valid']],
+        'metrics' => ['errors' => $validation['counts']['error'], 'warnings' => $validation['counts']['warning']],
+      ],
+      6 => [
+        'label' => 'Published',
+        'checks' => [$is['valid'], $draft['status'] === 'published'],
+        'metrics' => ['published_version_id' => $draft['published_version_id']],
+      ],
+    ], $counts);
+    $result['next_steps'] = self::recommendNextAuthoringAction($result);
+    return $result;
+  }
+
+  /**
+   * Owns the single next author action for the Dungeon Editor.
+   *
+   * @return string[]
+   */
+  public static function recommendNextAuthoringAction(array $state): array {
+    if ($state['status'] === 'published') {
+      return ['Open the published dungeon.'];
+    }
+    if ($state['missing_content'] !== []) {
+      $label = $state['missing_content'][0];
+      return [match ($label) {
+        'Dungeon name' => 'Choose a name for this dungeon.',
+        'Dungeon description' => 'Describe this dungeon level in one short paragraph.',
+        'Dungeon theme' => 'Choose a theme for this dungeon.',
+        'At least one room placed' => 'Have the GM place the first room.',
+        'Every placed room uses a published room version' => 'Have the GM address the next validation finding.',
+        'Exactly one level entrance' => 'Choose which room is the level entrance.',
+        'Every room can be reached from the entrance' => 'Have the GM link the next unreachable room.',
+        'Every exit is linked' => 'Have the GM link the next open exit.',
+        'At least one placed room has contents' => 'Add contents to a placed room in the Room Editor, or place a room that has contents.',
+        default => throw new \LogicException('dungeon_status_label_unmapped:' . $label),
+      }];
+    }
+    if ($state['error_count'] > 0) {
+      return ['Have the GM address the next validation finding.'];
+    }
+    if ($state['warning_count'] > 0) {
+      return ['Have the GM address the next validation warning.'];
+    }
+    return ['Review the dungeon and check its publication readiness.'];
+  }
+
+  /**
+   * A placed room's display name: its pinned version's, else its library row's.
+   */
+  public function roomDisplayName(string $room_id, string $version_id): ?string {
+    $room = $this->roomVersion($version_id);
+    if ($room !== NULL) {
+      return (string) $room['name'];
+    }
+    $name = $this->database->select('dungeoncrawler_content_rooms', 'r')
+      ->fields('r', ['name'])
+      ->condition('room_id', $room_id)
+      ->execute()
+      ->fetchField();
+    return $name === FALSE ? NULL : (string) $name;
+  }
+
+  /**
    * Publication-profile validation plus non-ended campaign guard state.
    */
   public function publicationReadiness(string $draft_id): array {
@@ -741,7 +938,10 @@ class DungeonEditorService {
         $this->connectorProjection->project($dungeon_id, $draft['dungeon']);
       }
       catch (DungeonEditorFindingsInterface $exception) {
-        $projection_findings = $exception->getFindings();
+        $projection_findings = array_map(
+          static fn(array $finding): array => $finding + ['route' => self::routeFor((string) $finding['code'])],
+          $exception->getFindings(),
+        );
         $validation['findings'] = array_values(array_merge($validation['findings'], $projection_findings));
         $validation['counts']['error'] += count($projection_findings);
         $validation['is_valid'] = FALSE;
@@ -1678,10 +1878,10 @@ class DungeonEditorService {
     return [
       'schema_version' => self::SCHEMA_VERSION,
       'dungeon_id' => 'new-dungeon-' . substr($this->uuid->generate(), 0, 8),
-      'name' => 'Untitled Dungeon',
-      'description' => 'A new canonical dungeon level.',
+      'name' => self::BLANK_NAME,
+      'description' => self::BLANK_DESCRIPTION,
       'depth' => 1,
-      'theme' => 'unthemed',
+      'theme' => self::BLANK_THEME,
       'hex_grid' => [
         'orientation' => 'flat-top',
         'hex_size_ft' => 5,
@@ -1796,6 +1996,7 @@ class DungeonEditorService {
       'severity' => $severity,
       'code' => $code,
       'message' => $message,
+      'route' => self::routeFor($code),
       'subjects' => $subjects,
     ];
     if ($hex !== NULL) {
@@ -1804,11 +2005,20 @@ class DungeonEditorService {
     return $finding;
   }
 
+  /**
+   * The declared fix route for a finding code.
+   */
+  public static function routeFor(string $code): string {
+    return self::FINDING_ROUTES[$code]
+      ?? throw new \LogicException('dungeon_finding_route_undeclared:' . $code);
+  }
+
   private function schemaFinding(array $finding): array {
     $normalized = [
       'severity' => 'error',
-      'code' => (string) ($finding['code'] ?? 'schema_violation'),
-      'message' => (string) ($finding['message'] ?? 'Dungeon aggregate does not satisfy the publication schema.'),
+      'code' => (string) $finding['code'],
+      'message' => (string) $finding['message'],
+      'route' => self::routeFor((string) $finding['code']),
       'subjects' => isset($finding['pointer']) ? [['pointer' => (string) $finding['pointer']]] : [],
     ];
     foreach (['pointer', 'schema_pointer'] as $key) {

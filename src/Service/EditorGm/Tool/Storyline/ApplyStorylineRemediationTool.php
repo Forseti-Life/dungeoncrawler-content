@@ -150,7 +150,7 @@ final class ApplyStorylineRemediationTool implements EditorGmToolInterface {
         $revision = (int) $result['draft']['revision'];
       }
       $validation = $this->roomEditor->validateDraft($room_draft_id, 'publication');
-      if (empty($validation['valid'])) {
+      if (empty($validation['is_valid'])) {
         throw new \DomainException('storyline_remediation_room_invalid:' . $room_id);
       }
       $this->roomEditor->publish($room_draft_id, [

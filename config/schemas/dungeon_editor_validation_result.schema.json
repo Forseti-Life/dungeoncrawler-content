@@ -29,7 +29,7 @@
     "finding": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["severity", "code", "message", "subjects"],
+      "required": ["severity", "code", "message", "route", "subjects"],
       "properties": {
         "severity": {"enum": ["error", "warning", "info"]},
         "code": {
@@ -49,6 +49,7 @@
           ]
         },
         "message": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "route": {"enum": ["draft_command", "room_editor", "outside_editor"]},
         "subjects": {
           "type": "array",
           "maxItems": 200,

@@ -6,6 +6,7 @@ use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolContext;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolDefinition;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolInterface;
 use Drupal\dungeoncrawler_content\Service\EditorGm\RoomEditorGmToolContext;
+use Drupal\dungeoncrawler_content\Service\RoomEditorService;
 
 /**
  * Validation tool: reports whether the draft can be published right now.
@@ -28,27 +29,12 @@ final class CheckPublicationReadinessTool implements EditorGmToolInterface {
     $validation = $context->validation('publication');
     $room_id = $context->roomId();
 
-    $blockers = [];
-    foreach ((array) ($validation['errors'] ?? []) as $finding) {
-      $blockers[] = [
-        'code' => (string) ($finding['code'] ?? 'unknown'),
-        'message' => (string) ($finding['message'] ?? ''),
-        'path' => (string) ($finding['path'] ?? ''),
-      ];
-    }
+    $blockers = RoomEditorService::errorFindings($validation);
     if ($room_id === '') {
-      $blockers[] = [
-        'code' => 'room_id_required',
-        'message' => 'The draft has no room_id and cannot be published.',
-        'path' => 'room_id',
-      ];
+      $blockers[] = RoomEditorService::finding('room_id_required', '/room_id', 'The draft has no room_id and cannot be published.');
     }
     if ((string) ($draft['status'] ?? '') !== 'active') {
-      $blockers[] = [
-        'code' => 'draft_not_active',
-        'message' => 'Only an active draft can be published.',
-        'path' => 'status',
-      ];
+      $blockers[] = RoomEditorService::finding('draft_not_active', '/status', 'Only an active draft can be published.');
     }
 
     return [
@@ -57,7 +43,10 @@ final class CheckPublicationReadinessTool implements EditorGmToolInterface {
       'revision' => (int) ($draft['revision'] ?? 0),
       'base_version_id' => $draft['base_version_id'] ?? NULL,
       'blockers' => $blockers,
-      'warnings' => array_values((array) ($validation['warnings'] ?? [])),
+      'warnings' => array_values(array_filter(
+        $validation['findings'],
+        static fn(array $finding): bool => $finding['severity'] === 'warning',
+      )),
     ];
   }
 

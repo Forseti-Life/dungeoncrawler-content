@@ -2530,7 +2530,7 @@ class ModuleConversionReleaseService {
     if ($generation !== NULL) {
       $context = new RoomEditorGmToolContext($draft_id, 'publication', $this->roomEditor, $this->canonicalDefinitions);
       $generated = $this->sceneGeneration->applyPreparedRoom($prepared['plan'], $context, $generation['definitions'], $terminal);
-      if (($generated['validation']['valid'] ?? FALSE) !== TRUE) {
+      if ($generated['validation']['is_valid'] !== TRUE) {
         throw new \DomainException('module_scene_publication_validation_failed');
       }
       $draft = $generated['draft'];
@@ -2582,7 +2582,7 @@ class ModuleConversionReleaseService {
       $draft_id,
       (array) ($command_result['draft'] ?? [])
     );
-    if ($generation !== NULL && ($this->roomEditor->validateDraft($draft_id, 'publication')['valid'] ?? FALSE) !== TRUE) {
+    if ($generation !== NULL && $this->roomEditor->validateDraft($draft_id, 'publication')['is_valid'] !== TRUE) {
       throw new \DomainException('module_scene_publication_validation_failed');
     }
     $published = $this->roomEditor->publish($draft_id, [
@@ -3773,7 +3773,7 @@ class ModuleConversionReleaseService {
       }
 
       $room_validation = $this->roomEditor->validateAggregate($room, 'publication');
-      if (($room_validation['errors'] ?? []) !== []) {
+      if (!$room_validation['is_valid']) {
         $unrealized[] = $resource_id;
       }
       elseif ($original) {

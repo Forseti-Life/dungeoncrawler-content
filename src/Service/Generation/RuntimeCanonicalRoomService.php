@@ -123,8 +123,8 @@ final class RuntimeCanonicalRoomService {
       ]);
       $draft = $metadata_result['draft'];
       $validation = $this->roomEditor->validateDraft($draft_id, 'publication');
-      if (is_array($validation['errors'] ?? NULL) && $validation['errors'] !== []) {
-        throw new RuntimeGenerationException('runtime_generation_failed', (array) $validation['errors']);
+      if (!$validation['is_valid']) {
+        throw new RuntimeGenerationException('runtime_generation_failed', RoomEditorService::errorFindings($validation));
       }
       $room = is_array($draft['room'] ?? NULL) ? $draft['room'] : [];
       $version = $this->runtimeVersion((string) ($room['room_id'] ?? ''), $seed);

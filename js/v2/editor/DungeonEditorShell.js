@@ -44,6 +44,7 @@ import {
   selectEditorGmTool,
   shouldSubmitEditorGmKey,
 } from './EditorGmChatClient.js?v=20261024-tool-calls-1';
+import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261117-draft-status-1';
 
 const transform = globalThis.DungeonCrawlerPlacementTransform;
 if (!transform) {
@@ -414,6 +415,7 @@ export class DungeonEditorShell {
       publishedVersion: q('[data-dungeon-editor-published-version]'),
       gmPanel: q('[data-dungeon-editor-gm-panel]'),
       gmState: q('[data-dungeon-editor-gm-state]'),
+      gmStatus: q('[data-dungeon-editor-gm-status]'),
       gmContext: q('[data-dungeon-editor-gm-context]'),
       gmContextToggle: q('[data-dungeon-editor-action="gm-toggle-context"]'),
       gmTools: q('[data-dungeon-editor-gm-tools]'),
@@ -1897,6 +1899,7 @@ export class DungeonEditorShell {
     }
     clearElement(body);
     const context = this._gm?.context;
+    renderEditorDraftStatus(this._dom.gmStatus, context?.current_state ?? null);
     if (!context) {
       body.appendChild(makeEl('p', 'room-editor__hint', 'No grounded context loaded.'));
       return;

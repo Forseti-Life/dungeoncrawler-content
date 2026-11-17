@@ -32,7 +32,7 @@ final class PreviewPublicationPayloadTool implements EditorGmToolInterface {
       'revision' => (int) ($draft['revision'] ?? 0),
       'expected_base_version_id' => $draft['base_version_id'] ?? NULL,
       'payload_hash' => (string) ($draft['payload_hash'] ?? ''),
-      'would_publish' => (bool) ($validation['valid'] ?? FALSE),
+      'would_publish' => $validation['is_valid'],
       'room' => $context->room(),
       'validation' => $validation,
     ];

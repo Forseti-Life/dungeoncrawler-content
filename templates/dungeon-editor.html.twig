@@ -160,6 +160,17 @@
           <span class="room-editor__gm-state" data-dungeon-editor-gm-state role="status" aria-live="polite">{{ 'Idle'|t }}</span>
         </header>
 
+        <section class="room-editor__gm-status" data-dungeon-editor-gm-status aria-label="{{ 'Draft status'|t }}">
+          <div class="room-editor__gm-status-score"><strong data-editor-status-percent>0%</strong> <span>{{ 'complete'|t }}</span></div>
+          <progress data-editor-status-progress max="100" value="0">0%</progress>
+          <dl class="room-editor__gm-status-facts">
+            <div><dt>{{ 'Validity'|t }}</dt><dd data-editor-status-validity>{{ 'No draft'|t }}</dd></div>
+            <div><dt>{{ 'Current stage'|t }}</dt><dd data-editor-status-stage>—</dd></div>
+          </dl>
+          <p class="room-editor__gm-status-label">{{ 'Still needed'|t }}</p>
+          <ul class="room-editor__gm-status-missing" data-editor-status-missing><li>{{ 'Create or load a draft.'|t }}</li></ul>
+        </section>
+
         <section class="room-editor__gm-disclosure-group" aria-label="{{ 'Grounded editor context'|t }}">
           <button type="button"
                   class="room-editor__gm-disclosure"

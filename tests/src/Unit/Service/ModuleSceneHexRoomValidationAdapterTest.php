@@ -145,7 +145,7 @@ final class ModuleSceneHexRoomValidationAdapterTest extends TestCase {
     $trace['hexes'][2]['terrain_type'] = 'void';
     $trace['hexes'][3]['terrain_type'] = 'void';
     $projection = $this->project($trace, $this->room(), $this->exits());
-    self::assertSame([], $this->editor()->validateAggregate($projection['room'], 'publication')['errors']);
+    self::assertTrue($this->editor()->validateAggregate($projection['room'], 'publication')['is_valid']);
     self::assertContains('scene_trace_movement_unreachable', array_column($projection['validation']['errors'], 'code'));
     self::assertFalse($projection['validation']['valid']);
   }

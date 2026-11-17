@@ -390,18 +390,18 @@ class RoomEditorContractTest extends UnitTestCase {
     $legacy = $this->legacyRoomWithTwoBadPortEdges();
     $this->assertSame(
       ['port_edge_not_boundary', 'port_edge_not_boundary'],
-      array_column($service->validateAggregate($legacy)['errors'], 'code')
+      array_column($service->validateAggregate($legacy)['findings'], 'code')
     );
 
     $one_fixed = $legacy;
     $one_fixed['entry_ports'][0]['edge'] = 3;
     $assert_no_new_errors->invoke($service, $legacy, $one_fixed);
-    $this->assertSame(['port_edge_not_boundary'], array_column($service->validateAggregate($one_fixed)['errors'], 'code'));
+    $this->assertSame(['port_edge_not_boundary'], array_column($service->validateAggregate($one_fixed)['findings'], 'code'));
 
     $both_fixed = $one_fixed;
     $both_fixed['exit_ports'][0]['edge'] = 0;
     $assert_no_new_errors->invoke($service, $one_fixed, $both_fixed);
-    $this->assertSame([], $service->validateAggregate($both_fixed)['errors']);
+    $this->assertSame([], $service->validateAggregate($both_fixed)['findings']);
 
     $introduced = $both_fixed;
     $introduced['entry_ports'][0]['edge'] = 0;
@@ -508,10 +508,10 @@ class RoomEditorContractTest extends UnitTestCase {
       ],
     ]);
     $room_editor->method('validateDraft')->willReturn([
-      'valid' => TRUE,
+      'is_valid' => TRUE,
       'profile' => 'editing',
-      'errors' => [],
-      'warnings' => [],
+      'findings' => [],
+      'counts' => ['error' => 0, 'warning' => 0, 'info' => 0],
     ]);
     $context = new \Drupal\dungeoncrawler_content\Service\EditorGm\RoomEditorGmToolContext(
       '11111111-1111-4111-8111-111111111111',

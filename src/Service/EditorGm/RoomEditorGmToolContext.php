@@ -60,12 +60,9 @@ final class RoomEditorGmToolContext extends EditorGmToolContext {
   public function validation(?string $profile = NULL): array {
     $profile = $profile ?? $this->validationProfile;
     if ($this->draftId === NULL) {
-      return [
-        'profile' => $profile,
-        'valid' => FALSE,
-        'errors' => [['code' => 'room_draft_required', 'severity' => 'error', 'message' => 'Create or load a room draft before validation.', 'subject' => []]],
-        'warnings' => [],
-      ];
+      return ['profile' => $profile] + RoomEditorService::validationResult([
+        RoomEditorService::finding('room_draft_required', '', 'Create or load a room draft before validation.'),
+      ]);
     }
     if (!array_key_exists($profile, $this->validationByProfile)) {
       $this->validationByProfile[$profile] = $this->roomEditor->validateDraft($this->draftId, $profile);
@@ -76,6 +73,13 @@ final class RoomEditorGmToolContext extends EditorGmToolContext {
   /**
    * Returns the currently published canonical room aggregate, when one exists.
    */
+  /**
+   * The saved draft's status against the session's validation profile.
+   */
+  public function status(): array {
+    return $this->roomEditor->summarizeDraftState($this->draft(), $this->validation());
+  }
+
   public function publishedRoom(): ?array {
     if (!$this->publishedResolved) {
       $room_id = $this->roomId();

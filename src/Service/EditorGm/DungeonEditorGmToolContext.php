@@ -89,6 +89,13 @@ final class DungeonEditorGmToolContext extends EditorGmToolContext {
     return $this->validationByProfile[$profile];
   }
 
+  /**
+   * The saved draft's status against the session's validation profile.
+   */
+  public function status(): array {
+    return $this->dungeonEditor->summarizeDraftState($this->draft(), $this->validation());
+  }
+
   public function invalidate(): void {
     $this->draft = NULL;
     $this->model = NULL;

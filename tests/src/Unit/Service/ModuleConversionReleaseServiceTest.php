@@ -269,7 +269,7 @@ final class ModuleConversionReleaseServiceTest extends TestCase {
             $projected['placements'][] = $command['payload'];
           }
         }
-        return ['applies_cleanly' => TRUE, 'validation' => ['valid' => TRUE], 'projected_room' => $projected];
+        return ['applies_cleanly' => TRUE, 'validation' => ['is_valid' => TRUE], 'projected_room' => $projected];
       });
       $editor->method('applyCommand')->willReturnCallback(static function (string $id, array $command) use (&$room, &$revision, &$published_metadata): array {
         if ($command['expected_revision'] !== $revision) {
@@ -295,7 +295,7 @@ final class ModuleConversionReleaseServiceTest extends TestCase {
           : $room;
         return ['draft' => ['draft_id' => $id, 'revision' => ++$revision, 'room' => $returned_room]];
       });
-      $editor->method('validateDraft')->willReturn(['valid' => TRUE]);
+      $editor->method('validateDraft')->willReturn(['is_valid' => TRUE]);
       $editor->expects($this->once())->method('publish')->willReturn([
         'room_id' => 'original-room', 'version_id' => 'version-1',
       ]);

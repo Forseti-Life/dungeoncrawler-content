@@ -942,7 +942,9 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     ];
     // Status and validation reviews take their next step from saved state.
     // The model is not asked for one, so there is a single source for it.
-    $harness_owns_next_step = $surface_label === 'Storyline Builder' && (
+    // A surface without a loaded draft has no saved state to take one from.
+    $harness_owns_next_step = in_array($surface_label, ['Storyline Builder', 'Dungeon Editor', 'Room Editor'], TRUE)
+      && is_array($context_snapshot['current_state'] ?? NULL) && (
       $tool_name === 'governing_harness_validation_review'
       || ($tool_name === 'governing_harness_context' && in_array($tool_result['focus'] ?? '', ['status', 'validation_review'], TRUE))
     );
@@ -1013,7 +1015,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     if ($harness_owns_next_step) {
       return [
         'answer' => $answer,
-        'next_steps' => $this->harnessManagement->storylineNextStepFromSavedState($context_snapshot),
+        'next_steps' => $this->harnessManagement->nextStepFromSavedState($context_snapshot, $surface_label),
       ];
     }
     if ($surface_label === 'Storyline Builder') {

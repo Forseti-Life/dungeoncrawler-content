@@ -81,8 +81,8 @@ class PlayerSetupService {
       'metadata' => ['tags' => ['player_setup', $mode], 'provenance' => ['source' => 'player_setup']],
     ];
     $validation = $this->roomEditor->validateAggregate($room);
-    if ($validation['errors'] !== []) {
-      throw new \UnexpectedValueException('Playersetup canonical room contract: ' . json_encode($validation['errors'], JSON_THROW_ON_ERROR));
+    if (!$validation['is_valid']) {
+      throw new \UnexpectedValueException('Playersetup canonical room contract: ' . json_encode(RoomEditorService::errorFindings($validation), JSON_THROW_ON_ERROR));
     }
     return $room;
   }

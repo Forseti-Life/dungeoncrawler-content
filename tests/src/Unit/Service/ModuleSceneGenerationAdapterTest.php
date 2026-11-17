@@ -63,7 +63,7 @@ final class ModuleSceneGenerationAdapterTest extends TestCase {
           $projected['exit_ports'][] = $command['payload']['port'];
         }
       }
-      return ['applies_cleanly' => TRUE, 'validation' => ['valid' => TRUE], 'projected_room' => $projected];
+      return ['applies_cleanly' => TRUE, 'validation' => ['is_valid' => TRUE], 'projected_room' => $projected];
     });
     $editor->method('applyCommand')->willReturnCallback(static function (string $id, array $command) use (&$room, &$revision): array {
       if ($command['expected_revision'] !== $revision || !preg_match('/^[0-9a-f-]{36}$/', $command['command_id'])) {
@@ -84,7 +84,7 @@ final class ModuleSceneGenerationAdapterTest extends TestCase {
       $revision++;
       return ['draft' => ['revision' => $revision]];
     });
-    $editor->method('validateDraft')->willReturn(['valid' => TRUE]);
+    $editor->method('validateDraft')->willReturn(['is_valid' => TRUE]);
     $context = new RoomEditorGmToolContext('draft-1', 'editing', $editor, $definitions);
     $movement = $this->createMock(MovementResolverService::class);
     $movement->method('isPassable')->willReturn(TRUE);
@@ -145,7 +145,7 @@ final class ModuleSceneGenerationAdapterTest extends TestCase {
     $result = $adapter->generateRoom($this->scene(), $context, [
       ['family' => 'item', 'definition_id' => 'original-prop', 'version' => '1.0.0', 'rights_status' => 'project_original'],
     ], 7);
-    $this->assertTrue($result['validation']['valid']);
+    $this->assertTrue($result['validation']['is_valid']);
     $this->assertSame('original-prop', $result['draft']['room']['placements'][0]['definition_ref']['definition_id']);
     $this->assertSame(4, $result['draft']['revision']);
   }

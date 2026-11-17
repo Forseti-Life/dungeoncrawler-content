@@ -48,6 +48,7 @@ import {
   selectEditorGmTool,
   shouldSubmitEditorGmKey,
 } from './EditorGmChatClient.js?v=20261024-tool-calls-1';
+import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261117-draft-status-1';
 
 const FAMILIES = ['creature', 'actor', 'item', 'obstacle', 'trap', 'hazard'];
 const SOLID_FAMILIES = ['actor', 'creature', 'obstacle'];
@@ -366,6 +367,7 @@ export class RoomEditorShell {
       authorDrawerToggle: q('[data-room-editor-action="toggle-author-drawer"]'),
       gmPanel: q('[data-room-editor-gm-panel]'),
       gmState: q('[data-room-editor-gm-state]'),
+      gmStatus: q('[data-room-editor-gm-status]'),
       gmContext: q('[data-room-editor-gm-context]'),
       gmContextToggle: q('[data-room-editor-action="gm-toggle-context"]'),
       gmTools: q('[data-room-editor-gm-tools]'),
@@ -1229,8 +1231,8 @@ export class RoomEditorShell {
       const result = await this._postJson(url, { profile });
       this._renderValidation(result.data);
       this._setStatus(
-        result.data.valid ? `Validation passed (${profile}).` : `Validation found ${result.data.errors.length} error(s).`,
-        result.data.valid ? 'success' : 'error',
+        result.data.is_valid ? `Validation passed (${profile}).` : `Validation found ${result.data.counts.error} error(s).`,
+        result.data.is_valid ? 'success' : 'error',
       );
     });
   }
@@ -2298,7 +2300,7 @@ export class RoomEditorShell {
       return;
     }
     clearElement(list);
-    const findings = [...(result.errors || []), ...(result.warnings || [])];
+    const findings = result.findings;
     if (findings.length === 0) {
       const item = document.createElement('li');
       item.className = 'room-editor__validation-item room-editor__validation-item--ok';
@@ -2557,6 +2559,7 @@ export class RoomEditorShell {
     }
     body.textContent = '';
     const context = this._gm.context;
+    renderEditorDraftStatus(this._dom.gmStatus, context?.current_state ?? null);
     if (!context) {
       body.append(makeEl('p', 'room-editor__hint', 'No grounded context loaded.'));
       return;

@@ -512,9 +512,8 @@ class EditorCanonicalGenerationPlanService {
     if (empty($simulation['applies_cleanly'])) {
       throw $this->nonconforming([$this->finding('command_rejected', '/command_plan/steps', json_encode($simulation['steps'] ?? [], JSON_UNESCAPED_SLASHES))]);
     }
-    if (empty($simulation['validation']['valid'])) {
-      $findings = array_merge((array) ($simulation['validation']['errors'] ?? []), (array) ($simulation['validation']['warnings'] ?? []));
-      throw $this->nonconforming($findings);
+    if (!$simulation['validation']['is_valid']) {
+      throw $this->nonconforming($simulation['validation']['findings']);
     }
   }
 

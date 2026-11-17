@@ -41,6 +41,7 @@ final class DungeonEditorGmContextAssembler implements EditorGmContextAssemblerI
       static fn(array $p): array => [
         'placement_id' => (string) ($p['placement_id'] ?? ''),
         'room_id' => (string) ($p['room_id'] ?? ''),
+        'room_name' => $context->dungeonEditor->roomDisplayName((string) $p['room_id'], (string) $p['version_id']),
         'version_id' => (string) ($p['version_id'] ?? ''),
         'label' => (string) ($p['label'] ?? ''),
         'origin' => $p['origin'] ?? ['q' => 0, 'r' => 0],
@@ -76,6 +77,7 @@ final class DungeonEditorGmContextAssembler implements EditorGmContextAssemblerI
         'region_ids' => array_values(array_map(static fn(array $r): string => (string) $r['region_id'], (array) ($dungeon['regions'] ?? []))),
         'regions' => array_values((array) ($dungeon['regions'] ?? [])),
       ],
+      'current_state' => $context->status(),
       'validation_summary' => [
         'profile' => (string) ($validation['profile'] ?? $context->validationProfile),
         'valid' => (bool) ($validation['is_valid'] ?? FALSE),
