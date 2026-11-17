@@ -60,9 +60,12 @@ class StorylineGmGuidanceTest extends UnitTestCase {
     // arguments with the reasoning beside them, and no wrapper object.
     $intent = [
       'type' => 'tool_call',
-      'expected_revision' => 4,
-      'operations' => [
-        ['type' => 'set', 'path' => '/ending', 'value' => 'The lantern returns home.'],
+      'tool_name' => 'plan_storyline_draft_operations',
+      'arguments' => [
+        'expected_revision' => 4,
+        'operations' => [
+          ['type' => 'set', 'path' => '/ending', 'value' => 'The lantern returns home.'],
+        ],
       ],
       'reasoning' => 'Set the ending.',
     ];
@@ -70,8 +73,8 @@ class StorylineGmGuidanceTest extends UnitTestCase {
       $this->assertStringContainsString('"bounded_work_step"', $prompt);
       $this->assertStringContainsString('ONE CHECKPOINTED STORYLINE WORK UNIT', $options['system_prompt']);
       // A work unit may only produce one reply shape, for one tool.
-      $this->assertSame(['tool_call'], array_column(array_column($options['tools'], 'function'), 'name'));
-      $this->assertSame(['type' => 'function', 'function' => ['name' => 'tool_call']], $options['tool_choice']);
+      $this->assertSame(['plan_storyline_draft_operations'], array_column(array_column($options['tools'], 'function'), 'name'));
+      $this->assertSame(['type' => 'function', 'function' => ['name' => 'plan_storyline_draft_operations']], $options['tool_choice']);
       $parameters = $options['tools'][0]['function']['parameters'];
       $this->assertSame(['reasoning', 'expected_revision', 'operations'], array_keys($parameters['properties']));
       $this->assertSame(['reasoning', 'expected_revision', 'operations'], $parameters['required']);
@@ -130,7 +133,7 @@ class StorylineGmGuidanceTest extends UnitTestCase {
       }
     });
     $this->expectException(\DomainException::class);
-    $this->expectExceptionMessage('editor_gm_intent_schema_invalid:tool_call:/next_steps:');
+    $this->expectExceptionMessage('editor_gm_intent_schema_invalid:plan_storyline_draft_operations:/next_steps:');
     $parser->parse('Set ending', ['draft' => ['revision' => 4]], new EditorGmToolRegistry([new PlanStorylineDraftOperationsTool()], [], NULL), 'Storyline Builder');
   }
 
@@ -146,7 +149,7 @@ class StorylineGmGuidanceTest extends UnitTestCase {
       'reasoning' => 'Three tasks could be meant.',
     ], function (string $prompt, array $options): void {
       $functions = array_column(array_column($options['tools'], 'function'), NULL, 'name');
-      $this->assertSame(['tool_call', 'task_queue', 'direct_response', 'clarification'], array_keys($functions));
+      $this->assertSame(['plan_storyline_draft_operations', 'submit_backlog_suggestion', 'task_queue', 'direct_response', 'clarification'], array_keys($functions));
       $this->assertSame('required', $options['tool_choice']);
       $this->assertTrue($functions['clarification']['strict']);
       $this->assertSame(
@@ -186,7 +189,7 @@ class StorylineGmGuidanceTest extends UnitTestCase {
       'reasoning' => 'Set the ending.',
     ], static function (): void {});
     $this->expectException(\DomainException::class);
-    $this->expectExceptionMessage('editor_gm_intent_type_unsupported');
+    $this->expectExceptionMessage('editor_gm_intent_function_not_offered:tool_object');
     $parser->parse('Set ending', ['draft' => ['revision' => 4]], new EditorGmToolRegistry([new PlanStorylineDraftOperationsTool()], [], NULL), 'Storyline Builder');
   }
 
@@ -221,7 +224,22 @@ class StorylineGmGuidanceTest extends UnitTestCase {
       ],
       'tool not offered' => [
         ['type' => 'tool_call', 'tool_name' => 'publish_everything', 'arguments' => ['a' => 1], 'reasoning' => 'x'],
-        'editor_gm_intent_schema_invalid:tool_call:/tool_name:',
+        'editor_gm_intent_function_not_offered:publish_everything',
+      ],
+      'tool argument of the wrong type' => [
+        ['type' => 'tool_call', 'tool_name' => 'plan_storyline_draft_operations', 'arguments' => ['expected_revision' => '4', 'operations' => []], 'reasoning' => 'x'],
+        'editor_gm_intent_schema_invalid:plan_storyline_draft_operations:/expected_revision:',
+      ],
+      'tool argument not declared' => [
+        ['type' => 'tool_call', 'tool_name' => 'plan_storyline_draft_operations', 'arguments' => ['expected_revision' => 4, 'operations' => [], 'publish' => TRUE], 'reasoning' => 'x'],
+        'editor_gm_intent_schema_invalid:plan_storyline_draft_operations:/publish:',
+      ],
+      'queued tool with an undeclared argument' => [
+        ['type' => 'task_queue', 'reasoning' => 'x', 'tasks' => [[
+          'tool_name' => 'plan_storyline_draft_operations', 'reasoning' => 'x',
+          'arguments' => ['expected_revision' => 4, 'operations' => [], 'reasoning' => 'misplaced'],
+        ]]],
+        'editor_gm_intent_schema_invalid:task_queue:/tasks/0',
       ],
     ];
   }
@@ -518,8 +536,13 @@ class StorylineGmGuidanceTest extends UnitTestCase {
       $inspect($prompt, $options);
       // The model replies with one function call: its name is the reply
       // type and its arguments are the rest.
-      $arguments = json_encode((object) array_diff_key($intent, ['type' => TRUE]));
-      return ['success' => TRUE, 'response' => $arguments, 'tool_call' => ['name' => $intent['type'], 'arguments' => $arguments]];
+      // A tool is called as its own function, with its arguments beside
+      // the reasoning.
+      $name = $intent['type'] === 'tool_call' ? $intent['tool_name'] : $intent['type'];
+      $arguments = json_encode((object) ($intent['type'] === 'tool_call'
+        ? array_diff_key($intent, ['type' => TRUE, 'tool_name' => TRUE, 'arguments' => TRUE]) + $intent['arguments']
+        : array_diff_key($intent, ['type' => TRUE])));
+      return ['success' => TRUE, 'response' => $arguments, 'tool_call' => ['name' => $name, 'arguments' => $arguments]];
     });
     $logger = $this->createMock(LoggerChannelFactoryInterface::class);
     $logger->method('get')->willReturn($this->createMock(LoggerChannelInterface::class));

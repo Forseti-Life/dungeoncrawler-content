@@ -768,16 +768,21 @@ Each function's schema is sent to the provider and checked again when the
 reply arrives. A reply outside its schema is rejected and logged with the
 function and the raw reply. It is never mapped to a nearby shape,
 completed, or truncated. The provider enforces the function name and the
-listed values; it does not prevent an undeclared extra field, which is
-caught on receipt.
+listed values; it does not prevent an undeclared extra field or a missing
+required field, which are caught on receipt.
+
+Each registered tool is its own function, taking the tool's declared
+arguments beside the reasoning. There is no generic tool call with an
+untyped arguments object. A queued step names its tool and carries that
+tool's typed arguments.
 
 An intent carries a one-sentence reasoning and never a next step. The next
 step is stated after the work has run. Work-plan units that break their
 limits fail with the unit number and the measured value.
 
-`tests/storyline_intent_contract_check.php` replays a fixed set of author
+`tests/editor_gm_intent_contract_check.php` replays a fixed set of author
 messages against a draft, read-only, and reports accepted and rejected
-replies.
+replies. It takes a surface (storyline, dungeon or room) and a draft ID.
 
 ### Rules the agent holds to
 

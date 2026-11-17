@@ -2,7 +2,7 @@
 
 /**
  * @file
- * Read-only check of the Storyline GM's reply contract against a live draft.
+ * Read-only check of an editor GM's reply contract against a live draft.
  *
  * Replays a fixed list of author messages through the intent parser and
  * reports which replies were accepted. Nothing is executed or saved: the
@@ -11,18 +11,29 @@
  * provider prevents them or they are only caught on receipt.
  *
  * Usage, from the site root:
- *   vendor/bin/drush php:script <module>/tests/storyline_intent_contract_check.php -- <draft_id>
+ *   vendor/bin/drush php:script <module>/tests/editor_gm_intent_contract_check.php -- <surface> <draft_id>
+ *
+ * <surface> is storyline, dungeon or room. The strict-schema probes run with
+ * the storyline surface only.
  */
 
 use Drupal\dungeoncrawler_content\Service\Definition\DefinitionSchemaValidator;
 use Drupal\user\Entity\User;
 
-$draft_id = (string) ($extra[0] ?? '');
-if ($draft_id === '') {
-  throw new \InvalidArgumentException('Usage: drush php:script storyline_intent_contract_check.php -- <draft_id>');
+$surface_key = (string) ($extra[0] ?? '');
+$draft_id = (string) ($extra[1] ?? '');
+$surfaces = [
+  'storyline' => ['dungeoncrawler_content.editor_gm_surface.storyline_builder', 'dungeoncrawler_content_storyline_authoring_drafts'],
+  'dungeon' => ['dungeoncrawler_content.editor_gm_surface.dungeon_editor', 'dungeoncrawler_content_dungeon_editor_drafts'],
+  'room' => ['dungeoncrawler_content.editor_gm_surface.room_editor', 'dungeoncrawler_content_room_editor_drafts'],
+];
+if (!isset($surfaces[$surface_key]) || $draft_id === '') {
+  throw new \InvalidArgumentException('Usage: drush php:script editor_gm_intent_contract_check.php -- <storyline|dungeon|room> <draft_id>');
 }
+[$surface_service, $draft_table] = $surfaces[$surface_key];
 
 $messages = [
+  'storyline' => [
   'OK, lets see what we need to address next',
   'One at at time lets work through them',
   'give me specifics',
@@ -43,15 +54,41 @@ $messages = [
   'Why is it required to have two choices?',
   'OK, lets get the wiring fixed',
   "how do we handle these terminal state situations. it isn't really a branch as much as it is a state that the storyline can end up in at any point. Suggestions? Are we missing a mechanism for storyline process flow?",
-];
+],
+  'dungeon' => [
+    'What is the status of this dungeon?',
+    'What should we do next?',
+    'Validate the dungeon',
+    'Which rooms are placed on this level?',
+    'Place the next published room beside the entrance',
+    'Link the entrance to the hall with a door',
+    'Explain the first validation finding',
+    'Is this dungeon ready to publish?',
+    'Find a published room that would work as a guard post',
+    'Lay out the remaining rooms and connect them',
+  ],
+  'room' => [
+    'What is the status of this room?',
+    'What should we do next?',
+    'Validate the room',
+    'Summarize the layout and the exits',
+    'Add a door on the north wall',
+    'Place a table in the middle of the room',
+    'Explain the first validation finding',
+    'Is this room ready to publish?',
+    'What changed compared with the published version?',
+    'Make the room larger and add a second exit',
+  ],
+][$surface_key];
 
 $switcher = \Drupal::service('account_switcher');
 $switcher->switchTo(User::load(1));
 try {
-  $surface = \Drupal::service('dungeoncrawler_content.editor_gm_surface.storyline_builder');
+  $surface = \Drupal::service($surface_service);
   $parser = \Drupal::service('dungeoncrawler_content.editor_gm_intent_parser');
-  $drafts = \Drupal::service('dungeoncrawler_content.storyline_authoring_drafts');
-  $revision_before = (int) $drafts->getDraft($draft_id)['revision'];
+  $revision = static fn(): int => (int) \Drupal::database()->select($draft_table, 'd')
+    ->fields('d', ['revision'])->condition('draft_id', $draft_id)->execute()->fetchField();
+  $revision_before = $revision();
   $snapshot = $surface->assembler()->assemble($surface->createContext($draft_id, 'editing'));
 
   $accepted = 0;
@@ -68,6 +105,11 @@ try {
     }
   }
   printf("\nIntent replies: %d accepted, %d rejected of %d.\n", $accepted, count($rejected), count($messages));
+
+  if ($surface_key !== 'storyline') {
+    printf("\nDraft revision before %d, after %d (%s).\n", $revision_before, $revision(), $revision_before === $revision() ? 'unchanged' : 'CHANGED');
+    return;
+  }
 
   // Strictness: ask for replies that break the schema.
   $schema = [
@@ -116,7 +158,7 @@ try {
     );
   }
 
-  $revision_after = (int) $drafts->getDraft($draft_id)['revision'];
+  $revision_after = $revision();
   printf("\nDraft revision before %d, after %d (%s).\n", $revision_before, $revision_after, $revision_before === $revision_after ? 'unchanged' : 'CHANGED');
 }
 finally {

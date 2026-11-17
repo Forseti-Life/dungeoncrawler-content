@@ -130,9 +130,10 @@ class EditorGmIntentParser {
       $execution_options['system_prompt'] = <<<'STEP'
 You are the native draft-operation planner for ONE CHECKPOINTED STORYLINE WORK UNIT.
 
-The author has already approved the work. Call the tool_call function once,
-with reasoning (one short sentence describing this unit), expected_revision
-(the current saved integer revision) and operations (the native operations).
+The author has already approved the work. Call the
+plan_storyline_draft_operations function once, with reasoning (one short
+sentence describing this unit), expected_revision (the current saved integer
+revision) and operations (the native operations).
 
 No other reply is supported. Never answer in plain text, and never return an
 execution result, bare operations, error object, or nested work plan.
@@ -236,56 +237,53 @@ STEP;
    */
   private function intentFunctions(EditorGmToolRegistry $registry, string $surface_label, bool $bounded_work_step): array {
     $string = static fn(string $description): array => ['type' => 'string', 'description' => $description];
-    $tool_names = $bounded_work_step
-      ? ['plan_storyline_draft_operations']
-      : array_values(array_filter(array_map(
-        static fn(mixed $tool): string => is_array($tool) ? (string) ($tool['name'] ?? '') : '',
-        $this->harnessManagement->filterToolsForNaturalLanguage($registry->manifest(), $surface_label),
-      )));
-    $tool_name = ['type' => 'string', 'enum' => $tool_names, 'description' => 'A tool from the registered toolset.'];
-    $arguments = ['type' => 'object', 'description' => "The selected tool's arguments, exactly as its definition declares them."];
-    $functions = [
-      'tool_call' => [
-        'description' => 'Select one registered tool to run for the author request.',
-        'strict' => FALSE,
-        'parameters' => [
-          'type' => 'object',
-          'additionalProperties' => FALSE,
-          'required' => ['tool_name', 'arguments', 'reasoning'],
-          // The open arguments object comes last: a field declared after it
-          // is easily written inside it by mistake.
-          'properties' => [
-            'tool_name' => $tool_name,
-            'reasoning' => $string('One short sentence.'),
-            'arguments' => $arguments,
-          ],
-        ],
-      ],
-    ];
-    if ($bounded_work_step) {
-      // One tool: its own arguments are the function's parameters, beside
-      // the reasoning. There is no untyped wrapper for a field to land in.
-      $tool = $this->toolDefinition($registry, $tool_names[0]);
-      $properties = ['reasoning' => $string('One short sentence describing this unit.')];
-      $required = ['reasoning'];
+    $tools = $bounded_work_step
+      ? [$this->toolDefinition($registry, 'plan_storyline_draft_operations')]
+      : $this->harnessManagement->filterToolsForNaturalLanguage($registry->manifest(), $surface_label);
+    // Each tool is its own function, taking the tool's declared arguments
+    // beside the reasoning. There is no generic call with an untyped
+    // arguments object for a field to land in.
+    $functions = [];
+    $queue_items = [];
+    foreach ($tools as $tool) {
+      $properties = [];
+      $required = [];
       foreach ($tool['arguments'] as $argument) {
-        $properties[$argument['name']] = ['type' => $argument['type'], 'description' => $argument['description']]
-          + ($argument['type'] === 'array' ? ['items' => ['type' => 'object']] : []);
+        $properties[$argument['name']] = ['type' => self::schemaType($argument['type']), 'description' => $argument['description']];
         if ($argument['required']) {
           $required[] = $argument['name'];
         }
       }
-      return ['tool_call' => [
+      $functions[$tool['name']] = [
         'description' => $tool['summary'],
         'strict' => FALSE,
-        'single_tool' => $tool['name'],
+        'tool' => $tool['name'],
         'parameters' => [
           'type' => 'object',
           'additionalProperties' => FALSE,
-          'required' => $required,
-          'properties' => $properties,
+          'required' => array_merge(['reasoning'], $required),
+          'properties' => ['reasoning' => $string('One short sentence.')] + $properties,
         ],
-      ]];
+      ];
+      $queue_items[] = [
+        'type' => 'object',
+        'additionalProperties' => FALSE,
+        'required' => ['tool_name', 'reasoning', 'arguments'],
+        'properties' => [
+          'tool_name' => ['const' => $tool['name']],
+          'reasoning' => $string('Step summary.'),
+          'arguments' => [
+            'type' => 'object',
+            'additionalProperties' => FALSE,
+            'required' => $required,
+            // Types only: the tool's own function carries the descriptions.
+            'properties' => array_map(static fn(array $property): array => ['type' => $property['type']], $properties),
+          ],
+        ],
+      ];
+    }
+    if ($bounded_work_step) {
+      return $functions;
     }
     $functions['task_queue'] = [
       'description' => 'Select several registered tools to run in order for one author request.',
@@ -300,16 +298,7 @@ STEP;
             'type' => 'array',
             'minItems' => 1,
             'maxItems' => 8,
-            'items' => [
-              'type' => 'object',
-              'additionalProperties' => FALSE,
-              'required' => ['tool_name', 'arguments', 'reasoning'],
-              'properties' => [
-                'tool_name' => $tool_name,
-                'reasoning' => $string('Step summary.'),
-                'arguments' => $arguments,
-              ],
-            ],
+            'items' => ['anyOf' => $queue_items],
           ],
         ],
       ],
@@ -367,7 +356,7 @@ STEP;
       $tools[] = ['type' => 'function', 'function' => [
         'name' => $name,
         'description' => $function['description'],
-        'parameters' => $function['parameters'],
+        'parameters' => self::schemaForProvider($function['parameters']),
       ] + ($function['strict'] ? ['strict' => TRUE] : [])];
     }
     return $tools;
@@ -385,7 +374,7 @@ STEP;
       throw new \DomainException('editor_gm_intent_function_call_missing');
     }
     if (!isset($functions[$name])) {
-      throw new \DomainException('editor_gm_intent_type_unsupported');
+      throw new \DomainException('editor_gm_intent_function_not_offered:' . $name);
     }
     $arguments = $this->decodeJsonObject((string) ($call['arguments'] ?? ''), 'editor_gm_intent_response_not_json');
     $findings = (new DefinitionSchemaValidator())->validate($functions[$name]['parameters'], $arguments);
@@ -398,15 +387,48 @@ STEP;
         (string) ($finding['message'] ?? ''),
       ));
     }
-    if (isset($functions[$name]['single_tool'])) {
+    if (isset($functions[$name]['tool'])) {
       return [
-        'type' => $name,
-        'tool_name' => $functions[$name]['single_tool'],
+        'type' => 'tool_call',
+        'tool_name' => $functions[$name]['tool'],
         'reasoning' => $arguments['reasoning'],
         'arguments' => array_diff_key($arguments, ['reasoning' => TRUE]),
       ];
     }
     return ['type' => $name] + $arguments;
+  }
+
+  /**
+   * A schema as it is sent: an empty property set is an object, not a list.
+   *
+   * PHP encodes an empty array as a JSON list; the receipt check reads the
+   * same schema as arrays, so the difference is made only here.
+   */
+  private static function schemaForProvider(array $schema): array {
+    foreach ($schema as $key => $value) {
+      if ($key === 'properties' && $value === []) {
+        $schema[$key] = new \stdClass();
+      }
+      elseif (is_array($value)) {
+        $schema[$key] = self::schemaForProvider($value);
+      }
+    }
+    return $schema;
+  }
+
+  /**
+   * The JSON Schema type of a declared tool argument type.
+   *
+   * A declaration such as "string|null" is a list of allowed types.
+   *
+   * @return string|string[]
+   */
+  private static function schemaType(string $declared): string|array {
+    $types = explode('|', $declared);
+    if (array_diff($types, ['string', 'integer', 'number', 'boolean', 'array', 'object', 'null']) !== []) {
+      throw new \LogicException('editor_gm_tool_argument_type_unsupported:' . $declared);
+    }
+    return count($types) === 1 ? $types[0] : $types;
   }
 
   /**
