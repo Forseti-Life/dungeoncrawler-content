@@ -659,10 +659,11 @@ Every draft edit goes through the same save path,
   escort: the party arrives at the destination.
 - interact: the players talk with or use the target. It does not judge how
   the exchange turned out.
-- An outcome ("the chieftain agrees to travel with the party") is a choice
-  on the task with that outcome as its condition. The game's GM resolves it
-  in play, and the story moves to the choice's destination. One choice is
-  enough.
+- interact with `requires_check: request`: a player's Request against the
+  target succeeds. Request is the Pathfinder Diplomacy action; its DC rises
+  or falls with the target's attitude. Talking alone does not complete it.
+  Use it when a task is done only once an actor is persuaded, for example
+  to join the party. The target must be an actor of the storyline.
 - Actors who travel with the party are added by the players in the camp and
   marching-order setup. Any actor in the party's room who is not hostile can
   be added. A storyline does not add them.

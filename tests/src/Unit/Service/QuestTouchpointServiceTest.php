@@ -568,6 +568,54 @@ class QuestTouchpointServiceTest extends UnitTestCase {
   }
 
   /**
+   * An objective that requires a granted Request completes on one only.
+   *
+   * @dataProvider requestGateProvider
+   */
+  public function testRequestGatedObjectiveCompletesOnlyOnAGrantedRequest(bool $objective_requires_request, string $matching_mode, bool $completes): void {
+    $store = $this->createMock(KeyValueStoreInterface::class);
+    $store->method('get')->willReturn(NULL);
+    $factory = $this->createMock(KeyValueFactoryInterface::class);
+    $factory->method('get')->willReturn($store);
+    $quest = $this->buildActiveQuestRow();
+    if ($objective_requires_request) {
+      $phases = json_decode($quest['objective_states'], TRUE);
+      $phases[0]['objectives'][0]['requires_check'] = 'request';
+      $quest['objective_states'] = json_encode($phases);
+    }
+    $quest_tracker = $this->createMock(QuestTrackerService::class);
+    $quest_tracker->method('getActiveQuests')->willReturn([$quest]);
+    $quest_tracker->expects($completes ? $this->once() : $this->never())
+      ->method('updateObjectiveProgress')
+      ->with(85, 'rescue_merchant', 'escort_to_safety_runtime_1', 1, 99)
+      ->willReturn(['success' => TRUE]);
+    $time = $this->createMock(TimeInterface::class);
+    $time->method('getRequestTime')->willReturn(1700000000);
+
+    $service = new QuestTouchpointService($quest_tracker, $this->createMock(QuestConfirmationService::class), $factory, $time);
+    $result = $service->ingestEvent(85, [
+      'character_id' => 99,
+      'touchpoint' => [
+        'objective_type' => 'interact',
+        'npc_ref' => 'npc-guard',
+        'entity_ref' => 'npc-guard',
+        'room_id' => 'crossroads',
+        'matching_mode' => $matching_mode,
+      ],
+    ]);
+
+    $this->assertSame($completes ? 'APPLY_PROGRESS' : 'NO_ACTION', $result['decision']);
+  }
+
+  public static function requestGateProvider(): array {
+    return [
+      'talking does not complete a request-gated objective' => [TRUE, 'direct_npc_dialogue', FALSE],
+      'a granted request completes it' => [TRUE, 'request_granted', TRUE],
+      'a granted request does not complete a plain talk objective' => [FALSE, 'request_granted', FALSE],
+    ];
+  }
+
+  /**
    * Build a representative active quest row for matching.
    */
   private function buildActiveQuestRow(): array {

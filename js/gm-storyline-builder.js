@@ -255,7 +255,7 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
           branch_actor_effect_entries: ['choice_id', 'actor_id', 'interaction', 'reaction', 'effect', 'state_changes'],
           branch_environment_effect_entries: ['choice_id', 'target_type', 'target_id', 'effect', 'state_changes'],
           branch_storyline_effect_entries: ['choice_id', 'target_type', 'target_id', 'source_actor_id', 'operation', 'effect', 'follow_up_required', 'state_changes'],
-          objective_entries: ['objective_id', 'task_id', 'type', 'next_step', 'target', 'item', 'location', 'destination', 'kind', 'metric', 'description', 'required'],
+          objective_entries: ['objective_id', 'task_id', 'type', 'next_step', 'target', 'requires_check', 'item', 'location', 'destination', 'kind', 'metric', 'description', 'required'],
           actor_entries: ['contact_id', 'actor_id', 'role', 'display_name', 'motivation', 'dialogue', 'knowledge', 'attitude', 'availability', 'chapter_id', 'scene_id', 'location_id'],
           dungeon_entries: ['dungeon_id', 'chapter_id', 'purpose', 'entrance_room'],
           room_entries: ['dungeon_id', 'chapter_id', 'scene_id', 'room_id', 'narrative'],

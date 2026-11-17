@@ -404,7 +404,7 @@ class QuestTouchpointService {
    */
   protected function isDeterministicTouchpoint(array $touchpoint): bool {
     $matching_mode = strtolower(trim((string) ($touchpoint['matching_mode'] ?? '')));
-    if (in_array($matching_mode, ['typed_receipt', 'runtime_receipt', 'room_receipt', 'canonical_receipt', 'direct_npc_dialogue', 'canonical_item_interaction'], TRUE)) {
+    if (in_array($matching_mode, ['typed_receipt', 'runtime_receipt', 'room_receipt', 'canonical_receipt', 'direct_npc_dialogue', 'canonical_item_interaction', 'request_granted'], TRUE)) {
       return TRUE;
     }
 
@@ -516,6 +516,11 @@ class QuestTouchpointService {
         }
 
         if ($objective_id_hint !== '' && $objective_id_hint !== $candidate_objective_id) {
+          continue;
+        }
+        // An objective that requires a granted Request is completed by one,
+        // and by nothing else; a granted Request completes nothing else.
+        if ((($objective['requires_check'] ?? '') === 'request') !== (($touchpoint['matching_mode'] ?? NULL) === 'request_granted')) {
           continue;
         }
         if ($canonical_item) {

@@ -321,7 +321,27 @@ trait EncounterPhaseHandlerRuntimeTrait {
         $campaign_id,
         $this->routeFeintIntentExecution(...),
         $this->routeCreateDiversionIntentExecution(...),
-        $this->routeRequestIntentExecution(...),
+        // A granted Request completes objectives that require one.
+        function (?string $request_actor_id, ?string $request_target_id, array $request_params, array &$request_state, int $request_campaign_id) use (&$dungeon_data): array {
+          $payload = $this->routeRequestIntentExecution($request_actor_id, $request_target_id, $request_params, $request_state, $request_campaign_id);
+          if (!empty($payload['result']['granted'])) {
+            $touchpoint = $this->applyInteractQuestTouchpoint(
+              $request_campaign_id,
+              $this->resolveActorCharacterId($request_actor_id, $dungeon_data, $request_params),
+              $request_target_id ?: (string) ($request_params['target_id'] ?? ''),
+              $request_state,
+              $dungeon_data,
+              'request_granted',
+            );
+            if ($touchpoint !== NULL) {
+              if (empty($touchpoint['success'])) {
+                throw new \RuntimeException('request_granted_quest_progress_failed: ' . (string) ($touchpoint['error'] ?? 'unknown'));
+              }
+              $payload['result']['quest_touchpoint'] = $touchpoint;
+            }
+          }
+          return $payload;
+        },
         $this->routeDemoralizeIntentExecution(...),
         $this->routeCommandAnimalIntentExecution(...),
         $this->routePerformIntentExecution(...),

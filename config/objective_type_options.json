@@ -127,7 +127,7 @@
       "supports_children": false,
       "object_contract": {
         "required_fields": ["objective_id", "description", "target"],
-        "optional_fields": ["completed", "completion_criteria", "children"],
+        "optional_fields": ["completed", "requires_check", "completion_criteria", "children"],
         "progress_fields": ["completed"],
         "target_fields": ["target"]
       },

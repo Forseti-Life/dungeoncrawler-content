@@ -836,7 +836,8 @@ trait EncounterPhaseHandlerRouteExecutionCorePartCTrait {
     ?int $character_id,
     ?string $target_id,
     array $game_state,
-    array $dungeon_data
+    array $dungeon_data,
+    string $matching_mode = 'direct_npc_dialogue'
   ): ?array {
     if (isset($dungeon_data['source_dungeon_id'])) {
       return NULL;
@@ -863,7 +864,7 @@ trait EncounterPhaseHandlerRouteExecutionCorePartCTrait {
         'npc_ref' => $target_id,
         'room_id' => $room_id,
         'confidence' => 'high',
-        'matching_mode' => 'direct_npc_dialogue',
+        'matching_mode' => $matching_mode,
       ],
     ];
 

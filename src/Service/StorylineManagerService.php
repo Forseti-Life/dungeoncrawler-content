@@ -6260,6 +6260,12 @@ class StorylineManagerService {
       $linked_rows[] = $row;
     }
 
+    $actor_ids = [];
+    foreach ((array) ($storyline_data['contacts'] ?? []) as $contact) {
+      if (is_array($contact) && trim((string) ($contact['entity_id'] ?? '')) !== '') {
+        $actor_ids[trim((string) $contact['entity_id'])] = TRUE;
+      }
+    }
     $builder = new StorylineQuestRecordBuilder($this->objectiveTypeService);
     $rows_by_task = StorylineQuestRecordBuilder::rowsByTask($linked_rows);
     $anchors = $this->collectObjectiveReferenceAnchors($storyline_data);
@@ -6276,6 +6282,18 @@ class StorylineManagerService {
       $typed = TRUE;
       foreach ($task_rows as $row) {
         $errors = array_merge($errors, $builder->rowErrors($row));
+        $request_target = trim((string) ($row['target'] ?? ''));
+        if (trim((string) ($row['requires_check'] ?? '')) !== '' && $request_target !== '' && !isset($actor_ids[$request_target])) {
+          $report(
+            'request_target_unknown',
+            sprintf(
+              "Objective '%s' requires a successful request of '%s', which is not an actor of this storyline. Its target must name an actor from the roster.",
+              trim((string) $row['objective_id']),
+              $request_target,
+            ),
+            ['objective_id' => trim((string) $row['objective_id']), 'actor_id' => $request_target],
+          );
+        }
         $typed = $typed && StorylineQuestRecordBuilder::hasExpressibleType($row);
       }
       if (!$typed) {

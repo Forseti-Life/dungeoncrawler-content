@@ -82,6 +82,23 @@ class StorylineQuestRecordBuilderTest extends UnitTestCase {
   }
 
   /**
+   * A persuasion objective is an interact objective that requires a Request.
+   *
+   * @covers ::rowErrors
+   * @covers ::objective
+   */
+  public function testRequestRequirementIsPublishedAndOnlyValidOnInteract(): void {
+    $row = ['objective_id' => 'win-the-chieftain', 'type' => 'interact', 'target' => 'blackroot-chieftain', 'requires_check' => 'request'];
+
+    $this->assertSame([], $this->builder()->rowErrors($row));
+    $this->assertSame('request', $this->builder()->objective($row)['requires_check']);
+    $this->assertStringContainsString('only an interact objective uses', implode(' ', $this->builder()->rowErrors(['type' => 'explore', 'target' => '', 'location' => 'cave'] + $row)));
+    $this->assertStringContainsString("requires_check 'intimidate'", implode(' ', $this->builder()->rowErrors(['requires_check' => 'intimidate'] + $row)));
+    $this->assertStringContainsString('names no target', implode(' ', $this->builder()->rowErrors(['target' => ''] + $row)));
+    $this->assertArrayNotHasKey('requires_check', $this->builder()->objective(['requires_check' => ''] + $row));
+  }
+
+  /**
    * A task with no objective rows has no record; none is generated for it.
    *
    * @covers ::questRecord

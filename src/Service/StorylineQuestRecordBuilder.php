@@ -24,6 +24,13 @@ final class StorylineQuestRecordBuilder {
     'escort' => ['destination' => ['destination', 'destination_id']],
   ];
 
+  /**
+   * Checks an interact objective can require before it completes.
+   *
+   * request: a player's Request against the target must be granted.
+   */
+  public const REQUIRED_CHECKS = ['request'];
+
   public function __construct(
     private readonly ObjectiveTypeService $objectiveTypes,
   ) {}
@@ -65,6 +72,10 @@ final class StorylineQuestRecordBuilder {
           $objective[$canonical_field] = $value;
         }
       }
+    }
+    $requires_check = trim((string) ($row['requires_check'] ?? ''));
+    if ($requires_check !== '') {
+      $objective['requires_check'] = $requires_check;
     }
     $definition = $this->objectiveTypes->getObjectiveTypeDefinition($type);
     if ($definition !== []) {
@@ -124,6 +135,16 @@ final class StorylineQuestRecordBuilder {
     }
     if ($type_kind !== 'count' && $required !== NULL && $required !== '' && !in_array($required, [TRUE, 'true', '1', 1], TRUE)) {
       $errors[] = "Objective '{$objective_id}' has type '{$type}', which completes when achieved. Remove required; every objective row is a required step.";
+    }
+    $requires_check = trim((string) ($row['requires_check'] ?? ''));
+    if ($requires_check !== '' && !in_array($requires_check, self::REQUIRED_CHECKS, TRUE)) {
+      $errors[] = "Objective '{$objective_id}' has requires_check '{$requires_check}'. Allowed: " . implode(', ', self::REQUIRED_CHECKS) . '.';
+    }
+    elseif ($requires_check !== '' && $type !== 'interact') {
+      $errors[] = "Objective '{$objective_id}' has type '{$type}' but sets requires_check, which only an interact objective uses.";
+    }
+    elseif ($requires_check !== '' && trim((string) ($row['target'] ?? '')) === '') {
+      $errors[] = "Objective '{$objective_id}' requires a successful {$requires_check} but names no target. Set target to the actor who must agree.";
     }
     foreach (array_keys(self::TARGET_FIELDS) as $other_type) {
       foreach (array_keys(self::TARGET_FIELDS[$other_type]) as $draft_field) {

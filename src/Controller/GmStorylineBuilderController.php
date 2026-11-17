@@ -1009,6 +1009,7 @@ TWIG,
               <select class="form-select" aria-label="What the players do" data-col-field="type"><option value="">Type…</option><option value="interact">interact (target)</option><option value="escort">escort (destination)</option><option value="explore">explore (location)</option><option value="investigate">investigate (target)</option><option value="kill">kill (target, count)</option><option value="collect">collect (item, count)</option></select>
               <input type="text" class="form-text" placeholder="What the players do next" aria-label="What the players do next" data-col-field="next_step">
               <input type="text" class="form-text" placeholder="Target ID (interact, investigate, kill)" aria-label="Target ID" data-col-field="target">
+              <select class="form-select" aria-label="Check the target must agree to (interact)" data-col-field="requires_check"><option value="">Completes on talking</option><option value="request">Needs a successful Request (Diplomacy)</option></select>
               <input type="text" class="form-text" placeholder="Item ID (collect)" aria-label="Item ID" data-col-field="item">
               <input type="text" class="form-text" placeholder="Location ID (explore)" aria-label="Location ID" data-col-field="location">
               <input type="text" class="form-text" placeholder="Destination ID (escort)" aria-label="Destination ID" data-col-field="destination">

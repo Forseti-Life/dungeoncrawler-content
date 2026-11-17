@@ -945,6 +945,9 @@ class QuestGeneratorService {
 
       case 'interact':
         $target_text = $target !== '' ? $target : 'the target';
+        if (($objective['requires_check'] ?? '') === 'request') {
+          return "Complete when {$target_text} agrees to a Request (a successful Diplomacy check).";
+        }
         return "Complete when the required conversation or handoff with {$target_text} is finished.";
 
       default:
@@ -1928,6 +1931,9 @@ class QuestGeneratorService {
         }
         if (!array_key_exists('location', $objective_schema) && !array_key_exists('location_id', $objective_schema) && !empty($context['location'])) {
           $generated_obj['location_id'] = trim((string) $context['location']);
+        }
+        if (trim((string) ($objective_schema['requires_check'] ?? '')) !== '') {
+          $generated_obj['requires_check'] = trim((string) $objective_schema['requires_check']);
         }
         break;
 

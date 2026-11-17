@@ -735,6 +735,25 @@ class StorylineManagerServiceTest extends UnitTestCase {
   }
 
   /**
+   * A request can only be required of an actor of the storyline.
+   *
+   * @covers ::validateStorylineBuilderObjectives
+   */
+  public function testRequestGatedObjectiveMustTargetAStorylineActor(): void {
+    $findings = [];
+    $this->validateBuilderObjectives([
+      $this->objectiveRow('win-the-captain', 'ask-the-captain', ['requires_check' => 'request']),
+    ], ['ask-the-captain'], $findings);
+    $this->assertSame([], array_column($findings, 'code'));
+
+    $findings = [];
+    $this->validateBuilderObjectives([
+      $this->objectiveRow('win-a-stranger', 'ask-a-stranger', ['requires_check' => 'request', 'target' => 'stranger']),
+    ], ['ask-a-stranger'], $findings);
+    $this->assertContains('request_target_unknown', array_column($findings, 'code'));
+  }
+
+  /**
    * One result tracked on two tasks is alternatives written as steps.
    *
    * @covers ::validateStorylineBuilderObjectives
