@@ -56,14 +56,13 @@ class StorylineGmGuidanceTest extends UnitTestCase {
    * Inner work cannot be hijacked by outer deterministic review routing.
    */
   public function testInnerUnitKeepsItsBoundedModeAndGrounding(): void {
+    // The reply shape the model produced on 2026-11-17: the tool's own
+    // arguments with the reasoning beside them, and no wrapper object.
     $intent = [
       'type' => 'tool_call',
-      'tool_name' => 'plan_storyline_draft_operations',
-      'arguments' => [
-        'expected_revision' => 4,
-        'operations' => [
+      'expected_revision' => 4,
+      'operations' => [
         ['type' => 'set', 'path' => '/ending', 'value' => 'The lantern returns home.'],
-        ],
       ],
       'reasoning' => 'Set the ending.',
     ];
@@ -73,16 +72,18 @@ class StorylineGmGuidanceTest extends UnitTestCase {
       // A work unit may only produce one reply shape, for one tool.
       $this->assertSame(['tool_call'], array_column(array_column($options['tools'], 'function'), 'name'));
       $this->assertSame(['type' => 'function', 'function' => ['name' => 'tool_call']], $options['tool_choice']);
-      $this->assertSame(
-        ['plan_storyline_draft_operations'],
-        $options['tools'][0]['function']['parameters']['properties']['tool_name']['enum'],
-      );
+      $parameters = $options['tools'][0]['function']['parameters'];
+      $this->assertSame(['reasoning', 'expected_revision', 'operations'], array_keys($parameters['properties']));
+      $this->assertSame(['reasoning', 'expected_revision', 'operations'], $parameters['required']);
+      $this->assertFalse($parameters['additionalProperties']);
     });
     $result = $parser->parse('review', [
       'draft' => ['revision' => 4],
       'bounded_work_step' => ['current' => 2, 'total' => 3],
     ], new EditorGmToolRegistry([new PlanStorylineDraftOperationsTool()], [], NULL), 'Storyline Builder');
     $this->assertSame('plan_storyline_draft_operations', $result['tool_name']);
+    $this->assertSame(['expected_revision', 'operations'], array_keys($result['arguments']));
+    $this->assertSame('Set the ending.', $result['reasoning']);
   }
 
   /**

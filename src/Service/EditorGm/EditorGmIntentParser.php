@@ -131,9 +131,8 @@ class EditorGmIntentParser {
 You are the native draft-operation planner for ONE CHECKPOINTED STORYLINE WORK UNIT.
 
 The author has already approved the work. Call the tool_call function once,
-with tool_name plan_storyline_draft_operations, arguments
-{"expected_revision": <current saved integer revision>, "operations": [<native operations>]},
-and a short reasoning describing this unit.
+with reasoning (one short sentence describing this unit), expected_revision
+(the current saved integer revision) and operations (the native operations).
 
 No other reply is supported. Never answer in plain text, and never return an
 execution result, bare operations, error object, or nested work plan.
@@ -264,7 +263,29 @@ STEP;
       ],
     ];
     if ($bounded_work_step) {
-      return $functions;
+      // One tool: its own arguments are the function's parameters, beside
+      // the reasoning. There is no untyped wrapper for a field to land in.
+      $tool = $this->toolDefinition($registry, $tool_names[0]);
+      $properties = ['reasoning' => $string('One short sentence describing this unit.')];
+      $required = ['reasoning'];
+      foreach ($tool['arguments'] as $argument) {
+        $properties[$argument['name']] = ['type' => $argument['type'], 'description' => $argument['description']]
+          + ($argument['type'] === 'array' ? ['items' => ['type' => 'object']] : []);
+        if ($argument['required']) {
+          $required[] = $argument['name'];
+        }
+      }
+      return ['tool_call' => [
+        'description' => $tool['summary'],
+        'strict' => FALSE,
+        'single_tool' => $tool['name'],
+        'parameters' => [
+          'type' => 'object',
+          'additionalProperties' => FALSE,
+          'required' => $required,
+          'properties' => $properties,
+        ],
+      ]];
     }
     $functions['task_queue'] = [
       'description' => 'Select several registered tools to run in order for one author request.',
@@ -377,7 +398,29 @@ STEP;
         (string) ($finding['message'] ?? ''),
       ));
     }
+    if (isset($functions[$name]['single_tool'])) {
+      return [
+        'type' => $name,
+        'tool_name' => $functions[$name]['single_tool'],
+        'reasoning' => $arguments['reasoning'],
+        'arguments' => array_diff_key($arguments, ['reasoning' => TRUE]),
+      ];
+    }
     return ['type' => $name] + $arguments;
+  }
+
+  /**
+   * One registered tool's definition, by name.
+   */
+  private function toolDefinition(EditorGmToolRegistry $registry, string $tool_name): array {
+    foreach ($registry->manifest()['families'] as $definitions) {
+      foreach ($definitions as $definition) {
+        if ($definition['name'] === $tool_name) {
+          return $definition;
+        }
+      }
+    }
+    throw new \LogicException('editor_gm_tool_not_registered:' . $tool_name);
   }
 
   /**
