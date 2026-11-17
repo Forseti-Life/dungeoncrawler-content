@@ -167,34 +167,7 @@ final class PlanStorylineRemediationTool implements EditorGmToolInterface {
     }
 
     $definitions = [];
-    foreach ((array) ($payload['objects']['actors']['generation_specs'] ?? []) as $actor) {
-      if (!is_array($actor)) {
-        continue;
-      }
-      $id = trim((string) ($actor['actor_id'] ?? ''));
-      if ($id === '') {
-        continue;
-      }
-      if (!isset($missing_ids[$id]) && $context->definitions->catalogEntry('actor', $id) !== NULL) {
-        continue;
-      }
-      $spec = [
-        'family' => 'actor',
-        'definition_id' => $id,
-        'prompt' => mb_substr(implode(' ', array_filter([
-          (string) ($actor['display_name'] ?? ''),
-          (string) ($actor['role'] ?? ''),
-          (string) ($actor['motivation'] ?? ''),
-          (string) ($actor['dialogue'] ?? ''),
-          (string) ($actor['knowledge'] ?? ''),
-          $story_context,
-        ])), 0, 2000),
-      ];
-      if (trim((string) ($actor['attitude'] ?? '')) !== '') {
-        $spec['attitude'] = (string) $actor['attitude'];
-      }
-      $definitions['actor:' . $id] = $spec;
-    }
+    // Roster actors are created by the character sheet build, never here.
     foreach ((array) ($payload['objects']['items']['generation_specs'] ?? []) as $item) {
       if (!is_array($item)) {
         continue;

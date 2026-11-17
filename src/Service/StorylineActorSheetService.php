@@ -15,7 +15,6 @@ use Drupal\dungeoncrawler_content\Service\Generation\CanonicalGenerationExceptio
  */
 class StorylineActorSheetService {
 
-  private const LINK_FIELDS = ['character_id', 'character_sheet_revision', 'character_sheet_spec_hash'];
   private const PREFERENCE_FIELDS = ['class', 'ancestry', 'background'];
 
   public function __construct(
@@ -196,9 +195,7 @@ class StorylineActorSheetService {
   }
 
   private function specHash(array $spec): string {
-    $source = array_diff_key($spec, array_flip(self::LINK_FIELDS));
-    ksort($source);
-    return hash('sha256', json_encode($source, JSON_THROW_ON_ERROR));
+    return StorylineAuthoringDraftService::actorSpecHash($spec);
   }
 
   private function linkedSheet(array $spec): ?array {

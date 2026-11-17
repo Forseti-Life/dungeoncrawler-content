@@ -23,7 +23,9 @@ class StorylineAuthoringDraftService {
     'objective_control_chain',
     'task_contracts',
     'authored_room_dungeon_bindings',
+    'actor_character_sheets',
   ];
+  public const ACTOR_SHEET_LINK_FIELDS = ['character_id', 'character_sheet_revision', 'character_sheet_spec_hash'];
   private const STAGE_FIX_ROUTES = [
     'schema' => 'draft_operation',
     'questline_progression' => 'draft_operation',
@@ -31,6 +33,7 @@ class StorylineAuthoringDraftService {
     'task_contracts' => 'draft_operation',
     'authored_room_dungeon_bindings' => 'canonical_remediation',
     'authored_questline_edges' => 'draft_operation',
+    'actor_character_sheets' => 'actor_sheet_build',
   ];
   /**
    * Findings whose fix differs from the rest of their stage.
@@ -1023,6 +1026,12 @@ class StorylineAuthoringDraftService {
         'findings' => array_merge($choice_findings, (array) ($progression['findings'] ?? [])),
       ] + $progression;
     }
+    $sheet_findings = self::actorSheetFindings($draft['payload'] ?? []);
+    $stages['actor_character_sheets'] = [
+      'valid' => $sheet_findings === [],
+      'errors' => array_column($sheet_findings, 'message'),
+      'findings' => $sheet_findings,
+    ];
     $stages['authored_questline_edges'] = [
       'valid' => TRUE,
       'errors' => [],
@@ -1197,6 +1206,52 @@ class StorylineAuthoringDraftService {
   }
 
   /**
+   * The authored part of an actor row, without its character sheet link.
+   *
+   * A sheet records this hash when it is built; a different hash later means
+   * the actor was edited after its sheet.
+   */
+  public static function actorSpecHash(array $spec): string {
+    $source = array_diff_key($spec, array_flip(self::ACTOR_SHEET_LINK_FIELDS));
+    ksort($source);
+    return hash('sha256', json_encode($source, JSON_THROW_ON_ERROR));
+  }
+
+  /**
+   * One blocking finding per roster actor without a current character sheet.
+   *
+   * @return array<int, array<string, mixed>>
+   */
+  public static function actorSheetFindings(array $payload): array {
+    $findings = [];
+    foreach ((array) ($payload['objects']['actors']['generation_specs'] ?? []) as $spec) {
+      if (!is_array($spec) || trim((string) ($spec['actor_id'] ?? '')) === '') {
+        continue;
+      }
+      $name = trim((string) ($spec['display_name'] ?? '')) ?: (string) $spec['actor_id'];
+      if (empty($spec['character_id'])) {
+        $findings[] = [
+          'severity' => 'error',
+          'code' => 'actor_sheet_missing',
+          'actor_id' => (string) $spec['actor_id'],
+          'display_name' => $name,
+          'message' => sprintf("Actor '%s' has no character sheet. Build the roster's character sheets.", $name),
+        ];
+      }
+      elseif (($spec['character_sheet_spec_hash'] ?? NULL) !== self::actorSpecHash($spec)) {
+        $findings[] = [
+          'severity' => 'error',
+          'code' => 'actor_sheet_outdated',
+          'actor_id' => (string) $spec['actor_id'],
+          'display_name' => $name,
+          'message' => sprintf("Actor '%s' was changed after its character sheet was built. Rebuild its character sheet.", $name),
+        ];
+      }
+    }
+    return $findings;
+  }
+
+  /**
    * Builds one status projection shared by the GM and Storyline Builder UI.
    */
   public function summarizeDraftState(array $draft, array $validation): array {
@@ -1277,6 +1332,16 @@ class StorylineAuthoringDraftService {
         $all_have($rows($objects['rooms']['generation_specs'] ?? []), ['room_id', 'dungeon_id', 'scene_id']),
         'minimum_content',
       );
+      $actor_rows = $rows($objects['actors']['generation_specs'] ?? []);
+      $actors_without_sheet = count(self::actorSheetFindings($payload));
+      $sheets_complete = $actor_rows !== [] && $actors_without_sheet === 0;
+      $add(
+        'content_actor_sheets',
+        'Every actor has a current character sheet',
+        $sheets_complete,
+        'minimum_content',
+        sprintf('%d/%d', count($actor_rows) - $actors_without_sheet, count($actor_rows)),
+      );
       $add(
         'canonical_validation',
         'Canonical validation passes',
@@ -1303,6 +1368,7 @@ class StorylineAuthoringDraftService {
         3 => [
           $counts['actors'] > 0,
           $all_have($rows($objects['actors']['generation_specs'] ?? []), ['contact_id', 'actor_id', 'role', 'display_name']),
+          $sheets_complete,
         ],
         4 => [
           $counts['dungeons'] > 0 && $counts['rooms'] > 0,
@@ -1338,7 +1404,10 @@ class StorylineAuthoringDraftService {
             'adventure_requirements' => sprintf('%d/%d', $narrative['requirements_complete'], $narrative['requirements_total']),
           ],
         ),
-        3 => ['actors' => $counts['actors']],
+        3 => [
+          'actors' => $counts['actors'],
+          'character_sheets' => sprintf('%d/%d', count($actor_rows) - $actors_without_sheet, count($actor_rows)),
+        ],
         4 => ['dungeons' => $counts['dungeons'], 'rooms' => $counts['rooms']],
         5 => ['items' => $counts['items']],
         6 => ['errors' => (int) ($validation['error_count'] ?? 0), 'warnings' => (int) ($validation['warning_count'] ?? 0)],
@@ -1415,6 +1484,7 @@ class StorylineAuthoringDraftService {
         'At least one conflict' => 'Choose the central opposition.',
         'At least one branching decision' => 'Have the GM add a meaningful choice to the next scene.',
         'At least one actor binding' => 'Have the GM develop the first story character.',
+        'Every actor has a current character sheet' => 'Have the GM build the character sheets for the roster.',
         'At least one dungeon binding' => 'Have the GM develop the first adventure location.',
         'At least one room binding' => 'Have the GM develop one room for that location.',
         'Every room has dungeon and scene bindings' => 'Have the GM connect the next unbound room to its location.',

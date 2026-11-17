@@ -327,11 +327,28 @@ and environmental agents. If a clear author request or accepted concept
 requires a missing actor, the GM creates it through the canonical actor
 authority and links it back by ID.
 
+### Character sheets
+
+Every roster actor needs a complete character sheet. Sheets are built on
+request ("build the character sheets for the roster"), by the single tool
+`build_storyline_actor_sheets`. It creates a character for each actor,
+derives class, ancestry and background from the authored role, and records
+the link on the actor row. This is the only way a storyline actor is
+created; remediation does not generate actors.
+
+Validation reports one blocking finding per actor in the stage
+`actor_character_sheets`: `actor_sheet_missing` when no sheet is linked,
+`actor_sheet_outdated` when the actor was edited after its sheet was built.
+Stage 3 is not complete, and the draft cannot be published, while any
+remain. The next step names it.
+
 ### Completion check
 
 Cast coverage, motivations, knowledge boundaries, relationship arcs, and
 canonical actor selections contribute completion and continuity warnings; they
 do not gate publication.
+Character sheets are the exception: an actor without a
+current sheet is a blocking finding.
 
 ### Future Enhancement Seam: Party-Relative Actor Level & Retinue Scaling
 
@@ -625,10 +642,12 @@ says how a request moves through the agent.
   work plan of short units with no operation payloads. Each unit is then one
   model call and one saved batch of at most ten operations. The editor
   continues the units automatically.
-- **Missing canonical content** (dungeons, rooms, actors and items that the
+- **Missing canonical content** (dungeons, rooms and items that the
   draft references but the library lacks). The agent plans a remediation
   and runs it only after the author explicitly approves. Quest records are
   not part of this: they are written when the storyline is published.
+- **Character sheets.** Roster actors get their sheets from the sheet
+  build (Stage 3), on request. It is separate from remediation.
 
 Every draft edit goes through the same save path,
 `StorylineAuthoringDraftService::applyDraftOperations()`.

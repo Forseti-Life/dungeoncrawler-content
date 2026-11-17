@@ -307,6 +307,45 @@ class StorylineGmGuidanceTest extends UnitTestCase {
   }
 
   /**
+   * An actor without a character sheet is fixed by the sheet build.
+   */
+  public function testActorWithoutSheetNamesTheSheetBuild(): void {
+    $payload = ['objects' => ['actors' => ['generation_specs' => [
+      ['actor_id' => 'scout', 'display_name' => 'Pikk Nettlefoot', 'role' => 'scout'],
+    ]]]];
+    $findings = \Drupal\dungeoncrawler_content\Service\StorylineAuthoringDraftService::actorSheetFindings($payload);
+    $this->assertSame(['actor_sheet_missing'], array_column($findings, 'code'));
+
+    $step = (new AgentHarnessManagementService())->storylineNextStepFromSavedState([
+      'current_state' => ['error_count' => 1, 'warning_count' => 0],
+      'validation_summary' => ['error_count' => 1, 'warning_count' => 0, 'stages' => [[
+        'stage' => 'actor_character_sheets',
+        'route' => 'actor_sheet_build',
+        'errors' => array_column($findings, 'message'),
+        'findings' => array_map(static fn(array $finding): array => $finding + ['route' => 'actor_sheet_build'], $findings),
+      ]]],
+    ])[0];
+    $this->assertStringContainsString("Actor 'Pikk Nettlefoot' has no character sheet.", $step);
+    $this->assertStringContainsString('ask the GM to build the character sheets for the roster', $step);
+  }
+
+  /**
+   * A sheet is current only while the authored actor is unchanged.
+   */
+  public function testEditedActorMakesItsSheetOutdated(): void {
+    $service = \Drupal\dungeoncrawler_content\Service\StorylineAuthoringDraftService::class;
+    $spec = ['actor_id' => 'scout', 'display_name' => 'Pikk Nettlefoot', 'role' => 'scout', 'character_id' => 7, 'character_sheet_revision' => 2];
+    $spec['character_sheet_spec_hash'] = $service::actorSpecHash($spec);
+    $payload = static fn(array $actor): array => ['objects' => ['actors' => ['generation_specs' => [$actor]]]];
+
+    $this->assertSame([], $service::actorSheetFindings($payload($spec)));
+    $this->assertSame(
+      ['actor_sheet_outdated'],
+      array_column($service::actorSheetFindings($payload(['role' => 'shaman'] + $spec)), 'code'),
+    );
+  }
+
+  /**
    * A task without an objective is a draft gap, stated in the author's terms.
    */
   public function testTaskWithoutObjectiveIsADraftFinding(): void {

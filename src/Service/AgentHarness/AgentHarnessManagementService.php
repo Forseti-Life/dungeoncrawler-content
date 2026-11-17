@@ -1083,6 +1083,13 @@ class AgentHarnessManagementService {
           $this->describeFinding($finding, $process_flow),
         )];
       }
+      $sheet = $this->firstValidationFinding($validation, 'error', 'actor_sheet_build');
+      if ($sheet['message'] !== '') {
+        return [sprintf(
+          'Validation finding: %s Options: ask the GM to build the character sheets for the roster, or continue story changes.',
+          $sheet['message'],
+        )];
+      }
       $remediation = $this->firstValidationFinding($validation, 'error', 'canonical_remediation');
       if ($remediation['message'] !== '') {
         return [sprintf(
