@@ -2,7 +2,14 @@
 
 namespace Drupal\Tests\dungeoncrawler_content\Unit\Service;
 
+use Drupal\Component\Datetime\TimeInterface;
+use Drupal\Component\Uuid\UuidInterface;
+use Drupal\Core\Database\Connection;
+use Drupal\Core\Session\AccountProxyInterface;
+use Drupal\dungeoncrawler_content\Service\CanonicalQuestTemplateService;
+use Drupal\dungeoncrawler_content\Service\ObjectiveTypeService;
 use Drupal\dungeoncrawler_content\Service\StorylineAuthoringDraftService;
+use Drupal\dungeoncrawler_content\Service\StorylineManagerService;
 use Drupal\dungeoncrawler_content\Exception\StorylineDraftValidationException;
 use Drupal\Tests\UnitTestCase;
 
@@ -328,6 +335,250 @@ class StorylineDraftPatchTest extends UnitTestCase {
       ['grounded-existing-decision', 'grounded-existing-decision'],
       array_column($mixed['payload']['process_flow']['branch_choices'], 'decision_id'),
     );
+  }
+
+  /**
+   * String-array fields are preserved rather than cast to the literal "Array".
+   */
+  public function testSceneAnnotationCsvFieldsAcceptArraysAndStrings(): void {
+    [$service] = $this->fixture();
+    $method = new \ReflectionMethod($service, 'buildStorylineAnalysisMetadata');
+    $method->setAccessible(TRUE);
+    $scenes = [[
+      'scene_id' => 'scene-1',
+      'summary' => 'Scene summary',
+    ]];
+
+    $from_arrays = $method->invoke($service, [
+      'process_flow' => [
+        'journal_entries' => [[
+          'scene_id' => 'scene-1',
+          'summary' => 'Scene summary',
+          'themes' => ['threat', 'survival'],
+          'character_ids' => ['guide', 'rival'],
+        ]],
+      ],
+    ], $scenes);
+    $from_csv = $method->invoke($service, [
+      'process_flow' => [
+        'journal_entries' => [[
+          'scene_id' => 'scene-1',
+          'summary' => 'Scene summary',
+          'themes' => 'threat, survival',
+          'character_ids' => 'guide, rival',
+        ]],
+      ],
+    ], $scenes);
+
+    $array_annotation = $from_arrays['scene_annotations']['scene-1'];
+    $csv_annotation = $from_csv['scene_annotations']['scene-1'];
+
+    $this->assertSame(['threat', 'survival'], $array_annotation['themes']);
+    $this->assertSame(['guide', 'rival'], $array_annotation['character_ids']);
+    $this->assertSame($array_annotation['themes'], $csv_annotation['themes']);
+    $this->assertSame($array_annotation['character_ids'], $csv_annotation['character_ids']);
+    $this->assertNotContains('Array', $array_annotation['themes']);
+    $this->assertNotContains('Array', $array_annotation['character_ids']);
+  }
+
+  /**
+   * Backward links come from resolved forward edges, not authored unlocks_after.
+   */
+  public function testQuestlineProjectionDerivesUnlocksAfterFromResolvedEdges(): void {
+    [$service] = $this->fixture();
+    $method = new \ReflectionMethod($service, 'buildQuestlineFromTaskRows');
+    $method->setAccessible(TRUE);
+
+    $questline = $method->invoke($service, [
+      [
+        'task_id' => 'a',
+        'chapter_id' => 'chapter-1',
+        'scene_id' => 'scene-1',
+        'unlocks_to' => 'b',
+      ],
+      [
+        'task_id' => 'b',
+        'chapter_id' => 'chapter-1',
+        'scene_id' => 'scene-1',
+        'unlocks_after' => 'z',
+      ],
+      [
+        'task_id' => 'c',
+        'chapter_id' => 'chapter-1',
+        'scene_id' => 'scene-1',
+      ],
+    ], []);
+
+    $nodes = [];
+    foreach ($questline['quest_nodes'] as $node) {
+      $nodes[$node['quest_id']] = $node;
+    }
+    $this->assertSame(['a'], $nodes['b']['unlocks_after']);
+    $this->assertSame(['c'], $nodes['b']['unlocks_to']);
+    $this->assertSame('complete_previous_quest', $nodes['b']['unlock_condition']);
+    $this->assertSame([], $nodes['a']['unlocks_after']);
+  }
+
+  /**
+   * Authored edge mismatch warnings explain which field to update.
+   */
+  public function testAuthoredQuestlineEdgeWarningsCallOutIgnoredFields(): void {
+    [$service] = $this->fixture();
+    $method = new \ReflectionMethod($service, 'validateAuthoredQuestlineEdgeProjection');
+    $method->setAccessible(TRUE);
+    $warnings = $method->invoke($service, [
+      'process_flow' => [
+        'tasks' => [
+          ['task_id' => 'a', 'unlocks_to' => 'b,c'],
+          ['task_id' => 'b', 'unlocks_after' => 'z'],
+        ],
+        'branch_choices' => [
+          ['source_task_id' => 'a', 'target_task_id' => 'b', 'terminal' => FALSE],
+        ],
+      ],
+    ], [
+      'questline' => [
+        'quest_nodes' => [
+          ['quest_id' => 'a', 'unlocks_to' => ['b'], 'unlocks_after' => []],
+          ['quest_id' => 'b', 'unlocks_to' => [], 'unlocks_after' => ['a']],
+        ],
+      ],
+    ]);
+
+    $this->assertSame(1, count($warnings));
+    $this->assertStringContainsString("Task 'b' unlocks_after is not used", $warnings[0]);
+  }
+
+  /**
+   * A choice that replaces a task's continuation is reported as the cause.
+   */
+  public function testChoiceThatDropsATasksContinuationIsReportedAsTheCause(): void {
+    [$service] = $this->fixture();
+    $method = new \ReflectionMethod($service, 'authoredChoiceFindings');
+    $method->setAccessible(TRUE);
+    $findings = $method->invoke($service, ['process_flow' => [
+      'tasks' => [
+        ['task_id' => 'answer-summons', 'unlocks_to' => 'meet-hunters, staging'],
+        ['task_id' => 'meet-hunters'],
+        ['task_id' => 'staging', 'unlocks_to' => 'meet-hunters'],
+      ],
+      'branch_choices' => [
+        ['choice_id' => 'c1', 'label' => 'Clan lost', 'source_task_id' => 'answer-summons', 'target_task_id' => '', 'terminal' => TRUE],
+        ['choice_id' => 'c2', 'label' => 'Detour', 'source_task_id' => 'answer-summons', 'target_task_id' => 'staging', 'terminal' => FALSE],
+        ['choice_id' => 'c3', 'label' => 'Orphan', 'source_task_id' => 'no-such-task', 'target_task_id' => 'staging', 'terminal' => FALSE],
+        ['choice_id' => 'c4', 'label' => 'Anywhere', 'source_task_id' => '', 'target_task_id' => 'staging', 'terminal' => FALSE],
+      ],
+    ]]);
+
+    $this->assertSame(['choice_source_task_unknown', 'continuation_replaced_by_choices'], array_column($findings, 'code'));
+    $this->assertSame('c3', $findings[0]['choice_id']);
+    $this->assertSame('answer-summons', $findings[1]['task_id']);
+    $this->assertSame(['meet-hunters'], $findings[1]['dropped_task_ids'], 'Only the continuation no choice leads to is dropped.');
+  }
+
+  /**
+   * A choice with no source task is storyline-wide, not a choice on a task.
+   */
+  public function testChoiceWithoutSourceTaskProjectsAsStorylineWide(): void {
+    [$service] = $this->fixture();
+    $method = new \ReflectionMethod($service, 'buildQuestlineFromTaskRows');
+    $method->setAccessible(TRUE);
+    $choice = static fn(string $id, string $source, string $target): array => [
+      'decision_id' => 'd-' . $id, 'choice_id' => $id, 'label' => $id, 'source_task_id' => $source,
+      'trigger' => ['type' => 'gm_decision', 'condition' => 'c', 'source_id' => 's'],
+      'effects' => ['summary' => 's', 'actors' => [], 'environment' => [], 'storyline' => []],
+      'target_task_id' => $target, 'target_scene_id' => $target === '' ? '' : 'scene-1', 'terminal' => $target === '',
+    ];
+    $questline = $method->invoke($service, [
+      ['task_id' => 'a', 'chapter_id' => 'c', 'scene_id' => 'scene-1'],
+      ['task_id' => 'b', 'chapter_id' => 'c', 'scene_id' => 'scene-1'],
+      ['task_id' => 'debrief', 'chapter_id' => 'c', 'scene_id' => 'scene-1'],
+    ], [$choice('clan-lost', '', 'debrief')]);
+    $nodes = array_column($questline['quest_nodes'], NULL, 'quest_id');
+
+    $this->assertSame(['clan-lost'], array_column($questline['storyline_choices'], 'choice_id'));
+    $this->assertSame([], $nodes['a']['choices']);
+    $this->assertSame(['b'], $nodes['a']['unlocks_to'], 'The task keeps its normal continuation.');
+    $this->assertArrayNotHasKey('storyline_choices', $method->invoke($service, [['task_id' => 'a']], []));
+  }
+
+  /**
+   * New storyline-wide choices are independent decisions.
+   */
+  public function testNewStorylineWideChoicesGetSeparateDecisions(): void {
+    [$service] = $this->fixture();
+    $append = static fn(string $label): array => [
+      'type' => 'append',
+      'path' => '/process_flow/branch_choices',
+      'value' => [
+        'source_task_id' => '',
+        'label' => $label,
+        'trigger' => ['type' => 'gm_decision', 'condition' => 'The condition holds.', 'source_id' => 'clan'],
+        'effects' => ['summary' => 'The story turns.', 'actors' => [], 'environment' => [], 'storyline' => []],
+        'terminal' => TRUE,
+      ],
+    ];
+    $plan = $service->planDraftOperations('draft-1', 12, [$append('Clan lost'), $append('Captain killed')]);
+    $choices = $plan['payload']['process_flow']['branch_choices'];
+    $this->assertNotSame($choices[0]['decision_id'], $choices[1]['decision_id']);
+  }
+
+  /**
+   * Stage routes advertise whether work steps or remediation should fix them.
+   */
+  public function testValidationStageRoutesExposeFixPathContract(): void {
+    $routes = (new \ReflectionClass(StorylineAuthoringDraftService::class))
+      ->getConstant('STAGE_FIX_ROUTES');
+    $this->assertSame('draft_operation', $routes['schema']);
+    $this->assertSame('draft_operation', $routes['questline_progression']);
+    $this->assertSame('draft_operation', $routes['objective_control_chain']);
+    $this->assertSame('draft_operation', $routes['task_contracts']);
+    $this->assertSame('canonical_remediation', $routes['authored_room_dungeon_bindings']);
+    $this->assertSame('draft_operation', $routes['authored_questline_edges']);
+  }
+
+  /**
+   * Publication writes one quest record per task, built from the task's rows.
+   */
+  public function testPublicationWritesEachTasksQuestRecordFromItsOwnRows(): void {
+    $written = [];
+    $quest_templates = $this->createMock(CanonicalQuestTemplateService::class);
+    $quest_templates->method('saveStorylineQuestRecord')->willReturnCallback(static function (array $record) use (&$written): array {
+      $written[] = $record;
+      return ['template_id' => $record['template_id'], 'created' => TRUE];
+    });
+    $service = new StorylineAuthoringDraftService(
+      $this->createMock(Connection::class),
+      $this->createMock(StorylineManagerService::class),
+      $this->createMock(AccountProxyInterface::class),
+      $this->createMock(UuidInterface::class),
+      $this->createMock(TimeInterface::class),
+      NULL,
+      $quest_templates,
+      new ObjectiveTypeService(),
+    );
+    $publish = new \ReflectionMethod($service, 'publishTaskQuestRecords');
+    $publish->setAccessible(TRUE);
+    $row = static fn(string $id, string $task): array => [
+      'objective_id' => $id, 'task_id' => $task, 'type' => 'interact', 'target' => 'captain',
+      'description' => 'Tell the captain.', 'next_step' => 'Speak with the captain.',
+    ];
+    $payload = ['process_flow' => [
+      'tasks' => [['task_id' => 'report-in', 'chapter_id' => 'c', 'scene_id' => 's'], ['task_id' => 'debrief', 'chapter_id' => 'c', 'scene_id' => 's']],
+      'objective_completion_criteria' => [$row('tell', 'report-in'), $row('listen', 'debrief'), $row('answer', 'debrief')],
+    ]];
+    $receipts = $publish->invoke($service, $payload, 'the-clans-blight');
+
+    $this->assertSame(['report-in', 'debrief'], array_column($receipts, 'template_id'));
+    $this->assertSame(['tell'], array_column($written[0]['objectives_schema'][0]['objectives'], 'objective_id'));
+    $this->assertSame(['listen', 'answer'], array_column($written[1]['objectives_schema'][0]['objectives'], 'objective_id'));
+    $this->assertSame('the-clans-blight', $written[1]['storyline_template_id']);
+
+    // A task with no objective fails the publication; nothing is generated.
+    $payload['process_flow']['tasks'][] = ['task_id' => 'no-objective'];
+    $this->expectException(\DomainException::class);
+    $this->expectExceptionMessage('storyline_quest_record_objective_required:no-objective');
+    $publish->invoke($service, $payload, 'the-clans-blight');
   }
 
   /**

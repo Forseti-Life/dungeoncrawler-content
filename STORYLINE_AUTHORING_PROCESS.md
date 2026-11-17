@@ -231,7 +231,8 @@ validation results update from the new draft revision.
   - boon or MacGuffin;
 - journal entries representing ordered chapters and scenes;
 - tasks and their progression dependencies;
-- branch decisions with at least two choices, each containing:
+- branch decisions with one or more choices (one choice is a fixed outcome),
+  each containing:
   - a typed trigger, explicit condition, and affected source;
   - an interaction classification for action triggers;
   - actor effects, reactions, and deterministic state changes;
@@ -589,6 +590,136 @@ overwrite the other author's canonical storyline.
 Revision compare data and operation receipts retain the exact changes applied
 by the GM. Revision conflicts hard-fail so an update can never silently
 overwrite newer author work.
+
+## GM Agent Request Flow
+
+This is how the Game Master Agent handles one author message in the
+Storyline Builder. The stages above say what a storyline needs; this section
+says how a request moves through the agent.
+
+### One turn
+
+1. **Ground.** The harness assembles a snapshot of the saved draft: content,
+   completion state, validation results by stage, any saved work, and the
+   tools available.
+2. **Route.** The request is classified as one of four kinds. A few phrases
+   are routed without a model call: status questions, reviews of current
+   findings, resume / stop / skip of saved work, and "Review and create".
+   Everything else is classified by the model.
+   - *Clarification*: intent is unclear, so the agent asks one question.
+   - *Direct answer*: status, validation review, or discussion. Nothing is
+     saved.
+   - *Tool call*: one read or one edit.
+   - *Task queue*: several ordered tool calls, run one after another within
+     a time budget.
+3. **Act.** Edits take one of three paths (see below).
+4. **Validate.** Validation re-runs against the saved revision.
+5. **Reply.** The agent explains what the evidence means and offers exactly
+   one next step.
+
+### Three ways an edit is made
+
+- **Small edit.** The agent plans native draft operations and applies them
+  in the same turn. The save is revision-checked and replay-safe.
+- **Large edit** (many scenes, branching, endings). The agent first writes a
+  work plan of short units with no operation payloads. Each unit is then one
+  model call and one saved batch of at most ten operations. The editor
+  continues the units automatically.
+- **Missing canonical content** (dungeons, rooms, actors and items that the
+  draft references but the library lacks). The agent plans a remediation
+  and runs it only after the author explicitly approves. Quest records are
+  not part of this: they are written when the storyline is published.
+
+Every draft edit goes through the same save path,
+`StorylineAuthoringDraftService::applyDraftOperations()`.
+
+### When a work unit fails
+
+- A rejected unit saves nothing. The work pauses and records why.
+- The author may resume (the model retries with the rejection in view),
+  skip the unit, or stop the work. Completed units stay saved in all cases.
+- After three failed attempts on one unit, only skip and stop are offered.
+- If the draft was edited elsewhere while work was saved, the work must be
+  stopped before new work is planned.
+- After each saved unit the agent reports how many validation errors it
+  cleared, how many it introduced, and how many remain.
+
+### How the next step is chosen
+
+On status questions, validation reviews and after every saved edit, the
+next step comes from saved state and is not written by the model. In order:
+
+1. unfinished saved work: resume it;
+2. missing minimum content: the next missing story element;
+3. validation errors: one named finding with its options;
+4. validation warnings: one named warning with its options;
+5. otherwise: review the storyline.
+
+On discussion answers and read-only lookups the model proposes the step.
+
+Each validation stage declares how its findings are fixed. A finding may
+carry its own route, which overrides its stage:
+
+- `draft_operation`: fixable by editing the draft. Offered first.
+- `canonical_remediation`: needs canonical content published. Offered only
+  when no draft-fixable error remains, and worded as a publish action.
+  Rooms whose site is not yet published are this kind.
+- `unclassified`: reported as warnings.
+
+Work units are planned only for `draft_operation` findings.
+
+### Tasks, objectives, goals and choices
+
+- Every task is published as its own quest record. Authors work with tasks.
+  The record is written when the storyline is published, from the task's
+  own rows; nothing in it is generated in their place.
+- Every task needs at least one objective. An objective names its task, a
+  type (interact, escort, explore, investigate, kill, collect), the target
+  that type needs, and what the players do next. A task's objectives are
+  required steps, completed in row order.
+- An aim that can be achieved in more than one way is one task with a goal
+  and one choice per way, each marked as an approach. Objectives on
+  different tasks that track the same result are rejected, and an approach
+  may only name objectives of its own task.
+- A decision has one or more choices. One choice is a fixed outcome with
+  its trigger and effects; a second is never invented to pad it.
+- A task with no choices continues to the next task. A task with choices
+  continues only where its choices lead.
+- A condition that can redirect or end the story from any task is one
+  storyline-wide choice: a choice with no source task. It can fire from any
+  task, does not replace any task's continuation, and is authored once. The
+  same choice repeated on several tasks is rejected.
+
+### Model output contract
+
+Every model reply is one required function call. The function it calls is
+the reply's shape, so a shape cannot be misnamed:
+
+- Classifying a request: `tool_call`, `task_queue`, `direct_response`, or
+  `clarification`. A saved work unit may only call `tool_call`.
+- Writing the answer: `answer`.
+
+Each function's schema is sent to the provider and checked again when the
+reply arrives. A reply outside its schema is rejected and logged with the
+function and the raw reply. It is never mapped to a nearby shape,
+completed, or truncated. The provider enforces the function name and the
+listed values; it does not prevent an undeclared extra field, which is
+caught on receipt.
+
+An intent carries a one-sentence reasoning and never a next step. The next
+step is stated after the work has run. Work-plan units that break their
+limits fail with the unit number and the measured value.
+
+`tests/storyline_intent_contract_check.php` replays a fixed set of author
+messages against a draft, read-only, and reports accepted and rejected
+replies.
+
+### Rules the agent holds to
+
+- It never asks the author to supply or choose internal IDs.
+- It never splits technical work onto the author.
+- It never re-proposes work that is already saved.
+- It asks for one creative decision at a time.
 
 ## Implementation Acceptance Criteria
 

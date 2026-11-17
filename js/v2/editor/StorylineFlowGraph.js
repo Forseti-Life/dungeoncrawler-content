@@ -1,6 +1,17 @@
 let renderSequence = 0;
 let initialized = false;
 
+export function storylineGraphView(graph, mode) {
+  if (mode === 'all') return graph;
+  const types = new Set(['chapter', 'scene', 'quest', 'decision', 'choice', 'terminal_outcome', 'conflict']);
+  const nodes = graph.nodes.filter((node) => types.has(node.type));
+  const ids = new Set(nodes.map((node) => node.id));
+  return {
+    nodes,
+    edges: graph.edges.filter((edge) => ids.has(edge.source) && ids.has(edge.target)),
+  };
+}
+
 function label(text) {
   const lines = [''];
   for (const word of String(text).split(/\s+/)) {
@@ -48,10 +59,26 @@ export class StorylineFlowGraph {
     this.request = 0;
     this.controller = null;
     this.fitZoom = 1;
+    this.graph = null;
     const controls = document.createElement('div');
     controls.className = 'gm-storyline-wizard__graph-controls';
     controls.setAttribute('role', 'group');
     controls.setAttribute('aria-label', 'Flowchart controls');
+    const viewLabel = document.createElement('label');
+    viewLabel.textContent = 'View ';
+    this.view = document.createElement('select');
+    this.view.setAttribute('aria-label', 'Flowchart view');
+    for (const [value, text] of [['progression', 'Story progression'], ['all', 'All relationships']]) {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = text;
+      this.view.appendChild(option);
+    }
+    this.view.addEventListener('change', async () => {
+      if (this.graph) await this.render(this.graph);
+    });
+    viewLabel.appendChild(this.view);
+    controls.appendChild(viewLabel);
     this.viewport = document.createElement('div');
     this.viewport.className = 'gm-storyline-wizard__graph-viewport';
     this.viewport.tabIndex = 0;
@@ -100,6 +127,7 @@ export class StorylineFlowGraph {
   }
 
   async render(graph) {
+    this.graph = graph;
     const request = ++this.request;
     this.controller?.destroy();
     this.controller = null;
@@ -121,7 +149,7 @@ export class StorylineFlowGraph {
         });
         initialized = true;
       }
-      const rendered = await window.mermaid.render(`storyline-flow-${++renderSequence}`, buildStorylineFlowSource(graph));
+      const rendered = await window.mermaid.render(`storyline-flow-${++renderSequence}`, buildStorylineFlowSource(storylineGraphView(graph, this.view.value)));
       if (request !== this.request) return;
       this.viewport.innerHTML = rendered.svg;
       const svg = this.viewport.querySelector('svg');

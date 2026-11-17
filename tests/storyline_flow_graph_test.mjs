@@ -1,6 +1,25 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildStorylineFlowSource } from '../js/v2/editor/StorylineFlowGraph.js';
+import { buildStorylineFlowSource, storylineGraphView } from '../js/v2/editor/StorylineFlowGraph.js';
+
+test('progression hides actor relationships without losing them in the complete view', () => {
+  const graph = {
+    nodes: [
+      { id: 'original-scene', type: 'scene' },
+      { id: 'original-task', type: 'quest' },
+      { id: 'original-guide', type: 'actor' },
+    ],
+    edges: [
+      { source: 'original-scene', target: 'original-task' },
+      { source: 'original-guide', target: 'original-task' },
+    ],
+  };
+  const progression = storylineGraphView(graph, 'progression');
+  assert.deepEqual(progression.nodes.map((node) => node.id), ['original-scene', 'original-task']);
+  assert.deepEqual(progression.edges, [graph.edges[0]]);
+  assert.equal(storylineGraphView(graph, 'all'), graph);
+  assert.equal(graph.nodes.length, 3);
+});
 
 test('original flow nodes and directed relationships use internal graph identifiers', () => {
   const source = buildStorylineFlowSource({

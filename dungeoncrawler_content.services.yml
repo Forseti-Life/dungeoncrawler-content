@@ -749,6 +749,15 @@ services:
       - '@dungeoncrawler_content.actor_definition_mirror'
       - '@dungeoncrawler_content.canonical_generation'
 
+  dungeoncrawler_content.storyline_gm_work:
+    class: Drupal\dungeoncrawler_content\Service\EditorGm\StorylineGmWorkService
+    arguments:
+      - '@database'
+      - '@keyvalue'
+      - '@lock'
+      - '@dungeoncrawler_content.storyline_authoring_drafts'
+      - '@dungeoncrawler_content.editor_gm_intent_parser'
+
   dungeoncrawler_content.editor_gm_surface.storyline_builder:
     class: Drupal\dungeoncrawler_content\Service\EditorGm\StorylineBuilderGmSurface
     arguments:
@@ -762,6 +771,7 @@ services:
       - '@uuid'
       - '@dungeoncrawler_content.storyline_actor_sheets'
       - '@dungeoncrawler_content.canonical_quest_template'
+      - '@dungeoncrawler_content.storyline_gm_work'
 
   dungeoncrawler_content.editor_gm_surface.character_creation:
     class: Drupal\dungeoncrawler_content\Service\EditorGm\CharacterCreationGmSurface
@@ -1465,6 +1475,8 @@ services:
       - '@uuid'
       - '@datetime.time'
       - '@dungeoncrawler_content.definition_schema_validator'
+      - '@dungeoncrawler_content.canonical_quest_template'
+      - '@dungeoncrawler_content.objective_type'
 
   dungeoncrawler_content.gameplay_action_processor:
     class: Drupal\dungeoncrawler_content\Service\GameplayActionProcessor

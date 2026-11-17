@@ -6,6 +6,7 @@ use Drupal\ai_conversation\Service\AIApiService;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessInterface;
 use Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessManagementService;
+use Drupal\dungeoncrawler_content\Service\Definition\DefinitionSchemaValidator;
 use Drupal\dungeoncrawler_content\Service\StorylineAuthoringDraftService;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
@@ -197,11 +198,6 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     }
     $intent = $this->intentParser->parse($utterance, $snapshot, $surface->registry(), $surface->label());
 
-    if ($intent['type'] === 'clarification' && $surface->id() === CharacterCreationGmSurface::ID) {
-      // The character GM never stops to ask: it answers from the saved
-      // character and names the one next decision.
-      $intent = ['type' => 'direct_response', 'focus' => 'discussion', 'reasoning' => $intent['question']];
-    }
     if ($intent['type'] === 'clarification') {
       $tool_calls = [$this->describeToolCall('clarification')];
       return $this->envelope(
@@ -210,6 +206,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         $snapshot,
         [
           'intent' => 'clarification',
+          'reasoning' => $intent['reasoning'],
           'question' => $intent['question'],
           'assistant_response' => $intent['question'],
           'options' => array_values((array) ($intent['options'] ?? [])),
@@ -303,6 +300,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         'update_canonical_definition',
         'apply_actor_changes',
         'build_storyline_actor_sheets',
+        'apply_storyline_work',
       ], TRUE)) {
         throw new \LogicException('storyline_gm_direct_mutation_tool_forbidden');
       }
@@ -662,6 +660,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     ) {
       if (!in_array((string) $proposed_execution['tool_name'], [
         'apply_storyline_draft_operations',
+        'apply_storyline_work',
         'apply_storyline_remediation',
         'create_canonical_definition',
         'update_canonical_definition',
@@ -714,7 +713,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         $profile,
         (string) $proposed_execution['tool_name'],
         $proposed_execution['arguments'],
-        FALSE,
+        $dry_run,
         $reasoning,
         $scope,
         $next_steps,
@@ -730,7 +729,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         $snapshot['conversation_context'] = $conversation_context;
       }
     }
-    if ($utterance !== '') {
+    if ($utterance !== '' || $definition->name === 'apply_storyline_work') {
       $response = $this->synthesizeGroundedResponse(
         $utterance,
         $definition->name,
@@ -931,6 +930,8 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         'room_site_binding_plan' => $context_snapshot['authoring_workflow']['room_site_binding_plan'] ?? [],
         'linked_quest_reference_repairs' => $context_snapshot['authoring_workflow']['linked_quest_reference_repairs'] ?? [],
         'finalization' => $context_snapshot['authoring_workflow']['finalization'] ?? [],
+        'bounded_work' => $context_snapshot['authoring_workflow']['bounded_work'] ?? [],
+        'next_step_contract' => $context_snapshot['authoring_workflow']['next_step_contract'] ?? [],
       ],
       'legacy_conversation' => $context_snapshot['legacy_conversation'] ?? [],
       'authority_boundary' => $context_snapshot['authority_boundary'] ?? [],
@@ -938,10 +939,30 @@ class EditorGmHarnessService implements AgentHarnessInterface {
       'publication' => $context_snapshot['publication'] ?? [],
       'conversation_context' => $context_snapshot['conversation_context'] ?? '',
     ];
+    // Status and validation reviews take their next step from saved state.
+    // The model is not asked for one, so there is a single source for it.
+    $harness_owns_next_step = $surface_label === 'Storyline Builder' && (
+      $tool_name === 'governing_harness_validation_review'
+      || ($tool_name === 'governing_harness_context' && in_array($tool_result['focus'] ?? '', ['status', 'validation_review'], TRUE))
+    );
     $execution_options = $this->harnessManagement->resolveExecutionOptions(
       AgentHarnessManagementService::PROFILE_RESPONSE_SYNTHESIS,
-      ['system_prompt' => $this->responseSystemPrompt($surface_label)],
+      ['system_prompt' => $this->responseSystemPrompt($surface_label, $harness_owns_next_step)],
     );
+    // The answer is one required function call, generated against this
+    // schema and checked against it again on receipt.
+    $answer_schema = self::answerSchema($harness_owns_next_step);
+    unset($execution_options['json_object'], $execution_options['response_format']);
+    $execution_options['tools'] = [[
+      'type' => 'function',
+      'function' => [
+        'name' => 'answer',
+        'description' => 'The answer to the author, as short titled sections.',
+        'parameters' => $answer_schema,
+        'strict' => TRUE,
+      ],
+    ]];
+    $execution_options['tool_choice'] = ['type' => 'function', 'function' => ['name' => 'answer']];
     $provider_result = $this->ai->invokeModelDirect(
       implode("\n\n", [
         '## Author request',
@@ -952,7 +973,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         $this->harnessManagement->encodeCompactJson($evidence),
         '## Relevant grounded context',
         $this->harnessManagement->encodeCompactJson($grounding),
-        '## Your response (single JSON object)',
+        '## Your reply (call the answer function)',
       ]),
       EditorGmIntentParser::MODULE,
       self::RESPONSE_OPERATION,
@@ -970,7 +991,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
       throw new \RuntimeException('editor_gm_response_model_failed');
     }
 
-    $decoded = $this->decodeModelJson((string) ($provider_result['response'] ?? ''));
+    $decoded = $this->decodeAnswerCall($provider_result, $answer_schema);
     $raw_sections = $decoded['sections'] ?? NULL;
     if (!is_array($raw_sections) || $raw_sections === [] || count($raw_sections) > 6) {
       throw new \DomainException('editor_gm_response_sections_invalid');
@@ -988,11 +1009,20 @@ class EditorGmHarnessService implements AgentHarnessInterface {
       $sections[] = $heading . "\n" . $body;
     }
     $answer = implode("\n\n", $sections);
+    if ($harness_owns_next_step) {
+      return [
+        'answer' => $answer,
+        'next_steps' => $this->harnessManagement->storylineNextStepFromSavedState($context_snapshot),
+      ];
+    }
+    if ($surface_label === 'Storyline Builder') {
+      AgentHarnessManagementService::assertStorylineNextSteps($decoded['next_steps'] ?? []);
+    }
     $next_steps = array_values(array_filter(
       (array) ($decoded['next_steps'] ?? []),
       static fn($step): bool => is_string($step) && trim($step) !== '',
     ));
-    if ($surface_label === 'Storyline Builder' && ($next_steps === [] || count($next_steps) > 3)) {
+    if ($surface_label === 'Storyline Builder' && count($next_steps) !== 1) {
       throw new \DomainException('editor_gm_response_next_steps_invalid');
     }
 
@@ -1003,34 +1033,97 @@ class EditorGmHarnessService implements AgentHarnessInterface {
   }
 
   /**
-   * Decodes one strict JSON object from a model response.
+   * The answer function's arguments.
    */
-  private function decodeModelJson(string $response): array {
-    $json = trim($response);
-    if (str_starts_with($json, '```')) {
-      $json = trim(preg_replace('/^```(?:json)?|```$/m', '', $json));
+  private static function answerSchema(bool $harness_owns_next_step): array {
+    $properties = [
+      'sections' => [
+        'type' => 'array',
+        'items' => [
+          'type' => 'object',
+          'additionalProperties' => FALSE,
+          'required' => ['heading', 'body'],
+          'properties' => [
+            'heading' => ['type' => 'string', 'description' => 'Short heading.'],
+            'body' => ['type' => 'string', 'description' => 'Focused evidence-based content.'],
+          ],
+        ],
+      ],
+    ];
+    if (!$harness_owns_next_step) {
+      $properties['next_steps'] = [
+        'type' => 'array',
+        'items' => ['type' => 'string'],
+        'description' => 'Concrete next steps.',
+      ];
     }
-    $start = strpos($json, '{');
-    $end = strrpos($json, '}');
-    if ($start === FALSE || $end === FALSE || $end < $start) {
-      throw new \DomainException('editor_gm_response_not_json');
-    }
+    return [
+      'type' => 'object',
+      'additionalProperties' => FALSE,
+      'required' => array_keys($properties),
+      'properties' => $properties,
+    ];
+  }
+
+  /**
+   * Reads the answer function call, checked against its schema.
+   */
+  private function decodeAnswerCall(array $provider_result, array $schema): array {
+    $call = is_array($provider_result['tool_call'] ?? NULL) ? $provider_result['tool_call'] : [];
     try {
-      $decoded = json_decode(substr($json, $start, $end - $start + 1), TRUE, 32, JSON_THROW_ON_ERROR);
+      if (($call['name'] ?? '') !== 'answer') {
+        throw new \DomainException('editor_gm_response_function_call_missing');
+      }
+      try {
+        $decoded = json_decode((string) ($call['arguments'] ?? ''), TRUE, 32, JSON_THROW_ON_ERROR);
+      }
+      catch (\JsonException) {
+        throw new \DomainException('editor_gm_response_not_json');
+      }
+      if (!is_array($decoded) || ($decoded !== [] && array_is_list($decoded))) {
+        throw new \DomainException('editor_gm_response_not_json');
+      }
+      $findings = (new DefinitionSchemaValidator())->validate($schema, $decoded);
+      if ($findings !== []) {
+        throw new \DomainException(sprintf(
+          'editor_gm_response_schema_invalid:%s:%s',
+          (string) ($findings[0]['pointer'] ?? ''),
+          (string) ($findings[0]['message'] ?? ''),
+        ));
+      }
+      return $decoded;
     }
-    catch (\JsonException) {
-      throw new \DomainException('editor_gm_response_not_json');
+    catch (\DomainException $exception) {
+      $this->logger->error('Editor GM answer contract rejected: @error; model=@model; function=@function; reply=@reply', [
+        '@error' => $exception->getMessage(),
+        '@model' => (string) ($provider_result['model_id'] ?? ''),
+        '@function' => (string) ($call['name'] ?? '(none)'),
+        '@reply' => mb_substr((string) ($call['arguments'] ?? $provider_result['response'] ?? ''), 0, 4000),
+      ]);
+      throw $exception;
     }
-    if (!is_array($decoded)) {
-      throw new \DomainException('editor_gm_response_not_json');
-    }
-    return $decoded;
   }
 
   /**
    * Contract for the harness's final grounded answer.
    */
-  private function responseSystemPrompt(string $surface_label): string {
+  private function responseSystemPrompt(string $surface_label, bool $harness_owns_next_step = FALSE): string {
+    $next_step_rule = $harness_owns_next_step
+      ? <<<'RULE'
+- Do not state, suggest or imply a next step, and do not ask the author a
+  question. The harness adds the single next step from saved state after
+  your answer. Report what the evidence shows and stop.
+RULE
+      : <<<'RULE'
+- On Storyline Builder, return exactly ONE bounded next step. Ask only one
+  creative decision at a time, never a list of changes for the author to
+  specify. Do not hide multiple action items inside that single step or
+  inside the answer's sections. Technical batching is agent-owned; never
+  ask the author to break up a request, assign IDs, or repeat saved work.
+  For unfinished bounded work, explain the saved progress and offer only
+  resuming it. Do not suggest unrelated edits while authorized work remains.
+- On other surfaces, return one to three concrete next steps grounded in the result.
+RULE;
     return sprintf(<<<'PROMPT'
 You are the Dungeoncrawler canonical %s agent.
 
@@ -1039,7 +1132,7 @@ internal tool result. Analyze that evidence and answer the author's actual
 request. Tools are internal capabilities, not the conversational interface.
 
 Hard rules:
-- Respond with one JSON object and nothing else.
+- Reply by calling the answer function. Never answer in plain text.
 - Use only the tool result and grounded context as facts. Never invent content.
 - Answer directly and explain what the evidence means.
 - Never mention tools, tool selection, tool results, schema keys, internal field
@@ -1091,11 +1184,8 @@ Hard rules:
 - Organize the answer into two to six short sections with concise headings.
 - Keep each section focused and easy to scan. Use at most two short paragraphs
   or a compact newline-separated list in each section.
-- Return one to three concrete next steps grounded in the result.
-
-Response shape:
-{"sections":[{"heading":"<short heading>","body":"<focused evidence-based content>"}],"next_steps":["<concrete next step>"]}
-PROMPT, $surface_label);
+%s
+PROMPT, $surface_label, $next_step_rule);
   }
 
   /**
@@ -1262,6 +1352,7 @@ PROMPT, $surface_label);
     array $tool_calls = [],
   ): array {
     if ($surface->id() === StorylineBuilderGmSurface::ID) {
+      AgentHarnessManagementService::assertStorylineNextSteps($tool_result['next_steps'] ?? []);
       foreach (['question', 'assistant_response'] as $field) {
         if (is_string($tool_result[$field] ?? NULL)) {
           StorylineAuthoringDraftService::assertNoIdAssignmentRequest($tool_result[$field]);

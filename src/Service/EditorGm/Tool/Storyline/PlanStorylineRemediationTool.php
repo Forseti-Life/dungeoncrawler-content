@@ -294,21 +294,11 @@ final class PlanStorylineRemediationTool implements EditorGmToolInterface {
     }
 
     $missing_dungeon_ids = [];
-    $missing_quest_ids = [];
     foreach (['errors', 'warnings'] as $bucket) {
       foreach ((array) ($validation[$bucket] ?? []) as $finding) {
         $text = (string) $finding;
         if (preg_match("/dungeon '([^']+)'/i", $text, $matches)) {
           $missing_dungeon_ids[trim($matches[1])] = TRUE;
-        }
-        if (preg_match("/Linked quest '([^']+)' is missing from canonical quest templates/i", $text, $matches)) {
-          $missing_quest_ids[trim($matches[1])] = TRUE;
-        }
-        if (preg_match("/Quest '([^']+)' is missing canonical quest template/i", $text, $matches)) {
-          $missing_quest_ids[trim($matches[1])] = TRUE;
-        }
-        if (preg_match("/quest\\.([a-z0-9_-]+)\\.phase/i", $text, $matches)) {
-          $missing_quest_ids[trim($matches[1])] = TRUE;
         }
       }
     }
@@ -360,38 +350,9 @@ final class PlanStorylineRemediationTool implements EditorGmToolInterface {
       ];
     }
 
-    $quests = [];
-    $storyline_template_id = trim((string) ($payload['storyline_id'] ?? $draft['source_template_id'] ?? ''));
-    $reward_items_by_quest = [];
-    foreach ((array) ($payload['objects']['items']['generation_specs'] ?? []) as $item) {
-      if (!is_array($item)) {
-        continue;
-      }
-      $q_id = trim((string) ($item['quest_id'] ?? ''));
-      $acquisition = strtolower(trim((string) ($item['acquisition'] ?? '')));
-      $reward_text = trim((string) ($item['reward'] ?? ''));
-      if ($q_id !== '' && ($acquisition === 'reward' || $reward_text !== '')) {
-        $reward_items_by_quest[$q_id][] = $item;
-      }
-    }
-
-    foreach ((array) ($payload['process_flow']['tasks'] ?? []) as $task) {
-      if (!is_array($task)) {
-        continue;
-      }
-      $task_id = trim((string) ($task['task_id'] ?? ''));
-      if ($task_id === '') {
-        continue;
-      }
-      $quest_rewards = $reward_items_by_quest[$task_id] ?? [];
-      $needs_quest = isset($missing_quest_ids[$task_id]) || !$this->canonicalQuestCoversTask($task_id, $quest_rewards);
-      if (!$needs_quest) {
-        continue;
-      }
-      $quests[$task_id] = $this->buildQuestRemediationSpec($task, $payload, $storyline_template_id, $quest_rewards);
-    }
-
-    return [array_values($definitions), array_values($rooms), array_values($dungeons), array_values($quests)];
+    // Quest records are written from the draft when the storyline is
+    // published; only linked-quest reference repairs are planned here.
+    return [array_values($definitions), array_values($rooms), array_values($dungeons), []];
   }
 
   private function canonicalDungeonCoversRooms(string $dungeon_id, string $entrance_room, array $required_rooms): bool {
@@ -439,170 +400,6 @@ final class PlanStorylineRemediationTool implements EditorGmToolInterface {
       }
     }
     return TRUE;
-  }
-
-  private function canonicalQuestCoversTask(string $task_id, array $reward_items): bool {
-    if (!\Drupal::hasContainer() || !\Drupal::getContainer()->has('database')) {
-      return FALSE;
-    }
-    $db = \Drupal::database();
-    if (!$db->schema()->tableExists('dc_canonical_quests')) {
-      return FALSE;
-    }
-    $row = $db->select('dc_canonical_quests', 'q')
-      ->fields('q', ['template_id', 'rewards_schema'])
-      ->condition('template_id', $task_id)
-      ->range(0, 1)
-      ->execute()
-      ->fetchAssoc();
-    if (!is_array($row)) {
-      return FALSE;
-    }
-    if ($reward_items === []) {
-      return TRUE;
-    }
-    $rewards = is_string($row['rewards_schema'] ?? NULL) ? json_decode($row['rewards_schema'], TRUE) : [];
-    $existing_items = is_array($rewards['items'] ?? NULL) ? array_map('strval', $rewards['items']) : [];
-    foreach ($reward_items as $item) {
-      $item_id = trim((string) ($item['item_id'] ?? ''));
-      if ($item_id !== '' && !in_array($item_id, $existing_items, TRUE)) {
-        return FALSE;
-      }
-    }
-    return TRUE;
-  }
-
-  private function buildQuestRemediationSpec(
-    array $task,
-    array $payload,
-    string $storyline_template_id,
-    array $reward_items,
-  ): array {
-    $task_id = trim((string) ($task['task_id'] ?? ''));
-    $chapter_id = trim((string) ($task['chapter_id'] ?? 'onboarding')) ?: 'onboarding';
-    $scene_id = trim((string) ($task['scene_id'] ?? ''));
-    $entry_actor_id = trim((string) ($payload['entry_actor_id'] ?? ''));
-    $entry_location_id = trim((string) ($payload['entry_location_id'] ?? $scene_id));
-
-    $target_actor_id = $entry_actor_id;
-    $summary_parts = [];
-    foreach ((array) ($payload['process_flow']['branch_choices'] ?? []) as $choice) {
-      if (!is_array($choice)) {
-        continue;
-      }
-      $is_source_choice = trim((string) ($choice['source_task_id'] ?? '')) === $task_id;
-      $is_target_choice = trim((string) ($choice['target_task_id'] ?? '')) === $task_id;
-      if ($is_source_choice || $is_target_choice) {
-        $summary = trim((string) ($choice['effects']['summary'] ?? ''));
-        if ($summary !== '') {
-          $summary_parts[] = $summary;
-        }
-        if ($is_source_choice) {
-          foreach ((array) ($choice['effects']['actors'] ?? []) as $actor_effect) {
-            if (is_array($actor_effect) && trim((string) ($actor_effect['actor_id'] ?? '')) !== '') {
-              $candidate = trim((string) $actor_effect['actor_id']);
-              if ($target_actor_id === '' || $candidate !== $entry_actor_id) {
-                $target_actor_id = $candidate;
-                break 2;
-              }
-            }
-          }
-        }
-      }
-    }
-
-    $reward_item_ids = [];
-    $gold = 0;
-    foreach ($reward_items as $item) {
-      $item_id = trim((string) ($item['item_id'] ?? ''));
-      if ($item_id !== '') {
-        $reward_item_ids[] = $item_id;
-      }
-      $reward_text = trim((string) ($item['reward'] ?? '') . ' ' . (string) ($item['purpose'] ?? ''));
-      if (preg_match('/\b(\d+)\s*(?:gold|gp)\b/i', $reward_text, $matches)) {
-        $gold = max($gold, (int) $matches[1]);
-      }
-      if ($entry_actor_id === '' && trim((string) ($item['actor_id'] ?? '')) !== '') {
-        $entry_actor_id = trim((string) $item['actor_id']);
-      }
-    }
-
-    $location_id = $scene_id;
-    foreach ((array) ($payload['objects']['rooms']['generation_specs'] ?? []) as $room) {
-      if (is_array($room) && trim((string) ($room['scene_id'] ?? '')) === $scene_id && trim((string) ($room['room_id'] ?? '')) !== '') {
-        $location_id = trim((string) $room['room_id']);
-        break;
-      }
-    }
-    if ($location_id === '') {
-      $location_id = $entry_location_id !== '' ? $entry_location_id : 'tal-briefing-room';
-    }
-
-    $human_name = ucwords(str_replace(['-', '_'], ' ', preg_replace('/^[a-z0-9]{2,4}-/', '', $task_id) ?: $task_id));
-    $description = $summary_parts !== []
-      ? implode(' ', array_slice(array_values(array_unique($summary_parts)), 0, 2))
-      : "Complete task {$human_name} in {$storyline_template_id}.";
-
-    $objective_id = str_replace('-', '_', $task_id);
-    $objective = [
-      'objective_id' => $objective_id,
-      'type' => 'kill',
-      'description' => mb_substr($description, 0, 280),
-      'next_step' => mb_substr("Resolve {$human_name} at {$location_id} and report back to complete the task.", 0, 240),
-      'location_id' => $location_id,
-      'wayfinding_hint' => "Travel to {$location_id} to resolve {$human_name}.",
-      'depends_on' => [],
-      'completion_criteria' => [
-        'kind' => 'flag',
-        'metric' => 'completed',
-        'required_value' => TRUE,
-        'description' => "Complete when {$human_name} is resolved.",
-      ],
-    ];
-    if ($target_actor_id !== '') {
-      $target_display_name = ucwords(str_replace(['-', '_'], ' ', $target_actor_id));
-      foreach ((array) ($payload['objects']['actors']['generation_specs'] ?? []) as $actor) {
-        if (is_array($actor) && trim((string) ($actor['actor_id'] ?? '')) === $target_actor_id && trim((string) ($actor['display_name'] ?? '')) !== '') {
-          $target_display_name = trim((string) $actor['display_name']);
-          break;
-        }
-      }
-      $objective['target'] = $target_actor_id;
-      $objective['target_label'] = $target_display_name;
-      $objective['target_aliases'] = array_values(array_unique([$target_display_name, $target_actor_id]));
-    }
-
-    return [
-      'template_id' => $task_id,
-      'version' => '1.0.0',
-      'name' => $human_name,
-      'description' => mb_substr($description, 0, 500),
-      'quest_type' => 'module_story',
-      'level_min' => 1,
-      'level_max' => 1,
-      'tags' => array_values(array_unique(array_filter(['module', $storyline_template_id, $chapter_id, $scene_id]))),
-      'prerequisites' => [],
-      'estimated_duration_minutes' => 20,
-      'storyline_template_id' => $storyline_template_id,
-      'entry_point_actor_id' => $entry_actor_id !== '' ? $entry_actor_id : NULL,
-      'entry_point_location_id' => $entry_location_id !== '' ? $entry_location_id : $location_id,
-      'objectives_schema' => [
-        [
-          'phase' => 1,
-          'objectives' => [$objective],
-        ],
-      ],
-      'rewards_schema' => [
-        'xp' => 60,
-        'gold' => $gold,
-        'items' => array_values(array_unique($reward_item_ids)),
-      ],
-      'story_impact' => [
-        'storyline_id' => $storyline_template_id,
-        'chapter_id' => $chapter_id,
-        'scene_id' => $scene_id,
-      ],
-    ];
   }
 
 }

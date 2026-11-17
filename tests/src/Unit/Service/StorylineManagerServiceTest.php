@@ -10,6 +10,7 @@ use Drupal\dungeoncrawler_content\Service\CampaignStateService;
 use Drupal\dungeoncrawler_content\Service\ContentRegistry;
 use Drupal\dungeoncrawler_content\Service\ObjectiveTypeService;
 use Drupal\dungeoncrawler_content\Service\StateValidationService;
+use Drupal\dungeoncrawler_content\Service\StorylineAuthoringDraftService;
 use Drupal\dungeoncrawler_content\Service\StorylineManagerService;
 use Drupal\dungeoncrawler_content\Service\StorylineQuestLifecycleService;
 use Drupal\Tests\UnitTestCase;
@@ -676,6 +677,144 @@ class StorylineManagerServiceTest extends UnitTestCase {
     ], 'runtime');
 
     $this->assertSame([], $errors);
+  }
+
+  /**
+   * A builder storyline whose tasks each have a typed, linked objective passes.
+   *
+   * @covers ::validateStorylineBuilderObjectives
+   */
+  public function testBuilderObjectivesValidateAsTheObjectivesTheyPublishAs(): void {
+    $findings = [];
+    $errors = $this->validateBuilderObjectives([
+      $this->objectiveRow('report-in', 'inform-the-captain'),
+      $this->objectiveRow('hear-the-answer', 'inform-the-captain', ['target' => 'guide']),
+    ], ['inform-the-captain'], $findings);
+
+    $this->assertSame([], $errors);
+    $this->assertSame([], $findings);
+  }
+
+  /**
+   * An objective is linked by task_id only; a matching objective_id is not a link.
+   *
+   * @covers ::validateStorylineBuilderObjectives
+   */
+  public function testBuilderObjectiveIsLinkedByTaskIdOnly(): void {
+    $findings = [];
+    $row = $this->objectiveRow('inform-the-captain', '');
+    $this->validateBuilderObjectives([$row], ['inform-the-captain'], $findings);
+
+    $this->assertSame(
+      ['objective_unlinked', 'quest_objective_missing'],
+      array_column($findings, 'code'),
+    );
+    $this->assertSame('inform-the-captain', $findings[0]['objective_id']);
+    $this->assertSame('inform-the-captain', $findings[1]['quest_id']);
+  }
+
+  /**
+   * A row is checked against its type: nothing is filled in for it.
+   *
+   * @covers ::validateStorylineBuilderObjectives
+   */
+  public function testBuilderObjectiveWithoutTypeTargetOrActionIsRejected(): void {
+    $findings = [];
+    $errors = $this->validateBuilderObjectives([
+      ['objective_id' => 'vague', 'task_id' => 'inform-the-captain', 'description' => 'Do the thing.'],
+      $this->objectiveRow('no-target', 'escort-north', ['type' => 'escort', 'target' => '', 'destination' => '']),
+      $this->objectiveRow('no-action', 'report-back', ['next_step' => '']),
+      $this->objectiveRow('wrong-kind', 'count-heads', ['type' => 'kill', 'kind' => 'combat', 'required' => 2]),
+    ], ['inform-the-captain', 'escort-north', 'report-back', 'count-heads'], $findings);
+    $joined = implode("\n", $errors);
+
+    $this->assertStringContainsString("Objective 'vague' has no type. Set type to one of: collect, kill, investigate, interact, explore, escort.", $joined);
+    $this->assertStringContainsString('missing required field destination', $joined);
+    $this->assertStringContainsString('next_step HOW trigger is required', $joined);
+    $this->assertStringContainsString("Objective 'wrong-kind' has kind 'combat', but type 'kill' completes by 'count'.", $joined);
+  }
+
+  /**
+   * One result tracked on two tasks is alternatives written as steps.
+   *
+   * @covers ::validateStorylineBuilderObjectives
+   */
+  public function testBuilderObjectivesSharingAMetricAcrossTasksAreRejected(): void {
+    $findings = [];
+    $this->validateBuilderObjectives([
+      $this->objectiveRow('shelter-with-kin', 'negotiate-shelter', ['metric' => 'home_secured']),
+      $this->objectiveRow('win-the-caves', 'confront-kobolds', ['metric' => 'home_secured']),
+    ], ['negotiate-shelter', 'confront-kobolds'], $findings);
+
+    $this->assertSame(['objective_metric_shared_across_tasks'], array_column($findings, 'code'));
+    $this->assertSame(['shelter-with-kin', 'win-the-caves'], $findings[0]['objective_ids']);
+
+    $findings = [];
+    $errors = $this->validateBuilderObjectives([
+      $this->objectiveRow('first-step', 'negotiate-shelter', ['metric' => 'home_secured']),
+      $this->objectiveRow('second-step', 'negotiate-shelter', ['metric' => 'home_secured']),
+    ], ['negotiate-shelter'], $findings);
+    $this->assertSame([], $errors, 'Rows of one task are steps and may share a metric.');
+  }
+
+  /**
+   * An approach may only name objectives of its own task.
+   *
+   * @covers ::validateStorylineBuilderObjectives
+   */
+  public function testApproachNamingAnotherTasksObjectiveIsRejected(): void {
+    $findings = [];
+    $this->validateBuilderObjectives([
+      $this->objectiveRow('talk-to-kin', 'find-a-home'),
+      $this->objectiveRow('elsewhere', 'other-task'),
+    ], ['find-a-home', 'other-task'], $findings, [
+      'find-a-home' => [
+        'goal' => ['goal_text' => 'Find the clan a home.', 'gm_notes' => '', 'open_resolution' => FALSE],
+        'choices' => [[
+          'decision_id' => 'home',
+          'choice_id' => 'with-kin',
+          'label' => 'Shelter with kin',
+          'approach' => ['visibility' => 'known', 'outcome_label' => 'The kin take them in.', 'objective_ids' => ['elsewhere']],
+        ]],
+      ],
+    ]);
+
+    $this->assertSame(['approach_objective_outside_task'], array_column($findings, 'code'));
+  }
+
+  /**
+   * One valid interact objective row for a builder storyline.
+   */
+  private function objectiveRow(string $objective_id, string $task_id, array $overrides = []): array {
+    return $overrides + [
+      'objective_id' => $objective_id,
+      'task_id' => $task_id,
+      'type' => 'interact',
+      'target' => 'captain',
+      'description' => 'Tell the captain what happened.',
+      'next_step' => 'Speak with the captain at the briefing.',
+    ];
+  }
+
+  /**
+   * Runs objective validation for a builder storyline with the given tasks.
+   */
+  private function validateBuilderObjectives(array $rows, array $task_ids, array &$findings, array $node_overrides = []): array {
+    $method = new \ReflectionMethod(StorylineManagerService::class, 'validateObjectiveControlChainStage');
+    $method->setAccessible(TRUE);
+    $nodes = array_map(
+      static fn(string $task_id): array => ($node_overrides[$task_id] ?? []) + ['quest_id' => $task_id, 'choices' => []],
+      $task_ids,
+    );
+    $arguments = [[
+      'metadata' => ['storyline_builder' => ['identity' => [], 'objective_completion_criteria' => $rows]],
+      'questline' => ['primary_quest_id' => $task_ids[0], 'ordered_quest_ids' => $task_ids, 'quest_nodes' => $nodes],
+      'contacts' => [['entity_id' => 'captain'], ['entity_id' => 'guide']],
+      'asset_references' => [],
+      'chapters' => [],
+    ], 'definition', &$findings];
+
+    return $method->invokeArgs($this->buildService(), $arguments);
   }
 
   /**
@@ -2408,6 +2547,48 @@ class StorylineManagerServiceTest extends UnitTestCase {
   /**
    * @covers ::analyzeStorylineNarrative
    */
+  public function testAnalyzeStorylineNarrativeIncludesQuestsNotDuplicatedInSceneLists(): void {
+    $service = $this->buildService();
+    $storyline = $this->buildNarrativeAnalysisFixture();
+    $scene_id = $storyline['chapters'][0]['scenes'][0]['scene_id'];
+    $storyline['questline']['quest_nodes'] = [
+      [
+        'quest_id' => 'original-lantern-search',
+        'scene_id' => $scene_id,
+        'choices' => [
+          [
+            'decision_id' => 'original-search-route',
+            'choice_id' => 'original-follow-river',
+            'label' => 'Follow the river',
+            'terminal' => FALSE,
+            'target_quest_id' => 'original-recover-lantern',
+          ],
+        ],
+      ],
+      [
+        'quest_id' => 'original-recover-lantern',
+        'scene_id' => $scene_id,
+        'choices' => [],
+      ],
+    ];
+    $analysis = $service->analyzeStorylineNarrative($storyline);
+    $nodes = array_column($analysis['graph']['nodes'], NULL, 'id');
+    $this->assertArrayHasKey('quest:original-lantern-search', $nodes);
+    $this->assertArrayHasKey('quest:original-recover-lantern', $nodes);
+    foreach ($analysis['graph']['edges'] as $edge) {
+      $this->assertArrayHasKey($edge['source'], $nodes);
+      $this->assertArrayHasKey($edge['target'], $nodes);
+    }
+    $this->assertContains([
+      'source' => 'scene:' . $scene_id,
+      'target' => 'quest:original-lantern-search',
+      'type' => 'advances',
+    ], $analysis['graph']['edges']);
+  }
+
+  /**
+   * @covers ::analyzeStorylineNarrative
+   */
   public function testAnalyzeStorylineNarrativeBuildsTimelineConflictAndRelationshipGraph(): void {
     $service = $this->buildService();
     $storyline = $this->buildNarrativeAnalysisFixture();
@@ -2424,7 +2605,7 @@ class StorylineManagerServiceTest extends UnitTestCase {
       static fn(array $finding): bool => ($finding['severity'] ?? '') === 'error'
     )));
     $edge_types = array_column($analysis['graph']['edges'], 'type');
-    $this->assertContains('sequence', $edge_types);
+    $this->assertContains('authored_order', $edge_types);
     $this->assertContains('foreshadows', $edge_types);
     $this->assertContains('relationship', $edge_types);
     $this->assertContains('introduces_conflict', $edge_types);
@@ -2497,6 +2678,392 @@ class StorylineManagerServiceTest extends UnitTestCase {
     $codes = array_column($analysis['findings'], 'code');
 
     $this->assertContains('DCV_NARRATIVE_CONFLICT_RESOLUTION_OUT_OF_ORDER', $codes);
+  }
+
+  /**
+   * @covers \Drupal\dungeoncrawler_content\Service\StorylineAuthoringDraftService::branchAuthoringContract
+   */
+  public function testBranchAuthoringContractPublishesEnumValuesFromManagerConstants(): void {
+    $contract = StorylineAuthoringDraftService::branchAuthoringContract();
+
+    $this->assertSame(StorylineManagerService::STORYLINE_BRANCH_TRIGGER_TYPES, $contract['trigger']['types']);
+    $this->assertSame(StorylineManagerService::STORYLINE_BRANCH_INTERACTIONS, $contract['trigger']['action_interactions']);
+    $this->assertSame(StorylineManagerService::STORYLINE_BRANCH_INTERACTIONS, $contract['effects']['actor_interactions']);
+    $this->assertSame(StorylineManagerService::STORYLINE_BRANCH_ENVIRONMENT_TARGET_TYPES, $contract['effects']['environment_target_types']);
+    $this->assertSame(StorylineManagerService::STORYLINE_BRANCH_TARGET_TYPES, $contract['effects']['storyline_target_types']);
+    $this->assertSame(StorylineManagerService::STORYLINE_BRANCH_OPERATIONS, $contract['effects']['storyline_operations']);
+    $this->assertSame(StorylineManagerService::STORYLINE_BRANCH_STATE_CHANGE_OPERATIONS, $contract['effects']['state_change_operations']);
+  }
+
+  /**
+   * @covers ::validateStorylineBranchEffects
+   * @covers ::validateStorylineBranchStateChanges
+   */
+  public function testBranchEffectEnumErrorsListAllowedValues(): void {
+    $service = $this->buildService();
+    $method = new \ReflectionMethod(StorylineManagerService::class, 'validateStorylineBranchEffects');
+    $method->setAccessible(TRUE);
+
+    $errors = $method->invoke(
+      $service,
+      [
+        'summary' => 'test',
+        'actors' => [[
+          'actor_id' => 'actor-1',
+          'interaction' => 'invalid-interaction',
+          'effect' => 'effect',
+          'state_changes' => [['key' => 'x', 'operation' => 'invalid-op', 'value' => 1]],
+        ]],
+        'environment' => [[
+          'target_type' => 'invalid-target',
+          'target_id' => 'room-1',
+          'effect' => 'effect',
+          'state_changes' => [],
+        ]],
+        'storyline' => [[
+          'target_type' => 'invalid-story-target',
+          'target_id' => 'task-1',
+          'source_actor_id' => 'actor-1',
+          'operation' => 'invalid-story-op',
+          'effect' => 'effect',
+          'state_changes' => [],
+        ]],
+      ],
+      ['type' => 'player_choice'],
+      'choice-1',
+      'task-1',
+      [
+        'template_id' => 'storyline-1',
+        'contacts' => [['contact_id' => 'actor-1', 'entity_id' => 'actor-1']],
+        'asset_references' => [['asset_id' => 'room-1']],
+        'chapters' => [['chapter_id' => 'chapter-1', 'scenes' => [['scene_id' => 'scene-1']]]],
+        'questline' => ['quest_nodes' => [['quest_id' => 'task-1']]],
+        'metadata' => ['storyline_analysis' => ['conflicts' => [['conflict_id' => 'conflict-1']]]],
+      ],
+    );
+
+    $joined = implode(' ', $errors);
+    $this->assertStringContainsString('Allowed: room, dungeon, location, world', $joined);
+    $this->assertStringContainsString('Allowed: task, scene, conflict, chapter, storyline', $joined);
+    $this->assertStringContainsString('Allowed: unlock, lock, reveal, conceal, redirect, escalate, resolve, set', $joined);
+    $this->assertStringContainsString('Allowed: set, increment, decrement, add, remove', $joined);
+    $this->assertStringContainsString('one of: other, attacked, killed', $joined);
+  }
+
+  /**
+   * @covers ::validateQuestlineProgressionFlow
+   */
+  public function testQuestlineReciprocalErrorsAreNotHiddenByUnrelatedChoiceNodes(): void {
+    $service = $this->buildService();
+    $method = new \ReflectionMethod(StorylineManagerService::class, 'validateQuestlineProgressionFlow');
+    $method->setAccessible(TRUE);
+
+    $storyline = [
+      'questline' => [
+        'primary_quest_id' => 'a',
+        'ordered_quest_ids' => ['a', 'b', 'c', 'd'],
+        'quest_nodes' => [
+          [
+            'quest_id' => 'a',
+            'chapter_id' => 'chapter-1',
+            'scene_id' => 'scene-1',
+            'unlocks_after' => [],
+            'unlocks_to' => ['b'],
+            'choices' => [],
+          ],
+          [
+            'quest_id' => 'b',
+            'chapter_id' => 'chapter-1',
+            'scene_id' => 'scene-1',
+            'unlocks_after' => [],
+            'unlocks_to' => ['c'],
+            'choices' => [],
+          ],
+          [
+            'quest_id' => 'c',
+            'chapter_id' => 'chapter-1',
+            'scene_id' => 'scene-1',
+            'unlocks_after' => ['b'],
+            'unlocks_to' => ['d'],
+            'choices' => [
+              [
+                'decision_id' => 'c-branch',
+                'choice_id' => 'c-choice-1',
+                'label' => 'Continue',
+                'trigger' => [
+                  'type' => 'player_choice',
+                  'condition' => 'Pick continue.',
+                  'source_id' => 'c',
+                ],
+                'effects' => ['summary' => 'Continue.', 'actors' => [], 'environment' => [], 'storyline' => []],
+                'target_quest_id' => 'd',
+                'target_scene_id' => 'scene-1',
+                'terminal' => FALSE,
+              ],
+              [
+                'decision_id' => 'c-branch',
+                'choice_id' => 'c-choice-2',
+                'label' => 'Stop',
+                'trigger' => [
+                  'type' => 'player_choice',
+                  'condition' => 'Pick stop.',
+                  'source_id' => 'c',
+                ],
+                'effects' => ['summary' => 'Stop.', 'actors' => [], 'environment' => [], 'storyline' => []],
+                'target_quest_id' => 'd',
+                'target_scene_id' => 'scene-1',
+                'terminal' => FALSE,
+              ],
+            ],
+          ],
+          [
+            'quest_id' => 'd',
+            'chapter_id' => 'chapter-1',
+            'scene_id' => 'scene-1',
+            'unlocks_after' => ['c'],
+            'unlocks_to' => [],
+            'choices' => [],
+          ],
+        ],
+      ],
+      'chapters' => [
+        [
+          'chapter_id' => 'chapter-1',
+          'scenes' => [
+            [
+              'scene_id' => 'scene-1',
+              'quest_ids' => ['a', 'b', 'c', 'd'],
+            ],
+          ],
+        ],
+      ],
+      'metadata' => [
+        'generated_outline' => [
+          'entry_point' => [
+            'primary_scene_id' => 'scene-1',
+            'primary_chapter_id' => 'chapter-1',
+          ],
+        ],
+      ],
+    ];
+
+    $errors = $method->invoke($service, $storyline, 'definition');
+    $reciprocal = array_values(array_filter(
+      $errors,
+      static fn(string $error): bool => str_contains($error, "Questline edge 'a' -> 'b' is missing the reciprocal unlocks_after reference."),
+    ));
+
+    $this->assertCount(1, $reciprocal);
+  }
+
+  /**
+   * @covers ::validateQuestlineProgressionFlow
+   */
+  public function testDecisionWithOneChoiceIsAFixedOutcomeNotAnError(): void {
+    $service = $this->buildService();
+    $method = new \ReflectionMethod(StorylineManagerService::class, 'validateQuestlineProgressionFlow');
+    $method->setAccessible(TRUE);
+    $node = static fn(string $id, array $after, array $to, array $choices = []): array => [
+      'quest_id' => $id, 'chapter_id' => 'chapter-1', 'scene_id' => 'scene-1',
+      'unlocks_after' => $after, 'unlocks_to' => $to, 'choices' => $choices,
+    ];
+    $errors = $method->invoke($service, [
+      'questline' => [
+        'primary_quest_id' => 'inform-the-captain',
+        'ordered_quest_ids' => ['inform-the-captain', 'epilogue'],
+        'quest_nodes' => [
+          $node('inform-the-captain', [], ['epilogue'], [[
+            'decision_id' => 'report',
+            'choice_id' => 'report-in-person',
+            'label' => 'Report to the captain',
+            'trigger' => ['type' => 'player_choice', 'condition' => 'The party reports.', 'source_id' => 'inform-the-captain'],
+            'effects' => ['summary' => 'The captain hears the report.', 'actors' => [], 'environment' => [], 'storyline' => []],
+            'target_quest_id' => 'epilogue',
+            'target_scene_id' => 'scene-1',
+            'terminal' => FALSE,
+          ]]),
+          $node('epilogue', ['inform-the-captain'], []),
+        ],
+      ],
+      'chapters' => [['chapter_id' => 'chapter-1', 'scenes' => [['scene_id' => 'scene-1', 'quest_ids' => ['inform-the-captain', 'epilogue']]]]],
+      'metadata' => ['generated_outline' => ['entry_point' => ['primary_scene_id' => 'scene-1', 'primary_chapter_id' => 'chapter-1']]],
+    ], 'definition');
+
+    $this->assertSame([], $errors);
+  }
+
+  /**
+   * A storyline-wide choice makes its target reachable without being an edge.
+   *
+   * @covers ::validateQuestlineProgressionFlow
+   */
+  public function testStorylineWideChoiceReachesItsTargetAndIsNotAnEdge(): void {
+    $questline = $this->linearQuestline(['start', 'finish', 'debrief']);
+    // debrief is entered only through the storyline-wide choice.
+    $questline['quest_nodes'][1]['unlocks_to'] = [];
+    $questline['quest_nodes'][2]['unlocks_after'] = [];
+    $questline['storyline_choices'] = [$this->branchChoice('clan-lost', 'debrief')];
+    $findings = [];
+    $this->assertSame([], $this->validateProgression($questline, $findings));
+
+    // Leading back to the first task is not a cycle: an exit is not an edge.
+    $questline['storyline_choices'] = [$this->branchChoice('start-over', 'start')];
+    $errors = $this->validateProgression($questline, $findings);
+    $this->assertStringNotContainsString('cycle', implode(' ', $errors));
+    $this->assertStringContainsString("'debrief' is unreachable", implode(' ', $errors));
+
+    $questline['storyline_choices'] = [$this->branchChoice('nowhere', 'missing-task')];
+    $this->assertStringContainsString(
+      "Storyline-wide choice 'd-nowhere:nowhere' targets unknown quest 'missing-task'.",
+      implode(' ', $this->validateProgression($questline, $findings)),
+    );
+  }
+
+  /**
+   * The same choice on several tasks is rejected; a shared label alone is not.
+   *
+   * @covers ::validateQuestlineProgressionFlow
+   */
+  public function testChoiceClonedAcrossTasksIsRejected(): void {
+    $questline = $this->linearQuestline(['start', 'middle', 'finish']);
+    $clone = fn(string $id): array => ['label' => 'Clan lost', 'target_quest_id' => '', 'target_scene_id' => '', 'terminal' => TRUE]
+      + $this->branchChoice($id, '');
+    $questline['quest_nodes'][0]['choices'] = [$clone('lost-1'), $this->branchChoice('go-1', 'middle')];
+    $questline['quest_nodes'][1]['choices'] = [$clone('lost-2'), $this->branchChoice('go-2', 'finish')];
+    $findings = [];
+    $this->validateProgression($questline, $findings);
+    $this->assertSame(['choice_cloned_across_tasks'], array_column($findings, 'code'));
+    $this->assertSame(['start', 'middle'], $findings[0]['task_ids']);
+    $this->assertSame(['lost-1', 'lost-2'], $findings[0]['choice_ids']);
+
+    // Same label, different outcome: two different choices.
+    $questline['quest_nodes'][1]['choices'][0] = ['label' => 'Clan lost'] + $this->branchChoice('lost-2', 'finish');
+    $findings = [];
+    $this->validateProgression($questline, $findings);
+    $this->assertSame([], $findings);
+  }
+
+  /**
+   * @covers ::applyStorylineBranchChoice
+   */
+  public function testStorylineWideChoiceResolvesAtRuntimeWithoutASourceTask(): void {
+    $method = new \ReflectionMethod(StorylineManagerService::class, 'applyStorylineBranchChoice');
+    $method->setAccessible(TRUE);
+    $questline = $this->linearQuestline(['start', 'debrief']);
+    $questline['storyline_choices'] = [$this->branchChoice('clan-lost', 'debrief')];
+    $result = $method->invoke($this->buildService(), [
+      'questline' => $questline,
+      'chapters' => [['chapter_id' => 'chapter-1', 'scenes' => [['scene_id' => 'scene-1']]]],
+    ], [], ['decision_id' => 'd-clan-lost', 'choice_id' => 'clan-lost']);
+
+    $this->assertSame('', $result['source_quest_id']);
+    $this->assertSame('debrief', $result['target_quest_id']);
+    $this->assertSame('chapter-1', $result['target_chapter_id']);
+    $this->assertSame('clan-lost', $result['variables']['branch_choices']['d-clan-lost']);
+  }
+
+  /**
+   * A questline of tasks that each continue to the next.
+   */
+  private function linearQuestline(array $task_ids): array {
+    $nodes = [];
+    foreach ($task_ids as $index => $task_id) {
+      $nodes[] = [
+        'quest_id' => $task_id,
+        'chapter_id' => 'chapter-1',
+        'scene_id' => 'scene-1',
+        'unlocks_after' => $index > 0 ? [$task_ids[$index - 1]] : [],
+        'unlocks_to' => isset($task_ids[$index + 1]) ? [$task_ids[$index + 1]] : [],
+        'choices' => [],
+      ];
+    }
+    return ['primary_quest_id' => $task_ids[0], 'ordered_quest_ids' => $task_ids, 'quest_nodes' => $nodes];
+  }
+
+  /**
+   * One valid choice leading to a task, each its own decision.
+   */
+  private function branchChoice(string $choice_id, string $target_task_id): array {
+    return [
+      'decision_id' => 'd-' . $choice_id,
+      'choice_id' => $choice_id,
+      'label' => 'Choice ' . $choice_id,
+      'trigger' => ['type' => 'gm_decision', 'condition' => 'The condition holds.', 'source_id' => 'clan'],
+      'effects' => ['summary' => 'The story turns.', 'actors' => [], 'environment' => [], 'storyline' => []],
+      'target_quest_id' => $target_task_id,
+      'target_scene_id' => 'scene-1',
+      'terminal' => FALSE,
+    ];
+  }
+
+  /**
+   * Runs questline progression validation and collects its findings.
+   */
+  private function validateProgression(array $questline, array &$findings): array {
+    $method = new \ReflectionMethod(StorylineManagerService::class, 'validateQuestlineProgressionFlow');
+    $method->setAccessible(TRUE);
+    $task_ids = array_column($questline['quest_nodes'], 'quest_id');
+    $arguments = [[
+      'questline' => $questline,
+      'chapters' => [['chapter_id' => 'chapter-1', 'scenes' => [['scene_id' => 'scene-1', 'quest_ids' => $task_ids]]]],
+      'metadata' => ['generated_outline' => ['entry_point' => ['primary_scene_id' => 'scene-1', 'primary_chapter_id' => 'chapter-1']]],
+    ], 'definition', &$findings];
+    return $method->invokeArgs($this->buildService(), $arguments);
+  }
+
+  /**
+   * @covers ::validateQuestlineProgressionFlow
+   */
+  public function testQuestlineCycleErrorIncludesTerminalGuidance(): void {
+    $service = $this->buildService();
+    $method = new \ReflectionMethod(StorylineManagerService::class, 'validateQuestlineProgressionFlow');
+    $method->setAccessible(TRUE);
+
+    $storyline = [
+      'questline' => [
+        'primary_quest_id' => 'a',
+        'ordered_quest_ids' => ['a', 'b'],
+        'quest_nodes' => [
+          [
+            'quest_id' => 'a',
+            'chapter_id' => 'chapter-1',
+            'scene_id' => 'scene-1',
+            'unlocks_after' => [],
+            'unlocks_to' => ['b'],
+            'choices' => [],
+          ],
+          [
+            'quest_id' => 'b',
+            'chapter_id' => 'chapter-1',
+            'scene_id' => 'scene-1',
+            'unlocks_after' => ['a'],
+            'unlocks_to' => ['a'],
+            'choices' => [],
+          ],
+        ],
+      ],
+      'chapters' => [
+        [
+          'chapter_id' => 'chapter-1',
+          'scenes' => [
+            ['scene_id' => 'scene-1', 'quest_ids' => ['a', 'b']],
+          ],
+        ],
+      ],
+      'metadata' => [
+        'generated_outline' => [
+          'entry_point' => [
+            'primary_scene_id' => 'scene-1',
+            'primary_chapter_id' => 'chapter-1',
+          ],
+        ],
+      ],
+    ];
+
+    $errors = $method->invoke($service, $storyline, 'definition');
+    $joined = implode("\n", $errors);
+    $this->assertStringContainsString('Questline progression cycle detected', $joined);
+    $this->assertStringContainsString('make that choice terminal or point it at a later task', $joined);
   }
 
   /**

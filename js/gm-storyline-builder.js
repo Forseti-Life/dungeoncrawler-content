@@ -2,7 +2,7 @@ import {
   buildEditorGmRequest,
   shouldSubmitEditorGmKey,
 } from './v2/editor/EditorGmChatClient.js?v=20261023-gm-chat-2';
-import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261116-1';
+import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117-review-2';
 
 (function (Drupal, once, drupalSettings) {
   'use strict';
@@ -176,8 +176,7 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261116
         const stepPanels = Array.from(wizard.querySelectorAll('[data-step-panel]'));
         const titleEl = document.querySelector('[data-gm-storyline-active-step-title]');
         const metaEl = document.querySelector('[data-gm-storyline-active-step-meta]');
-        const previewEl = wizard.querySelector('[data-gm-blueprint-preview]');
-        const copyBtn = wizard.querySelector('[data-gm-blueprint-copy]');
+        const reviewSummaryEl = wizard.querySelector('[data-storyline-review-summary]');
         const validateBtn = wizard.querySelector('[data-gm-template-validate]');
         const publishBtn = wizard.querySelector('[data-gm-template-publish]');
         const publishStatusEl = wizard.querySelector('[data-gm-template-publish-status]');
@@ -201,6 +200,28 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261116
         const assistantLog = wizard.querySelector('[data-gm-assistant-log]');
         const assistantInput = wizard.querySelector('[data-gm-assistant-input]');
         const assistantSend = wizard.querySelector('[data-gm-assistant-send]');
+        const resumeWorkButton = document.createElement('button');
+        const assistantBusyControls = new Map();
+        resumeWorkButton.type = 'button';
+        resumeWorkButton.className = 'btn btn-secondary btn-sm';
+        resumeWorkButton.textContent = 'Resume saved work';
+        resumeWorkButton.hidden = true;
+        assistantSend?.parentElement.appendChild(resumeWorkButton);
+        resumeWorkButton.addEventListener('click', () => askAssistant('Resume saved work'));
+        const stopWorkButton = document.createElement('button');
+        stopWorkButton.type = 'button';
+        stopWorkButton.className = 'btn btn-secondary btn-sm';
+        stopWorkButton.textContent = 'Stop saved work';
+        stopWorkButton.hidden = true;
+        assistantSend?.parentElement.appendChild(stopWorkButton);
+        stopWorkButton.addEventListener('click', () => askAssistant('Stop saved work'));
+        const skipWorkButton = document.createElement('button');
+        skipWorkButton.type = 'button';
+        skipWorkButton.className = 'btn btn-secondary btn-sm';
+        skipWorkButton.textContent = 'Skip this step';
+        skipWorkButton.hidden = true;
+        assistantSend?.parentElement.appendChild(skipWorkButton);
+        skipWorkButton.addEventListener('click', () => askAssistant('Skip this step of the saved work'));
         const draftCreateBtn = wizard.querySelector('[data-gm-draft-create]');
         const draftSaveBtn = wizard.querySelector('[data-gm-draft-save]');
         const draftDeleteBtn = wizard.querySelector('[data-gm-draft-delete]');
@@ -234,7 +255,7 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261116
           branch_actor_effect_entries: ['choice_id', 'actor_id', 'interaction', 'reaction', 'effect', 'state_changes'],
           branch_environment_effect_entries: ['choice_id', 'target_type', 'target_id', 'effect', 'state_changes'],
           branch_storyline_effect_entries: ['choice_id', 'target_type', 'target_id', 'source_actor_id', 'operation', 'effect', 'follow_up_required', 'state_changes'],
-          objective_entries: ['objective_id', 'kind', 'metric', 'description', 'required'],
+          objective_entries: ['objective_id', 'task_id', 'type', 'next_step', 'target', 'item', 'location', 'destination', 'kind', 'metric', 'description', 'required'],
           actor_entries: ['contact_id', 'actor_id', 'role', 'display_name', 'motivation', 'dialogue', 'knowledge', 'attitude', 'availability', 'chapter_id', 'scene_id', 'location_id'],
           dungeon_entries: ['dungeon_id', 'chapter_id', 'purpose', 'entrance_room'],
           room_entries: ['dungeon_id', 'chapter_id', 'scene_id', 'room_id', 'narrative'],
@@ -289,7 +310,7 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261116
           4: 'Dungeons & Rooms Framework',
           5: 'Items Framework',
           6: 'Composition & Validation',
-          7: 'Review Canonical Object',
+          7: 'Review Storyline',
         };
 
         function setDraftStatus(text) {
@@ -338,7 +359,8 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261116
           const stageErrors = stages.filter((stage) => !stage?.valid);
           const warningCount = stages.reduce((count, stage) => count + Number(stage?.warning_count || 0), 0);
           if (validationSummaryEl) {
-            validationSummaryEl.textContent = `Validation stages: ${stages.length} • passed: ${stages.length - stageErrors.length} • failed: ${stageErrors.length} • warnings: ${warningCount}`;
+            validationSummaryEl.textContent = `${Number(validation.error_count || 0)} errors • ${Number(validation.warning_count ?? warningCount)} warnings • ${stages.length - stageErrors.length}/${stages.length} validation stages passed`;
+            validationSummaryEl.classList.toggle('has-errors', Number(validation.error_count || 0) > 0);
           }
           if (!validationListEl) {
             return;
@@ -405,12 +427,56 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261116
         function setAssistantBusy(busy) {
           assistantBusy = busy;
           assistantPanel?.setAttribute('aria-busy', busy ? 'true' : 'false');
+          if (busy) {
+            wizard.querySelectorAll('input, textarea, select, button').forEach((control) => {
+              if (!assistantBusyControls.has(control)) {
+                assistantBusyControls.set(control, control.disabled);
+              }
+              control.disabled = true;
+            });
+          } else {
+            assistantBusyControls.forEach((disabled, control) => {
+              control.disabled = disabled;
+            });
+            assistantBusyControls.clear();
+            applyDraftOwnershipState();
+          }
           if (assistantSend) {
             assistantSend.disabled = busy || !draftCanEdit;
           }
+          resumeWorkButton.disabled = busy || !draftCanEdit;
+          stopWorkButton.disabled = busy;
+          skipWorkButton.disabled = busy || !draftCanEdit;
           wizard.querySelectorAll('[data-gm-assistant-prompt]').forEach((button) => {
             button.disabled = busy;
           });
+        }
+
+        function applyWorkActionButtons(progress) {
+          const actions = Array.isArray(progress?.allowed_actions) ? progress.allowed_actions : [];
+          const canResume = actions.includes('resume');
+          const canCancel = actions.includes('cancel');
+          const canSkip = actions.includes('skip');
+          resumeWorkButton.hidden = !canResume;
+          stopWorkButton.hidden = !canCancel;
+          skipWorkButton.hidden = !canSkip;
+          resumeWorkButton.disabled = assistantBusy || !draftCanEdit || !canResume;
+          stopWorkButton.disabled = assistantBusy || !canCancel;
+          skipWorkButton.disabled = assistantBusy || !draftCanEdit || !canSkip;
+        }
+
+        function summarizeWorkFailure(progress) {
+          const failure = progress?.failure || {};
+          const firstFinding = Array.isArray(failure.findings) ? failure.findings.find((row) => row?.message) : null;
+          const detail = firstFinding?.message || failure.error || 'A saved work batch failed validation.';
+          const label = String(failure.label || '').trim();
+          const attempts = Number(progress?.failed_attempts || 0);
+          const maxAttempts = Number(progress?.max_failed_attempts || 0);
+          const prefix = label ? `Saved batch paused at ${label}.` : 'Saved batch paused.';
+          if (progress?.allowed_actions?.includes('resume')) {
+            return `${prefix} ${detail} (attempt ${attempts} of ${maxAttempts}).`;
+          }
+          return `${prefix} ${detail} Attempts are exhausted; stop saved work and rephrase the request.`;
         }
 
         function resolveDraftUrl(template, id) {
@@ -590,7 +656,6 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261116
             }
             return { approach };
           };
-          const primaryTaskId = tasks[0]?.task_id || '';
           const choiceDraftRows = listFromCollection('branch_choice_entries', collections.branch_choice_entries);
           const decisionIdFor = createIdentifierAllocator(choiceDraftRows.map((choice) => choice.decision_id));
           const choiceIdFor = createIdentifierAllocator(choiceDraftRows.map((choice) => choice.choice_id));
@@ -608,7 +673,7 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261116
             ].some((key) => choice[key] !== ''))
             .map((choice, index) => ({
             decision_id: choice.decision_id || decisionIdFor(choice.source_task_id || choice.label || `decision-${index + 1}`, `${storylineId}-decision`),
-            source_task_id: choice.source_task_id || primaryTaskId,
+            source_task_id: choice.source_task_id,
             choice_id: choice.choice_id || choiceIdFor(choice.label || choice.trigger_condition || `choice-${index + 1}`, `${storylineId}-choice`),
             label: choice.label,
             trigger: {
@@ -705,10 +770,18 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261116
               journal_entries: journalEntries,
               tasks,
               branch_choices: branchChoices,
-              objective_completion_criteria: objectiveDraftRows.map((objective, index) => ({
-                ...objective,
-                objective_id: objective.objective_id || objectiveIdFor(objective.description || objective.metric || `objective-${index + 1}`, `${storylineId}-objective`),
-              })),
+              objective_completion_criteria: objectiveDraftRows.map((objective, index) => {
+                const row = {
+                  ...objective,
+                  objective_id: objective.objective_id || objectiveIdFor(objective.description || objective.metric || `objective-${index + 1}`, `${storylineId}-objective`),
+                };
+                // An unset type is absent, not an empty value: validation
+                // then reports the objective as missing its type.
+                if (row.type === '') {
+                  delete row.type;
+                }
+                return row;
+              }),
               conflicts: conflictDraftRows.map((conflict, index) => ({
                 ...conflict,
                 conflict_id: conflict.conflict_id || conflictIdFor(conflict.title || `conflict-${index + 1}`, `${storylineId}-conflict`),
@@ -785,45 +858,12 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261116
           if (!objectEditorLinks) {
             return;
           }
-          const normalizeActorId = (value) => {
-            const raw = String(value || '').trim();
-            if (!raw) {
-              return '';
-            }
-            const explicitPathMatch = raw.match(/\/actors\/([A-Za-z0-9:_-]+)/i)
-              || raw.match(/\/canonical-library\/actor\/([A-Za-z0-9:_-]+)/i);
-            if (explicitPathMatch && explicitPathMatch[1]) {
-              return explicitPathMatch[1];
-            }
-            const firstUrlMatch = raw.match(/https?:\/\/[^\s]+/i);
-            if (firstUrlMatch && firstUrlMatch[0]) {
-              try {
-                const candidate = new URL(firstUrlMatch[0]).pathname.split('/').filter(Boolean).pop();
-                if (candidate) {
-                  return decodeURIComponent(candidate);
-                }
-              } catch (error) {
-                // Fall through to raw value when URL parsing fails.
-              }
-            }
-            return raw.replace(/^content:/i, '');
-          };
           const blueprint = buildBlueprint();
           const objects = [
-            ...(blueprint.objects?.items?.generation_specs || []).map((item) => ({
-              kind: 'item',
-              id: String(item.item_id || '').trim(),
-              label: String(item.item_id || '').trim(),
-            })),
             ...(blueprint.objects?.dungeons?.generation_specs || []).map((dungeon) => ({
               kind: 'dungeon',
               id: String(dungeon.dungeon_id || '').trim(),
               label: String(dungeon.dungeon_id || '').trim(),
-            })),
-            ...(blueprint.objects?.rooms?.generation_specs || []).map((room) => ({
-              kind: 'room',
-              id: String(room.room_id || '').trim(),
-              label: String(room.room_id || '').trim(),
             })),
           ];
           const unique = new Map();
@@ -833,6 +873,27 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261116
             }
           });
           objectEditorLinks.replaceChildren();
+          const sceneRows = wizard.querySelectorAll('[data-rows="journal_entries"] .gm-storyline-wizard__row');
+          let sceneCount = 0;
+          sceneRows.forEach((row) => {
+            const sceneId = row.querySelector('[data-col-field="scene_id"]')?.value.trim();
+            if (!sceneId) {
+              return;
+            }
+            const title = row.querySelector('[data-col-field="title"]')?.value.trim() || sceneId;
+            const item = document.createElement('li');
+            const link = document.createElement('a');
+            row.id = `storyline-scene-${sceneCount++}`;
+            link.href = `#${row.id}`;
+            link.textContent = `Scene: ${title}`;
+            link.addEventListener('click', (event) => {
+              event.preventDefault();
+              activateStep(2);
+              showRow(row);
+            });
+            item.appendChild(link);
+            objectEditorLinks.appendChild(item);
+          });
           const actorCount = (blueprint.objects?.actors?.generation_specs || []).length;
           if (actorCount > 0 && draftId && draftsSettings.actorGraphUrl) {
             const graphItem = document.createElement('li');
@@ -847,12 +908,12 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261116
             graphItem.appendChild(graphLink);
             objectEditorLinks.appendChild(graphItem);
           }
-          if (unique.size === 0 && actorCount > 0) {
+          if (unique.size === 0 && (actorCount > 0 || sceneCount > 0)) {
             return;
           }
           if (unique.size === 0) {
             const empty = document.createElement('li');
-            empty.textContent = 'Add or load storyline objects to open their exact editors.';
+            empty.textContent = 'Load a storyline to see its scenes, actors, and dungeons.';
             objectEditorLinks.appendChild(empty);
             return;
           }
@@ -860,47 +921,43 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261116
             const item = document.createElement('li');
             const link = document.createElement('a');
             const href = String(objectEditorTemplates[object.kind]).replace('{object_id}', encodeURIComponent(object.id));
-            if (object.kind === 'actor') {
-              const characterMatch = String(object.id).match(/^(?:character:)?(\d+)$/i);
-              const campaignId = new URL(window.location.href).searchParams.get('campaign_id');
-              if (characterMatch) {
-                const characterUrl = new URL(`/characters/${characterMatch[1]}`, window.location.origin);
-                if (campaignId) {
-                  characterUrl.searchParams.set('campaign_id', campaignId);
-                }
-                link.href = characterUrl.toString();
-              } else if (campaignId) {
-                const actorUrl = new URL(href, window.location.href);
-                actorUrl.searchParams.set('campaign_id', campaignId);
-                link.href = actorUrl.toString();
-              } else {
-                // An actor that exists only as a spec in this draft is shown
-                // from the draft, so the link carries the draft it came from.
-                const actorUrl = new URL(href, window.location.href);
-                if (draftId) {
-                  actorUrl.searchParams.set('draft_id', draftId);
-                }
-                link.href = actorUrl.toString();
-              }
-            } else {
-              link.href = href;
-            }
+            link.href = href;
             link.target = '_blank';
             link.rel = 'noopener';
             link.textContent = `${object.kind[0].toUpperCase()}${object.kind.slice(1)}: ${object.label}`;
-            link.title = object.kind === 'actor'
-              ? `Open ${object.id} in the actor character sheet`
-              : `Open ${object.id} in the canonical ${object.kind} editor`;
+            link.title = `Open ${object.id} in the canonical ${object.kind} editor`;
             item.appendChild(link);
             objectEditorLinks.appendChild(item);
           });
         }
 
         function refreshPreview() {
-          if (!previewEl) {
+          if (!reviewSummaryEl) {
             return;
           }
-          previewEl.textContent = JSON.stringify(buildBlueprint(), null, 2);
+          const blueprint = buildBlueprint();
+          const title = document.createElement('h4');
+          title.textContent = blueprint.title || 'Untitled storyline';
+          const premise = document.createElement('p');
+          premise.textContent = blueprint.premise || blueprint.description || 'Add a premise to describe the adventure.';
+          const counts = document.createElement('dl');
+          counts.className = 'gm-storyline-wizard__review-counts';
+          for (const [label, rows] of [
+            ['Scenes', blueprint.process_flow.journal_entries],
+            ['Quests', blueprint.process_flow.tasks],
+            ['Choices', blueprint.process_flow.branch_choices],
+            ['Actors', blueprint.objects.actors.generation_specs],
+            ['Dungeons', blueprint.objects.dungeons.generation_specs],
+          ]) {
+            const card = document.createElement('div');
+            const term = document.createElement('dt');
+            term.textContent = label;
+            const value = document.createElement('dd');
+            value.textContent = String(rows.length);
+            card.append(term, value);
+            counts.appendChild(card);
+          }
+          reviewSummaryEl.replaceChildren(title, premise, counts);
         }
 
         function hydrateFromPayload(payload) {
@@ -1258,6 +1315,9 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261116
             if (draftDeleteBtn) {
               draftDeleteBtn.disabled = !draftIsOwner || !draftId;
             }
+            if (assistantBusy) {
+              setAssistantBusy(true);
+            }
           }
 
         async function refreshDraftPicker() {
@@ -1388,11 +1448,8 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261116
             const validation = payload?.data || {};
             renderValidationResult(validation);
             await renderNarrativeAnalysis(validation.analysis);
-            if (previewEl && validation.definition) {
-              previewEl.textContent = JSON.stringify(validation.definition, null, 2);
-            }
             if (validation.valid) {
-              setPublishStatus('Validation passed. The generated canonical storyline object is ready for creation review.');
+              setPublishStatus('Validation passed. Review the storyline, then publish when ready.');
             } else {
               setPublishStatus(`Validation failed with ${Number(validation.error_count || 0)} contract error(s).`);
             }
@@ -1482,7 +1539,7 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261116
             const item = document.createElement('li');
             item.className = 'gm-storyline-wizard__assistant-item gm-storyline-wizard__assistant-item--assistant gm-storyline-wizard__assistant-next-steps';
             const heading = document.createElement('strong');
-            heading.textContent = 'Next steps';
+            heading.textContent = 'Next step';
             const list = document.createElement('ol');
             steps.forEach((step) => {
               const listItem = document.createElement('li');
@@ -1526,7 +1583,7 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261116
             ];
             const missing = Array.isArray(result.missing_content) ? result.missing_content : [];
             if (missing.length > 0) {
-              lines.push(`Minimum content still needed: ${missing.join(', ')}.`);
+              lines.push(`${missing.length} minimum-content checks remain open.`);
             }
             else {
               lines.push('All minimum content checks are satisfied.');
@@ -1712,7 +1769,7 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261116
               item.querySelectorAll('button').forEach((choice) => {
                 choice.disabled = true;
               });
-              const succeeded = await askAssistant(`I select option ${index + 1}, ${option.label}. Use this direction: ${option.selection}`);
+              const succeeded = await askAssistant(`I select option ${index + 1}, ${option.label}. Use this direction: ${option.description}`);
               if (!succeeded) {
                 item.querySelectorAll('button').forEach((choice) => {
                   choice.disabled = false;
@@ -1759,6 +1816,20 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261116
               ? ''
               : 'This published snapshot is read-only. Open its working draft to continue editing.');
             renderCurrentState(payload?.data?.context_snapshot?.current_state, storylineStatusElements);
+            const activeWork = payload?.data?.context_snapshot?.authoring_workflow?.bounded_work?.active_work;
+            if (activeWork) {
+              applyWorkActionButtons(activeWork);
+            } else {
+              resumeWorkButton.hidden = true;
+              stopWorkButton.hidden = true;
+              skipWorkButton.hidden = true;
+            }
+            if (activeWork?.revision_conflict) {
+              setAssistantStatus('Saved work is paused because the draft changed. Stop saved work to keep the newer draft and begin a revised request.');
+            } else if (activeWork?.status === 'paused') {
+              setAssistantStatus(summarizeWorkFailure(activeWork));
+            }
+            renderValidationResult(payload?.data?.context_snapshot?.validation_summary);
             await renderNarrativeAnalysis(payload?.data?.context_snapshot?.narrative_analysis);
             restoreConversation(payload?.data?.conversation);
             if (announce) {
@@ -1817,6 +1888,7 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261116
           setAssistantBusy(true);
           setAssistantStatus('Waiting on the Game Master Agent to respond…');
           let succeeded = false;
+          let lastWorkProgress = null;
           try {
             if (!draftId) {
               await createDraft(true);
@@ -1829,11 +1901,50 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261116
               await saveDraft();
               setAssistantStatus('Waiting on the Game Master Agent to respond…');
             }
-            const payload = await sendAssistantIntent({
+            let payload = await sendAssistantIntent({
               type: 'natural_language',
               utterance: prompt,
               author_message: prompt,
             });
+            let batches = 0;
+            while (payload?.data?.tool_result?.work_progress?.status === 'running') {
+              const progress = payload.data.tool_result.work_progress;
+              lastWorkProgress = progress;
+              const declaredTotal = Math.max(1, Number(progress?.total_steps || 1));
+              if (++batches > declaredTotal) {
+                throw new Error('Saved work exceeded its declared continuation limit.');
+              }
+              applyWorkActionButtons(progress);
+              const saved = payload.data.tool_result.saved;
+              if (saved) {
+                draftRevision = Number(saved.revision);
+                draftDirty = false;
+                hydrateFromPayload(saved.payload);
+                refreshPreview();
+                setAssistantBusy(true);
+                setDraftStatus(`GM saved batch ${progress.step}/${progress.total_steps} (rev ${draftRevision})`);
+              }
+              renderCurrentState(payload.data.context_snapshot?.current_state, storylineStatusElements);
+              setAssistantStatus(`Game Master Agent saved ${progress.step}/${progress.total_steps} batches. Continuing the next batch…`);
+              payload = await sendAssistantIntent({
+                type: 'tool_call',
+                tool_name: 'apply_storyline_work',
+                arguments: {
+                  job_id: progress.job_id,
+                  step: progress.step,
+                  expected_revision: progress.expected_revision,
+                },
+              });
+            }
+            const finalProgress = payload?.data?.tool_result?.work_progress;
+            if (finalProgress) {
+              lastWorkProgress = finalProgress;
+              applyWorkActionButtons(finalProgress);
+            } else {
+              resumeWorkButton.hidden = true;
+              stopWorkButton.hidden = true;
+              skipWorkButton.hidden = true;
+            }
             const result = payload?.data?.tool_result || {};
             const notes = payload?.data?.messages || [];
             pushAssistantToolCalls(payload?.data?.tool_calls || result?.tool_calls || []);
@@ -1858,7 +1969,11 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261116
                 setDraftStatus(`Published storyline ${draftTemplateId}; final signoff recorded.`);
               }
               renderCurrentState(payload?.data?.context_snapshot?.current_state, storylineStatusElements);
-              setAssistantStatus('');
+              if (result?.work_progress?.status === 'paused') {
+                setAssistantStatus(summarizeWorkFailure(result.work_progress));
+              } else {
+                setAssistantStatus('');
+              }
             }
             if (result?.intent !== 'clarification') {
               pushAssistantLog('assistant', summarizeAssistantResult(result));
@@ -1873,6 +1988,10 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261116
             }
             succeeded = true;
           } catch (error) {
+            await initAssistant(false);
+            if (lastWorkProgress) {
+              applyWorkActionButtons(lastWorkProgress);
+            }
             setAssistantStatus('');
             pushAssistantLog('error', `Assistant request failed: ${error.message}`);
           } finally {
@@ -2286,29 +2405,6 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261116
             refreshObjectEditorLinks();
           }
         });
-
-        if (copyBtn) {
-          copyBtn.addEventListener('click', async (event) => {
-            event.preventDefault();
-            refreshPreview();
-            const payload = previewEl?.textContent || '';
-            if (!payload) {
-              return;
-            }
-            try {
-              await navigator.clipboard.writeText(payload);
-              copyBtn.textContent = 'Copied';
-              setTimeout(() => {
-                copyBtn.textContent = 'Copy object JSON';
-              }, 1200);
-            } catch (_) {
-              copyBtn.textContent = 'Copy failed';
-              setTimeout(() => {
-                copyBtn.textContent = 'Copy object JSON';
-              }, 1200);
-            }
-          });
-        }
 
         draftCreateBtn?.addEventListener('click', () => createDraft(true));
         draftPicker?.addEventListener('change', () => {

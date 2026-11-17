@@ -5,6 +5,7 @@ namespace Drupal\dungeoncrawler_content\Service\EditorGm;
 use Drupal\ai_conversation\Service\AIApiService;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessManagementService;
+use Drupal\dungeoncrawler_content\Service\Definition\DefinitionSchemaValidator;
 use Drupal\dungeoncrawler_content\Service\StorylineAuthoringDraftService;
 use Psr\Log\LoggerInterface;
 
@@ -66,7 +67,7 @@ class EditorGmIntentParser {
     }
     if (
       in_array($surface_label, ['Storyline Builder', 'Dungeon Editor', 'Room Editor', 'Character Creation'], TRUE)
-      && $this->isStatusOnlyRequest($utterance)
+      && !isset($context_snapshot['bounded_work_step']) && $this->isStatusOnlyRequest($utterance)
     ) {
       return [
         'type' => 'direct_response',
@@ -76,7 +77,7 @@ class EditorGmIntentParser {
     }
     if (
       in_array($surface_label, ['Storyline Builder', 'Dungeon Editor', 'Room Editor', 'Character Creation'], TRUE)
-      && $this->isValidationReviewRequest($utterance, $context_snapshot)
+      && !isset($context_snapshot['bounded_work_step']) && $this->isValidationReviewRequest($utterance, $context_snapshot)
     ) {
       return [
         'type' => 'direct_response',
@@ -84,7 +85,28 @@ class EditorGmIntentParser {
         'reasoning' => 'The author requested review of current findings without authorizing remediation.',
       ];
     }
-    if ($surface_label === 'Storyline Builder') {
+    if ($surface_label === 'Storyline Builder' && !isset($context_snapshot['bounded_work_step'])) {
+      $active_work = $context_snapshot['authoring_workflow']['bounded_work']['active_work'] ?? NULL;
+      $cancel_work = in_array($this->normalizeGovernanceUtterance($utterance), ['cancel saved work', 'cancel the saved work', 'stop saved work', 'stop the saved work'], TRUE);
+      $skip_work = in_array($this->normalizeGovernanceUtterance($utterance), ['skip this step', 'skip this step of the saved work', 'skip this unit', 'skip the paused step'], TRUE);
+      if (is_array($active_work) && in_array($this->normalizeGovernanceUtterance($utterance), [
+        'continue', 'resume', 'resume saved work', 'finish it', 'continue the work',
+        'cancel saved work', 'cancel the saved work', 'stop saved work', 'stop the saved work',
+        'skip this step', 'skip this step of the saved work', 'skip this unit', 'skip the paused step',
+      ], TRUE)) {
+        $action = $cancel_work ? 'cancel' : ($skip_work ? 'skip' : 'advance');
+        return [
+          'type' => 'tool_call',
+          'tool_name' => 'apply_storyline_work',
+          'arguments' => array_intersect_key($active_work, array_flip(['job_id', 'step', 'expected_revision'])) + ['action' => $action],
+          'reasoning' => match ($action) {
+            'cancel' => 'Stop unfinished work while retaining completed edits.',
+            'skip' => 'Skip the paused unit and keep the rest of the saved work.',
+            default => 'Resume the saved authoring work from its exact checkpoint.',
+          },
+          'next_steps' => [],
+        ];
+      }
       $finalization_intent = $this->storylineFinalizationIntent($utterance, $context_snapshot);
       if ($finalization_intent !== NULL) {
         return $finalization_intent;
@@ -97,10 +119,65 @@ class EditorGmIntentParser {
     if ($this->ai === NULL) {
       throw new \RuntimeException('editor_gm_intent_parser_unavailable');
     }
+    if ($surface_label === 'Storyline Builder' && !isset($context_snapshot['bounded_work_step'])
+      && $registry->has('plan_storyline_work') && $this->requiresBoundedStorylinePlan($utterance)) {
+      $registry = new EditorGmToolRegistry([$registry->get('plan_storyline_work')], [], NULL);
+    }
 
     $execution_options = $this->harnessManagement->selectIntentExecutionProfile($utterance, $surface_label);
     $execution_options['system_prompt'] = $this->systemPrompt($surface_label);
+    if ($surface_label === 'Storyline Builder' && isset($context_snapshot['bounded_work_step'])) {
+      $execution_options['system_prompt'] = <<<'STEP'
+You are the native draft-operation planner for ONE CHECKPOINTED STORYLINE WORK UNIT.
 
+The author has already approved the work. Call the tool_call function once,
+with tool_name plan_storyline_draft_operations, arguments
+{"expected_revision": <current saved integer revision>, "operations": [<native operations>]},
+and a short reasoning describing this unit.
+
+No other reply is supported. Never answer in plain text, and never return an
+execution result, bare operations, error object, or nested work plan.
+Use no more than ten compact operations / 12000 JSON bytes. Prefer small patches
+over repeating whole collections or unchanged fields. Do not publish.
+
+Work only on the current instruction. The remaining plan is context, NOT work
+to include now. When bounded_work_step.current_scene is present, edit ONLY that
+scene and its own tasks/branch choices. Do not modify another scene or shared
+actors, objectives, or conflicts. Actor/story effects inside its choices are
+allowed. Use saved destination IDs from earlier prerequisite units.
+A branch source_task_id must belong to current_scene_task_ids. If that list is
+empty, append a source quest for this scene and use its {"$draft_ref":"key.task_id"}
+as source_task_id. A destination quest is never the source_task_id.
+Omit generated IDs on newly appended choices and quests.
+
+Obey the selected tool's exact operation and collection contracts. Reuse saved
+IDs. For new append rows omit server-generated identity fields, assign internal
+batch keys, and use {"$draft_ref":"key.task_id"} or the appropriate identity
+field for links inside this batch. Never guess a future generated ID.
+Operation paths are rooted at the draft payload itself. Use /player_hook,
+/ending, /process_flow/... and /objects/...; never prefix paths with
+/storyline/.
+For existing rows use ID-matched native patches containing changed fields only.
+Branch choices use typed triggers, native effect enums, and real task/scene
+destinations. Only a terminal choice has no destination. Do not infer actor
+death unless the request and effects explicitly state it. Use the grounded
+effect target enums exactly as published by the native contract.
+When using append keys for $draft_ref links, each key must be unique in the
+current operation batch.
+
+If previous_rejected_attempt is present, this is an explicit new author request
+to resume. Correct that rejected contract before proposing this unit again.
+Do not repeat or undo saved work from completed units. Do not invent validation
+results or further author chores.
+STEP;
+    }
+
+    $functions = $this->intentFunctions($registry, $surface_label, isset($context_snapshot['bounded_work_step']));
+    unset($execution_options['json_object'], $execution_options['response_format']);
+    $execution_options['tools'] = self::providerFunctions($functions);
+    $execution_options['tool_choice'] = count($functions) === 1
+      ? ['type' => 'function', 'function' => ['name' => (string) array_key_first($functions)]]
+      : 'required';
     $result = $this->ai->invokeModelDirect(
       $this->buildPrompt($utterance, $context_snapshot, $registry, $surface_label),
       self::MODULE,
@@ -126,11 +203,179 @@ class EditorGmIntentParser {
       throw new \RuntimeException('editor_gm_intent_output_truncated', 502);
     }
 
-    return $this->decodeIntent(
-      (string) ($result['response'] ?? ''),
-      $registry,
-      $surface_label === 'Storyline Builder',
-    );
+    $call = is_array($result['tool_call'] ?? NULL) ? $result['tool_call'] : [];
+    try {
+      return $this->decodeIntent(
+        $this->decodeFunctionCall($call, $functions),
+        $registry,
+        $surface_label === 'Storyline Builder',
+      );
+    }
+    catch (\DomainException | \InvalidArgumentException $exception) {
+      $this->logger->error('Editor GM intent contract rejected for @surface/@draft: @error; model=@model; function=@function; reply=@reply', [
+        '@surface' => $surface_label,
+        '@draft' => (string) ($context_snapshot['draft']['draft_id'] ?? ''),
+        '@error' => $exception->getMessage(),
+        '@model' => (string) ($result['model_id'] ?? ''),
+        '@function' => (string) ($call['name'] ?? '(none)'),
+        '@reply' => mb_substr((string) ($call['arguments'] ?? $result['response'] ?? ''), 0, 4000),
+      ]);
+      throw $exception;
+    }
+  }
+
+  /**
+   * The reply shapes the model may use, as functions it must call.
+   *
+   * Each schema is used twice: sent to the provider so the reply is generated
+   * against it, and checked again on receipt.
+   *
+   * Every function takes a one-sentence reasoning and none takes a next
+   * step: the next step is stated after the work has run, from its result.
+   *
+   * @return array<string, array{description:string, strict:bool, parameters:array}>
+   */
+  private function intentFunctions(EditorGmToolRegistry $registry, string $surface_label, bool $bounded_work_step): array {
+    $string = static fn(string $description): array => ['type' => 'string', 'description' => $description];
+    $tool_names = $bounded_work_step
+      ? ['plan_storyline_draft_operations']
+      : array_values(array_filter(array_map(
+        static fn(mixed $tool): string => is_array($tool) ? (string) ($tool['name'] ?? '') : '',
+        $this->harnessManagement->filterToolsForNaturalLanguage($registry->manifest(), $surface_label),
+      )));
+    $tool_name = ['type' => 'string', 'enum' => $tool_names, 'description' => 'A tool from the registered toolset.'];
+    $arguments = ['type' => 'object', 'description' => "The selected tool's arguments, exactly as its definition declares them."];
+    $functions = [
+      'tool_call' => [
+        'description' => 'Select one registered tool to run for the author request.',
+        'strict' => FALSE,
+        'parameters' => [
+          'type' => 'object',
+          'additionalProperties' => FALSE,
+          'required' => ['tool_name', 'arguments', 'reasoning'],
+          'properties' => [
+            'tool_name' => $tool_name,
+            'arguments' => $arguments,
+            'reasoning' => $string('One short sentence.'),
+          ],
+        ],
+      ],
+    ];
+    if ($bounded_work_step) {
+      return $functions;
+    }
+    $functions['task_queue'] = [
+      'description' => 'Select several registered tools to run in order for one author request.',
+      'strict' => FALSE,
+      'parameters' => [
+        'type' => 'object',
+        'additionalProperties' => FALSE,
+        'required' => ['tasks', 'reasoning'],
+        'properties' => [
+          'tasks' => [
+            'type' => 'array',
+            'minItems' => 1,
+            'maxItems' => 8,
+            'items' => [
+              'type' => 'object',
+              'additionalProperties' => FALSE,
+              'required' => ['tool_name', 'arguments', 'reasoning'],
+              'properties' => [
+                'tool_name' => $tool_name,
+                'arguments' => $arguments,
+                'reasoning' => $string('Step summary.'),
+              ],
+            ],
+          ],
+          'reasoning' => $string('Overall summary.'),
+        ],
+      ],
+    ];
+    $functions['direct_response'] = [
+      'description' => 'Answer from the grounded context without running a tool: status, review of findings, or discussion.',
+      'strict' => TRUE,
+      'parameters' => [
+        'type' => 'object',
+        'additionalProperties' => FALSE,
+        'required' => ['focus', 'reasoning'],
+        'properties' => [
+          'focus' => ['type' => 'string', 'enum' => ['status', 'validation_review', 'discussion']],
+          'reasoning' => $string('One short sentence.'),
+        ],
+      ],
+    ];
+    if ($surface_label !== 'Character Creation') {
+      $functions['clarification'] = [
+        'description' => 'Ask the author one decision the request cannot proceed without.',
+        'strict' => TRUE,
+        'parameters' => [
+          'type' => 'object',
+          'additionalProperties' => FALSE,
+          'required' => ['question', 'options', 'reasoning'],
+          'properties' => [
+            'question' => $string('The decision the author must make.'),
+            'reasoning' => $string('One short sentence: why the request cannot proceed without this decision.'),
+            'options' => [
+              'type' => 'array',
+              'items' => [
+                'type' => 'object',
+                'additionalProperties' => FALSE,
+                'required' => ['label', 'description', 'tradeoff'],
+                'properties' => [
+                  'label' => $string('Short name.'),
+                  'description' => $string('Self-contained direction: concept, purpose, relationships, and progression effect.'),
+                  'tradeoff' => $string('Benefit and cost.'),
+                ],
+              ],
+            ],
+          ],
+        ],
+      ];
+    }
+    return $functions;
+  }
+
+  /**
+   * The function definitions in the provider's request format.
+   */
+  private static function providerFunctions(array $functions): array {
+    $tools = [];
+    foreach ($functions as $name => $function) {
+      $tools[] = ['type' => 'function', 'function' => [
+        'name' => $name,
+        'description' => $function['description'],
+        'parameters' => $function['parameters'],
+      ] + ($function['strict'] ? ['strict' => TRUE] : [])];
+    }
+    return $tools;
+  }
+
+  /**
+   * Reads one function call as an intent, checked against its own schema.
+   *
+   * @return array<string, mixed>
+   *   The call's arguments with 'type' set to the function that was called.
+   */
+  private function decodeFunctionCall(array $call, array $functions): array {
+    $name = (string) ($call['name'] ?? '');
+    if ($name === '') {
+      throw new \DomainException('editor_gm_intent_function_call_missing');
+    }
+    if (!isset($functions[$name])) {
+      throw new \DomainException('editor_gm_intent_type_unsupported');
+    }
+    $arguments = $this->decodeJsonObject((string) ($call['arguments'] ?? ''), 'editor_gm_intent_response_not_json');
+    $findings = (new DefinitionSchemaValidator())->validate($functions[$name]['parameters'], $arguments);
+    if ($findings !== []) {
+      $finding = $findings[0];
+      throw new \DomainException(sprintf(
+        'editor_gm_intent_schema_invalid:%s:%s:%s',
+        $name,
+        (string) ($finding['pointer'] ?? ''),
+        (string) ($finding['message'] ?? ''),
+      ));
+    }
+    return ['type' => $name] + $arguments;
   }
 
   /**
@@ -195,6 +440,15 @@ class EditorGmIntentParser {
     $normalized = mb_strtolower(trim($utterance));
     $normalized = preg_replace('/[^\p{L}\p{N}\s\']+/u', ' ', $normalized) ?? $normalized;
     return preg_replace('/\s+/u', ' ', trim($normalized)) ?? $normalized;
+  }
+
+  /**
+   * Routes visibly broad edits before a model can emit their full patch.
+   */
+  private function requiresBoundedStorylinePlan(string $utterance): bool {
+    $text = mb_strtolower($utterance);
+    return preg_match('/\b(fork|branch|add|create|revise|rewrite|update|change|edit|build|develop)\b/u', $text) === 1
+      && preg_match('/\b(every|each|all|multiple|several)\s+(?:of\s+the\s+|the\s+)?scenes?\b/u', $text) === 1;
   }
 
   /**
@@ -275,8 +529,7 @@ class EditorGmIntentParser {
   /**
    * Parses and validates the model's JSON response against the registry.
    */
-  private function decodeIntent(string $response, EditorGmToolRegistry $registry, bool $requires_storyline_choices): array {
-    $decoded = $this->decodeJsonObject($response, 'editor_gm_intent_response_not_json');
+  private function decodeIntent(array $decoded, EditorGmToolRegistry $registry, bool $requires_storyline_choices): array {
     if ($requires_storyline_choices) {
       $this->assertStorylineDecisionsValid($decoded);
     }
@@ -288,10 +541,15 @@ class EditorGmIntentParser {
         throw new \DomainException('editor_gm_intent_clarification_empty');
       }
       $options = $this->decodeDecisionOptions($decoded['options'] ?? [], $requires_storyline_choices);
-      return ['type' => 'clarification', 'question' => $question, 'options' => $options];
+      return [
+        'type' => 'clarification',
+        'question' => $question,
+        'options' => $options,
+        'reasoning' => trim((string) ($decoded['reasoning'] ?? '')),
+      ];
     }
     if ($type === 'direct_response') {
-      $focus = trim((string) ($decoded['focus'] ?? 'discussion'));
+      $focus = trim((string) ($decoded['focus'] ?? ''));
       if (!in_array($focus, ['status', 'validation_review', 'discussion'], TRUE)) {
         throw new \DomainException('editor_gm_intent_direct_response_focus_invalid');
       }
@@ -313,15 +571,11 @@ class EditorGmIntentParser {
         }
         $validated_tasks[] = $this->validateToolCallPayload($raw_task, $registry);
       }
-      $next_steps = array_values(array_filter(
-        (array) ($decoded['next_steps'] ?? []),
-        static fn($step): bool => is_string($step) && trim($step) !== '',
-      ));
       return [
         'type' => 'task_queue',
         'tasks' => $this->harnessManagement->orderTaskQueue($validated_tasks),
         'reasoning' => trim((string) ($decoded['reasoning'] ?? '')),
-        'next_steps' => array_map('trim', $next_steps),
+        'next_steps' => [],
       ];
     }
     if ($type !== 'tool_call') {
@@ -338,21 +592,11 @@ class EditorGmIntentParser {
     if (is_string($intent['question'] ?? NULL)) {
       StorylineAuthoringDraftService::assertNoIdAssignmentRequest($intent['question']);
     }
-    foreach ((array) ($intent['next_steps'] ?? []) as $step) {
-      if (is_string($step)) {
-        StorylineAuthoringDraftService::assertNoIdAssignmentRequest($step);
-      }
-    }
     foreach ((array) ($intent['options'] ?? []) as $option) {
       foreach (is_array($option) ? $option : [] as $text) {
         if (is_string($text)) {
           StorylineAuthoringDraftService::assertNoIdAssignmentRequest($text);
         }
-      }
-    }
-    foreach ((array) ($intent['tasks'] ?? []) as $task) {
-      if (is_array($task)) {
-        $this->assertStorylineDecisionsValid($task);
       }
     }
   }
@@ -378,16 +622,12 @@ class EditorGmIntentParser {
           ));
         }
       }
-      $next_steps = array_values(array_filter(
-        (array) ($decoded['next_steps'] ?? []),
-        static fn($step): bool => is_string($step) && trim($step) !== '',
-      ));
       return [
         'type' => 'tool_call',
         'tool_name' => $tool_name,
         'arguments' => $arguments,
         'reasoning' => trim((string) ($decoded['reasoning'] ?? '')),
-        'next_steps' => array_map('trim', $next_steps),
+        'next_steps' => [],
       ];
     }
 
@@ -413,40 +653,26 @@ class EditorGmIntentParser {
       $arguments['operations'] = $this->harnessManagement->orderStorylineDraftOperations($arguments['operations']);
     }
 
-    $next_steps = array_values(array_filter(
-      (array) ($decoded['next_steps'] ?? []),
-      static fn($step): bool => is_string($step) && trim($step) !== '',
-    ));
     return [
       'type' => 'tool_call',
       'tool_name' => $tool_name,
       'arguments' => $arguments,
       'reasoning' => trim((string) ($decoded['reasoning'] ?? '')),
-      'next_steps' => array_map('trim', $next_steps),
+      'next_steps' => [],
     ];
   }
 
   /**
-   * Decodes one model-emitted JSON object.
+   * Decodes a function call's arguments: one JSON object, nothing around it.
    */
   private function decodeJsonObject(string $response, string $error_code): array {
-    $json = trim($response);
-    if (str_starts_with($json, '```')) {
-      $json = trim(preg_replace('/^```(?:json)?|```$/m', '', $json));
-    }
-    $start = strpos($json, '{');
-    $end = strrpos($json, '}');
-    if ($start === FALSE || $end === FALSE || $end < $start) {
-      throw new \DomainException($error_code);
-    }
-
     try {
-      $decoded = json_decode(substr($json, $start, $end - $start + 1), TRUE, 32, JSON_THROW_ON_ERROR);
+      $decoded = json_decode($response, TRUE, 64, JSON_THROW_ON_ERROR);
     }
     catch (\JsonException) {
       throw new \DomainException($error_code);
     }
-    if (!is_array($decoded)) {
+    if (!is_array($decoded) || ($decoded !== [] && array_is_list($decoded))) {
       throw new \DomainException($error_code);
     }
     return $decoded;
@@ -471,7 +697,6 @@ class EditorGmIntentParser {
         'label' => trim((string) ($option['label'] ?? '')),
         'description' => trim((string) ($option['description'] ?? '')),
         'tradeoff' => trim((string) ($option['tradeoff'] ?? '')),
-        'selection' => trim((string) ($option['selection'] ?? '')),
       ];
       if (in_array('', $normalized, TRUE)) {
         throw new \DomainException('editor_gm_intent_clarification_option_incomplete');
@@ -493,7 +718,7 @@ class EditorGmIntentParser {
   private function systemPrompt(string $surface_label): string {
     $mutation_rule = match ($surface_label) {
       'Storyline Builder' => 'For Storyline Builder, explicit requests or selected options to build roster actor character sheets MUST use build_storyline_actor_sheets with the grounded expected_revision. Omit actor_ids for the whole roster; otherwise use grounded roster IDs. This tool creates missing character drafts, derives native classes from authored roles, completes and links the sheets itself; it needs no existing character context. Role-driven generation is already a complete decision: never ask for classes, more confirmation or a separate draft ID. Sheet inspection uses inspect_storyline_actor_sheets. These sheet tools take precedence over generic draft and remediation routing. For other draft changes use plan_storyline_draft_operations, and for other missing canonical assets use plan_storyline_remediation only when explicitly requested; the harness may immediately apply the authorized plan through the owning authorities.',
-      'Character Creation' => 'For Character Creation, use plan_character_draft_updates for requested changes. The GM has authority to overwrite unsaved form edits and applies validated patches against the latest locked character; never ask for save/discard, conflict resolution, or approval. Present genuine unresolved player decisions as numbered choices, one option per line. Read-only inspection and local catalog lookups never save changes. Use inspect_actor for the canonical actor view, its revision and change history. Use apply_actor_changes only for typed actor commands: actor.narrative.patch and actor.identity.patch for free-text identity and narrative paths listed by inspect_actor, and actor.archive or actor.restore when the player explicitly asks to archive or restore the character; wizard choices always go through plan_character_draft_updates. When the player asks you to build, create, make, roll up, finish, complete or auto-fill the character, or to choose, pick or decide for them, use autofill_character_draft once: put every choice the player stated or plainly implied into preferences with native IDs from the grounded reference (an evoker is subclass evocation, a former miner is the closest listed background), write the free-text fields they did not give (an original in-world personal name of at least two characters, concept, appearance, personality, backstory, age, gender) yourself so they fit the request, and leave every other rules choice out so it is filled from the native options. Never return a clarification on Character Creation and never ask the player to confirm, approve or choose before acting: act on the most reasonable reading, save it, and let the player revise afterwards. Give at most one next step.',
+      'Character Creation' => 'For Character Creation, use plan_character_draft_updates for requested changes. The GM has authority to overwrite unsaved form edits and applies validated patches against the latest locked character; never ask for save/discard, conflict resolution, or approval. Present genuine unresolved player decisions as numbered choices, one option per line. Read-only inspection and local catalog lookups never save changes. Use inspect_actor for the canonical actor view, its revision and change history. Use apply_actor_changes only for typed actor commands: actor.narrative.patch and actor.identity.patch for free-text identity and narrative paths listed by inspect_actor, and actor.archive or actor.restore when the player explicitly asks to archive or restore the character; wizard choices always go through plan_character_draft_updates. When the player asks you to build, create, make, roll up, finish, complete or auto-fill the character, or to choose, pick or decide for them, use autofill_character_draft once: put every choice the player stated or plainly implied into preferences with native IDs from the grounded reference (an evoker is subclass evocation, a former miner is the closest listed background), write the free-text fields they did not give (an original in-world personal name of at least two characters, concept, appearance, personality, backstory, age, gender) yourself so they fit the request, and leave every other rules choice out so it is filled from the native options. Never return a clarification on Character Creation and never ask the player to confirm, approve or choose before acting: act on the most reasonable reading, save it, and let the player revise afterwards.',
       'Room Editor' => 'Use create_room_draft to start a room without asking for ID mechanics. Use list_room_drafts and load_room_draft to resume/switch drafts. If no draft is active, create/load must precede draft tools. Use apply_room_command for one fully specified edit and plan_room_commands for larger plans. Read list_room_command_history before choosing undo/redo IDs. Mutating calls always require author approval, including task queues. Abandon preserves audit data, never deletes it, and does not restore abandoned drafts. Inspect definition lifecycle before retire/restore; those tools require administrator authority, definition version and lifecycle revision (not room revision), plus a reason. Do not change published references.',
       default => 'Prefer planning tools over execution tools. A mutating tool call is a proposal that the author must approve; it is never applied by you.',
     };
@@ -505,7 +730,8 @@ using only the grounded editor context you are given. Select an internal tool
 only when the request requires one.
 
 Hard rules:
-- Respond with a single JSON object and nothing else. No prose, no code fences.
+- Reply by calling exactly one of the provided functions. Never answer in
+  plain text.
 - You may only use a tool name from the provided toolset. Never invent one.
 - Never invent canonical room ids, placement ids, hex coordinates, port ids,
   instance ids, or catalog definition ids. Use only canonical values present
@@ -607,6 +833,9 @@ Hard rules:
   Forward references work; never ask the author to supply batch keys, IDs,
   uniqueness suffixes, or database mechanics. Allocation does not publish
   canonical assets or create runtime instances.
+  Operation paths are rooted at the draft payload itself. Use /player_hook,
+  /ending, /process_flow/... and /objects/...; never prefix paths with
+  /storyline/.
 - Do the work the author clearly requested. Do not ask a clarification when
   the grounded context and request already provide the required decisions.
 - Resolve numbered or abbreviated follow-up answers against the immediately
@@ -634,6 +863,31 @@ Hard rules:
   plan_storyline_draft_operations. Put every compatible requested draft change
   into one operation batch. Do not substitute a status, schema, synopsis,
   preview, or advisory tool call for requested mutations.
+- BEFORE emitting draft operations, size the work. For requests involving
+  multiple scenes, branches at every scene, a shared destination plus
+  scene-local links, or any
+  change needing more than ten compact operations, use plan_storyline_work.
+  Return short ordered {label,instruction} units, NOT operation JSON.
+  For repeated edits across existing scenes, use one step with scene_ids
+  containing those exact saved scene_id values from saved journal_entries.
+  Never invent scene IDs; if a saved scene_id is unknown, omit scene_ids and
+  use an unscoped prerequisite step to create or locate the destination first.
+  The authority expands it into
+  separate scene-scoped units. scene_id targets one scene directly.
+  Scene-scoped units may change only that scene and its tasks/branch choices.
+  Create destination scenes/tasks in preceding unscoped prerequisite units,
+  before branches reference them. Never put "all/every/eight scenes" inside
+  an unscoped instruction. Do not create and wire a whole ending chain in one unit.
+  Each unit covers only one scene or one small ending phase. Keep the whole
+  plan under 600 words; split creation and cross-scene wiring if necessary.
+  Include all requested targets, with prerequisite scenes created before
+  branches that reference them. Validation runs after execution, so do not
+  include a validation-only work unit. The harness/browser executes these
+  units automatically with fresh revisions and persisted checkpoints.
+  Do not ask the author to request smaller edits or list every fork's fields.
+  For an existing active_work, use apply_storyline_work with its exact
+  job_id, step and expected_revision to resume it; never recreate saved work.
+  One small scene-local edit may still use plan_storyline_draft_operations.
 - On Storyline Builder, any other request that explicitly asks to fix, resolve,
   reconcile, generate, create, or save canonical library assets (items,
   actors, creatures, obstacles, hazards, traps, or rooms) for the storyline
@@ -670,10 +924,29 @@ Hard rules:
   review-completed flag, separate signoff document, or missing manual step.
   A review-only request uses check_storyline_creation_readiness; report its
   actual outcome and never imply it published anything.
+- On Storyline Builder, an aim that can be achieved in more than one way is
+  ONE task with goal_text stating the aim, and one branch choice per way
+  carrying an approach object. Never model the ways as separate objective
+  rows or separate tasks. Objective rows describe measurable steps only.
+- On Storyline Builder, a condition that can redirect or end the story from
+  any task (for example "if the clan is lost at any point") is ONE branch
+  choice with an empty source_task_id. Never copy it onto each task: the
+  same choice on several tasks is rejected by validation. A choice on a task
+  replaces that task's normal continuation, so a task-level choice is only
+  for a decision made at that task.
 - Missing optional Storyline fields are not blockers. Infer them from existing
   draft relationships when there is one clear match; otherwise leave them
   empty. Validation errors elsewhere in an incomplete draft do not block a
   valid requested partial update.
+- Do not suggest next steps. The harness states the next step after the
+  work has run, from its result.
+- On Storyline Builder, ask at most ONE creative question at a time. It must
+  concern a single scene, choice or coherent action. Never bundle a questionnaire or multiple action items in
+  one sentence. Technical batching, IDs, linking and validation sequencing
+  belong to the agent. Do not send already-authorized work back as new
+  homework; complete it or explicitly report its saved continuation state.
+  Three alternative options may answer that one creative question; they
+  are alternatives, never three tasks the author must all complete.
 - For a Storyline Builder request to create any underspecified object, return
   exactly three meaningfully different options: direct, complicating, and
   transformative. Never select one. Each option must state its narrative
@@ -691,11 +964,6 @@ Hard rules:
 - Tool selection does not answer the author. The agent harness will analyze the
   executed result and produce the final response and next steps afterward.
 
-Response shapes:
-{"type":"tool_call","tool_name":"<registered tool>","arguments":{...},"reasoning":"<one short sentence>","next_steps":["<up to 3 concrete next steps>"]}
-{"type":"task_queue","tasks":[{"tool_name":"<registered tool>","arguments":{...},"reasoning":"<step summary>"}],"reasoning":"<overall summary>","next_steps":["<up to 3 concrete next steps>"]}
-{"type":"direct_response","focus":"status|validation_review|discussion","reasoning":"<one short sentence>"}
-{"type":"clarification","question":"<decision the author must make>","options":[{"label":"<short name>","description":"<concept, purpose, relationships, and progression effect>","tradeoff":"<benefit and cost>","selection":"<self-contained direction if selected>"}]}
 PROMPT, $surface_label, $mutation_rule);
   }
 
@@ -718,7 +986,7 @@ PROMPT, $surface_label, $mutation_rule);
       $this->harnessManagement->encodeCompactJson($manifest['command_payload_contracts']),
       '## Author request',
       $utterance,
-      '## Your response (single JSON object)',
+      '## Your reply (one function call)',
     ]);
   }
 

@@ -39,7 +39,7 @@ final class ApplyStorylineRemediationTool implements EditorGmToolInterface {
         EditorGmToolDefinition::argument('definitions', 'array', FALSE, 'Planned canonical definition generation specifications.'),
         EditorGmToolDefinition::argument('rooms', 'array', FALSE, 'Planned canonical room generation specifications.'),
         EditorGmToolDefinition::argument('dungeons', 'array', FALSE, 'Planned canonical dungeon contract specifications.'),
-        EditorGmToolDefinition::argument('quests', 'array', FALSE, 'Planned canonical quest template specifications.'),
+        EditorGmToolDefinition::argument('quests', 'array', FALSE, 'Planned linked-quest storyline-reference repairs. Quest records themselves are written when the storyline is published.'),
         EditorGmToolDefinition::argument('operations', 'array', FALSE, 'Planned Storyline draft operations.'),
       ],
     );
@@ -211,15 +211,10 @@ final class ApplyStorylineRemediationTool implements EditorGmToolInterface {
           'tool' => 'repair_linked_quest_references',
           'message' => sprintf("Now aligning linked quest '%s' with its storyline…", $template_id),
         ];
-        if (($spec['action'] ?? '') === 'repair_storyline_references') {
-          continue;
-        }
+        continue;
       }
-      $sub_tool_calls[] = [
-        'tool' => 'publish_canonical_quest',
-        'message' => sprintf("Now publishing canonical quest template '%s'…", $template_id),
-      ];
-      $quest_receipts[] = $this->upsertCanonicalQuest($spec);
+      // Quest records are written from the draft at publication.
+      throw new \InvalidArgumentException('storyline_remediation_quest_publication_unsupported:' . $template_id);
     }
 
     $context->invalidate();
@@ -356,85 +351,6 @@ final class ApplyStorylineRemediationTool implements EditorGmToolInterface {
       ->execute();
 
     return ['dungeon_id' => $dungeon_id, 'created' => TRUE];
-  }
-
-  private function upsertCanonicalQuest(array $spec): array {
-    $template_id = trim((string) ($spec['template_id'] ?? ''));
-    if (!\Drupal::hasContainer() || !\Drupal::getContainer()->has('database')) {
-      return ['template_id' => $template_id, 'created' => FALSE];
-    }
-    $db = \Drupal::database();
-    if (!$db->schema()->tableExists('dc_canonical_quests')) {
-      return ['template_id' => $template_id, 'created' => FALSE];
-    }
-
-    $existing = $db->select('dc_canonical_quests', 'q')
-      ->fields('q')
-      ->condition('template_id', $template_id)
-      ->range(0, 1)
-      ->execute()
-      ->fetchAssoc();
-
-    $now = time();
-    $version = trim((string) ($spec['version'] ?? '1.0.0')) ?: '1.0.0';
-
-    if (is_array($existing)) {
-      $existing_rewards = is_string($existing['rewards_schema'] ?? NULL) ? json_decode($existing['rewards_schema'], TRUE) : [];
-      if (!is_array($existing_rewards)) {
-        $existing_rewards = ['xp' => 60, 'gold' => 0, 'items' => []];
-      }
-      $new_rewards = is_array($spec['rewards_schema'] ?? NULL) ? $spec['rewards_schema'] : [];
-      $merged_items = array_values(array_unique(array_filter(array_merge(
-        array_map('strval', (array) ($existing_rewards['items'] ?? [])),
-        array_map('strval', (array) ($new_rewards['items'] ?? [])),
-      ))));
-      $existing_rewards['items'] = $merged_items;
-      if (isset($new_rewards['gold']) && (int) $new_rewards['gold'] > (int) ($existing_rewards['gold'] ?? 0)) {
-        $existing_rewards['gold'] = (int) $new_rewards['gold'];
-      }
-      $update_fields = [
-        'rewards_schema' => json_encode($existing_rewards, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-        'updated_at' => $now,
-      ];
-      if (!empty($spec['objectives_schema'])) {
-        $update_fields['objectives_schema'] = json_encode(array_values((array) $spec['objectives_schema']), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-      }
-      $db->update('dc_canonical_quests')
-        ->fields($update_fields)
-        ->condition('template_id', $template_id)
-        ->execute();
-
-      return ['template_id' => $template_id, 'created' => FALSE, 'updated' => TRUE];
-    }
-
-    $fields = [
-      'template_id' => $template_id,
-      'version' => $version,
-      'name' => trim((string) ($spec['name'] ?? $template_id)) ?: $template_id,
-      'description' => trim((string) ($spec['description'] ?? $template_id)) ?: $template_id,
-      'quest_type' => trim((string) ($spec['quest_type'] ?? 'module_story')) ?: 'module_story',
-      'level_min' => max(1, (int) ($spec['level_min'] ?? 1)),
-      'level_max' => max(1, (int) ($spec['level_max'] ?? 1)),
-      'tags' => json_encode(array_values((array) ($spec['tags'] ?? [])), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-      'prerequisites' => json_encode(array_values((array) ($spec['prerequisites'] ?? [])), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-      'estimated_duration_minutes' => max(5, (int) ($spec['estimated_duration_minutes'] ?? 20)),
-      'storyline_template_id' => $spec['storyline_template_id'] ?? NULL,
-      'entry_point_actor_id' => $spec['entry_point_actor_id'] ?? NULL,
-      'entry_point_location_id' => $spec['entry_point_location_id'] ?? NULL,
-      'contract_hash' => hash('sha256', json_encode($spec, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)),
-      'objectives_schema' => json_encode(array_values((array) ($spec['objectives_schema'] ?? [])), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-      'rewards_schema' => json_encode((array) ($spec['rewards_schema'] ?? ['xp' => 60, 'gold' => 0, 'items' => []]), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-      'story_impact' => json_encode((array) ($spec['story_impact'] ?? []), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-      'updated_at' => $now,
-    ];
-
-    $db->merge('dc_canonical_quests')
-      ->keys(['template_id' => $template_id, 'version' => $version])
-      ->fields($fields)
-      ->expression('created_at', 'COALESCE(created_at, :created_at)', [':created_at' => $now])
-      ->execute();
-
-    return ['template_id' => $template_id, 'created' => TRUE];
   }
 
   private function listArgument(array $arguments, string $name): array {

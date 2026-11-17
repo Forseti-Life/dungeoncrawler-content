@@ -73,7 +73,7 @@ class EditorGmIntentTruncationTest extends UnitTestCase {
     $this->assertSame(502, $response->getStatusCode());
     $error = json_decode($response->getContent(), TRUE, 512, JSON_THROW_ON_ERROR)['error'];
     $this->assertSame('editor_gm_intent_output_truncated', $error['code']);
-    $this->assertStringContainsString('No action was executed', $error['message']);
+    $this->assertStringContainsString('that batch was not executed', $error['message']);
   }
 
 }

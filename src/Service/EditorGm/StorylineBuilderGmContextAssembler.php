@@ -20,6 +20,7 @@ final class StorylineBuilderGmContextAssembler implements EditorGmContextAssembl
     private readonly EditorGmToolRegistry $registry,
     private readonly EditorGmIntentParser $intentParser,
     private readonly PlanStorylineRemediationTool $remediationPlanner,
+    private readonly StorylineGmWorkService $work,
   ) {}
 
   public function assemble(EditorGmToolContext $context): array {
@@ -50,6 +51,20 @@ final class StorylineBuilderGmContextAssembler implements EditorGmContextAssembl
         'instructions' => 'For an explicit request or selected option to build roster character sheets, execute build_storyline_actor_sheets immediately. Omit actor_ids for the whole roster. Do not ask for classes, draft IDs or confirmation; the tool derives native choices, creates missing drafts and links each actor atomically.',
       ],
       'authoring_workflow' => [
+        'bounded_work' => [
+          'plan_tool' => 'plan_storyline_work',
+          'apply_tool' => 'apply_storyline_work',
+          'max_operations_per_batch' => StorylineGmWorkService::MAX_OPERATIONS,
+          'max_patch_bytes' => StorylineGmWorkService::MAX_PATCH_BYTES,
+          'active_work' => $this->work->activeWork($context->draftId),
+          'instructions' => 'Large or multi-scene edits start with short work-unit instructions, not a complete operation payload. The client automatically continues checkpointed batches. Resume active_work before planning the same edits again. If its revision conflicts, explicitly stop the saved work before planning against the newer draft; completed edits remain saved. Plan work units only for findings whose route is draft_operation; the route on a finding overrides the route on its stage. canonical_remediation findings are handled with plan_storyline_remediation, never with work units or new draft rows. Never ask the author to divide the technical workload.',
+        ],
+        'next_step_contract' => [
+          'maximum_items' => 1,
+          'one_creative_decision_or_bounded_action' => TRUE,
+          'technical_batching_is_agent_owned' => TRUE,
+          'completed_work_must_not_be_reproposed' => TRUE,
+        ],
         'updates_apply_immediately' => TRUE,
         'revision_conflicts_are_rejected' => TRUE,
         'vague_creation_option_count' => 3,

@@ -15,6 +15,22 @@ class StorylineManagerService {
 
   public const STORYLINE_DEFINITION_SCHEMA_VERSION = 'storyline-definition-v1';
   public const STORYLINE_RUNTIME_SCHEMA_VERSION = 'storyline-runtime-v1';
+  public const STORYLINE_BRANCH_TRIGGER_TYPES = [
+    'player_choice',
+    'action',
+    'objective_result',
+    'skill_result',
+    'actor_state',
+    'environment_state',
+    'item_state',
+    'timer',
+    'gm_decision',
+  ];
+  public const STORYLINE_BRANCH_INTERACTIONS = ['other', 'attacked', 'killed'];
+  public const STORYLINE_BRANCH_ENVIRONMENT_TARGET_TYPES = ['room', 'dungeon', 'location', 'world'];
+  public const STORYLINE_BRANCH_TARGET_TYPES = ['task', 'scene', 'conflict', 'chapter', 'storyline'];
+  public const STORYLINE_BRANCH_OPERATIONS = ['unlock', 'lock', 'reveal', 'conceal', 'redirect', 'escalate', 'resolve', 'set'];
+  public const STORYLINE_BRANCH_STATE_CHANGE_OPERATIONS = ['set', 'increment', 'decrement', 'add', 'remove'];
   private const CANONICAL_STORYLINE_TABLE = 'dc_canonical_storylines';
   private const CANONICAL_STORYLINE_REQUIRED_FIELDS = [
     'template_id',
@@ -742,10 +758,12 @@ class StorylineManagerService {
       'errors' => $cross_reference_errors,
     ];
 
-    $questline_progression_errors = $this->validateQuestlineProgressionFlow($storyline_data, $normalized_payload_type);
+    $questline_progression_findings = [];
+    $questline_progression_errors = $this->validateQuestlineProgressionFlow($storyline_data, $normalized_payload_type, $questline_progression_findings);
     $stages['questline_progression'] = [
       'valid' => $questline_progression_errors === [],
       'errors' => $questline_progression_errors,
+      'findings' => $questline_progression_findings,
     ];
 
     $narrative_analysis = $this->analyzeStorylineNarrative($storyline_data);
@@ -770,10 +788,12 @@ class StorylineManagerService {
       'errors' => $navigation_progression_errors,
     ];
 
-    $objective_control_chain_errors = $this->validateObjectiveControlChainStage($storyline_data, $normalized_payload_type);
+    $objective_link_findings = [];
+    $objective_control_chain_errors = $this->validateObjectiveControlChainStage($storyline_data, $normalized_payload_type, $objective_link_findings);
     $stages['objective_control_chain'] = [
       'valid' => $objective_control_chain_errors === [],
       'errors' => $objective_control_chain_errors,
+      'findings' => $objective_link_findings,
     ];
 
     $entity_type_contract_errors = $this->validateReferencedEntityTypeContractsStage($storyline_data, $normalized_payload_type);
@@ -988,22 +1008,51 @@ class StorylineManagerService {
     $branch_choice_count = 0;
     $terminal_choice_count = 0;
     foreach (array_values(array_filter((array) ($storyline_data['questline']['quest_nodes'] ?? []), 'is_array')) as $quest) {
+      $quest_id = trim((string) ($quest['quest_id'] ?? ''));
+      if ($quest_id === '') {
+        continue;
+      }
+      $quest_node = 'quest:' . $quest_id;
+      $nodes[$quest_node] = [
+        'id' => $quest_node,
+        'type' => 'quest',
+        'label' => trim((string) ($quest['name'] ?? $quest_id)) ?: $quest_id,
+      ];
+      $scene_id = trim((string) ($quest['scene_id'] ?? ''));
+      if (isset($scene_ids[$scene_id])) {
+        $edge = ['source' => 'scene:' . $scene_id, 'target' => $quest_node, 'type' => 'advances'];
+        if (!in_array($edge, $edges, TRUE)) {
+          $edges[] = $edge;
+        }
+      }
+    }
+    $choice_owners = array_values(array_filter((array) ($storyline_data['questline']['quest_nodes'] ?? []), 'is_array'));
+    $storyline_wide_choices = array_values(array_filter((array) ($storyline_data['questline']['storyline_choices'] ?? []), 'is_array'));
+    if ($storyline_wide_choices !== []) {
+      // Storyline-wide choices have no source task: they are drawn as their
+      // own entry points, never as an edge out of every task.
+      $choice_owners[] = ['quest_id' => '', 'storyline_wide' => TRUE, 'choices' => $storyline_wide_choices];
+    }
+    foreach ($choice_owners as $quest) {
       $source_quest_id = trim((string) ($quest['quest_id'] ?? ''));
+      $storyline_wide = ($quest['storyline_wide'] ?? FALSE) === TRUE;
+      $owner_key = $storyline_wide ? 'storyline' : $source_quest_id;
       foreach (array_values(array_filter((array) ($quest['choices'] ?? []), 'is_array')) as $choice) {
         $decision_id = trim((string) ($choice['decision_id'] ?? ''));
         $choice_id = trim((string) ($choice['choice_id'] ?? ''));
-        if ($source_quest_id === '' || $decision_id === '' || $choice_id === '') {
+        if ($owner_key === '' || $decision_id === '' || $choice_id === '') {
           continue;
         }
-        $branch_decisions[$source_quest_id . ':' . $decision_id] = TRUE;
+        $branch_decisions[$owner_key . ':' . $decision_id] = TRUE;
         $branch_choice_count++;
-        $decision_node = 'decision:' . $source_quest_id . ':' . $decision_id;
-        $choice_node = 'choice:' . $source_quest_id . ':' . $decision_id . ':' . $choice_id;
+        $decision_node = 'decision:' . $owner_key . ':' . $decision_id;
+        $choice_node = 'choice:' . $owner_key . ':' . $decision_id . ':' . $choice_id;
         $nodes[] = [
           'id' => $decision_node,
           'type' => 'decision',
-          'label' => $decision_id,
+          'label' => $storyline_wide ? 'From any task' : $decision_id,
           'source_quest_id' => $source_quest_id,
+          'storyline_wide' => $storyline_wide,
         ];
         $nodes[] = [
           'id' => $choice_node,
@@ -1014,11 +1063,13 @@ class StorylineManagerService {
           // Set when the choice is a way of achieving its quest's goal.
           'approach' => is_array($choice['approach'] ?? NULL) ? $choice['approach'] : NULL,
         ];
-        $edges[] = ['source' => 'quest:' . $source_quest_id, 'target' => $decision_node, 'type' => 'presents_decision'];
+        if (!$storyline_wide) {
+          $edges[] = ['source' => 'quest:' . $source_quest_id, 'target' => $decision_node, 'type' => 'presents_decision'];
+        }
         $edges[] = ['source' => $decision_node, 'target' => $choice_node, 'type' => 'offers_choice'];
         if (($choice['terminal'] ?? FALSE) === TRUE) {
           $terminal_choice_count++;
-          $outcome_node = 'outcome:' . $source_quest_id . ':' . $decision_id . ':' . $choice_id;
+          $outcome_node = 'outcome:' . $owner_key . ':' . $decision_id . ':' . $choice_id;
           $nodes[] = [
             'id' => $outcome_node,
             'type' => 'terminal_outcome',
@@ -3050,6 +3101,49 @@ class StorylineManagerService {
             }
           }
         }
+        // A storyline-wide choice is open from any task while the storyline
+        // is being played.
+        foreach (array_values(array_filter((array) ($data['questline']['storyline_choices'] ?? []), 'is_array')) as $choice) {
+          $decision_id = trim((string) ($choice['decision_id'] ?? ''));
+          $choice_id = trim((string) ($choice['choice_id'] ?? ''));
+          if ($decision_id === '' || $choice_id === '') {
+            continue;
+          }
+          $selected_choice_id = trim((string) ($selections[$decision_id] ?? ''));
+          $summary = [
+            'decision_id' => $decision_id,
+            'choice_id' => $choice_id,
+            'label' => trim((string) ($choice['label'] ?? '')),
+            'source_quest_id' => '',
+            'storyline_wide' => TRUE,
+            'trigger' => is_array($choice['trigger'] ?? NULL) ? $choice['trigger'] : [],
+            'effects' => is_array($choice['effects'] ?? NULL) ? $choice['effects'] : [],
+            'target_quest_id' => trim((string) ($choice['target_quest_id'] ?? '')),
+            'target_scene_id' => trim((string) ($choice['target_scene_id'] ?? '')),
+            'terminal' => ($choice['terminal'] ?? FALSE) === TRUE,
+            'achieves_quest_goal' => FALSE,
+          ];
+          if ($selected_choice_id === $choice_id) {
+            if (!$actor_scoped || $this->branchChoiceAffectsActor($summary, $actor_refs)) {
+              if ($actor_scoped) {
+                $summary['effects'] = [
+                  'summary' => '',
+                  'actors' => array_values(array_filter(
+                    (array) ($summary['effects']['actors'] ?? []),
+                    fn(mixed $effect): bool => is_array($effect)
+                      && $this->branchActorIdMatches((string) ($effect['actor_id'] ?? ''), $actor_refs),
+                  )),
+                  'environment' => [],
+                  'storyline' => [],
+                ];
+              }
+              $resolved[] = $summary;
+            }
+          }
+          elseif (!$actor_scoped && $selected_choice_id === '' && (string) ($row['status'] ?? '') === 'active') {
+            $pending[] = $summary;
+          }
+        }
 
         $actor_state = [];
         if ($actor_scoped && is_array($variables['actors'] ?? NULL)) {
@@ -3856,6 +3950,19 @@ class StorylineManagerService {
           $selected = $choice;
           $source_quest_id = trim((string) ($node['quest_id'] ?? ''));
         }
+      }
+    }
+    foreach (array_values(array_filter((array) ($storyline_data['questline']['storyline_choices'] ?? []), 'is_array')) as $choice) {
+      if (
+        trim((string) ($choice['decision_id'] ?? '')) === $decision_id
+        && trim((string) ($choice['choice_id'] ?? '')) === $choice_id
+      ) {
+        if ($selected !== NULL) {
+          throw new \LogicException("storyline_branch_choice_duplicate:{$decision_id}:{$choice_id}");
+        }
+        // A storyline-wide choice has no source task.
+        $selected = $choice;
+        $source_quest_id = '';
       }
     }
     if ($selected === NULL) {
@@ -4736,11 +4843,20 @@ class StorylineManagerService {
       $ordered_ids = array_column($nodes, 'quest_id');
     }
 
-    return [
+    $normalized = [
       'primary_quest_id' => trim((string) ($questline['primary_quest_id'] ?? $ordered_ids[0] ?? '')),
       'ordered_quest_ids' => $ordered_ids,
       'quest_nodes' => $nodes,
     ];
+    // Choices whose source is the whole storyline, not one task.
+    $storyline_choices = array_values(array_filter(
+      is_array($questline['storyline_choices'] ?? NULL) ? $questline['storyline_choices'] : [],
+      'is_array',
+    ));
+    if ($storyline_choices !== []) {
+      $normalized['storyline_choices'] = $storyline_choices;
+    }
+    return $normalized;
   }
 
   /**
@@ -5190,7 +5306,7 @@ class StorylineManagerService {
    * @return array<int, string>
    *   Validation errors for this stage.
    */
-  protected function validateQuestlineProgressionFlow(array $storyline_data, string $payload_type = 'definition'): array {
+  protected function validateQuestlineProgressionFlow(array $storyline_data, string $payload_type = 'definition', array &$findings = []): array {
     $errors = [];
     $questline = is_array($storyline_data['questline'] ?? NULL) ? $storyline_data['questline'] : [];
     $nodes = array_values(array_filter(is_array($questline['quest_nodes'] ?? NULL) ? $questline['quest_nodes'] : [], 'is_array'));
@@ -5217,6 +5333,7 @@ class StorylineManagerService {
     $node_chapter_ids = [];
     $decision_sources = [];
     $global_choice_ids = [];
+    $choice_signatures = [];
     foreach ($nodes as $node) {
       $quest_id = trim((string) ($node['quest_id'] ?? ''));
       if ($quest_id === '') {
@@ -5252,12 +5369,6 @@ class StorylineManagerService {
       catch (\DomainException $e) {
         $node_goal = NULL;
         $errors[] = "Questline node '{$quest_id}' has a choice marked as an approach but states no goal.";
-      }
-      $approach_decisions = [];
-      foreach ($choices as $choice) {
-        if (is_array($choice['approach'] ?? NULL)) {
-          $approach_decisions[trim((string) ($choice['decision_id'] ?? ''))] = TRUE;
-        }
       }
       if ($choices !== []) {
         $decision_choices = [];
@@ -5297,18 +5408,16 @@ class StorylineManagerService {
           }
           $errors = array_merge($errors, $this->validateStorylineBranchTrigger($trigger, $choice_key, $quest_id));
           $errors = array_merge($errors, $this->validateStorylineBranchEffects($effects, $trigger, $choice_key, $quest_id, $storyline_data));
-          if ($terminal && $target_quest_id !== '') {
-            $errors[] = "Terminal branch choice '{$choice_key}' on quest '{$quest_id}' cannot target another quest.";
-          }
-          if ($terminal && $target_scene_id !== '') {
-            $errors[] = "Terminal branch choice '{$choice_key}' on quest '{$quest_id}' cannot target another scene.";
-          }
-          if (!$terminal && $target_quest_id === '') {
-            $errors[] = "Non-terminal branch choice '{$choice_key}' on quest '{$quest_id}' must target a quest.";
-          }
-          if (!$terminal && $target_scene_id === '') {
-            $errors[] = "Non-terminal branch choice '{$choice_key}' on quest '{$quest_id}' must target a scene.";
-          }
+          $errors = array_merge($errors, $this->branchChoiceDestinationErrors($terminal, $target_quest_id, $target_scene_id, $choice_key, "on quest '{$quest_id}'"));
+          $signature = implode('|', [
+            mb_strtolower($label),
+            trim((string) ($trigger['type'] ?? '')),
+            mb_strtolower(trim((string) ($trigger['condition'] ?? ''))),
+            trim((string) ($trigger['interaction'] ?? '')),
+            $terminal ? 'terminal' : $target_quest_id,
+          ]);
+          $choice_signatures[$signature]['label'] = $label;
+          $choice_signatures[$signature]['tasks'][$quest_id][] = $choice_id;
           if ($target_quest_id !== '' && $target_quest_id !== $quest_id) {
             $choice_targets[$quest_id][] = $target_quest_id;
             $choice_destinations[] = [
@@ -5317,12 +5426,6 @@ class StorylineManagerService {
               'target_quest_id' => $target_quest_id,
               'target_scene_id' => $target_scene_id,
             ];
-          }
-        }
-        foreach ($decision_choices as $decision_id => $choice_ids) {
-          // A goal may have a single way of achieving it.
-          if (count(array_unique($choice_ids)) < 2 && !isset($approach_decisions[$decision_id])) {
-            $errors[] = "Branch decision '{$decision_id}' on quest '{$quest_id}' must provide at least two choices.";
           }
         }
         $authored_targets = array_values(array_unique($choice_targets[$quest_id] ?? []));
@@ -5339,6 +5442,85 @@ class StorylineManagerService {
           $errors[] = "Questline node '{$quest_id}' cannot unlock after itself.";
         }
       }
+    }
+
+    // One condition copied onto several tasks is a storyline-wide choice
+    // written the wrong way.
+    foreach ($choice_signatures as $group) {
+      if (count($group['tasks']) < 2) {
+        continue;
+      }
+      $message = sprintf(
+        "The choice '%s' is repeated on %d tasks with the same trigger and outcome. A condition that applies across the story is one storyline-wide choice (a branch choice with an empty source_task_id); replace the copies with it.",
+        $group['label'],
+        count($group['tasks']),
+      );
+      $errors[] = $message;
+      $findings[] = [
+        'severity' => 'error',
+        'code' => 'choice_cloned_across_tasks',
+        'message' => $message,
+        'label' => $group['label'],
+        'task_ids' => array_map('strval', array_keys($group['tasks'])),
+        'choice_ids' => array_merge(...array_values($group['tasks'])),
+      ];
+    }
+
+    // Storyline-wide choices can fire from any task. They are not edges of
+    // the task graph; a non-terminal one makes its target reachable.
+    $storyline_choice_targets = [];
+    foreach (array_values(array_filter(is_array($questline['storyline_choices'] ?? NULL) ? $questline['storyline_choices'] : [], 'is_array')) as $choice) {
+      $decision_id = trim((string) ($choice['decision_id'] ?? ''));
+      $choice_id = trim((string) ($choice['choice_id'] ?? ''));
+      $choice_key = $decision_id . ':' . $choice_id;
+      if ($decision_id === '' || $choice_id === '') {
+        $errors[] = 'A storyline-wide choice has no decision_id or choice_id.';
+        continue;
+      }
+      if (isset($global_choice_ids[$choice_id])) {
+        $errors[] = "Branch choice_id '{$choice_id}' must be unique across the storyline.";
+      }
+      $global_choice_ids[$choice_id] = TRUE;
+      if (isset($decision_sources[$decision_id]) && $decision_sources[$decision_id] !== '') {
+        $errors[] = "Branch decision '{$decision_id}' is declared both on a task and storyline-wide.";
+      }
+      $decision_sources[$decision_id] = '';
+      $trigger = is_array($choice['trigger'] ?? NULL) ? $choice['trigger'] : [];
+      $terminal = ($choice['terminal'] ?? FALSE) === TRUE;
+      $target_quest_id = trim((string) ($choice['target_quest_id'] ?? ''));
+      $target_scene_id = trim((string) ($choice['target_scene_id'] ?? ''));
+      if (trim((string) ($choice['label'] ?? '')) === '') {
+        $errors[] = "Storyline-wide choice '{$choice_key}' is missing its player-facing label.";
+      }
+      if (is_array($choice['approach'] ?? NULL)) {
+        $errors[] = "Storyline-wide choice '{$choice_key}' is marked as an approach, but an approach achieves the goal of one task.";
+      }
+      $errors = array_merge($errors, $this->validateStorylineBranchTrigger($trigger, $choice_key, 'the whole storyline'));
+      $errors = array_merge($errors, $this->validateStorylineBranchEffects(
+        is_array($choice['effects'] ?? NULL) ? $choice['effects'] : [],
+        $trigger,
+        $choice_key,
+        'the whole storyline',
+        $storyline_data,
+      ));
+      $errors = array_merge($errors, $this->branchChoiceDestinationErrors($terminal, $target_quest_id, $target_scene_id, $choice_key, 'on the whole storyline'));
+      if ($target_quest_id === '') {
+        continue;
+      }
+      if (!isset($node_ids[$target_quest_id])) {
+        $errors[] = "Storyline-wide choice '{$choice_key}' targets unknown quest '{$target_quest_id}'.";
+        continue;
+      }
+      if ($target_scene_id !== $node_scene_ids[$target_quest_id]) {
+        $errors[] = sprintf(
+          "Storyline-wide choice '%s' targets scene '%s', but destination quest '%s' belongs to scene '%s'.",
+          $choice_key,
+          $target_scene_id,
+          $target_quest_id,
+          $node_scene_ids[$target_quest_id],
+        );
+      }
+      $storyline_choice_targets[$target_quest_id] = TRUE;
     }
 
     $scene_ids = [];
@@ -5374,33 +5556,33 @@ class StorylineManagerService {
       }
     }
 
+    foreach ($choice_targets as $choice_source_quest_id => $choice_target_ids) {
+      foreach (array_unique($choice_target_ids) as $choice_target_id) {
+        if (!isset($node_ids[$choice_target_id])) {
+          $errors[] = "Branch choice on quest '{$choice_source_quest_id}' targets unknown quest '{$choice_target_id}'.";
+        }
+      }
+    }
+    foreach ($choice_destinations as $destination) {
+      $target_quest_id = $destination['target_quest_id'];
+      if (
+        isset($node_scene_ids[$target_quest_id])
+        && $destination['target_scene_id'] !== $node_scene_ids[$target_quest_id]
+      ) {
+        $errors[] = sprintf(
+          "Branch choice '%s' targets scene '%s', but destination quest '%s' belongs to scene '%s'.",
+          $destination['choice_key'],
+          $destination['target_scene_id'],
+          $target_quest_id,
+          $node_scene_ids[$target_quest_id],
+        );
+      }
+    }
     foreach ($adjacency as $quest_id => $targets) {
       foreach ($targets as $target_id) {
         if (!isset($node_ids[$target_id])) {
           $errors[] = "Questline node '{$quest_id}' unlocks unknown quest '{$target_id}'.";
           continue;
-        }
-        foreach ($choice_targets as $quest_id => $targets) {
-          foreach (array_unique($targets) as $target_id) {
-            if (!isset($node_ids[$target_id])) {
-              $errors[] = "Branch choice on quest '{$quest_id}' targets unknown quest '{$target_id}'.";
-            }
-          }
-          foreach ($choice_destinations as $destination) {
-            $target_quest_id = $destination['target_quest_id'];
-            if (
-              isset($node_scene_ids[$target_quest_id])
-              && $destination['target_scene_id'] !== $node_scene_ids[$target_quest_id]
-            ) {
-              $errors[] = sprintf(
-                "Branch choice '%s' targets scene '%s', but destination quest '%s' belongs to scene '%s'.",
-                $destination['choice_key'],
-                $destination['target_scene_id'],
-                $target_quest_id,
-                $node_scene_ids[$target_quest_id],
-              );
-            }
-          }
         }
         if (!in_array($quest_id, $prerequisites[$target_id] ?? [], TRUE)) {
           $errors[] = "Questline edge '{$quest_id}' -> '{$target_id}' is missing the reciprocal unlocks_after reference.";
@@ -5427,7 +5609,7 @@ class StorylineManagerService {
     }
 
     $visited = [];
-    $stack = [$primary_quest_id];
+    $stack = array_merge([$primary_quest_id], array_map('strval', array_keys($storyline_choice_targets)));
     while ($stack !== []) {
       $current = array_pop($stack);
       if (!is_string($current) || $current === '' || isset($visited[$current])) {
@@ -5488,7 +5670,7 @@ class StorylineManagerService {
       }
       if ($state === 1) {
         $cycle_path = implode(' -> ', array_merge($trail, [$quest_id]));
-        $errors[] = "Questline progression cycle detected ({$cycle_path}).";
+        $errors[] = "Questline progression cycle detected ({$cycle_path}). A choice may not lead back to an earlier task; make that choice terminal or point it at a later task.";
         return;
       }
       $cycle_state[$quest_id] = 1;
@@ -5536,24 +5718,36 @@ class StorylineManagerService {
   }
 
   /**
+   * A choice either ends the story or names where it leads, never both.
+   *
+   * @return array<int, string>
+   */
+  protected function branchChoiceDestinationErrors(bool $terminal, string $target_quest_id, string $target_scene_id, string $choice_key, string $owner): array {
+    $errors = [];
+    if ($terminal && $target_quest_id !== '') {
+      $errors[] = "Terminal branch choice '{$choice_key}' {$owner} cannot target another quest.";
+    }
+    if ($terminal && $target_scene_id !== '') {
+      $errors[] = "Terminal branch choice '{$choice_key}' {$owner} cannot target another scene.";
+    }
+    if (!$terminal && $target_quest_id === '') {
+      $errors[] = "Non-terminal branch choice '{$choice_key}' {$owner} must target a quest.";
+    }
+    if (!$terminal && $target_scene_id === '') {
+      $errors[] = "Non-terminal branch choice '{$choice_key}' {$owner} must target a scene.";
+    }
+    return $errors;
+  }
+
+  /**
    * Validate one branch trigger contract.
    */
   protected function validateStorylineBranchTrigger(array $trigger, string $choice_key, string $quest_id): array {
     $errors = [];
     $type = trim((string) ($trigger['type'] ?? ''));
-    $allowed = [
-      'player_choice',
-      'action',
-      'objective_result',
-      'skill_result',
-      'actor_state',
-      'environment_state',
-      'item_state',
-      'timer',
-      'gm_decision',
-    ];
+    $allowed = self::STORYLINE_BRANCH_TRIGGER_TYPES;
     if (!in_array($type, $allowed, TRUE)) {
-      $errors[] = "Branch choice '{$choice_key}' on quest '{$quest_id}' has invalid trigger type '{$type}'.";
+      $errors[] = "Branch choice '{$choice_key}' on quest '{$quest_id}' has invalid trigger type '{$type}'. Allowed: " . implode(', ', $allowed) . '.';
     }
     if (trim((string) ($trigger['condition'] ?? '')) === '') {
       $errors[] = "Branch choice '{$choice_key}' on quest '{$quest_id}' is missing its trigger condition.";
@@ -5562,8 +5756,8 @@ class StorylineManagerService {
       $errors[] = "Branch choice '{$choice_key}' on quest '{$quest_id}' is missing its trigger source_id.";
     }
     $interaction = trim((string) ($trigger['interaction'] ?? ''));
-    if ($type === 'action' && !in_array($interaction, ['other', 'attacked', 'killed'], TRUE)) {
-      $errors[] = "Branch choice '{$choice_key}' on quest '{$quest_id}' action trigger must classify interaction as other, attacked, or killed.";
+    if ($type === 'action' && !in_array($interaction, self::STORYLINE_BRANCH_INTERACTIONS, TRUE)) {
+      $errors[] = "Branch choice '{$choice_key}' on quest '{$quest_id}' action trigger must classify interaction as one of: " . implode(', ', self::STORYLINE_BRANCH_INTERACTIONS) . '.';
     }
     return $errors;
   }
@@ -5619,8 +5813,8 @@ class StorylineManagerService {
       elseif (!in_array($actor_id, $actor_ids, TRUE)) {
         $errors[] = "Branch choice '{$choice_key}' actor effect {$index} references unknown actor '{$effect['actor_id']}'.";
       }
-      if (!in_array($interaction, ['other', 'attacked', 'killed'], TRUE)) {
-        $errors[] = "Branch choice '{$choice_key}' actor effect {$index} must classify interaction as other, attacked, or killed.";
+      if (!in_array($interaction, self::STORYLINE_BRANCH_INTERACTIONS, TRUE)) {
+        $errors[] = "Branch choice '{$choice_key}' actor effect {$index} must classify interaction as one of: " . implode(', ', self::STORYLINE_BRANCH_INTERACTIONS) . '.';
       }
       if (in_array($interaction, ['attacked', 'killed'], TRUE) && trim((string) ($effect['reaction'] ?? '')) === '') {
         $errors[] = "Branch choice '{$choice_key}' actor effect {$index} must spell out how '{$actor_id}' reacts when {$interaction}.";
@@ -5629,8 +5823,8 @@ class StorylineManagerService {
     }
     foreach ($environment_effects as $index => $effect) {
       $target_type = trim((string) ($effect['target_type'] ?? ''));
-      if (!in_array($target_type, ['room', 'dungeon', 'location', 'world'], TRUE)) {
-        $errors[] = "Branch choice '{$choice_key}' environment effect {$index} has invalid target_type '{$target_type}'.";
+      if (!in_array($target_type, self::STORYLINE_BRANCH_ENVIRONMENT_TARGET_TYPES, TRUE)) {
+        $errors[] = "Branch choice '{$choice_key}' environment effect {$index} has invalid target_type '{$target_type}'. Allowed: " . implode(', ', self::STORYLINE_BRANCH_ENVIRONMENT_TARGET_TYPES) . '.';
       }
       if (trim((string) ($effect['target_id'] ?? '')) === '' || trim((string) ($effect['effect'] ?? '')) === '') {
         $errors[] = "Branch choice '{$choice_key}' environment effect {$index} must identify the target and effect.";
@@ -5644,11 +5838,11 @@ class StorylineManagerService {
       $target_type = trim((string) ($effect['target_type'] ?? ''));
       $operation = trim((string) ($effect['operation'] ?? ''));
       $source_actor_id = trim((string) ($effect['source_actor_id'] ?? ''));
-      if (!in_array($target_type, ['task', 'scene', 'conflict', 'chapter', 'storyline'], TRUE)) {
-        $errors[] = "Branch choice '{$choice_key}' storyline effect {$index} has invalid target_type '{$target_type}'.";
+      if (!in_array($target_type, self::STORYLINE_BRANCH_TARGET_TYPES, TRUE)) {
+        $errors[] = "Branch choice '{$choice_key}' storyline effect {$index} has invalid target_type '{$target_type}'. Allowed: " . implode(', ', self::STORYLINE_BRANCH_TARGET_TYPES) . '.';
       }
-      if (!in_array($operation, ['unlock', 'lock', 'reveal', 'conceal', 'redirect', 'escalate', 'resolve', 'set'], TRUE)) {
-        $errors[] = "Branch choice '{$choice_key}' storyline effect {$index} has invalid operation '{$operation}'.";
+      if (!in_array($operation, self::STORYLINE_BRANCH_OPERATIONS, TRUE)) {
+        $errors[] = "Branch choice '{$choice_key}' storyline effect {$index} has invalid operation '{$operation}'. Allowed: " . implode(', ', self::STORYLINE_BRANCH_OPERATIONS) . '.';
       }
       if (trim((string) ($effect['target_id'] ?? '')) === '' || trim((string) ($effect['effect'] ?? '')) === '') {
         $errors[] = "Branch choice '{$choice_key}' storyline effect {$index} must identify the target and implication.";
@@ -5720,8 +5914,8 @@ class StorylineManagerService {
       if (trim((string) ($change['key'] ?? '')) === '') {
         $errors[] = "Branch {$context} state change {$index} is missing its key.";
       }
-      if (!in_array($operation, ['set', 'increment', 'decrement', 'add', 'remove'], TRUE)) {
-        $errors[] = "Branch {$context} state change {$index} has invalid operation '{$operation}'.";
+      if (!in_array($operation, self::STORYLINE_BRANCH_STATE_CHANGE_OPERATIONS, TRUE)) {
+        $errors[] = "Branch {$context} state change {$index} has invalid operation '{$operation}'. Allowed: " . implode(', ', self::STORYLINE_BRANCH_STATE_CHANGE_OPERATIONS) . '.';
       }
       if (!array_key_exists('value', $change)) {
         $errors[] = "Branch {$context} state change {$index} is missing its value.";
@@ -5913,29 +6107,17 @@ class StorylineManagerService {
    * @return array<int, string>
    *   Validation errors for this stage.
    */
-  protected function validateObjectiveControlChainStage(array $storyline_data, string $payload_type): array {
+  protected function validateObjectiveControlChainStage(array $storyline_data, string $payload_type, array &$link_findings = []): array {
     if ($this->objectiveTypeService === NULL) {
       return ['Canonical validation dependency missing: ObjectiveTypeService is required for objective_control_chain stage execution.'];
     }
 
     $errors = [];
     $quest_ids = $this->collectStorylineQuestIdsForObjectiveValidation($storyline_data);
-    $builder_objectives_by_id = [];
-    $builder_criteria_rows = array_values(array_filter(
-      (array) ($storyline_data['metadata']['storyline_builder']['objective_completion_criteria'] ?? []),
-      'is_array'
-    ));
-    foreach ($builder_criteria_rows as $criteria_index => $criteria_row) {
-      $objective_id = trim((string) ($criteria_row['objective_id'] ?? ''));
-      if ($objective_id === '') {
-        $errors[] = "metadata.storyline_builder.objective_completion_criteria[{$criteria_index}]: missing objective_id.";
-        continue;
-      }
-      if (isset($builder_objectives_by_id[$objective_id])) {
-        $errors[] = "metadata.storyline_builder.objective_completion_criteria[{$criteria_index}]: duplicate objective_id '{$objective_id}'.";
-        continue;
-      }
-      $builder_objectives_by_id[$objective_id] = $criteria_row;
+    // A storyline authored in the Storyline Builder carries its objectives as
+    // rows; its quest records are written from those rows at publication.
+    if ($payload_type === 'definition' && is_array($storyline_data['metadata']['storyline_builder'] ?? NULL)) {
+      return $this->validateStorylineBuilderObjectives($storyline_data, $link_findings);
     }
 
     if ($quest_ids === []) {
@@ -6006,13 +6188,6 @@ class StorylineManagerService {
       }
 
       if ($template_objectives === NULL) {
-        if (isset($builder_objectives_by_id[$quest_id])) {
-          $errors = array_merge(
-            $errors,
-            $this->validateStorylineBuilderObjectiveRow($builder_objectives_by_id[$quest_id], $quest_id)
-          );
-          continue;
-        }
         $errors[] = "Quest '{$quest_id}' is missing canonical quest template objectives for objective control-chain validation.";
         continue;
       }
@@ -6026,55 +6201,138 @@ class StorylineManagerService {
         $anchors,
         "quest template '{$quest_id}' objectives_schema"
       ));
-      if (isset($builder_objectives_by_id[$quest_id])) {
-        $errors = array_merge(
-          $errors,
-          $this->validateStorylineBuilderObjectiveRow($builder_objectives_by_id[$quest_id], $quest_id)
-        );
-      }
-    }
-
-    if ($builder_criteria_rows !== []) {
-      $known_quest_ids = array_fill_keys($quest_ids, TRUE);
-      foreach ($builder_objectives_by_id as $objective_id => $criteria_row) {
-        if (!isset($known_quest_ids[$objective_id])) {
-          $errors[] = "Storyline builder objective '{$objective_id}' is not linked to any quest/task in the storyline progression graph.";
-        }
-      }
     }
 
     return array_values(array_unique($errors));
   }
 
   /**
-   * Validate one authored Storyline Builder objective completion criteria row.
+   * Validate the objective rows of a Storyline Builder storyline.
    *
-   * @param array<string, mixed> $row
-   *   Authored objective criteria row.
-   * @param string $quest_id
-   *   Quest/task identifier.
+   * Each task's rows are validated as the objectives its quest record will
+   * be published with, built by the same builder that publishes them.
+   *
+   * @param array<int, array<string, mixed>> $findings
+   *   Receives one structured finding per error that names its subject.
    *
    * @return array<int, string>
    *   Validation errors.
    */
-  protected function validateStorylineBuilderObjectiveRow(array $row, string $quest_id): array {
-    $path = "storyline_builder.objective_completion_criteria[{$quest_id}]";
-    $kind = strtolower(trim((string) ($row['kind'] ?? 'flag'))) ?: 'flag';
-    $metric = trim((string) ($row['metric'] ?? ''));
-    $description = trim((string) ($row['description'] ?? ''));
-    $synthetic = [
-      'objective_id' => $quest_id,
-      'description' => $description,
-      'completion_criteria' => [
-        'kind' => $kind,
-        'metric' => $metric,
-        'description' => $description,
-      ],
-    ];
-    if (isset($row['target_count'])) {
-      $synthetic['completion_criteria']['target_count'] = $row['target_count'];
+  protected function validateStorylineBuilderObjectives(array $storyline_data, array &$findings): array {
+    $errors = [];
+    $report = static function (string $code, string $message, array $subject) use (&$errors, &$findings): void {
+      $errors[] = $message;
+      $findings[] = ['severity' => 'error', 'code' => $code, 'message' => $message] + $subject;
+    };
+    $nodes = [];
+    foreach (array_values(array_filter((array) ($storyline_data['questline']['quest_nodes'] ?? []), 'is_array')) as $node) {
+      $task_id = trim((string) ($node['quest_id'] ?? ''));
+      if ($task_id !== '') {
+        $nodes[$task_id] = $node;
+      }
     }
-    return $this->validateObjectiveCompletionCriteriaContract($synthetic, $path);
+    $rows = array_values(array_filter(
+      (array) ($storyline_data['metadata']['storyline_builder']['objective_completion_criteria'] ?? []),
+      'is_array'
+    ));
+    $seen_objective_ids = [];
+    $linked_rows = [];
+    foreach ($rows as $index => $row) {
+      $objective_id = trim((string) ($row['objective_id'] ?? ''));
+      if ($objective_id === '') {
+        $errors[] = "Objective row {$index} has no objective_id.";
+        continue;
+      }
+      if (isset($seen_objective_ids[$objective_id])) {
+        $errors[] = "Objective '{$objective_id}' is declared more than once.";
+        continue;
+      }
+      $seen_objective_ids[$objective_id] = TRUE;
+      $task_id = trim((string) ($row['task_id'] ?? ''));
+      if ($task_id === '' || !isset($nodes[$task_id])) {
+        $report(
+          'objective_unlinked',
+          "Objective '{$objective_id}' is not linked to a task; its task_id must name an existing task.",
+          ['objective_id' => $objective_id],
+        );
+        continue;
+      }
+      $linked_rows[] = $row;
+    }
+
+    $builder = new StorylineQuestRecordBuilder($this->objectiveTypeService);
+    $rows_by_task = StorylineQuestRecordBuilder::rowsByTask($linked_rows);
+    $anchors = $this->collectObjectiveReferenceAnchors($storyline_data);
+    foreach ($nodes as $task_id => $node) {
+      $task_rows = $rows_by_task[$task_id] ?? [];
+      if ($task_rows === []) {
+        $report(
+          'quest_objective_missing',
+          "Task '{$task_id}' has no objective. Every task needs at least one objective row whose task_id is '{$task_id}'.",
+          ['quest_id' => $task_id],
+        );
+        continue;
+      }
+      $typed = TRUE;
+      foreach ($task_rows as $row) {
+        $errors = array_merge($errors, $builder->rowErrors($row));
+        $typed = $typed && StorylineQuestRecordBuilder::hasExpressibleType($row);
+      }
+      if (!$typed) {
+        // Without a type there is no objective to check further yet.
+        continue;
+      }
+      $phases = $builder->objectivePhases($task_rows);
+      $errors = array_merge($errors, $this->validateQuestObjectiveControlChain(
+        $phases,
+        $anchors,
+        "task '{$task_id}' objectives"
+      ));
+      try {
+        $goal = QuestGoalContract::fromStorylineNode($node);
+      }
+      catch (\DomainException) {
+        // Reported by the questline progression stage.
+        $goal = NULL;
+      }
+      if ($goal !== NULL) {
+        $already_reported = QuestGoalContract::validate($goal, NULL);
+        foreach (array_diff(QuestGoalContract::validate($goal, $phases), $already_reported) as $goal_error) {
+          $report(
+            'approach_objective_outside_task',
+            "Task '{$task_id}': {$goal_error} An approach may only name objectives of its own task.",
+            ['quest_id' => $task_id],
+          );
+        }
+      }
+    }
+
+    // Objective rows are steps, never alternatives: one result tracked on
+    // several tasks is one aim reached in several ways.
+    $metric_tasks = [];
+    foreach ($linked_rows as $row) {
+      $metric = trim((string) ($row['metric'] ?? ''));
+      if ($metric !== '') {
+        $metric_tasks[$metric][trim((string) $row['task_id'])][] = trim((string) $row['objective_id']);
+      }
+    }
+    foreach ($metric_tasks as $metric => $by_task) {
+      if (count($by_task) < 2) {
+        continue;
+      }
+      $objective_ids = array_merge(...array_values($by_task));
+      $report(
+        'objective_metric_shared_across_tasks',
+        sprintf(
+          "Objectives '%s' track the same result ('%s') on different tasks. One aim reached in several ways is one task with a goal, and one choice per way marked as an approach.",
+          implode("', '", $objective_ids),
+          $metric,
+        ),
+        ['objective_ids' => $objective_ids, 'task_ids' => array_keys($by_task)],
+      );
+    }
+
+    return array_values(array_unique($errors));
   }
 
   /**

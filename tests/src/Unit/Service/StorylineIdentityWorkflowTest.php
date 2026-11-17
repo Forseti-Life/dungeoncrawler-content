@@ -62,17 +62,19 @@ class StorylineIdentityWorkflowTest extends UnitTestCase {
   }
 
   /**
-   * Intent plans must be rejected before the harness can execute a task.
+   * A clarifying question may not hand identifier mechanics to the author.
    */
-  public function testRejectsIdRequestsInsideQueuedTasksBeforeExecution(): void {
+  public function testRejectsIdRequestsInClarifyingQuestions(): void {
     $parser = (new \ReflectionClass(EditorGmIntentParser::class))->newInstanceWithoutConstructor();
     $decode = new \ReflectionMethod($parser, 'decodeIntent');
     $this->expectException(\DomainException::class);
     $this->expectExceptionMessage('storyline_gm_user_id_assignment_forbidden');
-    $decode->invoke($parser, json_encode([
-      'type' => 'task_queue',
-      'tasks' => [['type' => 'tool_call', 'next_steps' => ['Assign room IDs before proceeding.']]],
-    ]), new EditorGmToolRegistry([new PlanStorylineDraftOperationsTool()], [], NULL), TRUE);
+    $decode->invoke($parser, [
+      'type' => 'clarification',
+      'question' => 'Which room ID should we use for the entrance?',
+      'options' => [],
+      'reasoning' => 'A room is needed.',
+    ], new EditorGmToolRegistry([new PlanStorylineDraftOperationsTool()], [], NULL), TRUE);
   }
 
   /**

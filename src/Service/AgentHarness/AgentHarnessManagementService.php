@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Drupal\dungeoncrawler_content\Service\AgentHarness;
 
+use Drupal\dungeoncrawler_content\Service\StorylineAuthoringDraftService;
 use Drupal\ai_conversation\Service\AIApiService;
 
 /**
@@ -69,6 +70,8 @@ class AgentHarnessManagementService {
     'preview_storyline_narrative_analysis',
     'check_storyline_creation_readiness',
     'plan_storyline_draft_operations',
+    'plan_storyline_work',
+    'apply_storyline_work',
     'apply_storyline_draft_operations',
     'plan_storyline_remediation',
     'apply_storyline_remediation',
@@ -485,7 +488,13 @@ class AgentHarnessManagementService {
     if (isset($context_snapshot['narrative_analysis']['metrics'])) {
       $grounding['narrative_metrics'] = $context_snapshot['narrative_analysis']['metrics'];
     }
-    $grounding['validation_summary'] = $context_snapshot['validation_summary'] ?? [];
+    $validation_summary = (array) ($context_snapshot['validation_summary'] ?? []);
+    if (is_array($validation_summary['stages'] ?? NULL) && $validation_summary['stages'] !== []) {
+      // Every error and warning is listed under its stage, with the stage's
+      // fix route; the flat lists repeat them and are not sent twice.
+      unset($validation_summary['errors'], $validation_summary['warnings']);
+    }
+    $grounding['validation_summary'] = $validation_summary;
     if (!empty($context_snapshot['publication'])) {
       $grounding['publication'] = $context_snapshot['publication'];
     }
@@ -668,11 +677,101 @@ class AgentHarnessManagementService {
     string $surface_label,
   ): ?array {
     if ($tool_name === self::TOOL_SUBMIT_BACKLOG_SUGGESTION) {
-      return $this->buildBacklogSuggestionSummary($tool_result, $context_snapshot);
+      $response = $this->buildBacklogSuggestionSummary($tool_result, $context_snapshot);
+      if ($surface_label === 'Storyline Builder') {
+        $response['next_steps'] = $this->deriveStorylineNextSteps($tool_result, $context_snapshot);
+      }
+      return $response;
     }
 
     if ($surface_label !== 'Storyline Builder') {
       return NULL;
+    }
+
+    if ($tool_name === 'apply_storyline_work') {
+      $progress = $tool_result['work_progress'];
+      $done = $progress['step'];
+      $total = $progress['total_steps'];
+      $last_outcome = is_array($progress['last_outcome'] ?? NULL) ? $progress['last_outcome'] : [];
+      $batch_summary = sprintf(
+        'Last batch cleared %d validation error(s) and introduced %d; %d remain.',
+        (int) ($last_outcome['cleared'] ?? 0),
+        (int) ($last_outcome['introduced_count'] ?? 0),
+        (int) ($last_outcome['remaining'] ?? 0),
+      );
+      $introduced = array_values(array_filter(array_map('strval', (array) ($last_outcome['introduced'] ?? []))));
+      $totals = sprintf(
+        'Total cleared: %d. Total introduced: %d.',
+        (int) ($progress['total_cleared_errors'] ?? 0),
+        (int) ($progress['total_introduced_errors'] ?? 0),
+      );
+      if ($progress['status'] === 'cancelled') {
+        $lines = [sprintf('Stopped the saved work. The %d completed batches remain saved; no draft edits were undone.', $done)];
+        if ($last_outcome !== []) {
+          $lines[] = $batch_summary;
+          $lines[] = $totals;
+        }
+        return [
+          'answer' => implode("\n", $lines),
+          'next_steps' => ['Review the saved storyline.'],
+        ];
+      }
+      if ($progress['status'] === 'paused') {
+        $failure = is_array($progress['failure'] ?? NULL) ? $progress['failure'] : [];
+        $label = trim((string) ($failure['label'] ?? ''));
+        $error = trim((string) ($failure['error'] ?? 'storyline_work_paused'));
+        $details = array_values(array_filter(array_map(static fn($row) => trim((string) ($row['message'] ?? '')), (array) ($failure['findings'] ?? []))));
+        $summary = $details[0] ?? $error;
+        $lead = $label === '' ? 'Saved work paused.' : sprintf('Saved work paused at "%s".', $label);
+        $exhausted = ((int) ($progress['failed_attempts'] ?? 0)) >= ((int) ($progress['max_failed_attempts'] ?? 0));
+        $pause_answer = $exhausted
+          ? sprintf('%s %s Attempts are exhausted; skip this unit or stop saved work. (%d/%d attempts)', $lead, $summary, (int) ($progress['failed_attempts'] ?? 0), (int) ($progress['max_failed_attempts'] ?? 0))
+          : sprintf('%s %s Saved work is ready to resume. (%d/%d attempts)', $lead, $summary, (int) ($progress['failed_attempts'] ?? 0), (int) ($progress['max_failed_attempts'] ?? 0));
+        $lines = [$pause_answer];
+        if ($last_outcome !== []) {
+          $lines[] = $batch_summary;
+          $lines[] = $totals;
+        }
+        if ($introduced !== []) {
+          $lines[] = "Introduced findings:\n- " . implode("\n- ", array_slice($introduced, 0, 5));
+        }
+        return [
+          'answer' => implode("\n", $lines),
+          'next_steps' => [$exhausted ? 'Skip this unit or stop the saved work.' : 'Resume the saved authoring work.'],
+        ];
+      }
+      if ($progress['status'] !== 'completed') {
+        $lines = [sprintf('Saved %d of %d authoring batches. Remaining work is checkpointed and ready to continue.', $done, $total)];
+        if ($last_outcome !== []) {
+          $lines[] = $batch_summary;
+          $lines[] = $totals;
+        }
+        if ($introduced !== []) {
+          $lines[] = "Introduced findings:\n- " . implode("\n- ", array_slice($introduced, 0, 5));
+        }
+        return [
+          'answer' => implode("\n", $lines),
+          'next_steps' => ['Continue the saved authoring work.'],
+        ];
+      }
+      $completed_labels = array_values(array_filter(array_map('strval', (array) ($progress['completed_labels'] ?? []))));
+      $skipped_labels = array_values(array_filter(array_map('strval', (array) ($progress['skipped_labels'] ?? []))));
+      $sections = [sprintf("Requested Draft Updates Saved\nCompleted all %d authoring batches:\n%s", $total, $completed_labels === [] ? '- (none)' : implode("\n", array_map(static fn(string $label): string => '- ' . $label, $completed_labels)))];
+      if ($skipped_labels !== []) {
+        $sections[] = "Skipped batches:\n" . implode("\n", array_map(static fn(string $label): string => '- ' . $label, $skipped_labels));
+      }
+      $sections[] = $totals;
+      if ((int) ($progress['total_cleared_errors'] ?? 0) === 0 && (int) ($last_outcome['remaining'] ?? 0) > 0) {
+        $sections[] = 'This work did not clear any validation error.';
+      }
+      if ($introduced !== []) {
+        $sections[] = "Introduced findings:\n- " . implode("\n- ", array_slice($introduced, 0, 5));
+      }
+      $sections[] = sprintf("Current State\n%s", $this->describeStorylineCurrentState($context_snapshot));
+      return [
+        'answer' => implode("\n\n", $sections),
+        'next_steps' => $this->deriveStorylineNextSteps([], $context_snapshot),
+      ];
     }
 
     if ($tool_name === 'check_storyline_creation_readiness') {
@@ -681,7 +780,7 @@ class AgentHarnessManagementService {
       if (is_array($receipt)) {
         return [
           'answer' => "Review Complete\nThe storyline is already published; its final signoff is recorded in the native publication receipt.",
-          'next_steps' => ['Open the published storyline or continue work in a new draft.'],
+          'next_steps' => ['Open the published storyline.'],
         ];
       }
       if ($tool_result['ready']) {
@@ -692,7 +791,7 @@ class AgentHarnessManagementService {
       }
       return [
         'answer' => "Review Blocked\n" . implode("\n", array_column($tool_result['blockers'], 'message')),
-        'next_steps' => ['Resolve the listed blockers before publication; no signoff was recorded.'],
+        'next_steps' => ['Have the GM address the next publication blocker.'],
       ];
     }
 
@@ -858,7 +957,7 @@ class AgentHarnessManagementService {
     return [
       'answer' => "Storyline Published\n{$body}",
       'next_steps' => [
-        sprintf("Attach template '%s' to a campaign or open it in the Editor Suite to inspect linked rooms and actors.", $template_id),
+        'Open the published storyline.',
       ],
     ];
   }
@@ -922,7 +1021,7 @@ class AgentHarnessManagementService {
       $warnings,
     );
     if ($missing !== []) {
-      $summary .= ' Remaining open checklist items: ' . implode('; ', array_slice($missing, 0, 4)) . '.';
+      $summary .= sprintf(' %d minimum-content check(s) remain open.', count($missing));
     }
     else {
       $summary .= ' All minimum content checklist items are complete.';
@@ -932,40 +1031,202 @@ class AgentHarnessManagementService {
   }
 
   /**
-   * Derives 1–3 concrete next steps from grounded state and tool result.
+   * Rejects multi-item guidance before execution or presentation.
+   */
+  public static function assertStorylineNextSteps(mixed $steps): void {
+    if (!is_array($steps) || !array_is_list($steps)) {
+      throw new \DomainException('storyline_gm_next_step_invalid');
+    }
+    if (count($steps) > 1) {
+      throw new \DomainException('storyline_gm_next_step_must_be_single');
+    }
+    foreach ($steps as $step) {
+      if (!is_string($step) || trim($step) === '' || preg_match('/\R\s*(?:\d+[.)]|[-*])\s/u', $step) === 1) {
+        throw new \DomainException('storyline_gm_next_step_invalid');
+      }
+    }
+  }
+
+  /**
+   * The single next step the saved draft state calls for.
+   *
+   * @return string[]
+   */
+  public function storylineNextStepFromSavedState(array $context_snapshot): array {
+    return $this->deriveStorylineNextSteps([], $context_snapshot);
+  }
+
+  /**
+   * Derives one bounded next action from the saved state, never stale advice.
    *
    * @return string[]
    */
   private function deriveStorylineNextSteps(array $tool_result, array $context_snapshot): array {
-    $steps = array_values(array_filter(
-      (array) ($tool_result['next_steps'] ?? []),
-      static fn($s): bool => is_string($s) && trim($s) !== '',
-    ));
-    if ($steps !== []) {
-      return array_map('trim', array_slice($steps, 0, 3));
+    if (!empty($context_snapshot['authoring_workflow']['bounded_work']['active_work'])) {
+      if (!empty($context_snapshot['authoring_workflow']['bounded_work']['active_work']['revision_conflict'])) {
+        return ['Stop saved work before planning changes against the newer draft revision.'];
+      }
+      return ['Resume the saved authoring work.'];
     }
-
     $state = is_array($context_snapshot['current_state'] ?? NULL) ? $context_snapshot['current_state'] : [];
-    $missing = array_values(array_filter((array) ($state['missing_content'] ?? []), 'is_string'));
-    foreach (array_slice($missing, 0, 2) as $item) {
-      $steps[] = 'Complete open requirement: ' . trim($item);
-    }
-
     $validation = is_array($context_snapshot['validation_summary'] ?? NULL) ? $context_snapshot['validation_summary'] : [];
-    foreach (array_slice((array) ($validation['errors'] ?? []), 0, 2) as $error) {
-      if (is_array($error) && !empty($error['message'])) {
-        $steps[] = 'Resolve validation error: ' . trim((string) $error['message']);
+    $state['error_count'] = $validation['error_count'] ?? $state['error_count'] ?? count($validation['errors'] ?? []);
+    $state['warning_count'] = $validation['warning_count'] ?? $state['warning_count'] ?? count($validation['warnings'] ?? []);
+    $next_steps = StorylineAuthoringDraftService::recommendNextAuthoringAction($state);
+    $next = trim((string) ($next_steps[0] ?? ''));
+    if ($next === 'Have the GM address the next validation finding.') {
+      $process_flow = (array) ($context_snapshot['storyline']['process_flow'] ?? []);
+      $finding = $this->firstValidationFinding($validation, 'error', 'draft_operation');
+      if ($finding['message'] !== '') {
+        return [sprintf(
+          'Validation finding: %s Options: ask the GM to fix this finding now, skip to the next finding, or switch focus to warnings.',
+          $this->describeFinding($finding, $process_flow),
+        )];
       }
-      elseif (is_string($error) && trim($error) !== '') {
-        $steps[] = 'Resolve validation error: ' . trim($error);
+      $remediation = $this->firstValidationFinding($validation, 'error', 'canonical_remediation');
+      if ($remediation['message'] !== '') {
+        return [sprintf(
+          'Validation finding: %s This needs canonical content published, not a draft edit. Options: ask the GM to publish the missing canonical content, or continue story changes.',
+          $this->describeFinding($remediation, $process_flow),
+        )];
       }
     }
-
-    if ($steps === []) {
-      $steps[] = 'Review the updated storyline stages or publish the draft into the canonical library when ready.';
+    if ($next === 'Have the GM address the next validation warning.') {
+      $finding = $this->firstValidationFinding($validation, 'warning');
+      if ($finding['message'] !== '') {
+        return [sprintf(
+          'Validation warning: %s Options: ask the GM to fix this warning now, skip to the next warning, or continue story content changes.',
+          $this->describeFinding($finding, (array) ($context_snapshot['storyline']['process_flow'] ?? [])),
+        )];
+      }
     }
+    return $next_steps;
+  }
 
-    return array_slice($steps, 0, 3);
+  /**
+   * Returns one concise validation finding by severity for next-step guidance.
+   */
+  private function firstValidationFinding(array $validation, string $severity, ?string $required_route = NULL): array {
+    foreach ((array) ($validation['stages'] ?? []) as $stage) {
+      if (!is_array($stage)) {
+        continue;
+      }
+      $stage_route = trim((string) ($stage['route'] ?? ''));
+      // A structured finding carries its own route; the same message in the
+      // stage's plain list must not be read again under the stage's route.
+      $structured = [];
+      foreach ((array) ($stage['findings'] ?? []) as $finding) {
+        if (!is_array($finding)) {
+          continue;
+        }
+        $message = trim((string) ($finding['message'] ?? ''));
+        $structured[$message] = TRUE;
+        $route = trim((string) ($finding['route'] ?? $stage_route));
+        if (($finding['severity'] ?? '') !== $severity || $message === ''
+          || ($required_route !== NULL && $route !== $required_route)) {
+          continue;
+        }
+        return ['message' => $message, 'route' => $route, 'finding' => $finding];
+      }
+      if ($required_route !== NULL && $stage_route !== $required_route) {
+        continue;
+      }
+      $stage_list = $severity === 'error' ? (array) ($stage['errors'] ?? []) : (array) ($stage['warnings'] ?? []);
+      foreach ($stage_list as $entry) {
+        $message = trim((string) $entry);
+        if ($message !== '' && !isset($structured[$message])) {
+          return ['message' => $message, 'route' => $stage_route];
+        }
+      }
+    }
+    if ($required_route !== NULL) {
+      return ['message' => '', 'route' => $required_route];
+    }
+    $list = $severity === 'error' ? (array) ($validation['errors'] ?? []) : (array) ($validation['warnings'] ?? []);
+    foreach ($list as $entry) {
+      $message = trim((string) $entry);
+      if ($message !== '') {
+        return ['message' => $message, 'route' => 'unclassified'];
+      }
+    }
+    return ['message' => '', 'route' => 'unclassified'];
+  }
+
+  /**
+   * States one finding in the author's terms, without internal identifiers.
+   */
+  private function describeFinding(array $selected, array $process_flow): string {
+    $finding = is_array($selected['finding'] ?? NULL) ? $selected['finding'] : [];
+    return match ((string) ($finding['code'] ?? '')) {
+      'quest_objective_missing' => sprintf(
+        'The task "%s" has no objective, so the game cannot tell when it is done.',
+        $this->questLabel((string) ($finding['quest_id'] ?? ''), $process_flow),
+      ),
+      'objective_metric_shared_across_tasks' => sprintf(
+        'The objectives %s track the same result on different tasks. One aim reached in several ways is one task with a goal, and one choice per way.',
+        implode(', ', array_map(
+          fn(string $id): string => '"' . $this->objectiveLabel($id, $process_flow) . '"',
+          array_map('strval', (array) ($finding['objective_ids'] ?? [])),
+        )),
+      ),
+      'choice_cloned_across_tasks' => sprintf(
+        'The choice "%s" is repeated on %d tasks with the same trigger and outcome. A condition that applies across the story is written once, as a storyline-wide choice.',
+        (string) ($finding['label'] ?? ''),
+        count((array) ($finding['task_ids'] ?? [])),
+      ),
+      'continuation_replaced_by_choices' => sprintf(
+        'The task "%s" is meant to continue to %s, but it has choices and none of them leads there, so that part of the story cannot be reached. Either add a choice that continues there, or make the conditional choice storyline-wide.',
+        $this->questLabel((string) ($finding['task_id'] ?? ''), $process_flow),
+        implode(', ', array_map(
+          fn(string $id): string => '"' . $this->questLabel($id, $process_flow) . '"',
+          array_map('strval', (array) ($finding['dropped_task_ids'] ?? [])),
+        )),
+      ),
+      'choice_source_task_unknown' => sprintf(
+        'The choice "%s" belongs to a task that does not exist.',
+        (string) ($finding['label'] ?? ''),
+      ),
+      'objective_unlinked' => sprintf(
+        'The objective "%s" is not attached to any task.',
+        $this->objectiveLabel((string) ($finding['objective_id'] ?? ''), $process_flow),
+      ),
+      default => preg_replace(
+        '/draft-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}-(?:task|scene|choice|objective|decision|conflict)-/',
+        '',
+        (string) $selected['message'],
+      ) ?? (string) $selected['message'],
+    };
+  }
+
+  /**
+   * A quest's authored goal, or its readable name when it states no goal.
+   */
+  private function questLabel(string $quest_id, array $process_flow): string {
+    foreach ((array) ($process_flow['tasks'] ?? []) as $task) {
+      if (is_array($task) && ($task['task_id'] ?? NULL) === $quest_id) {
+        $goal = trim((string) ($task['goal_text'] ?? ''));
+        if ($goal !== '') {
+          // The goal's first sentence names the task; nothing is cut mid-word.
+          return rtrim(preg_split('/(?<=[.!?])\s+/u', $goal)[0], '.');
+        }
+      }
+    }
+    return $this->readableName($quest_id);
+  }
+
+  /**
+   * An objective's readable name.
+   */
+  private function objectiveLabel(string $objective_id, array $process_flow): string {
+    return $this->readableName(preg_replace('/^objective-/', '', $this->stripDraftPrefix($objective_id)) ?? $objective_id);
+  }
+
+  private function stripDraftPrefix(string $id): string {
+    return preg_replace('/^draft-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}-(?:task|objective)-/', '', $id) ?? $id;
+  }
+
+  private function readableName(string $id): string {
+    return trim(str_replace(['-', '_'], ' ', $this->stripDraftPrefix($id)));
   }
 
 }

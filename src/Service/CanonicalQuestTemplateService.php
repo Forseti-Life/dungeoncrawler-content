@@ -212,4 +212,59 @@ class CanonicalQuestTemplateService {
     ];
   }
 
+  /**
+   * Writes the quest record a published storyline task is played as.
+   *
+   * The record is derived from the storyline, so it replaces the stored one.
+   * A record that belongs to another storyline is never overwritten.
+   */
+  public function saveStorylineQuestRecord(array $record): array {
+    $template_id = trim((string) ($record['template_id'] ?? ''));
+    $storyline_id = trim((string) ($record['storyline_template_id'] ?? ''));
+    $version = trim((string) ($record['version'] ?? ''));
+    if ($template_id === '' || $storyline_id === '' || $version === '') {
+      throw new \InvalidArgumentException('storyline_quest_record_identity_required');
+    }
+    if ((array) ($record['objectives_schema'] ?? []) === []) {
+      throw new \DomainException('storyline_quest_record_objective_required:' . $template_id);
+    }
+    $existing = $this->database->select('dc_canonical_quests', 'q')
+      ->fields('q', ['storyline_template_id'])
+      ->condition('template_id', $template_id)
+      ->execute()
+      ->fetchCol();
+    foreach ($existing as $owner) {
+      if (trim((string) $owner) !== $storyline_id) {
+        throw new \DomainException(sprintf('storyline_quest_record_owned_elsewhere:%s:%s', $template_id, trim((string) $owner)));
+      }
+    }
+    $encode = static fn(mixed $value): string => json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+    $now = time();
+    $fields = [
+      'name' => (string) $record['name'],
+      'description' => (string) $record['description'],
+      'quest_type' => (string) $record['quest_type'],
+      'level_min' => (int) $record['level_min'],
+      'level_max' => (int) $record['level_max'],
+      'tags' => $encode(array_values((array) $record['tags'])),
+      'prerequisites' => $encode(array_values((array) $record['prerequisites'])),
+      'estimated_duration_minutes' => (int) $record['estimated_duration_minutes'],
+      'storyline_template_id' => $storyline_id,
+      'entry_point_actor_id' => $record['entry_point_actor_id'],
+      'entry_point_location_id' => $record['entry_point_location_id'],
+      'contract_hash' => hash('sha256', $encode($record)),
+      'objectives_schema' => $encode(array_values((array) $record['objectives_schema'])),
+      'rewards_schema' => $encode((array) $record['rewards_schema']),
+      'story_impact' => $encode((array) $record['story_impact']),
+      'updated_at' => $now,
+    ];
+    $this->database->merge('dc_canonical_quests')
+      ->keys(['template_id' => $template_id, 'version' => $version])
+      ->insertFields($fields + ['template_id' => $template_id, 'version' => $version, 'created_at' => $now])
+      ->updateFields($fields)
+      ->execute();
+
+    return ['template_id' => $template_id, 'created' => $existing === []];
+  }
+
 }

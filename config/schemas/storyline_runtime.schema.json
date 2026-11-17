@@ -164,6 +164,37 @@
               }
             }
           }
+        },
+        "storyline_choices": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["decision_id", "choice_id", "label", "trigger", "effects", "target_quest_id", "target_scene_id", "terminal"],
+            "additionalProperties": false,
+            "properties": {
+              "decision_id": {"type": "string"},
+              "choice_id": {"type": "string"},
+              "label": {"type": "string"},
+              "trigger": {"type": "object", "additionalProperties": true},
+              "effects": {"type": "object", "additionalProperties": true},
+              "target_quest_id": {"type": "string"},
+              "target_scene_id": {"type": "string"},
+              "terminal": {"type": "boolean"},
+              "approach": {
+                "description": "Present when the choice is a way of achieving its quest's goal.",
+                "type": "object",
+                "required": ["visibility", "outcome_label", "objective_ids"],
+                "additionalProperties": false,
+                "properties": {
+                  "visibility": {"enum": ["known", "discoverable", "secret"]},
+                  "reveal_when": {"type": "object"},
+                  "objective_ids": {"type": "array", "items": {"type": "string"}},
+                  "outcome_label": {"type": "string"},
+                  "rewards": {"type": "object"}
+                }
+              }
+            }
+          }
         }
       }
     },

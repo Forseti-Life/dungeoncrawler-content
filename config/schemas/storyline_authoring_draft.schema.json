@@ -489,8 +489,12 @@
         "open_resolution": {
           "description": "Whether a way nobody authored may also achieve the goal.",
           "oneOf": [
-            { "type": "boolean" },
-            { "type": "string" }
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string"
+            }
           ]
         },
         "chapter_id": {
@@ -528,11 +532,18 @@
           "type": "object",
           "description": "Present when this choice is a way of achieving its source task's goal. Resolving it completes that quest.",
           "additionalProperties": false,
-          "required": ["visibility", "outcome_label"],
+          "required": [
+            "visibility",
+            "outcome_label"
+          ],
           "properties": {
             "visibility": {
               "description": "known: players see it from the start. discoverable: hidden until reveal_when happens. secret: never shown before it is used.",
-              "enum": ["known", "discoverable", "secret"]
+              "enum": [
+                "known",
+                "discoverable",
+                "secret"
+              ]
             },
             "reveal_when": {
               "type": "object",
@@ -556,7 +567,8 @@
           "type": "string"
         },
         "source_task_id": {
-          "type": "string"
+          "type": "string",
+          "description": "The task this choice belongs to. Leave it empty for a storyline-wide choice: a condition that can fire from any task, authored once."
         },
         "choice_id": {
           "type": "string"
@@ -802,6 +814,42 @@
         "objective_id": {
           "type": "string"
         },
+        "task_id": {
+          "type": "string",
+          "description": "The task this objective is a required step of. Objectives of one task are completed in row order."
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "collect",
+            "kill",
+            "investigate",
+            "interact",
+            "explore",
+            "escort"
+          ],
+          "description": "What the players do. collect needs item; kill, investigate and interact need target; explore needs location; escort needs destination."
+        },
+        "next_step": {
+          "type": "string",
+          "description": "What the players must do next to make progress, in their words."
+        },
+        "target": {
+          "type": "string",
+          "description": "Actor or object ID for kill, investigate and interact."
+        },
+        "item": {
+          "type": "string",
+          "description": "Item ID for collect."
+        },
+        "location": {
+          "type": "string",
+          "description": "Room or scene ID for explore."
+        },
+        "destination": {
+          "type": "string",
+          "description": "Room or scene ID for escort."
+        },
         "kind": {
           "type": "string"
         },
@@ -912,11 +960,26 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["domain", "name"],
+            "required": [
+              "domain",
+              "name"
+            ],
             "properties": {
               "domain": {
                 "description": "family (family, house or clan), government (state or nation), allegiance (faction), settlement, religion, employer (guild), education (order or school), noble, security (law or military), criminal, culture (culture or tribe).",
-                "enum": ["family", "government", "allegiance", "settlement", "religion", "employer", "education", "noble", "security", "criminal", "culture"]
+                "enum": [
+                  "family",
+                  "government",
+                  "allegiance",
+                  "settlement",
+                  "religion",
+                  "employer",
+                  "education",
+                  "noble",
+                  "security",
+                  "criminal",
+                  "culture"
+                ]
               },
               "name": {
                 "type": "string",
@@ -1059,7 +1122,13 @@
         },
         "attitude": {
           "description": "The source actor's attitude toward the target.",
-          "enum": ["hostile", "unfriendly", "indifferent", "friendly", "helpful"]
+          "enum": [
+            "hostile",
+            "unfriendly",
+            "indifferent",
+            "friendly",
+            "helpful"
+          ]
         },
         "bond": {
           "type": "string",

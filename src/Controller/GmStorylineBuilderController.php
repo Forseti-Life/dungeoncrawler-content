@@ -193,7 +193,7 @@ class GmStorylineBuilderController extends ControllerBase {
           <button type="button" class="character-setup-page__tab" data-step-tab="4" title="Associate independent dungeon and room objects with chapters and scenes without conflating their identities."><span class="character-setup-page__tab-number">4</span><span class="character-setup-page__tab-copy"><span class="character-setup-page__tab-name">Dungeons & Rooms Framework</span><span class="character-setup-page__tab-description">Generate/validate traversal spaces.</span></span></button>
           <button type="button" class="character-setup-page__tab" data-step-tab="5" title="Connect canonical items to scenes, quests, actors, acquisition requirements, prerequisites, and rewards."><span class="character-setup-page__tab-number">5</span><span class="character-setup-page__tab-copy"><span class="character-setup-page__tab-name">Items Framework</span><span class="character-setup-page__tab-description">Generate/validate rewards and dependencies.</span></span></button>
           <button type="button" class="character-setup-page__tab" data-step-tab="6" title="Generate the canonical definition, run structural and narrative validation, and inspect conflicts or continuity findings."><span class="character-setup-page__tab-number">6</span><span class="character-setup-page__tab-copy"><span class="character-setup-page__tab-name">Composition & Validation</span><span class="character-setup-page__tab-description">Assemble canonical storyline contract.</span></span></button>
-          <button type="button" class="character-setup-page__tab" data-step-tab="7" title="Review the complete generated storyline object before canonical creation or publication."><span class="character-setup-page__tab-number">7</span><span class="character-setup-page__tab-copy"><span class="character-setup-page__tab-name">Review Blueprint</span><span class="character-setup-page__tab-description">Generated storyline blueprint draft.</span></span></button>
+          <button type="button" class="character-setup-page__tab" data-step-tab="7" title="Review story progression, choices, and validation before publishing."><span class="character-setup-page__tab-number">7</span><span class="character-setup-page__tab-copy"><span class="character-setup-page__tab-name">Review Storyline</span><span class="character-setup-page__tab-description">Visual story review and publication.</span></span></button>
         </div>',
     ];
     $build['layout']['sidebar']['stack']['status'] = [
@@ -242,10 +242,10 @@ class GmStorylineBuilderController extends ControllerBase {
       '#attributes' => ['class' => ['character-setup-page__quick-links']],
     ];
     $build['layout']['sidebar']['stack']['quick_links']['object_title'] = [
-      '#markup' => '<h3 class="character-setup-page__sidebar-title">' . $this->t('Storyline objects') . '</h3>',
+      '#markup' => '<h3 class="character-setup-page__sidebar-title">' . $this->t('In this storyline') . '</h3>',
     ];
     $build['layout']['sidebar']['stack']['quick_links']['object_items'] = [
-      '#markup' => '<ul class="character-setup-page__quick-links" data-storyline-object-editor-links><li>Add or load storyline objects to open their exact editors.</li></ul>',
+      '#markup' => '<ul class="character-setup-page__quick-links" data-storyline-object-editor-links><li>Load a storyline to see its scenes, actors, and dungeons.</li></ul>',
     ];
 
     $build['layout']['workspace'] = [
@@ -470,6 +470,17 @@ class GmStorylineBuilderController extends ControllerBase {
   }
 
   /**
+   * Build escaped <option> markup from value/label pairs.
+   */
+  private function renderSelectOptions(array $value_labels): string {
+    $options = '';
+    foreach ($value_labels as $value => $label) {
+      $options .= '<option value="' . Html::escape((string) $value) . '">' . Html::escape($label) . '</option>';
+    }
+    return $options;
+  }
+
+  /**
    * Build wizard markup for storyline authoring flow.
    */
   private function buildWizardMarkup(): string {
@@ -479,6 +490,50 @@ class GmStorylineBuilderController extends ControllerBase {
     $item_library = $this->buildToolLinkIfAccessible('Item Library', 'dungeoncrawler_content.definition_family', ['family' => 'item']);
     $room_editor = $this->buildToolLinkIfAccessible('Room Editor', 'dungeoncrawler_content.room_editor');
     $dungeon_editor = $this->buildToolLinkIfAccessible('Dungeon Editor', 'dungeoncrawler_content.dungeon_editor');
+    $trigger_type_options = $this->renderSelectOptions([
+      'player_choice' => 'Player choice',
+      'action' => 'Action',
+      'objective_result' => 'Objective result',
+      'skill_result' => 'Skill result',
+      'actor_state' => 'Actor state',
+      'environment_state' => 'Environment state',
+      'item_state' => 'Item state',
+      'timer' => 'Timer',
+      'gm_decision' => 'GM decision',
+    ]);
+    $trigger_interaction_options = $this->renderSelectOptions([
+      StorylineManagerService::STORYLINE_BRANCH_INTERACTIONS[0] => 'Other interaction',
+      StorylineManagerService::STORYLINE_BRANCH_INTERACTIONS[1] => 'Actor is attacked',
+      StorylineManagerService::STORYLINE_BRANCH_INTERACTIONS[2] => 'Actor is killed',
+    ]);
+    $actor_interaction_options = $this->renderSelectOptions([
+      StorylineManagerService::STORYLINE_BRANCH_INTERACTIONS[0] => 'Other interaction',
+      StorylineManagerService::STORYLINE_BRANCH_INTERACTIONS[1] => 'Attacked',
+      StorylineManagerService::STORYLINE_BRANCH_INTERACTIONS[2] => 'Killed',
+    ]);
+    $environment_target_type_options = $this->renderSelectOptions([
+      StorylineManagerService::STORYLINE_BRANCH_ENVIRONMENT_TARGET_TYPES[0] => 'Room',
+      StorylineManagerService::STORYLINE_BRANCH_ENVIRONMENT_TARGET_TYPES[1] => 'Dungeon',
+      StorylineManagerService::STORYLINE_BRANCH_ENVIRONMENT_TARGET_TYPES[2] => 'Location',
+      StorylineManagerService::STORYLINE_BRANCH_ENVIRONMENT_TARGET_TYPES[3] => 'World',
+    ]);
+    $storyline_target_type_options = $this->renderSelectOptions([
+      StorylineManagerService::STORYLINE_BRANCH_TARGET_TYPES[0] => 'Task',
+      StorylineManagerService::STORYLINE_BRANCH_TARGET_TYPES[1] => 'Scene',
+      StorylineManagerService::STORYLINE_BRANCH_TARGET_TYPES[2] => 'Conflict',
+      StorylineManagerService::STORYLINE_BRANCH_TARGET_TYPES[3] => 'Chapter',
+      StorylineManagerService::STORYLINE_BRANCH_TARGET_TYPES[4] => 'Storyline',
+    ]);
+    $storyline_operation_options = $this->renderSelectOptions([
+      StorylineManagerService::STORYLINE_BRANCH_OPERATIONS[0] => 'Unlock',
+      StorylineManagerService::STORYLINE_BRANCH_OPERATIONS[1] => 'Lock',
+      StorylineManagerService::STORYLINE_BRANCH_OPERATIONS[2] => 'Reveal',
+      StorylineManagerService::STORYLINE_BRANCH_OPERATIONS[3] => 'Conceal',
+      StorylineManagerService::STORYLINE_BRANCH_OPERATIONS[4] => 'Redirect',
+      StorylineManagerService::STORYLINE_BRANCH_OPERATIONS[5] => 'Escalate',
+      StorylineManagerService::STORYLINE_BRANCH_OPERATIONS[6] => 'Resolve',
+      StorylineManagerService::STORYLINE_BRANCH_OPERATIONS[7] => 'Set state',
+    ]);
 
     return <<<HTML
       <div class="gm-storyline-wizard" data-gm-storyline-wizard>
@@ -492,15 +547,15 @@ class GmStorylineBuilderController extends ControllerBase {
           </div>
           <div class="gm-storyline-wizard__assistant-prompts" aria-label="Suggested requests">
             <button type="button" class="btn btn-secondary btn-sm" data-gm-assistant-prompt="Help me create a new storyline. Ask me for the most important missing decisions one at a time.">Create a storyline</button>
-            <button type="button" class="btn btn-secondary btn-sm" data-gm-assistant-prompt="Review the current storyline object and identify all incomplete or contradictory data.">Review current work</button>
-            <button type="button" class="btn btn-secondary btn-sm" data-gm-assistant-prompt="Propose a complete progression structure with chapters, scenes, quests, objectives, actors, rooms, and items for the current premise.">Build progression</button>
+            <button type="button" class="btn btn-secondary btn-sm" data-gm-assistant-prompt="Review the saved storyline and explain its most important outstanding finding. Recommend one manageable next action.">Review current work</button>
+            <button type="button" class="btn btn-secondary btn-sm" data-gm-assistant-prompt="Propose the next scene-level progression improvement for the current premise. Recommend one coherent action rather than a whole-story checklist.">Plan progression</button>
           </div>
           <h4 class="gm-storyline-wizard__assistant-log-title">GM conversation</h4>
           <ul class="gm-storyline-wizard__assistant-log" data-gm-assistant-log aria-live="polite" aria-relevant="additions">
             <li class="gm-storyline-wizard__assistant-item gm-storyline-wizard__assistant-item--assistant gm-storyline-wizard__assistant-item--welcome">
               <strong>Welcome to the Storyline Builder. Let’s build a complete, connected story together.</strong>
               <span>Building a strong storyline is hard. It requires a coherent premise, meaningful progression, consistent characters and relationships, connected locations and objects, and an ending that follows from the choices players make.</span>
-              <span>I’m your Game Master Agent. I will apply clear requests directly to the draft and finish each task with concrete next steps. If an object-creation request is vague, I will present exactly three different options instead of choosing for you.</span>
+              <span>I’m your Game Master Agent. I will apply clear requests directly to the draft in manageable, saved batches and recommend one next action. If a creative decision is needed, I will ask one question with three alternative directions.</span>
               <span><strong>Explore the interface:</strong> hover over the numbered sections in the left sidebar to learn what each stage controls. The structured fields below this conversation let you inspect and refine the exact storyline data.</span>
             </li>
             <li class="gm-storyline-wizard__assistant-item gm-storyline-wizard__assistant-item--status" data-gm-assistant-status role="status" aria-live="polite">Connecting to the Game Master Agent…</li>
@@ -657,7 +712,7 @@ class GmStorylineBuilderController extends ControllerBase {
           <div class="gm-storyline-wizard__section-help">
             <p>These records become executable branch contracts in the published storyline, not standalone tools.</p>
             <ol>
-              <li>Author at least two choices for a decision and define the trigger that makes each choice eligible. A decision whose choices are ways of achieving a quest goal may have just one.</li>
+              <li>Define the trigger that makes each choice of a decision eligible. A decision with one choice is a fixed outcome; add more only when the players really choose.</li>
               <li>Mark a choice as a <strong>way of achieving the quest goal</strong> to make resolving it complete the quest. Players see known ways in their journal, discover hidden ones in play, and never see secret ones before they are used.</li>
               <li>Publication compiles the choices into runtime questline nodes and exposes their decision and choice IDs.</li>
               <li>During play, the GM receives current decisions in its prompt context and can inspect or resolve them through the standard GM tools. Other runtime callers may submit the same decision/choice pair through storyline advancement.</li>
@@ -672,11 +727,11 @@ class GmStorylineBuilderController extends ControllerBase {
             <div class="gm-storyline-wizard__rows" data-rows="branch_choice_entries"></div>
             <template data-row-template="branch_choice_entries"><div class="gm-storyline-wizard__row gm-storyline-wizard__row--analysis">
               <input type="text" class="form-text" placeholder="Decision ID" aria-label="Decision ID" data-col-field="decision_id">
-              <input type="text" class="form-text" placeholder="Source task ID" aria-label="Source task ID" data-col-field="source_task_id">
+              <input type="text" class="form-text" placeholder="Source task ID (empty: applies from any task)" aria-label="Source task ID; leave empty for a storyline-wide choice" data-col-field="source_task_id">
               <input type="text" class="form-text" placeholder="Unique choice ID" aria-label="Choice ID" data-col-field="choice_id">
               <input type="text" class="form-text" placeholder="Player-facing choice" aria-label="Choice label" data-col-field="label">
-              <select class="form-select" aria-label="Trigger type" data-col-field="trigger_type"><option value="player_choice">Player choice</option><option value="action">Action</option><option value="objective_result">Objective result</option><option value="skill_result">Skill result</option><option value="actor_state">Actor state</option><option value="environment_state">Environment state</option><option value="item_state">Item state</option><option value="timer">Timer</option><option value="gm_decision">GM decision</option></select>
-              <select class="form-select" aria-label="Actor interaction" data-col-field="trigger_interaction"><option value="other">Other interaction</option><option value="attacked">Actor is attacked</option><option value="killed">Actor is killed</option></select>
+              <select class="form-select" aria-label="Trigger type" data-col-field="trigger_type">{$trigger_type_options}</select>
+              <select class="form-select" aria-label="Actor interaction" data-col-field="trigger_interaction">{$trigger_interaction_options}</select>
               <input type="text" class="form-text" placeholder="Trigger condition" aria-label="Trigger condition" data-col-field="trigger_condition">
               <input type="text" class="form-text" placeholder="Affected actor/source ID" aria-label="Trigger source ID" data-col-field="trigger_source_id">
               <input type="text" class="form-text" placeholder="Effect summary" aria-label="Effect summary" data-col-field="effect_summary">
@@ -699,7 +754,7 @@ class GmStorylineBuilderController extends ControllerBase {
             <template data-row-template="branch_actor_effect_entries"><div class="gm-storyline-wizard__row gm-storyline-wizard__row--effect">
               <input type="text" class="form-text" placeholder="Choice ID" aria-label="Effect choice ID" data-col-field="choice_id">
               <input type="text" class="form-text" placeholder="Actor ID" aria-label="Affected actor ID" data-col-field="actor_id">
-              <select class="form-select" aria-label="Actor interaction" data-col-field="interaction"><option value="other">Other interaction</option><option value="attacked">Attacked</option><option value="killed">Killed</option></select>
+              <select class="form-select" aria-label="Actor interaction" data-col-field="interaction">{$actor_interaction_options}</select>
               <input type="text" class="form-text" placeholder="How does this actor react?" aria-label="Actor reaction" data-col-field="reaction">
               <input type="text" class="form-text" placeholder="What changes for the actor?" aria-label="Actor effect" data-col-field="effect">
               <textarea class="form-textarea" rows="2" placeholder="State changes: key | operation | value" aria-label="Actor state changes" data-col-field="state_changes"></textarea>
@@ -711,7 +766,7 @@ class GmStorylineBuilderController extends ControllerBase {
             <div class="gm-storyline-wizard__rows" data-rows="branch_environment_effect_entries"></div>
             <template data-row-template="branch_environment_effect_entries"><div class="gm-storyline-wizard__row gm-storyline-wizard__row--effect">
               <input type="text" class="form-text" placeholder="Choice ID" aria-label="Effect choice ID" data-col-field="choice_id">
-              <select class="form-select" aria-label="Environment target type" data-col-field="target_type"><option value="room">Room</option><option value="dungeon">Dungeon</option><option value="location">Location</option><option value="world">World</option></select>
+              <select class="form-select" aria-label="Environment target type" data-col-field="target_type">{$environment_target_type_options}</select>
               <input type="text" class="form-text" placeholder="Target ID" aria-label="Environment target ID" data-col-field="target_id">
               <input type="text" class="form-text" placeholder="What changes in the environment?" aria-label="Environment effect" data-col-field="effect">
               <textarea class="form-textarea" rows="2" placeholder="State changes: key | operation | value" aria-label="Environment state changes" data-col-field="state_changes"></textarea>
@@ -724,10 +779,10 @@ class GmStorylineBuilderController extends ControllerBase {
             <div class="gm-storyline-wizard__rows" data-rows="branch_storyline_effect_entries"></div>
             <template data-row-template="branch_storyline_effect_entries"><div class="gm-storyline-wizard__row gm-storyline-wizard__row--effect">
               <input type="text" class="form-text" placeholder="Choice ID" aria-label="Effect choice ID" data-col-field="choice_id">
-              <select class="form-select" aria-label="Storyline target type" data-col-field="target_type"><option value="task">Task</option><option value="scene">Scene</option><option value="conflict">Conflict</option><option value="chapter">Chapter</option><option value="storyline">Storyline</option></select>
+              <select class="form-select" aria-label="Storyline target type" data-col-field="target_type">{$storyline_target_type_options}</select>
               <input type="text" class="form-text" placeholder="Target ID" aria-label="Storyline target ID" data-col-field="target_id">
               <input type="text" class="form-text" placeholder="Source actor ID (required if killed)" aria-label="Storyline source actor ID" data-col-field="source_actor_id">
-              <select class="form-select" aria-label="Storyline operation" data-col-field="operation"><option value="unlock">Unlock</option><option value="lock">Lock</option><option value="reveal">Reveal</option><option value="conceal">Conceal</option><option value="redirect">Redirect</option><option value="escalate">Escalate</option><option value="resolve">Resolve</option><option value="set">Set state</option></select>
+              <select class="form-select" aria-label="Storyline operation" data-col-field="operation">{$storyline_operation_options}</select>
               <input type="text" class="form-text" placeholder="Storyline implication" aria-label="Storyline implication" data-col-field="effect">
               <select class="form-select" aria-label="Follow-up required" data-col-field="follow_up_required"><option value="false">No follow-up</option><option value="true">Follow-up required</option></select>
               <textarea class="form-textarea" rows="2" placeholder="State changes: key | operation | value" aria-label="Storyline state changes" data-col-field="state_changes"></textarea>
@@ -740,12 +795,19 @@ class GmStorylineBuilderController extends ControllerBase {
           <div class="gm-storyline-wizard__collection" data-collection="objective_entries">
             <div class="gm-storyline-wizard__collection-header"><h4>Objective completion criteria</h4><button type="button" class="btn btn-secondary btn-sm" data-add-row="objective_entries">Add objective</button></div>
             <div class="gm-storyline-wizard__rows" data-rows="objective_entries"></div>
-            <template data-row-template="objective_entries"><div class="gm-storyline-wizard__row gm-storyline-wizard__row--five">
+            <template data-row-template="objective_entries"><div class="gm-storyline-wizard__row gm-storyline-wizard__row--objective">
               <input type="text" class="form-text" placeholder="Objective ID" data-col-field="objective_id">
-              <select class="form-select" data-col-field="kind"><option value="count">count</option><option value="flag">flag</option><option value="all_children">all_children</option></select>
+              <input type="text" class="form-text" placeholder="Task ID this objective belongs to" aria-label="Task ID this objective belongs to" data-col-field="task_id">
+              <select class="form-select" aria-label="What the players do" data-col-field="type"><option value="">Type…</option><option value="interact">interact (target)</option><option value="escort">escort (destination)</option><option value="explore">explore (location)</option><option value="investigate">investigate (target)</option><option value="kill">kill (target, count)</option><option value="collect">collect (item, count)</option></select>
+              <input type="text" class="form-text" placeholder="What the players do next" aria-label="What the players do next" data-col-field="next_step">
+              <input type="text" class="form-text" placeholder="Target ID (interact, investigate, kill)" aria-label="Target ID" data-col-field="target">
+              <input type="text" class="form-text" placeholder="Item ID (collect)" aria-label="Item ID" data-col-field="item">
+              <input type="text" class="form-text" placeholder="Location ID (explore)" aria-label="Location ID" data-col-field="location">
+              <input type="text" class="form-text" placeholder="Destination ID (escort)" aria-label="Destination ID" data-col-field="destination">
+              <select class="form-select" aria-label="Completion kind (set by type)" data-col-field="kind"><option value="">Kind (from type)</option><option value="count">count</option><option value="flag">flag</option></select>
               <input type="text" class="form-text" placeholder="Metric" data-col-field="metric">
               <input type="text" class="form-text" placeholder="Description" data-col-field="description">
-              <input type="text" class="form-text" placeholder="Required value/target count" data-col-field="required">
+              <input type="text" class="form-text" placeholder="Count needed (kill, collect)" aria-label="Count needed" data-col-field="required">
               <button type="button" class="btn btn-secondary btn-sm" data-remove-row>Remove</button>
             </div></template>
           </div>
@@ -845,25 +907,21 @@ class GmStorylineBuilderController extends ControllerBase {
         </section>
 
         <section class="gm-storyline-wizard__step" data-step-panel="7" hidden>
-          <h3>Step 7 · Review Canonical Storyline Object</h3>
-          <p>Validate to generate the exact canonical storyline definition that creation will persist.</p>
-          <p>Existing templates retain untouched canonical fields while structured scene, task, actor, dungeon, room, item, relationship, and conflict rows can be added, edited, or removed.</p>
-          <div class="gm-storyline-wizard__tools"><strong>Available tools:</strong><ul><li>/api/storylines/templates (POST)</li><li>/api/campaign/{campaign_id}/storylines/generate (POST)</li><li>/api/campaign/{campaign_id}/storylines/bootstrap (POST)</li></ul></div>
-          <div class="gm-storyline-wizard__assistant-card">
-            <h4>Game Master Agent assistance</h4>
-            <p>Use the grounded GM assistant storyline toolset while authoring this storyline.</p>
-            <div class="gm-storyline-wizard__link-chips">{$editor_suite} {$actor_library} {$item_library} {$room_editor} {$dungeon_editor}</div>
-          </div>
-          <pre class="gm-storyline-wizard__preview" data-gm-blueprint-preview>{}</pre>
-          <p class="gm-storyline-wizard__publish-status" data-gm-template-publish-status></p>
-          <p class="gm-storyline-wizard__validation-summary" data-gm-template-validation-summary></p>
-          <ul class="gm-storyline-wizard__validation-list" data-gm-template-validation-list></ul>
+          <h3>Step 7 · Review Your Storyline</h3>
+          <p>Follow the story from scene to scene, inspect its choices, and review validation before publishing.</p>
+          <section class="gm-storyline-wizard__review-summary" data-storyline-review-summary aria-label="Storyline overview"></section>
           <section class="gm-storyline-wizard__analysis" aria-labelledby="gm-storyline-analysis-title">
-            <h4 id="gm-storyline-analysis-title">Story timeline and conflict graph</h4>
-            <p data-gm-template-analysis-summary>Validate the saved draft to generate the authoritative analysis.</p>
+            <h4 id="gm-storyline-analysis-title">Story progression</h4>
+            <p data-gm-template-analysis-summary>The chart shows the saved storyline. Revalidate after editing to refresh it.</p>
             <div class="gm-storyline-wizard__analysis-graph" data-gm-template-analysis-graph role="group" aria-label="Interactive story timeline and conflict relationship graph"></div>
           </section>
-          <div class="gm-storyline-wizard__actions"><button type="button" class="btn btn-secondary" data-step-back="6">Back</button><button type="button" class="btn btn-secondary" data-gm-blueprint-copy>Copy object JSON</button><button type="button" class="btn btn-secondary" data-gm-template-validate>Generate and validate object</button><button type="button" class="btn btn-primary" data-gm-template-publish>Create canonical storyline</button></div>
+          <p class="gm-storyline-wizard__publish-status" data-gm-template-publish-status role="status"></p>
+          <p class="gm-storyline-wizard__validation-summary" data-gm-template-validation-summary></p>
+          <details class="gm-storyline-wizard__review-validation">
+            <summary>Validation details</summary>
+            <ul class="gm-storyline-wizard__validation-list" data-gm-template-validation-list></ul>
+          </details>
+          <div class="gm-storyline-wizard__actions"><button type="button" class="btn btn-secondary" data-step-back="6">Back</button><button type="button" class="btn btn-secondary" data-gm-template-validate>Revalidate storyline</button><button type="button" class="btn btn-primary" data-gm-template-publish>Publish storyline</button></div>
         </section>
 
       </div>

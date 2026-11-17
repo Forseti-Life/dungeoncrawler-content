@@ -180,6 +180,9 @@ class EditorGmController extends ControllerBase {
    */
   private function persistAssistantTurn(array $session, array $response): void {
     $tool_result = is_array($response['tool_result'] ?? NULL) ? $response['tool_result'] : [];
+    if (($tool_result['work_progress']['status'] ?? '') === 'running') {
+      return;
+    }
     if (($tool_result['schema_version'] ?? '') === 'storyline-definition-preview-v1') {
       unset($tool_result['definition']);
     }
@@ -220,7 +223,7 @@ class EditorGmController extends ControllerBase {
           '%d. %s — %s',
           $index + 1,
           trim((string) ($option['label'] ?? '')),
-          trim((string) ($option['selection'] ?? $option['description'] ?? '')),
+          trim((string) ($option['description'] ?? '')),
         );
       }
       return implode("\n", $lines);
@@ -328,7 +331,7 @@ class EditorGmController extends ControllerBase {
       'message' => str_replace('_', ' ', ucfirst($code)),
     ];
     if ($code === 'editor_gm_intent_output_truncated') {
-      $error['message'] = 'The GM response exceeded its output limit. No action was executed. Request a smaller batch of edits.';
+      $error['message'] = 'The GM response exceeded its output limit; that batch was not executed. Previously completed batches remain saved and can be resumed.';
     }
     if ($exception instanceof DefinitionValidationException) {
       $error['code'] = 'definition_validation_failed';

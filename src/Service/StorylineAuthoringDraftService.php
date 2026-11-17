@@ -24,6 +24,18 @@ class StorylineAuthoringDraftService {
     'task_contracts',
     'authored_room_dungeon_bindings',
   ];
+  private const STAGE_FIX_ROUTES = [
+    'schema' => 'draft_operation',
+    'questline_progression' => 'draft_operation',
+    'objective_control_chain' => 'draft_operation',
+    'task_contracts' => 'draft_operation',
+    'authored_room_dungeon_bindings' => 'canonical_remediation',
+    'authored_questline_edges' => 'draft_operation',
+  ];
+  /**
+   * Findings whose fix differs from the rest of their stage.
+   */
+  private const FINDING_FIX_ROUTES = [];
 
   private const TABLE = 'dungeoncrawler_content_storyline_authoring_drafts';
   private const REVISION_TABLE = 'dungeoncrawler_content_storyline_draft_revisions';
@@ -70,6 +82,8 @@ class StorylineAuthoringDraftService {
     protected UuidInterface $uuid,
     protected TimeInterface $time,
     protected ?DefinitionSchemaValidator $draftValidator = NULL,
+    protected ?CanonicalQuestTemplateService $questTemplates = NULL,
+    protected ?ObjectiveTypeService $objectiveTypes = NULL,
   ) {}
 
   /**
@@ -93,6 +107,100 @@ class StorylineAuthoringDraftService {
       . 'Patch merges a nonempty object of changed fields into the matched row, preserving every other field. Prefer patch for renaming or editing a few row fields; never resend whole rows for those edits. '
       . 'A match must identify exactly one row; when one field is not unique, use match.fields with enough exact field/value pairs to make it unique. '
       . 'Collection operation paths never add /- or an array index; set may address an existing row field by its grounded index.';
+  }
+
+  /**
+   * Warn when an authored unlocks_after is not what the engine derives.
+   *
+   * @return array<int, string>
+   *   Non-blocking warnings.
+   */
+  private function validateAuthoredQuestlineEdgeProjection(array $payload, array $definition): array {
+    $warnings = [];
+    $projected_nodes = [];
+    foreach (array_values(array_filter((array) ($definition['questline']['quest_nodes'] ?? []), 'is_array')) as $node) {
+      $quest_id = trim((string) ($node['quest_id'] ?? ''));
+      if ($quest_id !== '') {
+        $projected_nodes[$quest_id] = $node;
+      }
+    }
+    foreach (array_values(array_filter((array) ($payload['process_flow']['tasks'] ?? []), 'is_array')) as $task) {
+      $task_id = trim((string) ($task['task_id'] ?? ''));
+      if ($task_id === '' || !isset($projected_nodes[$task_id])) {
+        continue;
+      }
+      $authored = $this->normalizeCsvReferences($task['unlocks_after'] ?? []);
+      $projected = $this->normalizeCsvReferences($projected_nodes[$task_id]['unlocks_after'] ?? []);
+      sort($authored);
+      sort($projected);
+      if ($authored !== [] && $authored !== $projected) {
+        $warnings[] = "Task '{$task_id}' unlocks_after is not used; prerequisites are derived from the tasks and choices that lead to it. Clear it, or point an upstream task or choice at '{$task_id}'.";
+      }
+    }
+
+    return array_values(array_unique($warnings));
+  }
+
+  /**
+   * Findings about choices that the questline projection cannot express.
+   *
+   * These are causes: a choice that cannot be placed, and a continuation a
+   * task's choices replaced. Both leave later tasks unreachable, so they are
+   * reported ahead of the unreachable tasks they cause.
+   *
+   * @return array<int, array<string, mixed>>
+   */
+  private function authoredChoiceFindings(array $payload): array {
+    $tasks = array_values(array_filter((array) ($payload['process_flow']['tasks'] ?? []), 'is_array'));
+    $task_ids = array_fill_keys(array_map(static fn(array $task): string => trim((string) ($task['task_id'] ?? '')), $tasks), TRUE);
+    $findings = [];
+    $choice_targets = [];
+    foreach (array_values(array_filter((array) ($payload['process_flow']['branch_choices'] ?? []), 'is_array')) as $choice) {
+      $source = trim((string) ($choice['source_task_id'] ?? ''));
+      if ($source === '') {
+        continue;
+      }
+      if (!isset($task_ids[$source])) {
+        $label = trim((string) ($choice['label'] ?? ''));
+        $findings[] = [
+          'severity' => 'error',
+          'code' => 'choice_source_task_unknown',
+          'choice_id' => trim((string) ($choice['choice_id'] ?? '')),
+          'label' => $label,
+          'message' => "The choice '{$label}' names a source task that does not exist ('{$source}'). Point it at an existing task, or leave its source empty to make it a storyline-wide choice.",
+        ];
+        continue;
+      }
+      $choice_targets[$source] ??= [];
+      if (!$this->normalizeBranchTerminal($choice['terminal'] ?? FALSE)) {
+        $choice_targets[$source][trim((string) ($choice['target_task_id'] ?? ''))] = TRUE;
+      }
+    }
+    foreach ($tasks as $task) {
+      $task_id = trim((string) ($task['task_id'] ?? ''));
+      if (!isset($choice_targets[$task_id])) {
+        continue;
+      }
+      $dropped = array_values(array_filter(
+        $this->normalizeCsvReferences($task['unlocks_to'] ?? []),
+        static fn(string $continuation): bool => !isset($choice_targets[$task_id][$continuation]),
+      ));
+      if ($dropped === []) {
+        continue;
+      }
+      $findings[] = [
+        'severity' => 'error',
+        'code' => 'continuation_replaced_by_choices',
+        'task_id' => $task_id,
+        'dropped_task_ids' => $dropped,
+        'message' => sprintf(
+          "Task '%s' lists '%s' as what comes next, but a task with choices continues only where its choices lead, and none leads there. Add a choice that continues there, or make the conditional choice storyline-wide so the task keeps its normal continuation.",
+          $task_id,
+          implode("', '", $dropped),
+        ),
+      ];
+    }
+    return $findings;
   }
 
   /**
@@ -187,6 +295,9 @@ class StorylineAuthoringDraftService {
       if (is_array($property['enum'] ?? NULL)) {
         $constraint['enum'] = array_values($property['enum']);
       }
+      if (is_string($property['description'] ?? NULL)) {
+        $constraint['description'] = $property['description'];
+      }
       if (is_string($property['$ref'] ?? NULL)) {
         $constraint['schema_ref'] = (string) basename($property['$ref']);
       }
@@ -234,18 +345,8 @@ class StorylineAuthoringDraftService {
           'source_id' => 'string',
         ],
         'action_interaction_field' => 'interaction',
-        'action_interactions' => ['other', 'attacked', 'killed'],
-        'types' => [
-          'player_choice',
-          'action',
-          'objective_result',
-          'skill_result',
-          'actor_state',
-          'environment_state',
-          'item_state',
-          'timer',
-          'gm_decision',
-        ],
+        'action_interactions' => StorylineManagerService::STORYLINE_BRANCH_INTERACTIONS,
+        'types' => StorylineManagerService::STORYLINE_BRANCH_TRIGGER_TYPES,
       ],
       'effects' => [
         'required_fields' => ['summary', 'actors', 'environment', 'storyline'],
@@ -257,6 +358,7 @@ class StorylineAuthoringDraftService {
           'effect' => 'string',
           'state_changes' => 'array',
         ],
+        'actor_interactions' => StorylineManagerService::STORYLINE_BRANCH_INTERACTIONS,
         'environment_fields' => ['target_type', 'target_id', 'effect', 'state_changes'],
         'environment_field_types' => [
           'target_type' => 'enum',
@@ -264,6 +366,7 @@ class StorylineAuthoringDraftService {
           'effect' => 'string',
           'state_changes' => 'array',
         ],
+        'environment_target_types' => StorylineManagerService::STORYLINE_BRANCH_ENVIRONMENT_TARGET_TYPES,
         'storyline_fields' => [
           'target_type',
           'target_id',
@@ -282,34 +385,28 @@ class StorylineAuthoringDraftService {
           'follow_up_required' => 'boolean',
           'state_changes' => 'array',
         ],
-        'storyline_operations' => [
-          'unlock',
-          'lock',
-          'reveal',
-          'conceal',
-          'redirect',
-          'escalate',
-          'resolve',
-          'set',
-        ],
+        'storyline_target_types' => StorylineManagerService::STORYLINE_BRANCH_TARGET_TYPES,
+        'storyline_operations' => StorylineManagerService::STORYLINE_BRANCH_OPERATIONS,
         'state_change_fields' => ['key', 'operation', 'value'],
         'state_change_field_types' => [
           'key' => 'string',
           'operation' => 'enum',
           'value' => 'scalar_or_structured_value',
         ],
-        'state_change_operations' => ['set', 'increment', 'decrement', 'add', 'remove'],
+        'state_change_operations' => StorylineManagerService::STORYLINE_BRANCH_STATE_CHANGE_OPERATIONS,
       ],
       'invariants' => [
-        'A decision has at least two choices on one source task.',
+        'A decision has one or more choices on one source task. One choice is a fixed outcome with its trigger and effects; never invent a second choice to pad it.',
+        'A choice with an empty source_task_id is storyline-wide: a condition that can fire from any task, authored once. The same choice repeated on several tasks is rejected.',
+        'A task with choices continues only where its choices lead; its unlocks_to is not used. A condition that should not replace the normal continuation is a storyline-wide choice.',
         'choice_id is unique across the storyline draft.',
         'A non-terminal choice names a target task and that task\'s scene.',
-        'A terminal choice names neither a target task nor target scene.',
+        'A terminal choice sets terminal to true and sets target_task_id and target_scene_id to empty strings.',
         'Actor or environment effects require at least one called-out storyline implication.',
         'Action triggers identify the affected actor in source_id and classify the interaction.',
         'Attacked or killed actors have an explicit reaction.',
         'Killing an actor has a storyline implication linked by source_actor_id.',
-        'Choice destinations are authoritative; unlock graph edges are derived from them.',
+        'Choice destinations are authoritative. A task without choices continues to its unlocks_to, or to the next task row when unlocks_to is empty. unlocks_after is derived and never authored.',
       ],
       'runtime_selection' => 'variables.branch_choices[decision_id] = choice_id',
     ];
@@ -917,6 +1014,20 @@ class StorylineAuthoringDraftService {
       'errors' => $binding_errors,
     ];
     $stages = is_array($validation['stages'] ?? NULL) ? $validation['stages'] : [];
+    $choice_findings = $this->authoredChoiceFindings($draft['payload'] ?? []);
+    if ($choice_findings !== []) {
+      $progression = is_array($stages['questline_progression'] ?? NULL) ? $stages['questline_progression'] : [];
+      $stages['questline_progression'] = [
+        'valid' => FALSE,
+        'errors' => array_merge(array_column($choice_findings, 'message'), (array) ($progression['errors'] ?? [])),
+        'findings' => array_merge($choice_findings, (array) ($progression['findings'] ?? [])),
+      ] + $progression;
+    }
+    $stages['authored_questline_edges'] = [
+      'valid' => TRUE,
+      'errors' => [],
+      'warnings' => $this->validateAuthoredQuestlineEdgeProjection($draft['payload'] ?? [], $definition),
+    ];
     $stage_summaries = [];
     $blocking_errors = [];
     $warnings = array_values(array_filter((array) ($validation['warnings'] ?? []), static fn($warning): bool => is_string($warning) && trim($warning) !== ''));
@@ -933,12 +1044,20 @@ class StorylineAuthoringDraftService {
       $warnings = array_merge($warnings, $stage_warnings);
       $stage_summaries[] = [
         'stage' => (string) $stage_key,
+        'route' => self::STAGE_FIX_ROUTES[(string) $stage_key] ?? 'unclassified',
         'valid' => $errors === [],
         'error_count' => count($errors),
         'warning_count' => count($stage_warnings),
         'errors' => $errors,
         'warnings' => $stage_warnings,
-        'findings' => array_values(array_filter((array) ($stage_result['findings'] ?? []), 'is_array')),
+        'findings' => array_map(
+          static fn(array $finding): array => $finding + [
+            'route' => self::FINDING_FIX_ROUTES[(string) ($finding['code'] ?? '')]
+              ?? self::STAGE_FIX_ROUTES[(string) $stage_key]
+              ?? 'unclassified',
+          ],
+          array_values(array_filter((array) ($stage_result['findings'] ?? []), 'is_array')),
+        ),
       ];
     }
     $blocking_errors = array_values(array_unique($blocking_errors));
@@ -1042,6 +1161,28 @@ class StorylineAuthoringDraftService {
         ];
         $decisions[$decision_id]['choices'][] = $choice;
       }
+    }
+    foreach (array_values(array_filter((array) ($definition['questline']['storyline_choices'] ?? []), 'is_array')) as $choice) {
+      $decision_id = trim((string) ($choice['decision_id'] ?? ''));
+      if ($decision_id === '') {
+        continue;
+      }
+      $choice_count++;
+      if (($choice['terminal'] ?? FALSE) === TRUE) {
+        $terminal_count++;
+      }
+      foreach (array_values(array_filter((array) ($choice['effects']['storyline'] ?? []), 'is_array')) as $effect) {
+        if (($effect['follow_up_required'] ?? FALSE) === TRUE) {
+          $follow_up_count++;
+        }
+      }
+      $decisions[$decision_id] ??= [
+        'decision_id' => $decision_id,
+        'source_task_id' => '',
+        'storyline_wide' => TRUE,
+        'choices' => [],
+      ];
+      $decisions[$decision_id]['choices'][] = $choice;
     }
     return [
       'schema_version' => 'storyline-branching-summary-v1',
@@ -1232,31 +1373,9 @@ class StorylineAuthoringDraftService {
           break;
         }
       }
-      $next_steps = [];
-      if ($missing_content !== []) {
-        $next_steps[] = 'Complete: ' . implode(', ', array_slice($missing_content, 0, 4)) . '.';
-      }
-      if (($validation['valid'] ?? FALSE) !== TRUE) {
-        $next_steps[] = sprintf('Resolve %d canonical validation error(s).', (int) ($validation['error_count'] ?? 0));
-      }
       $warning_count = (int) ($validation['warning_count'] ?? 0);
-      if ($warning_count > 0) {
-        $next_steps[] = sprintf(
-          'Resolve %d canonical validation warning(s), including any missing referenced assets.',
-          $warning_count
-        );
-      }
-      if ($current_stage <= 6) {
-        $next_steps[] = "Continue editing Stage {$current_stage}.";
-      }
-      elseif (($draft['status'] ?? '') === 'published') {
-        $next_steps[] = 'The storyline is published; its publication receipt is the final signoff.';
-      }
-      elseif ($warning_count === 0) {
-        $next_steps[] = 'Review the complete canonical object and create the storyline when satisfied.';
-      }
 
-    return [
+    $result = [
         'schema_version' => 'storyline-draft-status-v1',
         'draft_id' => (string) ($draft['draft_id'] ?? ''),
         'revision' => (int) ($draft['revision'] ?? 0),
@@ -1272,8 +1391,46 @@ class StorylineAuthoringDraftService {
         'stages' => $stages,
         'missing_content' => $missing_content,
         'checklist' => $checklist,
-        'next_steps' => array_slice($next_steps, 0, 3),
     ];
+    $result['next_steps'] = self::recommendNextAuthoringAction($result);
+    return $result;
+  }
+
+  /**
+   * Owns the single next author action shared by status and GM summaries.
+   */
+  public static function recommendNextAuthoringAction(array $state): array {
+    if (($state['status'] ?? '') === 'published') {
+      return ['Open the published storyline.'];
+    }
+    $missing = array_values(array_filter((array) ($state['missing_content'] ?? []), 'is_string'));
+    if ($missing !== []) {
+      return [match ($missing[0]) {
+        'Storyline ID' => 'Have the GM prepare this draft for review.',
+        'Title' => 'Choose a title for this storyline.',
+        'Description' => 'Describe the adventure in one short paragraph.',
+        'Premise' => 'Choose the central problem the heroes must solve.',
+        'Player hook' => 'Choose how the heroes first become involved.',
+        'Intended ending' => 'Choose one possible ending.',
+        'At least one scene' => 'Have the GM develop the next scene.',
+        'At least one task' => 'Have the GM develop one quest for the next scene.',
+        'At least one objective' => 'Have the GM add one goal to the current quest.',
+        'At least one conflict' => 'Choose the central opposition.',
+        'At least one branching decision' => 'Have the GM add a meaningful choice to the next scene.',
+        'At least one actor binding' => 'Have the GM develop the first story character.',
+        'At least one dungeon binding' => 'Have the GM develop the first adventure location.',
+        'At least one room binding' => 'Have the GM develop one room for that location.',
+        'Every room has dungeon and scene bindings' => 'Have the GM connect the next unbound room to its location.',
+        default => 'Develop the next missing story element: ' . trim($missing[0]) . '.',
+      }];
+    }
+    if (($state['error_count'] ?? 0) > 0) {
+      return ['Have the GM address the next validation finding.'];
+    }
+    if (($state['warning_count'] ?? 0) > 0) {
+      return ['Have the GM address the next validation warning.'];
+    }
+    return ['Review the updated storyline.'];
   }
 
   /**
@@ -1471,7 +1628,12 @@ class StorylineAuthoringDraftService {
         if (!is_string($seed)) {
           throw new \InvalidArgumentException('storyline_draft_identity_seed_invalid:' . $index);
         }
-        if ($field === 'decision_id') {
+        if ($field === 'decision_id' && trim((string) ($row['source_task_id'] ?? '')) === '') {
+          // Storyline-wide choices are independent conditions: resolving one
+          // must not close the others, so each is its own decision.
+          $row[$field] = $allocate($kind, $seed);
+        }
+        elseif ($field === 'decision_id') {
           $source = json_encode($row['source_task_id'] ?? '', JSON_THROW_ON_ERROR);
           if (isset($batch_decisions[$source])) {
             $row[$field] = $batch_decisions[$source];
@@ -2085,6 +2247,7 @@ class StorylineAuthoringDraftService {
 
     $updated_at = $this->time->getRequestTime();
     $published_template_id = (string) ($template['template_id'] ?? '');
+    $quest_records = $this->publishTaskQuestRecords($payload, $published_template_id);
     $publication_receipt = [
       'published_at' => $updated_at,
       'author_uid' => (int) $this->currentUser->id(),
@@ -2121,8 +2284,31 @@ class StorylineAuthoringDraftService {
       'revision' => $current_revision,
       'template_id' => (string) ($template['template_id'] ?? ''),
       'template' => $template,
+      'quest_records' => $quest_records,
       'publication_receipt' => $publication_receipt,
     ];
+  }
+
+  /**
+   * Writes the quest record each task is played as, from the task's own rows.
+   *
+   * Runs inside the publication transaction: a task whose record cannot be
+   * written fails the whole publication.
+   */
+  private function publishTaskQuestRecords(array $payload, string $storyline_id): array {
+    if ($this->questTemplates === NULL || $this->objectiveTypes === NULL) {
+      throw new \LogicException('storyline_publication_quest_record_writer_unavailable');
+    }
+    $builder = new StorylineQuestRecordBuilder($this->objectiveTypes);
+    $rows_by_task = StorylineQuestRecordBuilder::rowsByTask((array) ($payload['process_flow']['objective_completion_criteria'] ?? []));
+    $receipts = [];
+    foreach (array_values(array_filter((array) ($payload['process_flow']['tasks'] ?? []), 'is_array')) as $task) {
+      $task_id = trim((string) ($task['task_id'] ?? ''));
+      $receipts[] = $this->questTemplates->saveStorylineQuestRecord(
+        $builder->questRecord($task, $rows_by_task[$task_id] ?? [], $payload, $storyline_id)
+      );
+    }
+    return $receipts;
   }
 
   /**
@@ -2737,7 +2923,7 @@ class StorylineAuthoringDraftService {
         'chapter_id' => trim((string) ($task['chapter_id'] ?? '')),
         'scene_id' => trim((string) ($task['scene_id'] ?? '')),
         'status' => trim((string) ($task['status'] ?? 'available')) ?: 'available',
-        'unlocks_after' => $this->normalizeCsvReferences($task['unlocks_after'] ?? []),
+        'unlocks_after' => [],
         'unlocks_to' => $this->normalizeCsvReferences($task['unlocks_to'] ?? []),
         'unlock_condition' => trim((string) ($task['unlock_condition'] ?? '')),
         'prerequisite_mode' => 'all',
@@ -2749,14 +2935,17 @@ class StorylineAuthoringDraftService {
     foreach ($nodes as $index => $node) {
       $node_indexes[$node['quest_id']] = $index;
     }
+    $storyline_choices = [];
     foreach (array_values(array_filter($branch_choices, 'is_array')) as $choice) {
       $source_quest_id = trim((string) ($choice['source_task_id'] ?? ''));
-      if ($source_quest_id === '' || !isset($node_indexes[$source_quest_id])) {
+      // A source that names no existing task cannot be placed; validateDraft
+      // reports it as choice_source_task_unknown.
+      if ($source_quest_id !== '' && !isset($node_indexes[$source_quest_id])) {
         continue;
       }
       $target_quest_id = trim((string) ($choice['target_task_id'] ?? ''));
       $terminal = $this->normalizeBranchTerminal($choice['terminal'] ?? FALSE);
-      $nodes[$node_indexes[$source_quest_id]]['choices'][] = [
+      $projected_choice = [
         'decision_id' => trim((string) ($choice['decision_id'] ?? '')),
         'choice_id' => trim((string) ($choice['choice_id'] ?? '')),
         'label' => trim((string) ($choice['label'] ?? '')),
@@ -2766,13 +2955,17 @@ class StorylineAuthoringDraftService {
         'target_scene_id' => trim((string) ($choice['target_scene_id'] ?? '')),
         'terminal' => $terminal,
       ] + (is_array($choice['approach'] ?? NULL) ? ['approach' => $this->normalizeChoiceApproach($choice['approach'])] : []);
+      if ($source_quest_id === '') {
+        $storyline_choices[] = $projected_choice;
+      }
+      else {
+        $nodes[$node_indexes[$source_quest_id]]['choices'][] = $projected_choice;
+      }
     }
-    $has_choices = FALSE;
     foreach ($nodes as &$node) {
       if ($node['choices'] === []) {
         continue;
       }
-      $has_choices = TRUE;
       $current_quest_id = $node['quest_id'];
       $node['unlocks_to'] = array_values(array_unique(array_filter(array_map(
         static fn(array $choice): string => (!$choice['terminal'] && $choice['target_quest_id'] !== $current_quest_id)
@@ -2783,40 +2976,34 @@ class StorylineAuthoringDraftService {
       $node['unlock_condition'] = 'player_choice';
     }
     unset($node);
-    if ($has_choices) {
-      foreach ($nodes as &$node) {
-        $choice_predecessors = [];
-        foreach ($nodes as $source) {
-          if ($source['quest_id'] === $node['quest_id']) {
-            continue;
-          }
-          foreach ($source['choices'] as $choice) {
-            if (!$choice['terminal'] && $choice['target_quest_id'] === $node['quest_id']) {
-              $choice_predecessors[] = $source['quest_id'];
-            }
-          }
-        }
-        if ($choice_predecessors !== []) {
-          $node['unlocks_after'] = array_values(array_unique(array_merge(
-            $node['unlocks_after'],
-            $choice_predecessors,
-          )));
-          $node['prerequisite_mode'] = 'any';
-        }
-      }
-      unset($node);
-    }
     foreach ($nodes as $index => &$node) {
-      $previous_id = $nodes[$index - 1]['quest_id'] ?? '';
       $next_id = $nodes[$index + 1]['quest_id'] ?? '';
-      if ($node['unlocks_after'] === [] && $previous_id !== '') {
-        $node['unlocks_after'] = $previous_id !== '' ? [$previous_id] : [];
-      }
       if ($node['choices'] === [] && $node['unlocks_to'] === [] && $next_id !== '') {
         $node['unlocks_to'] = $next_id !== '' ? [$next_id] : [];
       }
+    }
+    unset($node);
+    $predecessors = [];
+    foreach ($nodes as $source) {
+      foreach (array_values(array_unique((array) ($source['unlocks_to'] ?? []))) as $target_quest_id) {
+        if (isset($node_indexes[$target_quest_id])) {
+          $predecessors[$target_quest_id][] = $source['quest_id'];
+        }
+      }
+    }
+    foreach ($nodes as &$node) {
+      $quest_id = $node['quest_id'];
+      $unlocks_after = array_values(array_unique((array) ($predecessors[$quest_id] ?? [])));
+      $node['unlocks_after'] = $unlocks_after;
+      $node['prerequisite_mode'] = 'all';
+      foreach ($unlocks_after as $source_quest_id) {
+        if (isset($node_indexes[$source_quest_id]) && $nodes[$node_indexes[$source_quest_id]]['choices'] !== []) {
+          $node['prerequisite_mode'] = 'any';
+          break;
+        }
+      }
       if ($node['unlock_condition'] === '') {
-        $node['unlock_condition'] = $previous_id !== '' ? 'complete_previous_quest' : 'initially_available';
+        $node['unlock_condition'] = $unlocks_after !== [] ? 'complete_previous_quest' : 'initially_available';
       }
     }
     unset($node);
@@ -2825,7 +3012,7 @@ class StorylineAuthoringDraftService {
       'primary_quest_id' => $ordered_ids[0] ?? '',
       'ordered_quest_ids' => array_values(array_unique($ordered_ids)),
       'quest_nodes' => $nodes,
-    ];
+    ] + ($storyline_choices !== [] ? ['storyline_choices' => $storyline_choices] : []);
   }
 
   /**
@@ -3078,8 +3265,8 @@ class StorylineAuthoringDraftService {
       if ($scene_id === '') {
         continue;
       }
-      $themes = array_values(array_filter(array_map('trim', explode(',', (string) ($row['themes'] ?? ''))), static fn(string $value): bool => $value !== ''));
-      $character_ids = array_values(array_filter(array_map('trim', explode(',', (string) ($row['character_ids'] ?? ''))), static fn(string $value): bool => $value !== ''));
+      $themes = $this->normalizeCsvReferences($row['themes'] ?? []);
+      $character_ids = $this->normalizeCsvReferences($row['character_ids'] ?? []);
       $foreshadows_scene_id = trim((string) ($row['foreshadows_scene_id'] ?? ''));
       $scene_annotations[$scene_id] = [
         'summary' => trim((string) ($row['summary'] ?? $canonical_scene['summary'] ?? '')),

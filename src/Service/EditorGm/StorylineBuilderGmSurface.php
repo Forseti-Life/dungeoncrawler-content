@@ -38,6 +38,7 @@ use Drupal\dungeoncrawler_content\Service\RoomEditorService;
 use Drupal\Component\Uuid\UuidInterface;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Actor\DefinitionActorTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\StorylineActorSheetTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\StorylineWorkTool;
 use Drupal\dungeoncrawler_content\Service\StorylineActorSheetService;
 use Drupal\dungeoncrawler_content\Service\CanonicalQuestTemplateService;
 
@@ -64,6 +65,7 @@ final class StorylineBuilderGmSurface implements EditorGmSurfaceInterface {
     UuidInterface $uuid,
     StorylineActorSheetService $actorSheets,
     CanonicalQuestTemplateService $questTemplates,
+    StorylineGmWorkService $work,
   ) {
     $remediationPlanner = new PlanStorylineRemediationTool($questTemplates, $roomEditor);
     $remediationExecutor = new ApplyStorylineRemediationTool($definitionGeneration, $roomGeneration, $roomEditor, $uuid, $questTemplates);
@@ -90,19 +92,21 @@ final class StorylineBuilderGmSurface implements EditorGmSurfaceInterface {
       new FindDungeonsUsingRoomTool($this->suite),
       new RouteToEditorTool($this->suite),
       new PlanStorylineDraftOperationsTool(),
+      new StorylineWorkTool($work, FALSE),
       $remediationPlanner,
       new ValidateDraftTool(),
       new ExplainValidationFindingsTool(),
       new PreviewStorylineNarrativeAnalysisTool(),
       new CheckStorylineCreationReadinessTool(),
       new ApplyStorylineDraftOperationsTool(),
+      new StorylineWorkTool($work, TRUE),
       $remediationExecutor,
       new PublishStorylineDraftTool($remediationPlanner, $remediationExecutor),
       new DefinitionActorTool('inspect_actor'),
       new DefinitionActorTool('plan_actor_changes'),
       new DefinitionActorTool('apply_actor_changes'),
     ], [], NULL);
-    $this->assembler = new StorylineBuilderGmContextAssembler($this->registry, $intentParser, $remediationPlanner);
+    $this->assembler = new StorylineBuilderGmContextAssembler($this->registry, $intentParser, $remediationPlanner, $work);
   }
 
   public function id(): string {
