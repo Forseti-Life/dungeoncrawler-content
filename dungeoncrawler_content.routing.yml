@@ -66,6 +66,16 @@ dungeoncrawler_content.gm_storyline_actor_graph:
     _user_is_logged_in: 'TRUE'
     _permission: 'edit canonical dungeoncrawler storylines'
 
+dungeoncrawler_content.gm_storyline_scene_review:
+  path: '/game-master/storyline-builder/scenes'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GmStorylineBuilderController::sceneReview'
+    _title: 'Storyline scenes in order'
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'edit canonical dungeoncrawler storylines'
+
 dungeoncrawler_content.gm_storyline_builder_legacy:
   path: '/admin/content/dungeoncrawler/gm-storyline-builder'
   defaults:

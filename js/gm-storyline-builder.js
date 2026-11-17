@@ -873,27 +873,20 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
             }
           });
           objectEditorLinks.replaceChildren();
-          const sceneRows = wizard.querySelectorAll('[data-rows="journal_entries"] .gm-storyline-wizard__row');
-          let sceneCount = 0;
-          sceneRows.forEach((row) => {
-            const sceneId = row.querySelector('[data-col-field="scene_id"]')?.value.trim();
-            if (!sceneId) {
-              return;
-            }
-            const title = row.querySelector('[data-col-field="title"]')?.value.trim() || sceneId;
-            const item = document.createElement('li');
-            const link = document.createElement('a');
-            row.id = `storyline-scene-${sceneCount++}`;
-            link.href = `#${row.id}`;
-            link.textContent = `Scene: ${title}`;
-            link.addEventListener('click', (event) => {
-              event.preventDefault();
-              activateStep(2);
-              showRow(row);
-            });
-            item.appendChild(link);
-            objectEditorLinks.appendChild(item);
-          });
+          const sceneCount = (blueprint.process_flow?.journal_entries || []).length;
+          if (sceneCount > 0 && draftId && draftsSettings.sceneReviewUrl) {
+            const sceneItem = document.createElement('li');
+            const sceneLink = document.createElement('a');
+            const sceneUrl = new URL(draftsSettings.sceneReviewUrl, window.location.origin);
+            sceneUrl.searchParams.set('draft_id', draftId);
+            sceneLink.href = sceneUrl.toString();
+            sceneLink.target = '_blank';
+            sceneLink.rel = 'noopener';
+            sceneLink.textContent = `Scenes in order (${sceneCount})`;
+            sceneLink.title = 'Open every scene of the saved draft on one page, in story order';
+            sceneItem.appendChild(sceneLink);
+            objectEditorLinks.appendChild(sceneItem);
+          }
           const actorCount = (blueprint.objects?.actors?.generation_specs || []).length;
           if (actorCount > 0 && draftId && draftsSettings.actorGraphUrl) {
             const graphItem = document.createElement('li');

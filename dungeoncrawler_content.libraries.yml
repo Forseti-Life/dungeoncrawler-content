@@ -119,8 +119,14 @@ gm-storyline-actor-graph:
     - core/once
     - core/drupalSettings
 
+gm-storyline-scene-review:
+  version: 20261117-1
+  css:
+    theme:
+      css/gm-storyline-scene-review.css: {}
+
 gm-storyline-builder:
-  version: 20261117-storyline-work-10
+  version: 20261117-storyline-work-11
   js:
     js/gm-storyline-builder.js: { attributes: { type: module } }
   dependencies:

@@ -8,6 +8,7 @@ use Drupal\Component\Utility\Html;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Link;
 use Drupal\Core\Url;
+use Drupal\dungeoncrawler_content\Service\StorylineAuthoringDraftService;
 use Drupal\dungeoncrawler_content\Service\StorylineManagerService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
@@ -18,6 +19,7 @@ class GmStorylineBuilderController extends ControllerBase {
 
   public function __construct(
     protected StorylineManagerService $storylineManager,
+    protected StorylineAuthoringDraftService $storylineDrafts,
   ) {}
 
   /**
@@ -26,12 +28,176 @@ class GmStorylineBuilderController extends ControllerBase {
   public static function create(ContainerInterface $container): static {
     return new static(
       $container->get('dungeoncrawler_content.storyline_manager'),
+      $container->get('dungeoncrawler_content.storyline_authoring_drafts'),
     );
   }
 
   /**
    * Render the GM storyline builder process map.
    */
+  /**
+   * Read-only review of one draft's scenes, in authored order.
+   */
+  public function sceneReview(\Symfony\Component\HttpFoundation\Request $request): array {
+    $draft_id = (string) $request->query->get('draft_id', '');
+    if (preg_match('/^[0-9a-f-]{36}$/', $draft_id) !== 1) {
+      throw new \Symfony\Component\HttpKernel\Exception\NotFoundHttpException();
+    }
+    try {
+      $draft = $this->storylineDrafts->getDraftForViewing($draft_id);
+    }
+    catch (\OutOfBoundsException) {
+      throw new \Symfony\Component\HttpKernel\Exception\NotFoundHttpException();
+    }
+    $payload = is_array($draft['payload'] ?? NULL) ? $draft['payload'] : [];
+    $flow = is_array($payload['process_flow'] ?? NULL) ? $payload['process_flow'] : [];
+    $rows = static fn(mixed $value): array => array_values(array_filter((array) $value, 'is_array'));
+    $list = static fn(mixed $value): array => array_values(array_filter(array_map(
+      'trim',
+      is_array($value) ? array_map('strval', $value) : explode(',', (string) $value),
+    ), static fn(string $entry): bool => $entry !== ''));
+
+    $actor_names = [];
+    foreach ($rows($payload['objects']['actors']['generation_specs'] ?? []) as $actor) {
+      $name = trim((string) ($actor['display_name'] ?? ''));
+      foreach (['actor_id', 'contact_id'] as $key) {
+        $id = trim((string) ($actor[$key] ?? ''));
+        if ($id !== '' && $name !== '') {
+          $actor_names[$id] = $name;
+        }
+      }
+    }
+    $task_goals = [];
+    foreach ($rows($flow['tasks'] ?? []) as $task) {
+      $task_goals[(string) ($task['task_id'] ?? '')] = trim((string) ($task['goal_text'] ?? ''));
+    }
+    $objectives_by_task = [];
+    foreach ($rows($flow['objective_completion_criteria'] ?? []) as $objective) {
+      $description = trim((string) ($objective['description'] ?? ''));
+      if ($description !== '') {
+        $objectives_by_task[(string) ($objective['task_id'] ?? '')][] = $description;
+      }
+    }
+    $choices_by_task = [];
+    $storyline_choices = [];
+    foreach ($rows($flow['branch_choices'] ?? []) as $choice) {
+      $target = (string) ($choice['target_task_id'] ?? '');
+      $entry = [
+        'label' => trim((string) ($choice['label'] ?? '')),
+        'condition' => trim((string) ($choice['trigger']['condition'] ?? '')),
+        'terminal' => !empty($choice['terminal']),
+        'leads_to' => $task_goals[$target] ?? '',
+      ];
+      $source = (string) ($choice['source_task_id'] ?? '');
+      if ($source === '') {
+        $storyline_choices[] = $entry;
+      }
+      else {
+        $choices_by_task[$source][] = $entry;
+      }
+    }
+
+    $scenes = [];
+    foreach ($rows($flow['journal_entries'] ?? []) as $scene) {
+      $scene_id = (string) ($scene['scene_id'] ?? '');
+      $tasks = [];
+      foreach ($rows($flow['tasks'] ?? []) as $task) {
+        if ((string) ($task['scene_id'] ?? '') !== $scene_id) {
+          continue;
+        }
+        $task_id = (string) ($task['task_id'] ?? '');
+        $tasks[] = [
+          'goal' => trim((string) ($task['goal_text'] ?? '')),
+          'gm_notes' => trim((string) ($task['gm_notes'] ?? '')),
+          'objectives' => $objectives_by_task[$task_id] ?? [],
+          'choices' => $choices_by_task[$task_id] ?? [],
+        ];
+      }
+      $rooms = [];
+      foreach ($rows($payload['objects']['rooms']['generation_specs'] ?? []) as $room) {
+        if ((string) ($room['scene_id'] ?? '') === $scene_id) {
+          $rooms[] = trim((string) ($room['room_id'] ?? ''));
+        }
+      }
+      $scenes[] = [
+        'title' => trim((string) ($scene['title'] ?? '')),
+        'summary' => trim((string) ($scene['summary'] ?? '')),
+        'trigger' => trim((string) ($scene['trigger'] ?? '')),
+        'central_conflict' => trim((string) ($scene['central_conflict'] ?? '')),
+        'dramatic_function' => trim((string) ($scene['dramatic_function'] ?? '')),
+        'themes' => $list($scene['themes'] ?? ''),
+        'characters' => array_map(static fn(string $id): string => $actor_names[$id] ?? $id, $list($scene['character_ids'] ?? '')),
+        'rooms' => array_values(array_unique(array_merge($list($scene['room_ids'] ?? ''), array_filter($rooms)))),
+        'tasks' => $tasks,
+      ];
+    }
+
+    return [
+      '#type' => 'inline_template',
+      '#cache' => ['max-age' => 0],
+      '#attached' => ['library' => ['dungeoncrawler_content/gm-storyline-scene-review']],
+      '#context' => [
+        'title' => trim((string) ($payload['title'] ?? '')),
+        'revision' => (int) ($draft['revision'] ?? 0),
+        'back_url' => Url::fromRoute('dungeoncrawler_content.gm_storyline_builder', [], ['query' => ['draft_id' => $draft_id]])->toString(),
+        'scenes' => $scenes,
+        'storyline_choices' => $storyline_choices,
+      ],
+      '#template' => <<<'TWIG'
+<div class="scene-review">
+  <p class="scene-review__bar"><a href="{{ back_url }}">← Back to the storyline draft</a>
+    <span>{{ title ?: 'Untitled storyline' }} · revision {{ revision }} · {{ scenes|length }} scenes</span></p>
+  {% if scenes is empty %}<p>This draft has no scenes yet.</p>{% endif %}
+  {% if storyline_choices %}
+    <section class="scene-review__scene">
+      <h2>At any point in the story</h2>
+      <ul>{% for choice in storyline_choices %}
+        <li><strong>{{ choice.label }}</strong>{% if choice.condition %} — {{ choice.condition }}{% endif %}
+          <span class="scene-review__leads">→ {{ choice.terminal ? 'ends the storyline' : (choice.leads_to ?: 'no destination set') }}</span></li>
+      {% endfor %}</ul>
+    </section>
+  {% endif %}
+  <ol class="scene-review__list">
+  {% for scene in scenes %}
+    <li class="scene-review__scene" id="scene-{{ loop.index }}">
+      <h2>{{ loop.index }}. {{ scene.title ?: 'Untitled scene' }}</h2>
+      {% if scene.dramatic_function %}<p class="scene-review__function">{{ scene.dramatic_function }}</p>{% endif %}
+      {% if scene.summary %}<p>{{ scene.summary }}</p>{% endif %}
+      <dl>
+        {% if scene.trigger %}<dt>Starts when</dt><dd>{{ scene.trigger }}</dd>{% endif %}
+        {% if scene.central_conflict %}<dt>Conflict</dt><dd>{{ scene.central_conflict }}</dd>{% endif %}
+        {% if scene.characters %}<dt>Characters</dt><dd>{{ scene.characters|join(', ') }}</dd>{% endif %}
+        {% if scene.rooms %}<dt>Rooms</dt><dd>{{ scene.rooms|join(', ') }}</dd>{% endif %}
+        {% if scene.themes %}<dt>Themes</dt><dd>{{ scene.themes|join(', ') }}</dd>{% endif %}
+      </dl>
+      {% if scene.tasks %}
+        <h3>Tasks</h3>
+        <ol class="scene-review__tasks">
+        {% for task in scene.tasks %}
+          <li>
+            <p class="scene-review__goal">{{ task.goal ?: 'No goal written for this task.' }}</p>
+            {% if task.gm_notes %}<p class="scene-review__notes">GM notes: {{ task.gm_notes }}</p>{% endif %}
+            {% if task.objectives %}<p class="scene-review__label">Objectives</p>
+              <ul>{% for objective in task.objectives %}<li>{{ objective }}</li>{% endfor %}</ul>{% endif %}
+            {% if task.choices %}<p class="scene-review__label">Choices</p>
+              <ul>{% for choice in task.choices %}
+                <li><strong>{{ choice.label }}</strong>{% if choice.condition %} — {{ choice.condition }}{% endif %}
+                  <span class="scene-review__leads">→ {{ choice.terminal ? 'ends the storyline' : (choice.leads_to ?: 'no destination set') }}</span></li>
+              {% endfor %}</ul>{% endif %}
+          </li>
+        {% endfor %}
+        </ol>
+      {% else %}
+        <p class="scene-review__notes">No tasks in this scene.</p>
+      {% endif %}
+    </li>
+  {% endfor %}
+  </ol>
+</div>
+TWIG,
+    ];
+  }
+
   /**
    * Actor relationship graph for one storyline draft.
    *
@@ -110,6 +276,7 @@ class GmStorylineBuilderController extends ControllerBase {
                 ])->toString()
               ),
               'actorGraphUrl' => Url::fromRoute('dungeoncrawler_content.gm_storyline_actor_graph')->toString(),
+              'sceneReviewUrl' => Url::fromRoute('dungeoncrawler_content.gm_storyline_scene_review')->toString(),
               'saveUrlTemplate' => str_replace('00000000-0000-4000-8000-000000000000', '{draft_id}', Url::fromRoute('dungeoncrawler_content.api.storyline_builder_draft_save', ['draft_id' => '00000000-0000-4000-8000-000000000000'])->toString()),
               'deleteUrlTemplate' => str_replace('00000000-0000-4000-8000-000000000000', '{draft_id}', Url::fromRoute('dungeoncrawler_content.api.storyline_builder_draft_delete', ['draft_id' => '00000000-0000-4000-8000-000000000000'])->toString()),
             ],
