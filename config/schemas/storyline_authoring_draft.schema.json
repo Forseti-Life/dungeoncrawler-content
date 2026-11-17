@@ -828,7 +828,7 @@
             "explore",
             "escort"
           ],
-          "description": "What the players do. collect needs item; kill, investigate and interact need target; explore needs location; escort needs destination."
+          "description": "What the players do, and what completes it in play. collect needs item and completes when the items are obtained; kill needs target and completes when it is defeated; investigate needs target and completes when the lead is found; interact needs target and completes when the players talk with or use that target, whatever the result; explore needs location and completes when the party reaches it; escort needs destination and completes when the party arrives there. No type judges how an exchange turns out: an outcome such as an actor being persuaded, agreeing to join the party or refusing is a choice on the task, with that outcome as its condition."
         },
         "next_step": {
           "type": "string",

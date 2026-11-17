@@ -652,6 +652,21 @@ says how a request moves through the agent.
 Every draft edit goes through the same save path,
 `StorylineAuthoringDraftService::applyDraftOperations()`.
 
+### What completes an objective in play
+
+- collect: the items are obtained. kill: the target is defeated.
+  investigate: the lead is found. explore: the party reaches the location.
+  escort: the party arrives at the destination.
+- interact: the players talk with or use the target. It does not judge how
+  the exchange turned out.
+- An outcome ("the chieftain agrees to travel with the party") is a choice
+  on the task with that outcome as its condition. The game's GM resolves it
+  in play, and the story moves to the choice's destination. One choice is
+  enough.
+- Actors who travel with the party are added by the players in the camp and
+  marching-order setup. Any actor in the party's room who is not hostile can
+  be added. A storyline does not add them.
+
 ### When a work unit fails
 
 - A rejected unit saves nothing. The work pauses and records why.
