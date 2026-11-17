@@ -120,7 +120,7 @@ gm-storyline-actor-graph:
     - core/drupalSettings
 
 gm-storyline-scene-review:
-  version: 20261117-1
+  version: 20261117-3
   css:
     theme:
       css/gm-storyline-scene-review.css: {}

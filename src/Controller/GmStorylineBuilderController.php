@@ -8,6 +8,7 @@ use Drupal\Component\Utility\Html;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Link;
 use Drupal\Core\Url;
+use Drupal\dungeoncrawler_content\Service\RoomEditorService;
 use Drupal\dungeoncrawler_content\Service\StorylineAuthoringDraftService;
 use Drupal\dungeoncrawler_content\Service\StorylineManagerService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
@@ -20,6 +21,7 @@ class GmStorylineBuilderController extends ControllerBase {
   public function __construct(
     protected StorylineManagerService $storylineManager,
     protected StorylineAuthoringDraftService $storylineDrafts,
+    protected RoomEditorService $roomEditor,
   ) {}
 
   /**
@@ -29,6 +31,7 @@ class GmStorylineBuilderController extends ControllerBase {
     return new static(
       $container->get('dungeoncrawler_content.storyline_manager'),
       $container->get('dungeoncrawler_content.storyline_authoring_drafts'),
+      $container->get('dungeoncrawler_content.room_editor'),
     );
   }
 
@@ -57,16 +60,32 @@ class GmStorylineBuilderController extends ControllerBase {
       is_array($value) ? array_map('strval', $value) : explode(',', (string) $value),
     ), static fn(string $entry): bool => $entry !== ''));
 
-    $actor_names = [];
+    // A character links to its review page when the draft defines it; a room
+    // links to the room editor when the room exists there.
+    $actors = [];
     foreach ($rows($payload['objects']['actors']['generation_specs'] ?? []) as $actor) {
-      $name = trim((string) ($actor['display_name'] ?? ''));
-      foreach (['actor_id', 'contact_id'] as $key) {
-        $id = trim((string) ($actor[$key] ?? ''));
-        if ($id !== '' && $name !== '') {
-          $actor_names[$id] = $name;
-        }
+      $actor_id = trim((string) ($actor['actor_id'] ?? ''));
+      if ($actor_id === '') {
+        continue;
+      }
+      $entry = [
+        'name' => trim((string) ($actor['display_name'] ?? '')) ?: $actor_id,
+        'role' => str_replace('_', ' ', trim((string) ($actor['role'] ?? ''))),
+        'url' => Url::fromRoute('dungeoncrawler_content.actor_view', ['actor_id' => $actor_id], ['query' => ['draft_id' => $draft_id]])->toString(),
+      ];
+      $actors[$actor_id] = $entry;
+      $contact_id = trim((string) ($actor['contact_id'] ?? ''));
+      if ($contact_id !== '') {
+        $actors[$contact_id] = $entry;
       }
     }
+    $built_rooms = array_column($this->roomEditor->listRooms(), 'name', 'room_id');
+    $room_entry = static fn(string $room_id): array => isset($built_rooms[$room_id])
+      ? [
+        'name' => trim((string) $built_rooms[$room_id]) ?: $room_id,
+        'url' => Url::fromRoute('dungeoncrawler_content.room_editor_edit', ['room_id' => $room_id])->toString(),
+      ]
+      : ['name' => $room_id, 'url' => ''];
     $task_goals = [];
     foreach ($rows($flow['tasks'] ?? []) as $task) {
       $task_goals[(string) ($task['task_id'] ?? '')] = trim((string) ($task['goal_text'] ?? ''));
@@ -107,6 +126,7 @@ class GmStorylineBuilderController extends ControllerBase {
         }
         $task_id = (string) ($task['task_id'] ?? '');
         $tasks[] = [
+          'task_id' => $task_id,
           'goal' => trim((string) ($task['goal_text'] ?? '')),
           'gm_notes' => trim((string) ($task['gm_notes'] ?? '')),
           'objectives' => $objectives_by_task[$task_id] ?? [],
@@ -126,8 +146,8 @@ class GmStorylineBuilderController extends ControllerBase {
         'central_conflict' => trim((string) ($scene['central_conflict'] ?? '')),
         'dramatic_function' => trim((string) ($scene['dramatic_function'] ?? '')),
         'themes' => $list($scene['themes'] ?? ''),
-        'characters' => array_map(static fn(string $id): string => $actor_names[$id] ?? $id, $list($scene['character_ids'] ?? '')),
-        'rooms' => array_values(array_unique(array_merge($list($scene['room_ids'] ?? ''), array_filter($rooms)))),
+        'characters' => array_map(static fn(string $id): array => $actors[$id] ?? ['name' => $id, 'role' => '', 'url' => ''], $list($scene['character_ids'] ?? '')),
+        'rooms' => array_map($room_entry, array_values(array_unique(array_merge($list($scene['room_ids'] ?? ''), array_filter($rooms))))),
         'tasks' => $tasks,
       ];
     }
@@ -145,54 +165,75 @@ class GmStorylineBuilderController extends ControllerBase {
       ],
       '#template' => <<<'TWIG'
 <div class="scene-review">
-  <p class="scene-review__bar"><a href="{{ back_url }}">← Back to the storyline draft</a>
-    <span>{{ title ?: 'Untitled storyline' }} · revision {{ revision }} · {{ scenes|length }} scenes</span></p>
+  <header class="scene-review__header">
+    <a class="scene-review__back" href="{{ back_url }}">← Back to the storyline draft</a>
+    <h2 class="scene-review__title">{{ title ?: 'Untitled storyline' }}</h2>
+    <p class="scene-review__meta">Revision {{ revision }} · {{ scenes|length }} scenes · read-only view of the saved draft</p>
+    <p class="scene-review__legend">Characters and rooms open in a new tab. A dashed name has nothing to open yet: the room is not built, or the character is not an actor in this draft.</p>
+  </header>
   {% if scenes is empty %}<p>This draft has no scenes yet.</p>{% endif %}
-  {% if storyline_choices %}
-    <section class="scene-review__scene">
-      <h2>At any point in the story</h2>
-      <ul>{% for choice in storyline_choices %}
-        <li><strong>{{ choice.label }}</strong>{% if choice.condition %} — {{ choice.condition }}{% endif %}
-          <span class="scene-review__leads">→ {{ choice.terminal ? 'ends the storyline' : (choice.leads_to ?: 'no destination set') }}</span></li>
-      {% endfor %}</ul>
-    </section>
-  {% endif %}
-  <ol class="scene-review__list">
-  {% for scene in scenes %}
-    <li class="scene-review__scene" id="scene-{{ loop.index }}">
-      <h2>{{ loop.index }}. {{ scene.title ?: 'Untitled scene' }}</h2>
-      {% if scene.dramatic_function %}<p class="scene-review__function">{{ scene.dramatic_function }}</p>{% endif %}
-      {% if scene.summary %}<p>{{ scene.summary }}</p>{% endif %}
-      <dl>
-        {% if scene.trigger %}<dt>Starts when</dt><dd>{{ scene.trigger }}</dd>{% endif %}
-        {% if scene.central_conflict %}<dt>Conflict</dt><dd>{{ scene.central_conflict }}</dd>{% endif %}
-        {% if scene.characters %}<dt>Characters</dt><dd>{{ scene.characters|join(', ') }}</dd>{% endif %}
-        {% if scene.rooms %}<dt>Rooms</dt><dd>{{ scene.rooms|join(', ') }}</dd>{% endif %}
-        {% if scene.themes %}<dt>Themes</dt><dd>{{ scene.themes|join(', ') }}</dd>{% endif %}
-      </dl>
-      {% if scene.tasks %}
-        <h3>Tasks</h3>
-        <ol class="scene-review__tasks">
-        {% for task in scene.tasks %}
-          <li>
-            <p class="scene-review__goal">{{ task.goal ?: 'No goal written for this task.' }}</p>
-            {% if task.gm_notes %}<p class="scene-review__notes">GM notes: {{ task.gm_notes }}</p>{% endif %}
-            {% if task.objectives %}<p class="scene-review__label">Objectives</p>
-              <ul>{% for objective in task.objectives %}<li>{{ objective }}</li>{% endfor %}</ul>{% endif %}
-            {% if task.choices %}<p class="scene-review__label">Choices</p>
-              <ul>{% for choice in task.choices %}
-                <li><strong>{{ choice.label }}</strong>{% if choice.condition %} — {{ choice.condition }}{% endif %}
-                  <span class="scene-review__leads">→ {{ choice.terminal ? 'ends the storyline' : (choice.leads_to ?: 'no destination set') }}</span></li>
-              {% endfor %}</ul>{% endif %}
-          </li>
-        {% endfor %}
-        </ol>
-      {% else %}
-        <p class="scene-review__notes">No tasks in this scene.</p>
+  {% macro choices(rows) %}
+    <ul class="scene-review__choices">{% for choice in rows %}
+      <li>
+        <span class="scene-review__choice-label">{{ choice.label ?: 'Unnamed choice' }}</span>
+        {% if choice.condition %}<span class="scene-review__choice-when">{{ choice.condition }}</span>{% endif %}
+        <span class="scene-review__leads">→ {{ choice.terminal ? 'Ends the storyline' : (choice.leads_to ?: 'No destination set') }}</span>
+      </li>
+    {% endfor %}</ul>
+  {% endmacro %}
+  <div class="scene-review__layout">
+    {% if scenes %}
+      <nav class="scene-review__index" aria-label="Scenes">
+        <p class="scene-review__label">Scenes</p>
+        <ol>{% for scene in scenes %}<li><a href="#scene-{{ loop.index }}">{{ scene.title ?: 'Untitled scene' }}</a></li>{% endfor %}</ol>
+      </nav>
+    {% endif %}
+    <div class="scene-review__body">
+      {% if storyline_choices %}
+        <section class="scene-review__scene">
+          <h3 class="scene-review__scene-title">At any point in the story</h3>
+          {{ _self.choices(storyline_choices) }}
+        </section>
       {% endif %}
-    </li>
-  {% endfor %}
-  </ol>
+      {% for scene in scenes %}
+        <section class="scene-review__scene" id="scene-{{ loop.index }}">
+          <p class="scene-review__number">Scene {{ loop.index }} of {{ scenes|length }}</p>
+          <h3 class="scene-review__scene-title">{{ scene.title ?: 'Untitled scene' }}</h3>
+          {% if scene.dramatic_function %}<p class="scene-review__function">{{ scene.dramatic_function }}</p>{% endif %}
+          {% if scene.summary %}<p class="scene-review__summary">{{ scene.summary }}</p>{% endif %}
+          <dl class="scene-review__facts">
+            {% if scene.trigger %}<dt>Starts when</dt><dd>{{ scene.trigger }}</dd>{% endif %}
+            {% if scene.central_conflict %}<dt>Conflict</dt><dd>{{ scene.central_conflict }}</dd>{% endif %}
+            <dt>Characters</dt>
+            <dd>{% for character in scene.characters %}
+              {% if character.url %}<a class="scene-review__chip" href="{{ character.url }}" target="_blank" rel="noopener" title="{{ character.role }}">{{ character.name }}</a>
+              {% else %}<span class="scene-review__chip scene-review__chip--plain" title="Not defined as an actor in this draft">{{ character.name }}</span>{% endif %}
+            {% else %}<span class="scene-review__none">None named</span>{% endfor %}</dd>
+            <dt>Rooms</dt>
+            <dd>{% for room in scene.rooms %}
+              {% if room.url %}<a class="scene-review__chip" href="{{ room.url }}" target="_blank" rel="noopener">{{ room.name }}</a>
+              {% else %}<span class="scene-review__chip scene-review__chip--plain" title="Not built in the room editor yet">{{ room.name }}</span>{% endif %}
+            {% else %}<span class="scene-review__none">None assigned</span>{% endfor %}</dd>
+            {% if scene.themes %}<dt>Themes</dt><dd>{{ scene.themes|join(', ') }}</dd>{% endif %}
+          </dl>
+          <h4 class="scene-review__label">Tasks</h4>
+          {% for task in scene.tasks %}
+            <article class="scene-review__task">
+              <p class="scene-review__task-number">Task {{ loop.index }}</p>
+              {% if task.goal %}<p class="scene-review__goal">{{ task.goal }}</p>
+              {% else %}<p class="scene-review__goal scene-review__goal--missing">No goal written <code>{{ task.task_id }}</code></p>{% endif %}
+              {% if task.gm_notes %}<p class="scene-review__notes"><span>GM notes</span> {{ task.gm_notes }}</p>{% endif %}
+              {% if task.objectives %}<p class="scene-review__label">Objectives</p>
+                <ul class="scene-review__objectives">{% for objective in task.objectives %}<li>{{ objective }}</li>{% endfor %}</ul>{% endif %}
+              {% if task.choices %}<p class="scene-review__label">Choices</p>{{ _self.choices(task.choices) }}{% endif %}
+            </article>
+          {% else %}
+            <p class="scene-review__none">No tasks in this scene.</p>
+          {% endfor %}
+        </section>
+      {% endfor %}
+    </div>
+  </div>
 </div>
 TWIG,
     ];
