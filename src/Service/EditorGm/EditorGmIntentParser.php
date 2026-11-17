@@ -253,10 +253,12 @@ STEP;
           'type' => 'object',
           'additionalProperties' => FALSE,
           'required' => ['tool_name', 'arguments', 'reasoning'],
+          // The open arguments object comes last: a field declared after it
+          // is easily written inside it by mistake.
           'properties' => [
             'tool_name' => $tool_name,
-            'arguments' => $arguments,
             'reasoning' => $string('One short sentence.'),
+            'arguments' => $arguments,
           ],
         ],
       ],
@@ -272,6 +274,7 @@ STEP;
         'additionalProperties' => FALSE,
         'required' => ['tasks', 'reasoning'],
         'properties' => [
+          'reasoning' => $string('Overall summary.'),
           'tasks' => [
             'type' => 'array',
             'minItems' => 1,
@@ -282,12 +285,11 @@ STEP;
               'required' => ['tool_name', 'arguments', 'reasoning'],
               'properties' => [
                 'tool_name' => $tool_name,
-                'arguments' => $arguments,
                 'reasoning' => $string('Step summary.'),
+                'arguments' => $arguments,
               ],
             ],
           ],
-          'reasoning' => $string('Overall summary.'),
         ],
       ],
     ];

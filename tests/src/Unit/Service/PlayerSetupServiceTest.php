@@ -50,6 +50,49 @@ class PlayerSetupServiceTest extends UnitTestCase {
     return $service;
   }
 
+  /**
+   * Anyone with the party who is not hostile can be added to the setup.
+   */
+  public function testNonHostileNpcsInThePartysRoomCanJoinTheSetup(): void {
+    $npc = static fn(string $id, string $room, string $attitude): array => [
+      'id' => 1, 'instance_id' => $id, 'name' => $id, 'role' => 'clan_chieftain', 'type' => 'npc',
+      'location_ref' => $room, 'state_data' => json_encode(['npc_profile' => ['attitude' => $attitude]]),
+    ];
+    $rows = [
+      ['id' => 1, 'instance_id' => 'hero', 'name' => 'Hero', 'role' => 'player', 'type' => 'pc', 'location_ref' => 'camp', 'state_data' => '{}'],
+      $npc('npc_chieftain', 'camp', 'indifferent'),
+      $npc('npc_raider', 'camp', 'hostile'),
+      $npc('npc_elsewhere', 'caves', 'friendly'),
+    ];
+    $statement = new class($rows) {
+
+      public function __construct(private array $rows) {}
+
+      public function fetchAll(int $mode): array {
+        return $this->rows;
+      }
+
+    };
+    $select = $this->createMock(\Drupal\Core\Database\Query\SelectInterface::class);
+    foreach (['fields', 'condition', 'orderBy'] as $method) {
+      $select->method($method)->willReturnSelf();
+    }
+    $select->method('execute')->willReturn($statement);
+    $database = $this->createMock(Connection::class);
+    $database->method('select')->willReturn($select);
+    $runtime = $this->createMock(CampaignRuntimeStateStore::class);
+    $runtime->method('loadGameState')->willReturn(['active_room_id' => 'camp']);
+    $service = new PlayerSetupService(
+      $database, new KeyValueMemoryFactory(), $this->createMock(LockBackendInterface::class), new HexUtilityService(),
+      $this->getMockBuilder(RoomEditorService::class)->disableOriginalConstructor()->onlyMethods([])->getMock(), $runtime,
+    );
+
+    $roster = $service->roster(12);
+
+    $this->assertSame(['hero', 'npc_chieftain'], array_keys($roster));
+    $this->assertSame(['required' => FALSE, 'group' => 'escort'], array_intersect_key($roster['npc_chieftain'], ['required' => 1, 'group' => 1]));
+  }
+
   private function layout(string $mode): array {
     return [
       'scout' => ['q' => 1, 'r' => 0, 'facing' => 2, 'duty' => $mode === 'camping' ? 'watch' : 'travel'],

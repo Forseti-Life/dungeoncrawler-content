@@ -118,8 +118,9 @@ class PlayerSetupService {
       $known_npc = $row['type'] === 'npc' && !in_array($team, ['enemy', 'hostile', 'monster'], TRUE) && (
         in_array($team, ['ally', 'friendly', 'escort'], TRUE)
         || in_array($row['role'], ['escort', 'npc_escort'], TRUE)
+        // Anyone with the party who is not hostile to it can be added.
         || ($active_room !== '' && $row['location_ref'] === $active_room
-          && in_array($row['role'], ['contact', 'quest_giver'], TRUE))
+          && ($state['npc_profile']['attitude'] ?? '') !== 'hostile')
         || in_array($row['instance_id'], $selected_ids, TRUE)
       );
       if (!$required && !$known_npc) {
