@@ -7,7 +7,6 @@ use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolDefinition;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolInterface;
 use Drupal\dungeoncrawler_content\Service\EditorGm\StorylineBuilderGmToolContext;
 use Drupal\dungeoncrawler_content\Service\Generation\GenerationVocabulary;
-use Drupal\dungeoncrawler_content\Service\RoomEditorService;
 use Drupal\dungeoncrawler_content\Service\CanonicalQuestTemplateService;
 
 /**
@@ -17,7 +16,6 @@ final class PlanStorylineRemediationTool implements EditorGmToolInterface {
 
   public function __construct(
     private readonly CanonicalQuestTemplateService $questTemplates,
-    private readonly ?RoomEditorService $roomEditor = NULL,
   ) {}
 
   public function definition(): EditorGmToolDefinition {
@@ -63,27 +61,18 @@ final class PlanStorylineRemediationTool implements EditorGmToolInterface {
       if ($operations !== [] || $explicit_definitions !== []) {
         throw new \InvalidArgumentException('storyline_reference_repair_scope_disallows_other_changes');
       }
-      [$definitions, $rooms, $dungeons, $quests] = [[], [], [], $reference_repairs];
+      $definitions = [];
     }
     else {
-      [$definitions, $rooms, $dungeons, $quests] = $this->deriveAssetPlans($planned_draft, $context->validation(), $context, $explicit_definitions);
-      $quests = array_column($quests, NULL, 'template_id');
-      foreach ($reference_repairs as $repair) {
-        if (isset($quests[$repair['template_id']])) {
-          $quests[$repair['template_id']]['storyline_reference_repair'] = $repair;
-        }
-        else {
-          $quests[$repair['template_id']] = $repair;
-        }
-      }
-      $quests = array_values($quests);
+      $definitions = $this->deriveAssetPlans($planned_draft, $context->validation(), $context, $explicit_definitions);
     }
-    if ($definitions === [] && $rooms === [] && $dungeons === [] && $quests === [] && $operations === []) {
+    // Quest records are written from the draft when the storyline is
+    // published; only linked-quest reference repairs are planned here.
+    $quests = $reference_repairs;
+    if ($definitions === [] && $quests === [] && $operations === []) {
       return [
         'has_changes' => FALSE,
         'definition_count' => 0,
-        'room_count' => 0,
-        'dungeon_count' => 0,
         'quest_count' => 0,
         'draft_operation_count' => 0,
       ];
@@ -92,19 +81,15 @@ final class PlanStorylineRemediationTool implements EditorGmToolInterface {
     return [
       'has_changes' => TRUE,
       'definition_count' => count($definitions),
-      'room_count' => count($rooms),
-      'dungeon_count' => count($dungeons),
       'quest_count' => count($quests),
       'draft_operation_count' => count($operations),
       'proposed_execution' => [
         'tool_name' => 'apply_storyline_remediation',
-        'authority' => 'existing canonical definition, room, dungeon, quest, and Storyline draft authorities',
+        'authority' => 'existing canonical definition, quest, and Storyline draft authorities',
         'arguments' => [
           'expected_revision' => $expected_revision,
           'operation_id' => 'storyline-remediation-' . bin2hex(random_bytes(12)),
           'definitions' => $definitions,
-          'rooms' => $rooms,
-          'dungeons' => $dungeons,
           'quests' => $quests,
           'operations' => $operations,
         ],
@@ -221,158 +206,10 @@ final class PlanStorylineRemediationTool implements EditorGmToolInterface {
       $definitions[$family . ':' . $id] = $spec;
     }
 
-    $rooms = [];
-    foreach ((array) ($payload['objects']['rooms']['generation_specs'] ?? []) as $room) {
-      if (!is_array($room)) {
-        continue;
-      }
-      $id = trim((string) ($room['room_id'] ?? ''));
-      if ($id === '') {
-        continue;
-      }
-      $is_missing = isset($missing_ids[$id])
-        || ($this->roomEditor !== NULL && $this->roomEditor->publishedRoom($id) === NULL);
-      if (!$is_missing) {
-        continue;
-      }
-      $scene_id = trim((string) ($room['scene_id'] ?? ''));
-      $scene_context = [];
-      foreach ((array) ($payload['process_flow']['journal_entries'] ?? []) as $scene) {
-        if (is_array($scene) && (string) ($scene['scene_id'] ?? '') === $scene_id) {
-          $scene_context[] = implode(' ', array_filter([
-            (string) ($scene['title'] ?? ''),
-            (string) ($scene['summary'] ?? ''),
-            (string) ($scene['trigger'] ?? ''),
-            (string) ($scene['central_conflict'] ?? ''),
-          ]));
-        }
-      }
-      foreach ((array) ($payload['objects']['actors']['generation_specs'] ?? []) as $actor) {
-        if (is_array($actor) && (string) ($actor['location_id'] ?? '') === $id) {
-          $scene_context[] = implode(' ', array_filter([
-            (string) ($actor['display_name'] ?? ''),
-            (string) ($actor['motivation'] ?? ''),
-          ]));
-        }
-      }
-      $rooms[$id] = [
-        'room_id' => $id,
-        'prompt' => mb_substr(implode(' ', array_filter([
-          (string) ($room['narrative'] ?? ''),
-          ...$scene_context,
-          $story_context,
-        ])), 0, 2000),
-        'min_hexes' => 16,
-      ];
-    }
-
-    $missing_dungeon_ids = [];
-    foreach (['errors', 'warnings'] as $bucket) {
-      foreach ((array) ($validation[$bucket] ?? []) as $finding) {
-        $text = (string) $finding;
-        if (preg_match("/dungeon '([^']+)'/i", $text, $matches)) {
-          $missing_dungeon_ids[trim($matches[1])] = TRUE;
-        }
-      }
-    }
-
-    $dungeons = [];
-    $authored_rooms_by_dungeon = [];
-    foreach ((array) ($payload['objects']['rooms']['generation_specs'] ?? []) as $room) {
-      if (!is_array($room)) {
-        continue;
-      }
-      $r_id = trim((string) ($room['room_id'] ?? ''));
-      $d_id = trim((string) ($room['dungeon_id'] ?? ''));
-      if ($r_id !== '' && $d_id !== '') {
-        $authored_rooms_by_dungeon[$d_id][$r_id] = $r_id;
-      }
-    }
-
-    foreach ((array) ($payload['objects']['dungeons']['generation_specs'] ?? []) as $dungeon) {
-      if (!is_array($dungeon)) {
-        continue;
-      }
-      $dungeon_id = trim((string) ($dungeon['dungeon_id'] ?? ''));
-      if ($dungeon_id === '') {
-        continue;
-      }
-      $dungeon_rooms = array_values($authored_rooms_by_dungeon[$dungeon_id] ?? []);
-      $entrance_room = trim((string) ($dungeon['entrance_room'] ?? ''));
-      if ($entrance_room === '' && $dungeon_rooms !== []) {
-        $entrance_room = $dungeon_rooms[0];
-      }
-      if ($entrance_room !== '' && !in_array($entrance_room, $dungeon_rooms, TRUE)) {
-        array_unshift($dungeon_rooms, $entrance_room);
-      }
-      if ($dungeon_rooms === []) {
-        continue;
-      }
-
-      $needs_dungeon = isset($missing_dungeon_ids[$dungeon_id]) || !$this->canonicalDungeonCoversRooms($dungeon_id, $entrance_room, $dungeon_rooms);
-      if (!$needs_dungeon) {
-        continue;
-      }
-      $dungeons[$dungeon_id] = [
-        'dungeon_id' => $dungeon_id,
-        'chapter_id' => trim((string) ($dungeon['chapter_id'] ?? '')),
-        'purpose' => trim((string) ($dungeon['purpose'] ?? 'storyline-site')) ?: 'storyline-site',
-        'entrance_room' => $entrance_room,
-        'rooms' => $dungeon_rooms,
-        'storyline_id' => trim((string) ($payload['storyline_id'] ?? $draft['source_template_id'] ?? '')),
-      ];
-    }
-
-    // Quest records are written from the draft when the storyline is
-    // published; only linked-quest reference repairs are planned here.
-    return [array_values($definitions), array_values($rooms), array_values($dungeons), []];
+    // Rooms and dungeons are built in the Dungeon Editor from the story
+    // brief, not here.
+    return array_values($definitions);
   }
 
-  private function canonicalDungeonCoversRooms(string $dungeon_id, string $entrance_room, array $required_rooms): bool {
-    if (!\Drupal::hasContainer() || !\Drupal::getContainer()->has('database')) {
-      return FALSE;
-    }
-    $db = \Drupal::database();
-    if (!$db->schema()->tableExists('dungeoncrawler_content_dungeons')) {
-      return FALSE;
-    }
-    $row = $db->select('dungeoncrawler_content_dungeons', 'd')
-      ->fields('d', ['dungeon_data'])
-      ->condition('dungeon_id', $dungeon_id)
-      ->range(0, 1)
-      ->execute()
-      ->fetchAssoc();
-    if (!is_array($row)) {
-      return FALSE;
-    }
-    $decoded = is_string($row['dungeon_data'] ?? NULL) ? json_decode($row['dungeon_data'], TRUE) : NULL;
-    if (!is_array($decoded)) {
-      return FALSE;
-    }
-    $existing_rooms = [];
-    if (is_array($decoded['room_placements'] ?? NULL)) {
-      foreach ($decoded['room_placements'] as $placement) {
-        if (is_array($placement) && trim((string) ($placement['room_id'] ?? '')) !== '') {
-          $existing_rooms[trim((string) $placement['room_id'])] = TRUE;
-        }
-      }
-    }
-    else {
-      foreach ((array) ($decoded['rooms'] ?? []) as $r_id) {
-        if (trim((string) $r_id) !== '') {
-          $existing_rooms[trim((string) $r_id)] = TRUE;
-        }
-      }
-    }
-    if ($entrance_room !== '' && !isset($existing_rooms[$entrance_room])) {
-      return FALSE;
-    }
-    foreach ($required_rooms as $req_room) {
-      if (!isset($existing_rooms[$req_room])) {
-        return FALSE;
-      }
-    }
-    return TRUE;
-  }
 
 }

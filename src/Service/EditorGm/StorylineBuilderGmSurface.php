@@ -68,8 +68,8 @@ final class StorylineBuilderGmSurface implements EditorGmSurfaceInterface {
     CanonicalQuestTemplateService $questTemplates,
     StorylineGmWorkService $work,
   ) {
-    $remediationPlanner = new PlanStorylineRemediationTool($questTemplates, $roomEditor);
-    $remediationExecutor = new ApplyStorylineRemediationTool($definitionGeneration, $roomGeneration, $roomEditor, $uuid, $questTemplates);
+    $remediationPlanner = new PlanStorylineRemediationTool($questTemplates);
+    $remediationExecutor = new ApplyStorylineRemediationTool($definitionGeneration, $questTemplates);
     $this->registry = new EditorGmToolRegistry([
       new DescribeStorylineAuthoringContractTool(),
       new LoadStorylineDraftSnapshotTool(),

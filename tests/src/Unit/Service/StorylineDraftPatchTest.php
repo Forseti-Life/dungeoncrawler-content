@@ -701,7 +701,7 @@ class StorylineDraftPatchTest extends UnitTestCase {
     $this->assertSame('draft_operation', $routes['questline_progression']);
     $this->assertSame('draft_operation', $routes['objective_control_chain']);
     $this->assertSame('draft_operation', $routes['task_contracts']);
-    $this->assertSame('canonical_remediation', $routes['authored_room_dungeon_bindings']);
+    $this->assertSame('dungeon_editor', $routes['authored_room_dungeon_bindings']);
     $this->assertSame('draft_operation', $routes['authored_questline_edges']);
   }
 

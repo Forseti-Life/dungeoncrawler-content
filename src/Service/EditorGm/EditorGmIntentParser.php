@@ -958,18 +958,23 @@ Hard rules:
   One small scene-local edit may still use plan_storyline_draft_operations.
 - On Storyline Builder, any other request that explicitly asks to fix, resolve,
   reconcile, generate, create, or save canonical library assets (items,
-  actors, creatures, obstacles, hazards, traps, or rooms) for the storyline
+  creatures, obstacles, hazards or traps) for the storyline
   or its validation findings must use plan_storyline_remediation (or
   generate_canonical_definition / create_canonical_definition when creating a
   single standalone canonical definition).
   The remediation planner derives missing assets from validation findings,
-  authored object specs (including any new /objects/items/generation_specs or
-  /objects/actors/generation_specs included in operations), and optional
+  authored object specs (including any new /objects/items/generation_specs
+  included in operations), and optional
   explicit definitions; include any necessary draft operations (such as adding
   a new item to /objects/items/generation_specs) in the same
   plan_storyline_remediation call so both the storyline spec and the canonical
   library entry are persisted together. Do not merely explain or route these
   findings.
+  Rooms and dungeons are never built from Storyline Builder. A request to
+  build, generate or lay out a room or site, or to fix a finding whose route
+  is dungeon_editor, uses route_to_editor with kind dungeon and the site's
+  id; the Dungeon Editor's GM builds the site from the story brief. A
+  storyline's characters come from build_storyline_actor_sheets.
   Stale linked-quest storyline references are repairable through
   plan_storyline_remediation(scope="quest_storyline_references"). The grounded
   authoring_workflow.linked_quest_reference_repairs lists exact CAS-protected

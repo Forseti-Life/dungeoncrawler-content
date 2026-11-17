@@ -672,8 +672,8 @@ says how a request moves through the agent.
   work plan of short units with no operation payloads. Each unit is then one
   model call and one saved batch of at most ten operations. The editor
   continues the units automatically.
-- **Missing canonical content** (dungeons, rooms and items that the
-  draft references but the library lacks). The agent plans a remediation
+- **Missing canonical content** (items, creatures, obstacles, hazards and
+  traps that the draft references but the library lacks). The agent plans a remediation
   and runs it only after the author explicitly approves. Quest records are
   not part of this: they are written when the storyline is published.
 - **Character sheets.** Roster actors get their sheets from the sheet
@@ -726,9 +726,11 @@ Each validation stage declares how its findings are fixed. A finding may
 carry its own route, which overrides its stage:
 
 - `draft_operation`: fixable by editing the draft. Offered first.
-- `canonical_remediation`: needs canonical content published. Offered only
-  when no draft-fixable error remains, and worded as a publish action.
-  Rooms whose site is not yet published are this kind.
+- `dungeon_editor`: needs a room or site built. The Storyline GM does not
+  build them: it sends the author to the Dungeon Editor on that site, whose
+  GM builds it from the story brief (`build_site_from_story_brief`).
+  Offered when no draft-fixable error remains.
+- `actor_sheet_build`: an actor needs its character sheet built.
 - `unclassified`: reported as warnings.
 
 Work units are planned only for `draft_operation` findings.

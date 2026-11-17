@@ -648,6 +648,14 @@ services:
       - '@dungeoncrawler_content.canonical_definitions'
       - '@uuid'
 
+  dungeoncrawler_content.canonical_room_build:
+    class: Drupal\dungeoncrawler_content\Service\Generation\CanonicalRoomBuildService
+    arguments:
+      - '@dungeoncrawler_content.room_editor'
+      - '@dungeoncrawler_content.editor_canonical_generation_plan'
+      - '@dungeoncrawler_content.canonical_definitions'
+      - '@uuid'
+
   dungeoncrawler_content.canonical_dungeon_layout_plan:
     class: Drupal\dungeoncrawler_content\Service\Generation\CanonicalDungeonLayoutPlanService
     arguments:
@@ -709,6 +717,7 @@ services:
       - '@uuid'
       - '@dungeoncrawler_content.editor_canonical_generation_plan'
       - '@dungeoncrawler_content.storyline_authoring_drafts'
+      - '@dungeoncrawler_content.canonical_room_build'
 
   dungeoncrawler_content.editor_gm_surface.definition_editor:
     class: Drupal\dungeoncrawler_content\Service\EditorGm\DefinitionEditorGmSurface

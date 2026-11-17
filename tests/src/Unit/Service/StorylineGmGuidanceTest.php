@@ -316,13 +316,13 @@ class StorylineGmGuidanceTest extends UnitTestCase {
         'warnings' => [],
         'stages' => [[
           'stage' => 'authored_room_dungeon_bindings',
-          'route' => 'canonical_remediation',
+          'route' => 'dungeon_editor',
           'errors' => ['objects.rooms.generation_specs[0]: declared dungeon missing canonical contract'],
           'warnings' => [],
         ]],
       ],
     ], 'Storyline Builder');
-    $this->assertStringContainsString('This needs canonical content published, not a draft edit.', $response['next_steps'][0]);
+    $this->assertStringContainsString('This needs the site built in the Dungeon Editor, not a draft edit.', $response['next_steps'][0]);
   }
 
   /**
@@ -413,7 +413,7 @@ class StorylineGmGuidanceTest extends UnitTestCase {
    */
   public function testFindingRouteOverridesStageRoute(): void {
     $management = new AgentHarnessManagementService();
-    $publish = ['severity' => 'error', 'code' => 'needs_publication', 'route' => 'canonical_remediation', 'message' => 'A site is not published.'];
+    $publish = ['severity' => 'error', 'code' => 'needs_publication', 'route' => 'dungeon_editor', 'message' => 'A site is not published.'];
     $edit = ['severity' => 'error', 'code' => 'objective_unlinked', 'route' => 'draft_operation', 'objective_id' => 'objective-light-the-beacon', 'message' => 'raw two'];
     $snapshot = [
       'current_state' => ['error_count' => 2, 'warning_count' => 0],
@@ -432,7 +432,7 @@ class StorylineGmGuidanceTest extends UnitTestCase {
     $snapshot['validation_summary']['stages'][0]['errors'] = ['A site is not published.'];
     $snapshot['validation_summary']['stages'][0]['findings'] = [$publish];
     $this->assertSame(
-      'Validation finding: A site is not published. This needs canonical content published, not a draft edit. Options: ask the GM to publish the missing canonical content, or continue story changes.',
+      'Validation finding: A site is not published. This needs the site built in the Dungeon Editor, not a draft edit. Options: ask the GM to open that site in the Dungeon Editor, where its GM builds it from the story brief, or continue story changes.',
       $management->storylineNextStepFromSavedState($snapshot)[0],
     );
   }

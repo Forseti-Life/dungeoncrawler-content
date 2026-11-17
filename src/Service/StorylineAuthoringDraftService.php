@@ -31,7 +31,7 @@ class StorylineAuthoringDraftService {
     'questline_progression' => 'draft_operation',
     'objective_control_chain' => 'draft_operation',
     'task_contracts' => 'draft_operation',
-    'authored_room_dungeon_bindings' => 'canonical_remediation',
+    'authored_room_dungeon_bindings' => 'dungeon_editor',
     'authored_questline_edges' => 'draft_operation',
     'actor_character_sheets' => 'actor_sheet_build',
   ];

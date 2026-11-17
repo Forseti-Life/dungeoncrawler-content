@@ -877,11 +877,10 @@ class AgentHarnessManagementService {
   }
 
   /**
-   * Summarizes applied Storyline remediation (definitions, rooms, draft ops).
+   * Summarizes applied Storyline remediation (definitions, quest references, draft ops).
    */
   private function buildStorylineRemediationSummary(array $tool_result, array $context_snapshot): array {
     $definitions = is_array($tool_result['definitions'] ?? NULL) ? $tool_result['definitions'] : [];
-    $rooms = is_array($tool_result['rooms'] ?? NULL) ? $tool_result['rooms'] : [];
     $quests = is_array($tool_result['quests'] ?? NULL) ? $tool_result['quests'] : [];
     $draft = is_array($tool_result['draft'] ?? NULL) ? $tool_result['draft'] : [];
     $deferred = is_array($tool_result['deferred_tasks'] ?? NULL) ? $tool_result['deferred_tasks'] : [];
@@ -907,11 +906,6 @@ class AgentHarnessManagementService {
         $existing_defs
       );
       $parts[] = 'Verified existing canonical definitions: ' . implode(', ', $labels) . '.';
-    }
-    $created_rooms = array_filter($rooms, static fn($r): bool => !empty($r['created']));
-    if ($created_rooms !== []) {
-      $labels = array_map(static fn($r): string => "'" . (string) ($r['room_id'] ?? '') . "'", $created_rooms);
-      $parts[] = 'Generated and published canonical rooms: ' . implode(', ', $labels) . '.';
     }
     if (!empty($draft['changes']) && is_array($draft['changes'])) {
       $parts[] = sprintf('Applied %d storyline draft operation(s) at revision %d.', count($draft['changes']), (int) ($draft['result_revision'] ?? 0));
@@ -1083,7 +1077,7 @@ class AgentHarnessManagementService {
     'draft_operation' => 'Validation finding: %s Options: ask the GM to fix this finding now, skip to the next finding, or switch focus to warnings.',
     'draft_command' => 'Validation finding: %s Options: ask the GM to fix this finding now, skip to the next finding, or switch focus to warnings.',
     'actor_sheet_build' => 'Validation finding: %s Options: ask the GM to build the character sheets for the roster, or continue %s changes.',
-    'canonical_remediation' => 'Validation finding: %s This needs canonical content published, not a draft edit. Options: ask the GM to publish the missing canonical content, or continue %s changes.',
+    'dungeon_editor' => 'Validation finding: %s This needs the site built in the Dungeon Editor, not a draft edit. Options: ask the GM to open that site in the Dungeon Editor, where its GM builds it from the story brief, or continue %s changes.',
     'room_editor' => 'Validation finding: %s This needs work in the Room Editor, not a %s edit. Options: open %3$s in the Room Editor, or continue %2$s changes.',
     'definition_editor' => 'Validation finding: %s This needs the object\'s definition fixed, not a %s edit. Options: fix the definition in the Definition Editor, or continue %2$s changes.',
     'outside_editor' => 'Validation finding: %s No edit in this editor changes this. Options: continue %s changes.',

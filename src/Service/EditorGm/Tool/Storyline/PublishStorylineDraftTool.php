@@ -67,8 +67,6 @@ final class PublishStorylineDraftTool implements EditorGmToolInterface {
     if ($remediation_result !== NULL) {
       $result['remediated_assets'] = [
         'definitions' => $remediation_result['definitions'] ?? [],
-        'rooms' => $remediation_result['rooms'] ?? [],
-        'dungeons' => $remediation_result['dungeons'] ?? [],
         'quests' => $remediation_result['quests'] ?? [],
       ];
     }
