@@ -31,6 +31,8 @@ use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\UpdateCanonicalDefinitio
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\ValidateCanonicalDefinitionTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\ValidateDraftTool;
 use Drupal\dungeoncrawler_content\Service\RoomEditorService;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\LoadStoryBriefTool;
+use Drupal\dungeoncrawler_content\Service\StorylineAuthoringDraftService;
 
 /**
  * Room Editor GM surface: every read and write resolves through
@@ -79,6 +81,7 @@ final class RoomEditorGmSurface implements EditorGmSurfaceInterface {
     EditorGmIntentParser $intentParser,
     UuidInterface $uuid,
     ?EditorCanonicalGenerationPlanService $generation = NULL,
+    ?StorylineAuthoringDraftService $storylines = NULL,
   ) {
     $command_executor = new ApplyRoomCommandsTool($uuid);
     $tools = [
@@ -104,6 +107,9 @@ final class RoomEditorGmSurface implements EditorGmSurfaceInterface {
       new PreviewPublicationPayloadTool(),
       new PublishRoomVersionTool(),
     ];
+    if ($storylines !== NULL) {
+      $tools[] = new LoadStoryBriefTool($storylines, 'room', static fn(EditorGmToolContext $context): string => RoomEditorGmToolContext::of($context)->roomId());
+    }
     if ($generation !== NULL) {
       array_splice($tools, 15, 0, [
         new GenerateRoomLayoutTool($generation),

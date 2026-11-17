@@ -5,6 +5,8 @@ namespace Drupal\dungeoncrawler_content\Service\EditorGm;
 use Drupal\Component\Uuid\UuidInterface;
 use Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService;
 use Drupal\dungeoncrawler_content\Service\DungeonEditorService;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\LoadStoryBriefTool;
+use Drupal\dungeoncrawler_content\Service\StorylineAuthoringDraftService;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\ApplyDungeonCommandsTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\DescribePublicationReadinessTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\ExplainDungeonValidationFindingsTool;
@@ -57,6 +59,7 @@ final class DungeonEditorGmSurface implements EditorGmSurfaceInterface {
     EditorGmIntentParser $intentParser,
     UuidInterface $uuid,
     ?EditorCanonicalGenerationPlanService $generation = NULL,
+    ?StorylineAuthoringDraftService $storylines = NULL,
   ) {
     $tools = [
       new LoadDungeonDraftTool(),
@@ -78,6 +81,11 @@ final class DungeonEditorGmSurface implements EditorGmSurfaceInterface {
       new ApplyDungeonCommandsTool($uuid),
       new PublishDungeonVersionTool(),
     ];
+    if ($storylines !== NULL) {
+      $tools[] = new LoadStoryBriefTool($storylines, 'dungeon', static fn(EditorGmToolContext $context): string => (string) (
+        DungeonEditorGmToolContext::of($context)->draft()['dungeon_id'] ?? ''
+      ));
+    }
     if ($generation !== NULL) {
       array_splice($tools, 11, 0, [new GenerateDungeonLayoutTool($generation)]);
     }

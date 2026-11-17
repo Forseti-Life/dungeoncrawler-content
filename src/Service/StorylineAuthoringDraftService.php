@@ -1318,6 +1318,102 @@ class StorylineAuthoringDraftService {
   }
 
   /**
+   * What each storyline needs from one dungeon or room.
+   *
+   * Read by the Dungeon and Room editors so a site is built from the story
+   * that uses it. Nothing is copied: every call reads the storyline drafts.
+   * One entry per draft that names the site; a site may serve several.
+   *
+   * @return array{kind: string, id: string, storylines: array<int, array<string, mixed>>}
+   */
+  public function storyBriefs(string $kind, string $id): array {
+    $this->assertCanEdit();
+    if (!in_array($kind, ['dungeon', 'room'], TRUE) || trim($id) === '') {
+      throw new \InvalidArgumentException('storyline_story_brief_subject_invalid:' . $kind . ':' . $id);
+    }
+    $rows = $this->database->select(self::TABLE, 'd')
+      ->fields('d', ['draft_id', 'status', 'revision', 'draft_payload'])
+      ->orderBy('updated_at', 'DESC')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+    $storylines = [];
+    foreach ($rows as $row) {
+      $payload = json_decode((string) $row['draft_payload'], TRUE, 512, JSON_THROW_ON_ERROR);
+      $list = static fn(mixed $value): array => array_values(array_filter((array) $value, 'is_array'));
+      $rooms = $list($payload['objects']['rooms']['generation_specs'] ?? []);
+      $subject_rooms = array_values(array_filter(
+        $rooms,
+        static fn(array $room): bool => trim((string) ($room[$kind === 'dungeon' ? 'dungeon_id' : 'room_id'] ?? '')) === $id,
+      ));
+      $site = NULL;
+      foreach ($list($payload['objects']['dungeons']['generation_specs'] ?? []) as $dungeon) {
+        if ($kind === 'dungeon' && trim((string) ($dungeon['dungeon_id'] ?? '')) === $id) {
+          $site = $dungeon;
+        }
+      }
+      if ($subject_rooms === [] && $site === NULL) {
+        continue;
+      }
+      $flow = is_array($payload['process_flow'] ?? NULL) ? $payload['process_flow'] : [];
+      $scenes = array_column($list($flow['journal_entries'] ?? []), NULL, 'scene_id');
+      $tasks_by_scene = [];
+      foreach ($list($flow['tasks'] ?? []) as $task) {
+        $goal = trim((string) ($task['goal_text'] ?? ''));
+        if ($goal !== '') {
+          $tasks_by_scene[(string) ($task['scene_id'] ?? '')][] = $goal;
+        }
+      }
+      $cast_by_place = [];
+      foreach ($list($payload['objects']['actors']['generation_specs'] ?? []) as $actor) {
+        $place = trim((string) ($actor['location_id'] ?? ''));
+        if ($place !== '') {
+          $cast_by_place[$place][] = [
+            'name' => trim((string) ($actor['display_name'] ?? '')) ?: (string) ($actor['actor_id'] ?? ''),
+            'role' => str_replace('_', ' ', (string) ($actor['role'] ?? '')),
+            'attitude' => (string) ($actor['attitude'] ?? ''),
+          ];
+        }
+      }
+      $objectives_by_place = [];
+      foreach ($list($flow['objective_completion_criteria'] ?? []) as $objective) {
+        foreach (['location', 'destination', 'target'] as $field) {
+          $place = trim((string) ($objective[$field] ?? ''));
+          if ($place !== '' && trim((string) ($objective['description'] ?? '')) !== '') {
+            $objectives_by_place[$place][] = trim((string) $objective['description']);
+          }
+        }
+      }
+      $room_briefs = [];
+      foreach ($subject_rooms as $room) {
+        $room_id = trim((string) ($room['room_id'] ?? ''));
+        $scene = $scenes[(string) ($room['scene_id'] ?? '')] ?? [];
+        $room_briefs[] = [
+          'room_id' => $room_id,
+          'dungeon_id' => trim((string) ($room['dungeon_id'] ?? '')),
+          'narrative' => trim((string) ($room['narrative'] ?? '')),
+          'scene' => trim((string) ($scene['title'] ?? '')),
+          'scene_summary' => trim((string) ($scene['summary'] ?? '')),
+          'tasks' => $tasks_by_scene[(string) ($room['scene_id'] ?? '')] ?? [],
+          'objectives' => $objectives_by_place[$room_id] ?? [],
+          'starting_cast' => $cast_by_place[$room_id] ?? [],
+        ];
+      }
+      $storylines[] = [
+        'draft_id' => (string) $row['draft_id'],
+        'title' => trim((string) ($payload['title'] ?? '')),
+        'status' => (string) $row['status'],
+        'revision' => (int) $row['revision'],
+        'premise' => trim((string) ($payload['premise'] ?? '')),
+      ] + ($kind === 'dungeon' ? [
+        'purpose' => trim((string) ($site['purpose'] ?? '')),
+        'entrance_room' => trim((string) ($site['entrance_room'] ?? '')),
+        'starting_cast_at_site' => $cast_by_place[$id] ?? [],
+      ] : []) + ['rooms' => $room_briefs];
+    }
+    return ['kind' => $kind, 'id' => $id, 'storylines' => $storylines];
+  }
+
+  /**
    * Searches the character library: full characters and placed contacts.
    *
    * @return array{total: int, characters: array<int, array<string, mixed>>}

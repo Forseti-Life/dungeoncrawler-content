@@ -107,6 +107,66 @@ class StorylineDraftPatchTest extends UnitTestCase {
   }
 
   /**
+   * A site's brief is what each storyline that names it needs from it.
+   */
+  public function testStoryBriefCollectsWhatTheStoryNeedsFromASite(): void {
+    [$service] = $this->fixture();
+    $payload = [
+      'title' => 'The Clan\'s Blight',
+      'premise' => 'A clan must leave its home.',
+      'process_flow' => [
+        'journal_entries' => [['scene_id' => 'scene-hall', 'title' => 'The Hall', 'summary' => 'The chieftain holds court.']],
+        'tasks' => [['task_id' => 't1', 'scene_id' => 'scene-hall', 'goal_text' => 'Win the chieftain over.']],
+        'objective_completion_criteria' => [['objective_id' => 'o1', 'location' => 'clan-hall', 'description' => 'Reach the hall.']],
+      ],
+      'objects' => [
+        'dungeons' => ['generation_specs' => [['dungeon_id' => 'clan-town', 'purpose' => 'The clan\'s home.', 'entrance_room' => 'clan-hall']]],
+        'rooms' => ['generation_specs' => [
+          ['dungeon_id' => 'clan-town', 'room_id' => 'clan-hall', 'scene_id' => 'scene-hall', 'narrative' => 'Where the chieftain rules.'],
+          ['dungeon_id' => 'kobold-caves', 'room_id' => 'cave-mouth', 'scene_id' => 'scene-hall', 'narrative' => 'Elsewhere.'],
+        ]],
+        'actors' => ['generation_specs' => [['actor_id' => 'chieftain', 'display_name' => 'Grubba', 'role' => 'clan_chieftain', 'location_id' => 'clan-hall']]],
+      ],
+    ];
+    $statement = new class([
+      ['draft_id' => 'd1', 'status' => 'editing', 'revision' => 3, 'draft_payload' => json_encode($payload)],
+      ['draft_id' => 'd2', 'status' => 'editing', 'revision' => 1, 'draft_payload' => json_encode(['title' => 'Unrelated'])],
+    ]) {
+
+      public function __construct(private array $rows) {}
+
+      public function fetchAll(int $mode): array {
+        return $this->rows;
+      }
+
+    };
+    $select = $this->createMock(\Drupal\Core\Database\Query\SelectInterface::class);
+    foreach (['fields', 'orderBy'] as $method) {
+      $select->method($method)->willReturnSelf();
+    }
+    $select->method('execute')->willReturn($statement);
+    $database = $this->createMock(\Drupal\Core\Database\Connection::class);
+    $database->method('select')->willReturn($select);
+    $user = $this->createMock(\Drupal\Core\Session\AccountProxyInterface::class);
+    $user->method('id')->willReturn(7);
+    $user->method('hasPermission')->willReturn(TRUE);
+    (new \ReflectionProperty(StorylineAuthoringDraftService::class, 'database'))->setValue($service, $database);
+    (new \ReflectionProperty(StorylineAuthoringDraftService::class, 'currentUser'))->setValue($service, $user);
+
+    $brief = $service->storyBriefs('dungeon', 'clan-town')['storylines'];
+
+    $this->assertSame(['d1'], array_column($brief, 'draft_id'));
+    $this->assertSame('clan-hall', $brief[0]['entrance_room']);
+    $this->assertSame(['clan-hall'], array_column($brief[0]['rooms'], 'room_id'));
+    $room = $brief[0]['rooms'][0];
+    $this->assertSame('The Hall', $room['scene']);
+    $this->assertSame(['Win the chieftain over.'], $room['tasks']);
+    $this->assertSame(['Reach the hall.'], $room['objectives']);
+    $this->assertSame(['Grubba'], array_column($room['starting_cast'], 'name'));
+    $this->assertSame(['cave-mouth'], array_column($service->storyBriefs('room', 'cave-mouth')['storylines'][0]['rooms'], 'room_id'));
+  }
+
+  /**
    * Repeating a field value must leave the revision unchanged.
    */
   public function testUnchangedPatchDoesNotAdvanceRevision(): void {
