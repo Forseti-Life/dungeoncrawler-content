@@ -35,6 +35,39 @@ class StorylineDraftPatchTest extends UnitTestCase {
   }
 
   /**
+   * Changing a roster actor's ID changes every reference to it in one save.
+   */
+  public function testChangingAnActorsIdentityRebindsEveryReference(): void {
+    [$service] = $this->fixture();
+    $plan = $service->planDraftOperations('draft-1', 12, [$this->patch(['actor_id' => 'library-scout'])]);
+    $actors = $plan['payload']['objects']['actors'];
+
+    $this->assertSame('library-scout', $actors['generation_specs'][0]['actor_id']);
+    $this->assertSame('contact-first', $actors['generation_specs'][0]['contact_id'], 'An identity that did not change is left alone.');
+    $this->assertSame('library-scout', $actors['relationships'][0]['source_actor_id']);
+    $this->assertSame('actor-second', $actors['relationships'][0]['target_actor_id']);
+    $this->assertStringNotContainsString('actor-first', json_encode($plan['payload']));
+  }
+
+  /**
+   * IDs inside a comma-separated list are rebound too.
+   */
+  public function testIdentityChangeReachesCommaSeparatedLists(): void {
+    $method = new \ReflectionMethod(StorylineAuthoringDraftService::class, 'rebindChangedActorIdentities');
+    $method->setAccessible(TRUE);
+    $payload = static fn(string $id): array => [
+      'objects' => ['actors' => ['generation_specs' => [['actor_id' => $id, 'contact_id' => $id]]]],
+      'process_flow' => ['journal_entries' => [['character_ids' => 'guide, ' . $id, 'summary' => 'The captain, weary, waits.']]],
+      'canonical_template' => ['note' => 'captain'],
+    ];
+    $after = $method->invoke(NULL, $payload('captain'), ['process_flow' => $payload('captain')['process_flow'], 'canonical_template' => ['note' => 'captain']] + $payload('tal-mission-handler'));
+
+    $this->assertSame('guide, tal-mission-handler', $after['process_flow']['journal_entries'][0]['character_ids']);
+    $this->assertSame('The captain, weary, waits.', $after['process_flow']['journal_entries'][0]['summary'], 'Prose is not an ID list.');
+    $this->assertSame('captain', $after['canonical_template']['note']);
+  }
+
+  /**
    * Repeating a field value must leave the revision unchanged.
    */
   public function testUnchangedPatchDoesNotAdvanceRevision(): void {

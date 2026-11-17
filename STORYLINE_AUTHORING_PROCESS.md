@@ -348,6 +348,12 @@ not its sheet is built, and the sheet build refuses it: the storyline must use t
 ID, or the actor must be renamed. Character names may contain letters,
 spaces, hyphens and apostrophes.
 
+Changing a roster actor's `actor_id` or `contact_id` is an identity change,
+and the save applies it everywhere: every scene, choice, objective,
+conflict and relationship that named the old ID names the new one in the
+same revision. Linking an actor to an existing library character is
+therefore one patch to the roster row.
+
 ### Completion check
 
 Cast coverage, motivations, knowledge boundaries, relationship arcs, and

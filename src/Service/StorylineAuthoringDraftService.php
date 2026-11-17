@@ -1670,6 +1670,7 @@ class StorylineAuthoringDraftService {
     if (($after['canonical_template'] ?? NULL) !== ($before['canonical_template'] ?? NULL)) {
       throw new \InvalidArgumentException('storyline_draft_canonical_source_immutable');
     }
+    $after = self::rebindChangedActorIdentities($before, $after);
     $this->assertDraftPayloadValid($after);
 
     return [
@@ -1681,6 +1682,67 @@ class StorylineAuthoringDraftService {
       'allocated_ids' => $allocated_ids,
       'payload' => $after,
     ];
+  }
+
+  /**
+   * Carries a roster actor's changed identity to every place that names it.
+   *
+   * When a save changes the actor_id or contact_id of a roster row, the row
+   * is the same actor under a new identity: scenes, choices, objectives,
+   * conflicts and relationships that named the old one must name the new
+   * one in the same save. An identity is never left half changed.
+   */
+  private static function rebindChangedActorIdentities(array $before, array $after): array {
+    $old_rows = array_values(array_filter((array) ($before['objects']['actors']['generation_specs'] ?? []), 'is_array'));
+    $new_rows = array_values(array_filter((array) ($after['objects']['actors']['generation_specs'] ?? []), 'is_array'));
+    $still_used = [];
+    foreach ($new_rows as $row) {
+      foreach (['actor_id', 'contact_id'] as $field) {
+        $still_used[trim((string) ($row[$field] ?? ''))] = TRUE;
+      }
+    }
+    $renamed = [];
+    foreach ($old_rows as $index => $old_row) {
+      foreach (['actor_id', 'contact_id'] as $field) {
+        $old = trim((string) ($old_row[$field] ?? ''));
+        $new = trim((string) ($new_rows[$index][$field] ?? ''));
+        if ($old !== '' && $new !== '' && $old !== $new && !isset($still_used[$old])) {
+          if (isset($renamed[$old]) && $renamed[$old] !== $new) {
+            throw new \DomainException('storyline_draft_actor_identity_change_ambiguous:' . $old);
+          }
+          $renamed[$old] = $new;
+        }
+      }
+    }
+    if ($renamed === []) {
+      return $after;
+    }
+    $rebind = static function (mixed $value) use (&$rebind, $renamed): mixed {
+      if (is_array($value)) {
+        return array_map($rebind, $value);
+      }
+      if (!is_string($value)) {
+        return $value;
+      }
+      if (isset($renamed[$value])) {
+        return $renamed[$value];
+      }
+      // Comma-separated ID lists, such as a scene's characters.
+      if (str_contains($value, ',') && preg_match('/^[A-Za-z0-9:_,\s-]+$/', $value) === 1) {
+        $parts = explode(',', $value);
+        foreach ($parts as $position => $part) {
+          $parts[$position] = isset($renamed[trim($part)]) ? str_replace(trim($part), $renamed[trim($part)], $part) : $part;
+        }
+        return implode(',', $parts);
+      }
+      return $value;
+    };
+    foreach ($after as $key => $value) {
+      if ($key !== 'canonical_template') {
+        $after[$key] = $rebind($value);
+      }
+    }
+    return $after;
   }
 
   /**
