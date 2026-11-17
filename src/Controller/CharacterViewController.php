@@ -574,7 +574,7 @@ class CharacterViewController extends ControllerBase {
       'title' => ['#markup' => '<h1>' . \Drupal\Component\Utility\Html::escape((string) ($spec['display_name'] ?? $actor_id)) . '</h1>'],
       'status' => [
         '#markup' => '<p><strong>' . $this->t('Not created yet.') . '</strong> '
-          . $this->t('This actor is planned in a storyline draft. It has no character sheet until the storyline GM generates the missing actors or the draft is published.') . '</p>',
+          . $this->t('This actor is planned in a storyline draft and has no character sheet. Sheets are built only on request: in the draft, ask the Storyline GM to build the character sheets for the roster. Publishing the storyline does not create them.') . '</p>',
       ],
       'spec' => ['#type' => 'table', '#header' => [$this->t('Planned'), $this->t('Value')], '#rows' => $rows],
       'back' => ['#type' => 'link', '#title' => $this->t('Back to the storyline draft'), '#url' => $builder],
