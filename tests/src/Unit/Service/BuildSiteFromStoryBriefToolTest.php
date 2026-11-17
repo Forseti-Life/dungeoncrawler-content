@@ -30,6 +30,8 @@ class BuildSiteFromStoryBriefToolTest extends UnitTestCase {
       'warren',
       $this->callback(static fn(array $arguments): bool => str_contains($arguments['prompt'], 'Narrow tunnels.')
         && str_contains($arguments['prompt'], 'Skrix') && $arguments['min_hexes'] === 16),
+      // The last room of the site has no exit.
+      0,
       "Built for the storyline 'The Clan's Blight'.",
     );
     $generation = $this->createMock(EditorCanonicalGenerationPlanService::class);

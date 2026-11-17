@@ -40,11 +40,16 @@ class CanonicalRoomBuildService {
    *   Arguments of generate_room_layout: prompt (required), theme,
    *   size_category, room_type, level, min_hexes, max_hexes.
    *
+   * @param int $exit_ports
+   *   How many exits the room must have for its place in the site. Exits the
+   *   generator adds beyond that are removed; too few is an error.
+   *
    * @throws \DomainException
-   *   `canonical_room_already_published:<id>` or
+   *   `canonical_room_already_published:<id>`,
+   *   `canonical_room_build_exits_short:<id>` or
    *   `canonical_room_build_invalid:<id>: <first error>`.
    */
-  public function build(string $room_id, array $generation_arguments, string $publication_note): void {
+  public function build(string $room_id, array $generation_arguments, int $exit_ports, string $publication_note): void {
     if ($this->isPublished($room_id)) {
       throw new \DomainException('canonical_room_already_published:' . $room_id);
     }
@@ -68,6 +73,13 @@ class CanonicalRoomBuildService {
     );
     foreach ($generated['command_plan']['steps'] as $step) {
       $command((string) $step['command_type'], (array) $step['payload']);
+    }
+    $exits = array_column($this->roomEditor->getDraft($draft_id)['room']['exit_ports'], 'port_id');
+    if (count($exits) < $exit_ports) {
+      throw new \DomainException(sprintf('canonical_room_build_exits_short:%s: needs %d exit(s), generated %d (room draft %s kept for review)', $room_id, $exit_ports, count($exits), $draft_id));
+    }
+    foreach (array_slice($exits, $exit_ports) as $port_id) {
+      $command('remove_exit_port', ['port_id' => $port_id]);
     }
     $validation = $this->roomEditor->validateDraft($draft_id, 'publication');
     if (!$validation['is_valid']) {

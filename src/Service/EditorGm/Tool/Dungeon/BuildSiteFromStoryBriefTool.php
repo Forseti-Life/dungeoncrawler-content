@@ -54,6 +54,13 @@ final class BuildSiteFromStoryBriefTool implements EditorGmToolInterface {
     $dungeon_id = (string) $context->dungeon()['dungeon_id'];
     $story = $this->story($dungeon_id, $arguments['storyline_draft_id'] ?? NULL);
     $room_briefs = array_column($story['rooms'], NULL, 'room_id');
+    // The site is a path from its entrance: the entrance comes first and the
+    // last room in story order is the end of it.
+    $entrance = $story['entrance_room'];
+    if ($entrance !== '' && isset($room_briefs[$entrance])) {
+      $room_briefs = [$entrance => $room_briefs[$entrance]] + $room_briefs;
+    }
+    $last_room_id = array_key_last($room_briefs);
     if ($room_briefs === []) {
       throw new \DomainException(sprintf("story_site_has_no_rooms: storyline '%s' names no rooms for '%s'.", $story['title'], $dungeon_id));
     }
@@ -87,7 +94,7 @@ final class BuildSiteFromStoryBriefTool implements EditorGmToolInterface {
           'Site: ' . $story['purpose'],
         ])), 0, 2000),
         'min_hexes' => 16,
-      ], sprintf("Built for the storyline '%s'.", $story['title']));
+      ], $room_id === $last_room_id ? 0 : 1, sprintf("Built for the storyline '%s'.", $story['title']));
       $built[] = $room_id;
     }
     $progress = [
