@@ -81,6 +81,12 @@ final class ApplyStorylineRemediationTool implements EditorGmToolInterface {
     foreach ($definitions as $spec) {
       $family = (string) $spec['family'];
       $definition_id = (string) $spec['definition_id'];
+      // A storyline's actors are created only by the character sheet build,
+      // which refuses a second identity for a character already in the
+      // library. Generating one here would bypass that.
+      if ($family === 'actor') {
+        throw new \DomainException("storyline_remediation_actor_not_supported:{$definition_id}: build the roster's character sheets instead.");
+      }
       $existing = $context->definitions->catalogEntry($family, $definition_id);
       if ($existing !== NULL) {
         $definition_receipts[] = ['family' => $family, 'definition_id' => $definition_id, 'created' => FALSE];
@@ -96,22 +102,6 @@ final class ApplyStorylineRemediationTool implements EditorGmToolInterface {
       ];
       $generation_arguments = $spec;
       unset($generation_arguments['family']);
-      if ($family === 'actor') {
-        $actor_spec = $this->findDraftActorSpec($context->draft(), $definition_id);
-        if (is_array($actor_spec)) {
-          $generation_arguments['role'] = $generation_arguments['role'] ?? ($actor_spec['role'] ?? '');
-          $generation_arguments['attitude'] = $generation_arguments['attitude'] ?? ($actor_spec['attitude'] ?? 'indifferent');
-          $generation_arguments['storyline_binding'] = array_filter([
-            'contact_id' => (string) ($actor_spec['contact_id'] ?? ''),
-            'availability' => (string) ($actor_spec['availability'] ?? ''),
-            'chapter_id' => (string) ($actor_spec['chapter_id'] ?? ''),
-            'scene_id' => (string) ($actor_spec['scene_id'] ?? ''),
-            'location_id' => (string) ($actor_spec['location_id'] ?? ''),
-            'dialogue' => (string) ($actor_spec['dialogue'] ?? ''),
-            'knowledge' => (string) ($actor_spec['knowledge'] ?? ''),
-          ], static fn($v): bool => $v !== '');
-        }
-      }
       $result = $this->definitionGeneration->generateRuntimeDefinitionAndSave($family, $generation_arguments);
       if ((string) ($result['definition_id'] ?? '') !== $definition_id) {
         throw new \LogicException("storyline_remediation_definition_identity_mismatch:{$definition_id}");
@@ -362,21 +352,6 @@ final class ApplyStorylineRemediationTool implements EditorGmToolInterface {
       throw new \InvalidArgumentException("storyline_remediation_{$name}_must_be_list");
     }
     return $value;
-  }
-
-  private function findDraftActorSpec(array $draft, string $actor_id): ?array {
-    $specs = $draft['payload']['objects']['actors']['generation_specs']
-      ?? $draft['objects']['actors']['generation_specs']
-      ?? [];
-    if (!is_array($specs)) {
-      return NULL;
-    }
-    foreach ($specs as $spec) {
-      if (is_array($spec) && trim((string) ($spec['actor_id'] ?? '')) === $actor_id) {
-        return $spec;
-      }
-    }
-    return NULL;
   }
 
 }

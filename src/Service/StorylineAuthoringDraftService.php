@@ -1261,32 +1261,32 @@ class StorylineAuthoringDraftService {
   /**
    * Roster actors that would duplicate a character already in the library.
    *
-   * An actor with no sheet yet, named like a library character that has a
-   * different ID, is the same character under a second identity. Building
-   * its sheet would create the duplicate.
+   * An actor named like a library character that has a different ID is the
+   * same character under a second identity. Building its sheet would
+   * create the duplicate, and one built earlier is one.
    *
    * @return array<int, array<string, mixed>>
    */
   public function libraryActorDuplicateFindings(array $payload): array {
-    $unbuilt = [];
+    $named = [];
     foreach ((array) ($payload['objects']['actors']['generation_specs'] ?? []) as $spec) {
       $name = is_array($spec) ? trim((string) ($spec['display_name'] ?? '')) : '';
-      if ($name !== '' && empty($spec['character_id']) && trim((string) ($spec['actor_id'] ?? '')) !== '') {
-        $unbuilt[mb_strtolower($name)] = $spec;
+      if ($name !== '' && trim((string) ($spec['actor_id'] ?? '')) !== '') {
+        $named[mb_strtolower($name)] = $spec;
       }
     }
-    if ($unbuilt === []) {
+    if ($named === []) {
       return [];
     }
     $rows = $this->database->select('dc_campaign_characters', 'c')
       ->fields('c', ['instance_id', 'name'])
       ->condition('campaign_id', 0)
-      ->condition('name', array_values(array_map(static fn(array $spec): string => trim((string) $spec['display_name']), $unbuilt)), 'IN')
+      ->condition('name', array_values(array_map(static fn(array $spec): string => trim((string) $spec['display_name']), $named)), 'IN')
       ->execute()
       ->fetchAll(\PDO::FETCH_ASSOC);
     $findings = [];
     foreach ($rows as $row) {
-      $spec = $unbuilt[mb_strtolower(trim((string) $row['name']))] ?? NULL;
+      $spec = $named[mb_strtolower(trim((string) $row['name']))] ?? NULL;
       if ($spec === NULL || (string) $row['instance_id'] === (string) $spec['actor_id']) {
         continue;
       }

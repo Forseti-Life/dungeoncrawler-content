@@ -334,7 +334,7 @@ request ("build the character sheets for the roster"), by the single tool
 `build_storyline_actor_sheets`. It creates a character for each actor,
 derives class, ancestry and background from the authored role, and records
 the link on the actor row. This is the only way a storyline actor is
-created; remediation does not generate actors.
+created; remediation refuses an actor (`storyline_remediation_actor_not_supported`).
 
 Validation reports one blocking finding per actor in the stage
 `actor_character_sheets`: `actor_sheet_missing` when no sheet is linked,
@@ -342,9 +342,9 @@ Validation reports one blocking finding per actor in the stage
 Stage 3 is not complete, and the draft cannot be published, while any
 remain. The next step names it.
 
-An actor with no sheet whose name matches a character already in the
-library under a different ID is reported as `actor_duplicates_library_actor`
-and the sheet build refuses it: the storyline must use the existing actor's
+An actor whose name matches a character already in the library under a
+different ID is reported as `actor_duplicates_library_actor`, whether or
+not its sheet is built, and the sheet build refuses it: the storyline must use the existing actor's
 ID, or the actor must be renamed. Character names may contain letters,
 spaces, hyphens and apostrophes.
 
