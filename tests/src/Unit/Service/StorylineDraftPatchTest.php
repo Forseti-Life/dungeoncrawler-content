@@ -53,7 +53,7 @@ class StorylineDraftPatchTest extends UnitTestCase {
    * IDs inside a comma-separated list are rebound too.
    */
   public function testIdentityChangeReachesCommaSeparatedLists(): void {
-    $method = new \ReflectionMethod(StorylineAuthoringDraftService::class, 'rebindChangedActorIdentities');
+    $method = new \ReflectionMethod(StorylineAuthoringDraftService::class, 'rebindChangedIdentities');
     $method->setAccessible(TRUE);
     $payload = static fn(string $id): array => [
       'objects' => ['actors' => ['generation_specs' => [['actor_id' => $id, 'contact_id' => $id]]]],
@@ -164,6 +164,29 @@ class StorylineDraftPatchTest extends UnitTestCase {
     $this->assertSame(['Reach the hall.'], $room['objectives']);
     $this->assertSame(['Grubba'], array_column($room['starting_cast'], 'name'));
     $this->assertSame(['cave-mouth'], array_column($service->storyBriefs('room', 'cave-mouth')['storylines'][0]['rooms'], 'room_id'));
+  }
+
+  /**
+   * A room keeps its references when renamed; a used room cannot be removed.
+   */
+  public function testRoomIdentityIsCarriedAndAUsedRoomCannotBeRemoved(): void {
+    $payload = static fn(array $rooms, string $actor_room): array => ['objects' => [
+      'rooms' => ['generation_specs' => $rooms],
+      'dungeons' => ['generation_specs' => [['dungeon_id' => 'clan-town', 'entrance_room' => $actor_room]]],
+      'actors' => ['generation_specs' => [['actor_id' => 'chieftain', 'contact_id' => 'chieftain', 'display_name' => 'Grubba', 'location_id' => $actor_room]]],
+    ]];
+    $room = static fn(string $id): array => ['room_id' => $id, 'dungeon_id' => 'clan-town'];
+    $rebind = new \ReflectionMethod(StorylineAuthoringDraftService::class, 'rebindChangedIdentities');
+    $assert = new \ReflectionMethod(StorylineAuthoringDraftService::class, 'assertRemovedPlacesAreUnreferenced');
+
+    $after = $rebind->invoke(NULL, $payload([$room('hall')], 'hall'), ['objects' => ['rooms' => ['generation_specs' => [$room('great-hall')]]] + $payload([], 'hall')['objects']]);
+    $this->assertSame('great-hall', $after['objects']['actors']['generation_specs'][0]['location_id']);
+    $this->assertSame('great-hall', $after['objects']['dungeons']['generation_specs'][0]['entrance_room']);
+
+    $assert->invoke(NULL, $payload([$room('hall'), $room('hut')], 'hall'), $payload([$room('hall')], 'hall'));
+    $this->expectException(\DomainException::class);
+    $this->expectExceptionMessage("room 'hall' is removed by this change but is still used by actor Grubba, entrance of site clan-town");
+    $assert->invoke(NULL, $payload([$room('hall'), $room('hut')], 'hall'), $payload([$room('hut')], 'hall'));
   }
 
   /**

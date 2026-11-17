@@ -42,6 +42,7 @@ class StorylineAuthoringDraftService {
     'actor_duplicates_library_actor' => 'draft_operation',
     'actor_placement_missing' => 'draft_operation',
     'actor_placement_unknown' => 'draft_operation',
+    'room_scene_unknown' => 'draft_operation',
   ];
   /**
    * Library roles whose characters hand out work to the party.
@@ -1024,9 +1025,11 @@ class StorylineAuthoringDraftService {
     $draft = $this->getDraft($draft_id);
     $room_bindings = (array) ($draft['payload']['objects']['rooms']['generation_specs'] ?? []);
     $binding_errors = $this->storylineManager->validateAuthoredRoomDungeonBindings($room_bindings);
+    $scene_findings = self::roomSceneFindings($draft['payload'] ?? []);
     $validation['stages']['authored_room_dungeon_bindings'] = [
-      'valid' => $binding_errors === [],
-      'errors' => $binding_errors,
+      'valid' => $binding_errors === [] && $scene_findings === [],
+      'errors' => array_merge(array_column($scene_findings, 'message'), $binding_errors),
+      'findings' => $scene_findings,
     ];
     $stages = is_array($validation['stages'] ?? NULL) ? $validation['stages'] : [];
     $choice_findings = $this->authoredChoiceFindings($draft['payload'] ?? []);
@@ -1818,6 +1821,9 @@ class StorylineAuthoringDraftService {
     if (is_array($draft['payload']['canonical_template'] ?? NULL)) {
       $payload['canonical_template'] = $draft['payload']['canonical_template'];
     }
+    // Every save goes through here, the builder form included.
+    $payload = self::rebindChangedIdentities($draft['payload'] ?? [], $payload);
+    self::assertRemovedPlacesAreUnreferenced($draft['payload'] ?? [], $payload);
     $this->assertDraftPayloadValid($payload);
     $updated_at = $this->time->getRequestTime();
     $next_revision = $current_revision + 1;
@@ -1914,7 +1920,8 @@ class StorylineAuthoringDraftService {
     if (($after['canonical_template'] ?? NULL) !== ($before['canonical_template'] ?? NULL)) {
       throw new \InvalidArgumentException('storyline_draft_canonical_source_immutable');
     }
-    $after = self::rebindChangedActorIdentities($before, $after);
+    $after = self::rebindChangedIdentities($before, $after);
+    self::assertRemovedPlacesAreUnreferenced($before, $after);
     $this->assertDraftPayloadValid($after);
 
     return [
@@ -1929,32 +1936,75 @@ class StorylineAuthoringDraftService {
   }
 
   /**
-   * Carries a roster actor's changed identity to every place that names it.
+   * A room appears in a scene of this storyline.
    *
-   * When a save changes the actor_id or contact_id of a roster row, the row
-   * is the same actor under a new identity: scenes, choices, objectives,
-   * conflicts and relationships that named the old one must name the new
-   * one in the same save. An identity is never left half changed.
+   * @return array<int, array<string, mixed>>
    */
-  private static function rebindChangedActorIdentities(array $before, array $after): array {
-    $old_rows = array_values(array_filter((array) ($before['objects']['actors']['generation_specs'] ?? []), 'is_array'));
-    $new_rows = array_values(array_filter((array) ($after['objects']['actors']['generation_specs'] ?? []), 'is_array'));
-    $still_used = [];
-    foreach ($new_rows as $row) {
-      foreach (['actor_id', 'contact_id'] as $field) {
-        $still_used[trim((string) ($row[$field] ?? ''))] = TRUE;
+  private static function roomSceneFindings(array $payload): array {
+    $scenes = array_column(array_filter((array) ($payload['process_flow']['journal_entries'] ?? []), 'is_array'), 'title', 'scene_id');
+    $findings = [];
+    foreach ((array) ($payload['objects']['rooms']['generation_specs'] ?? []) as $room) {
+      $room_id = is_array($room) ? trim((string) ($room['room_id'] ?? '')) : '';
+      $scene_id = is_array($room) ? trim((string) ($room['scene_id'] ?? '')) : '';
+      if ($room_id !== '' && $scene_id !== '' && !isset($scenes[$scene_id])) {
+        $findings[] = [
+          'severity' => 'error',
+          'code' => 'room_scene_unknown',
+          'room_id' => $room_id,
+          'scene_id' => $scene_id,
+          'message' => sprintf("Room '%s' is bound to a scene that is not in this storyline. Bind it to the scene it appears in.", $room_id),
+        ];
       }
     }
+    return $findings;
+  }
+
+  /**
+   * Row identities whose change is carried to every reference.
+   *
+   * A room row is one appearance of a room in a scene, so several rows may
+   * share a room_id; the room is renamed only when no row keeps the old ID.
+   */
+  private const CASCADING_IDENTITIES = [
+    '/objects/actors/generation_specs' => ['actor_id', 'contact_id'],
+    '/objects/rooms/generation_specs' => ['room_id'],
+    '/objects/dungeons/generation_specs' => ['dungeon_id'],
+  ];
+
+  /**
+   * Carries a changed actor, room or dungeon identity to every reference.
+   *
+   * When a save changes the ID of a row, the row is the same thing under a
+   * new identity: every scene, choice, objective, placement and binding that
+   * named the old ID must name the new one in the same save. An identity is
+   * never left half changed.
+   */
+  private static function rebindChangedIdentities(array $before, array $after): array {
     $renamed = [];
-    foreach ($old_rows as $index => $old_row) {
-      foreach (['actor_id', 'contact_id'] as $field) {
-        $old = trim((string) ($old_row[$field] ?? ''));
-        $new = trim((string) ($new_rows[$index][$field] ?? ''));
-        if ($old !== '' && $new !== '' && $old !== $new && !isset($still_used[$old])) {
-          if (isset($renamed[$old]) && $renamed[$old] !== $new) {
-            throw new \DomainException('storyline_draft_actor_identity_change_ambiguous:' . $old);
+    foreach (self::CASCADING_IDENTITIES as $path => $fields) {
+      [, $group, $collection, $key] = explode('/', $path);
+      $old_rows = array_values(array_filter((array) ($before[$group][$collection][$key] ?? []), 'is_array'));
+      $new_rows = array_values(array_filter((array) ($after[$group][$collection][$key] ?? []), 'is_array'));
+      if (count($old_rows) !== count($new_rows)) {
+        // Rows were added or removed; positions no longer pair up.
+        continue;
+      }
+      $still_used = [];
+      foreach ($new_rows as $row) {
+        foreach ($fields as $field) {
+          $still_used[trim((string) ($row[$field] ?? ''))] = TRUE;
+        }
+      }
+      foreach ($old_rows as $index => $old_row) {
+        foreach ($fields as $field) {
+          $old = trim((string) ($old_row[$field] ?? ''));
+          $new = trim((string) ($new_rows[$index][$field] ?? ''));
+          if ($old !== '' && $new !== '' && $old !== $new && !isset($still_used[$old])) {
+            if (isset($renamed[$old]) && $renamed[$old] !== $new) {
+              throw new \DomainException('storyline_draft_identity_change_ambiguous:' . $old);
+            }
+            $renamed[$old] = $new;
           }
-          $renamed[$old] = $new;
         }
       }
     }
@@ -1987,6 +2037,66 @@ class StorylineAuthoringDraftService {
       }
     }
     return $after;
+  }
+
+  /**
+   * A save may not remove a room or site that something still stands on.
+   *
+   * Only what this save removes is checked: a reference that was already
+   * stale before it is reported by validation, not here.
+   */
+  private static function assertRemovedPlacesAreUnreferenced(array $before, array $after): void {
+    $places = static function (array $payload): array {
+      $ids = [];
+      foreach ((array) ($payload['objects']['rooms']['generation_specs'] ?? []) as $room) {
+        $ids[trim((string) ($room['room_id'] ?? ''))] = 'room';
+      }
+      foreach ((array) ($payload['objects']['dungeons']['generation_specs'] ?? []) as $dungeon) {
+        $ids[trim((string) ($dungeon['dungeon_id'] ?? ''))] = 'site';
+      }
+      unset($ids['']);
+      return $ids;
+    };
+    $removed = array_diff_key($places($before), $places($after));
+    if ($removed === []) {
+      return;
+    }
+    $users = [];
+    foreach ((array) ($after['objects']['actors']['generation_specs'] ?? []) as $actor) {
+      $place = trim((string) ($actor['location_id'] ?? ''));
+      if (isset($removed[$place])) {
+        $users[$place][] = 'actor ' . (trim((string) ($actor['display_name'] ?? '')) ?: (string) ($actor['actor_id'] ?? ''));
+      }
+    }
+    foreach ((array) ($after['objects']['rooms']['generation_specs'] ?? []) as $room) {
+      $place = trim((string) ($room['dungeon_id'] ?? ''));
+      if (isset($removed[$place])) {
+        $users[$place][] = 'room ' . trim((string) ($room['room_id'] ?? ''));
+      }
+    }
+    foreach ((array) ($after['objects']['dungeons']['generation_specs'] ?? []) as $dungeon) {
+      $place = trim((string) ($dungeon['entrance_room'] ?? ''));
+      if (isset($removed[$place])) {
+        $users[$place][] = 'entrance of site ' . trim((string) ($dungeon['dungeon_id'] ?? ''));
+      }
+    }
+    foreach ((array) ($after['process_flow']['objective_completion_criteria'] ?? []) as $objective) {
+      foreach (['location', 'destination'] as $field) {
+        $place = trim((string) ($objective[$field] ?? ''));
+        if (isset($removed[$place])) {
+          $users[$place][] = 'objective ' . trim((string) ($objective['objective_id'] ?? ''));
+        }
+      }
+    }
+    if ($users !== []) {
+      $place = (string) array_key_first($users);
+      throw new \DomainException(sprintf(
+        "storyline_draft_place_still_in_use: %s '%s' is removed by this change but is still used by %s. Move or remove those in the same change.",
+        $removed[$place],
+        $place,
+        implode(', ', array_slice(array_unique($users[$place]), 0, 6)),
+      ));
+    }
   }
 
   /**
