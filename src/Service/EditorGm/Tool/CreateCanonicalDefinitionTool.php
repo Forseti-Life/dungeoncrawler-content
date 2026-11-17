@@ -11,6 +11,12 @@ use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolInterface;
  */
 final class CreateCanonicalDefinitionTool implements EditorGmToolInterface {
 
+  /**
+   * @param string[] $refusedFamilies
+   *   Families this surface creates another way.
+   */
+  public function __construct(private readonly array $refusedFamilies = []) {}
+
   public function definition(): EditorGmToolDefinition {
     return new EditorGmToolDefinition(
       'create_canonical_definition',
@@ -27,6 +33,9 @@ final class CreateCanonicalDefinitionTool implements EditorGmToolInterface {
 
   public function execute(array $arguments, EditorGmToolContext $context): array {
     $family = EditorGmToolContext::requireString($arguments, 'family');
+    if (in_array($family, $this->refusedFamilies, TRUE)) {
+      throw new \DomainException('canonical_definition_family_not_created_here:' . $family);
+    }
     $payload = EditorGmToolContext::requireArray($arguments, 'payload');
     $result = $context->definitions->saveDefinition($family, NULL, $payload, NULL);
     $after = $context->definitions->definitionPayload($family, $result['definition_id']);

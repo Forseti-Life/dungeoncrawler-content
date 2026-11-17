@@ -62,6 +62,7 @@ class AgentHarnessManagementService {
     'get_storyline_draft_status',
     'get_storyline_branching',
     'get_storyline_synopsis',
+    'find_library_characters',
     'inspect_storyline_actor_sheets',
     'build_storyline_actor_sheets',
     'preview_storyline_definition',

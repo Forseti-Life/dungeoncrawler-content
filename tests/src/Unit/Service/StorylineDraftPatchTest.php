@@ -68,6 +68,45 @@ class StorylineDraftPatchTest extends UnitTestCase {
   }
 
   /**
+   * A character new to the story is placed; a library character need not be.
+   */
+  public function testNewCharactersMustBePlacedInTheStory(): void {
+    [$service] = $this->fixture();
+    $statement = new class {
+
+      public function fetchCol(): array {
+        return ['captain'];
+      }
+
+    };
+    $select = $this->createMock(\Drupal\Core\Database\Query\SelectInterface::class);
+    $select->method('fields')->willReturnSelf();
+    $select->method('condition')->willReturnSelf();
+    $select->method('execute')->willReturn($statement);
+    $database = $this->createMock(\Drupal\Core\Database\Connection::class);
+    $database->method('select')->willReturn($select);
+    (new \ReflectionProperty(StorylineAuthoringDraftService::class, 'database'))->setValue($service, $database);
+    $method = new \ReflectionMethod($service, 'actorPlacementFindings');
+
+    $findings = $method->invoke($service, ['created_at' => 100, 'payload' => ['objects' => [
+      'rooms' => ['generation_specs' => [['room_id' => 'clan-hall']]],
+      'dungeons' => ['generation_specs' => [['dungeon_id' => 'clan-town']]],
+      'actors' => ['generation_specs' => [
+        ['actor_id' => 'captain', 'display_name' => 'The Captain'],
+        ['actor_id' => 'chieftain', 'display_name' => 'The Chieftain', 'location_id' => 'clan-hall'],
+        ['actor_id' => 'heir', 'display_name' => 'The Heir', 'location_id' => 'clan-town'],
+        ['actor_id' => 'scout', 'display_name' => 'The Scout'],
+        ['actor_id' => 'exile', 'display_name' => 'The Exile', 'location_id' => 'old-hut'],
+      ]],
+    ]]]);
+
+    $this->assertSame(
+      ['scout' => 'actor_placement_missing', 'exile' => 'actor_placement_unknown'],
+      array_column($findings, 'code', 'actor_id'),
+    );
+  }
+
+  /**
    * Repeating a field value must leave the revision unchanged.
    */
   public function testUnchangedPatchDoesNotAdvanceRevision(): void {

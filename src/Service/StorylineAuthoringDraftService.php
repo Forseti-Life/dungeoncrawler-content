@@ -40,7 +40,13 @@ class StorylineAuthoringDraftService {
    */
   private const FINDING_FIX_ROUTES = [
     'actor_duplicates_library_actor' => 'draft_operation',
+    'actor_placement_missing' => 'draft_operation',
+    'actor_placement_unknown' => 'draft_operation',
   ];
+  /**
+   * Library roles whose characters hand out work to the party.
+   */
+  public const QUEST_GIVER_ROLES = ['landmark_contact', 'contact', 'quest_giver', 'mentor_guide', 'merchant'];
 
   private const TABLE = 'dungeoncrawler_content_storyline_authoring_drafts';
   private const REVISION_TABLE = 'dungeoncrawler_content_storyline_draft_revisions';
@@ -220,6 +226,8 @@ class StorylineAuthoringDraftService {
       'process' => [
         'Read the current draft and revision; distinguish inspection from an authorized edit.',
         'Reuse grounded IDs for existing objects; look up named canonical objects before rebinding.',
+        'Before adding a character, search the character library with find_library_characters. When a library character fits, bind it by its actor_id instead of inventing one, and offer the matches to the author when the choice is theirs. A quest giver or hook is a library character whenever one fits.',
+        'A character new to the story is placed: its location_id names a room or site of this storyline.',
         'For new append rows, omit generated identity fields and let the authority allocate collision-free, draft-scoped IDs.',
         'Give related new rows internal batch keys and link them with $draft_ref values; never ask the author to supply keys or IDs.',
         'Keep existing IDs when renaming or editing content; only rebind references when the author requests that change.',
@@ -1032,11 +1040,13 @@ class StorylineAuthoringDraftService {
     }
     $sheet_findings = array_merge(
       $this->libraryActorDuplicateFindings($draft['payload'] ?? []),
+      $this->actorPlacementFindings($draft),
       self::actorSheetFindings($draft['payload'] ?? []),
     );
     $stages['actor_character_sheets'] = [
       'valid' => $sheet_findings === [],
       'errors' => array_column($sheet_findings, 'message'),
+      'warnings' => $this->questGiverWarnings($draft),
       'findings' => $sheet_findings,
     ];
     $stages['authored_questline_edges'] = [
@@ -1305,6 +1315,144 @@ class StorylineAuthoringDraftService {
       ];
     }
     return $findings;
+  }
+
+  /**
+   * Searches the character library: full characters and placed contacts.
+   *
+   * @return array{total: int, characters: array<int, array<string, mixed>>}
+   */
+  public function findLibraryCharacters(string $search = '', bool $quest_givers_only = FALSE, int $limit = 25): array {
+    if ($limit < 1 || $limit > 50) {
+      throw new \InvalidArgumentException('storyline_library_character_limit_invalid');
+    }
+    $query = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c', ['instance_id', 'name', 'role', 'level', 'location_ref', 'character_data'])
+      ->condition('campaign_id', 0)
+      ->condition('type', 'npc')
+      ->condition('status', 2, '<>')
+      ->condition('lifecycle_state', ['canonical_template', 'canonical_seed'], 'IN')
+      ->orderBy('name');
+    if ($quest_givers_only) {
+      $query->condition('role', self::QUEST_GIVER_ROLES, 'IN');
+    }
+    $terms = array_values(array_filter(preg_split('/\s+/', mb_strtolower(trim($search))) ?: []));
+    $matches = [];
+    foreach ($query->execute()->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+      $data = json_decode((string) $row['character_data'], TRUE);
+      $description = is_array($data) ? trim((string) ($data['description'] ?? '')) : '';
+      $haystack = mb_strtolower(implode(' ', [$row['name'], $row['instance_id'], $row['role'], $row['location_ref'], $description]));
+      foreach ($terms as $term) {
+        if (!str_contains($haystack, $term)) {
+          continue 2;
+        }
+      }
+      $matches[] = [
+        'actor_id' => (string) $row['instance_id'],
+        'name' => (string) $row['name'],
+        'role' => (string) $row['role'],
+        'level' => (int) $row['level'],
+        'home_location' => (string) $row['location_ref'],
+        'description' => mb_substr($description, 0, 200),
+        'gives_quests' => in_array((string) $row['role'], self::QUEST_GIVER_ROLES, TRUE),
+      ];
+    }
+    return ['total' => count($matches), 'characters' => array_slice($matches, 0, $limit)];
+  }
+
+  /**
+   * Roster actors that were in the library before this draft was started.
+   *
+   * A character whose library record is older than the draft was not made
+   * for it; one created later was built by this storyline's sheet build.
+   *
+   * @return array<string, true>
+   */
+  private function libraryCharactersOlderThanDraft(array $draft): array {
+    $actor_ids = array_values(array_filter(array_map(
+      static fn(mixed $spec): string => is_array($spec) ? trim((string) ($spec['actor_id'] ?? '')) : '',
+      (array) ($draft['payload']['objects']['actors']['generation_specs'] ?? []),
+    )));
+    if ($actor_ids === []) {
+      return [];
+    }
+    $existing = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c', ['instance_id'])
+      ->condition('campaign_id', 0)
+      ->condition('instance_id', $actor_ids, 'IN')
+      ->condition('created', (int) ($draft['created_at'] ?? 0), '<')
+      ->execute()
+      ->fetchCol();
+    return array_fill_keys(array_map('strval', $existing), TRUE);
+  }
+
+  /**
+   * A character new to this story must be placed in one of its rooms or sites.
+   *
+   * @return array<int, array<string, mixed>>
+   */
+  private function actorPlacementFindings(array $draft): array {
+    $payload = is_array($draft['payload'] ?? NULL) ? $draft['payload'] : [];
+    $places = [];
+    foreach ((array) ($payload['objects']['rooms']['generation_specs'] ?? []) as $room) {
+      $places[trim((string) ($room['room_id'] ?? ''))] = TRUE;
+    }
+    foreach ((array) ($payload['objects']['dungeons']['generation_specs'] ?? []) as $dungeon) {
+      $places[trim((string) ($dungeon['dungeon_id'] ?? ''))] = TRUE;
+    }
+    $from_library = $this->libraryCharactersOlderThanDraft($draft);
+    $findings = [];
+    foreach ((array) ($payload['objects']['actors']['generation_specs'] ?? []) as $spec) {
+      $actor_id = is_array($spec) ? trim((string) ($spec['actor_id'] ?? '')) : '';
+      if ($actor_id === '' || isset($from_library[$actor_id])) {
+        continue;
+      }
+      $name = trim((string) ($spec['display_name'] ?? '')) ?: $actor_id;
+      $location = trim((string) ($spec['location_id'] ?? ''));
+      if ($location === '') {
+        $findings[] = [
+          'severity' => 'error',
+          'code' => 'actor_placement_missing',
+          'actor_id' => $actor_id,
+          'display_name' => $name,
+          'message' => sprintf("Actor '%s' is new to this story and is not placed anywhere. Set its location to one of this storyline's rooms or sites.", $name),
+        ];
+      }
+      elseif (!isset($places[$location])) {
+        $findings[] = [
+          'severity' => 'error',
+          'code' => 'actor_placement_unknown',
+          'actor_id' => $actor_id,
+          'display_name' => $name,
+          'location_id' => $location,
+          'message' => sprintf("Actor '%s' is placed at '%s', which is not a room or site of this storyline. Set its location to one that is.", $name, $location),
+        ];
+      }
+    }
+    return $findings;
+  }
+
+  /**
+   * Warns when the story's quest giver was invented for it.
+   *
+   * @return string[]
+   */
+  private function questGiverWarnings(array $draft): array {
+    $payload = is_array($draft['payload'] ?? NULL) ? $draft['payload'] : [];
+    $entry = trim((string) ($payload['entry_actor_id'] ?? ''));
+    if ($entry === '' || isset($this->libraryCharactersOlderThanDraft($draft)[$entry])) {
+      return [];
+    }
+    foreach ((array) ($payload['objects']['actors']['generation_specs'] ?? []) as $spec) {
+      if (is_array($spec) && trim((string) ($spec['actor_id'] ?? '')) === $entry) {
+        return [sprintf(
+          "The story's quest giver, '%s', is a character new to this story. The library has %d characters who give quests; search it before keeping a new one.",
+          trim((string) ($spec['display_name'] ?? '')) ?: $entry,
+          $this->findLibraryCharacters('', TRUE, 1)['total'],
+        )];
+      }
+    }
+    return [];
   }
 
   /**

@@ -23,6 +23,7 @@ use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\ApplyStoryline
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\CheckStorylineCreationReadinessTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\DescribeStorylineAuthoringContractTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\GetStorylineDraftStatusTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\FindLibraryCharactersTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\GetStorylineBranchingTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\GetStorylineSynopsisTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\LoadStorylineDraftSnapshotTool;
@@ -75,6 +76,7 @@ final class StorylineBuilderGmSurface implements EditorGmSurfaceInterface {
       new GetStorylineDraftStatusTool(),
       new GetStorylineBranchingTool(),
       new GetStorylineSynopsisTool(),
+      new FindLibraryCharactersTool(),
       new StorylineActorSheetTool($actorSheets, FALSE),
       new StorylineActorSheetTool($actorSheets, TRUE),
       new PreviewStorylineDefinitionTool(),
@@ -83,9 +85,10 @@ final class StorylineBuilderGmSurface implements EditorGmSurfaceInterface {
       new DescribeCanonicalDefinitionSchemaTool(),
       new LoadCanonicalDefinitionTool(),
       new ValidateCanonicalDefinitionTool(),
-      new GenerateCanonicalDefinitionTool($roomGeneration),
+      // A storyline's characters are created by the sheet build only.
+      new GenerateCanonicalDefinitionTool($roomGeneration, ['actor']),
       new PlanCanonicalDefinitionPatchTool(),
-      new CreateCanonicalDefinitionTool(),
+      new CreateCanonicalDefinitionTool(['actor']),
       new UpdateCanonicalDefinitionTool(),
       new ListRoomsTool($this->suite),
       new ListDungeonsTool($this->suite),

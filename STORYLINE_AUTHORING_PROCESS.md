@@ -327,6 +327,24 @@ and environmental agents. If a clear author request or accepted concept
 requires a missing actor, the GM creates it through the canonical actor
 authority and links it back by ID.
 
+### Library characters first
+
+Before a character is added, the GM searches the character library with
+`find_library_characters` (full characters and the placed town contacts,
+usable in any storyline) and offers what fits. A library character is
+bound by its `actor_id`; nothing is copied. This applies most of all to
+the quest giver or hook.
+
+- A character new to the story must be placed: `location_id` names a room
+  or site of this storyline. Missing or unknown placement is a blocking
+  finding (`actor_placement_missing`, `actor_placement_unknown`). A
+  character that was in the library before the draft was started is exempt;
+  it has a home already.
+- When the story's quest giver (`entry_actor_id`) is new to the story,
+  validation warns and says how many library characters give quests.
+- The Storyline GM cannot create an actor definition directly; the sheet
+  build is the only way.
+
 ### Character sheets
 
 Every roster actor needs a complete character sheet. Sheets are built on
