@@ -27,7 +27,7 @@ class EditorCanonicalGenerationPlanService {
   private const ROOM_MAX_HEXES = 80;
   private const ROOM_MAX_COMMANDS = 160;
   private const ROOM_MAX_PLACEMENTS = 20;
-  private const DUNGEON_MAX_PLACEMENTS = 20;
+  private const DUNGEON_MAX_PLACEMENTS = CanonicalDungeonLayoutPlanService::DUNGEON_MAX_PLACEMENTS;
   private const DUNGEON_MAX_LINKS = 40;
   private const DUNGEON_MAX_COMMANDS = 120;
 
@@ -236,7 +236,7 @@ class EditorCanonicalGenerationPlanService {
       'lighting' => implode('|', GenerationVocabulary::LIGHTING_LEVELS),
       'hexes' => [['q' => 0, 'r' => 0, 'terrain_type' => 'stone_floor', 'elevation_ft' => 0, 'lighting' => 'dim_light']],
       'entry_ports' => [['port_id' => 'entry-1', 'hex' => ['q' => -2, 'r' => 0], 'label' => 'Entry', 'arrival_facing' => 0, 'is_default' => TRUE, 'tags' => []]],
-      'exit_ports' => [['port_id' => 'exit-1', 'hex' => ['q' => 2, 'r' => 0], 'label' => 'Exit', 'kind' => 'door', 'direction' => 'bidirectional', 'default_state' => 'closed', 'destination_hint' => NULL, 'requirements' => [], 'tags' => []]],
+      'exit_ports' => [['port_id' => 'exit-1', 'hex' => ['q' => 2, 'r' => 0], 'label' => 'Exit', 'kind' => implode('|', GenerationVocabulary::LINK_KINDS), 'direction' => implode('|', GenerationVocabulary::LINK_DIRECTIONS), 'default_state' => implode('|', GenerationVocabulary::LINK_STATES), 'destination_hint' => NULL, 'requirements' => [], 'tags' => []]],
       'placements' => [['family' => 'item', 'definition_id' => 'catalog_id', 'version' => '1.0.0', 'anchor_hex' => ['q' => 0, 'r' => 0], 'facing' => 0, 'overrides' => []]],
     ];
     return $this->promptText('room_editor', $input, $draft, [
@@ -255,6 +255,7 @@ class EditorCanonicalGenerationPlanService {
         'Use at least ' . $input['min_hexes'] . ' and at most ' . $input['max_hexes'] . ' hexes.',
         'Use only catalog definition refs for placements; include at least one placement when catalog is non-empty.',
         'Boundary port edge is computed and enforced server-side; provide desired port anchor hexes only.',
+        'Every exit port takes exactly one kind, one direction and one default_state from the values listed in required_output_shape. An outdoor or open boundary uses the closest listed kind; no other value is accepted.',
       ],
       'prior_findings' => $prior_findings,
     ]);

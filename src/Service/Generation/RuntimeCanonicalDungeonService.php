@@ -143,7 +143,7 @@ final class RuntimeCanonicalDungeonService {
     $draft = $this->dungeonEditor->createDraft(NULL);
     $draft_id = (string) $draft['draft_id'];
     $seed = $this->seed($context);
-    $room_count = max(3, min(20, (int) ($context['room_count'] ?? $context['room_count_override'] ?? 3)));
+    $room_count = max(3, min(CanonicalDungeonLayoutPlanService::DUNGEON_MAX_PLACEMENTS, (int) ($context['room_count'] ?? $context['room_count_override'] ?? 3)));
     $theme = trim((string) ($context['theme'] ?? ''));
     if ($theme === '') {
       $theme = 'generated';

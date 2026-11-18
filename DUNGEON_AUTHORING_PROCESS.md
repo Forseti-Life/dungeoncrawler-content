@@ -55,7 +55,8 @@ A site a storyline names is built from that storyline's brief.
 - The site is laid out as a path from its entrance. The entrance comes
   first; the last room in story order is the end of the path and is built
   with no exit. Every other room is built with one.
-- One site holds at most 20 rooms. A larger site is refused before
+- One site holds at most 30 rooms
+  (`CanonicalDungeonLayoutPlanService::DUNGEON_MAX_PLACEMENTS`). A larger site is refused before
   anything is built; split it in the storyline.
 - Opening the Dungeon Editor on a site that does not exist yet starts a
   draft for it under that ID.

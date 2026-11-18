@@ -19,7 +19,13 @@ class CanonicalDungeonLayoutPlanService {
 
   private const PLAN_VERSION = 'editor-gm-command-plan-v1';
   private const GENERATION_PLAN_VERSION = 'editor-generation-plan-v1';
-  private const DUNGEON_MAX_PLACEMENTS = 20;
+  /**
+   * The most rooms one generated site layout may place.
+   *
+   * The single limit: the tools, the runtime generator and the prompt's room
+   * lists all read it.
+   */
+  public const DUNGEON_MAX_PLACEMENTS = 30;
   private const DUNGEON_MAX_LINKS = 40;
   private const DUNGEON_MAX_COMMANDS = 120;
   private const SEALED_ORDER_SEARCH_LIMIT = 4096;
@@ -160,8 +166,8 @@ class CanonicalDungeonLayoutPlanService {
     $nonterminal_library = array_values(array_filter($library, static fn(array $room): bool => ($room['entry_port_count'] ?? 0) > 0 && (!$publication_ready || (int) ($room['exit_port_count'] ?? 0) === 1) && ($room['exit_port_count'] ?? 0) > 0));
     $terminal_library = array_values(array_filter($library, static fn(array $room): bool => ($room['entry_port_count'] ?? 0) > 0 && ($room['exit_port_count'] ?? 0) === 0));
     $prompt_library = $publication_ready
-      ? array_merge(array_slice($nonterminal_library, 0, 15), array_slice($terminal_library, 0, 5))
-      : array_slice($nonterminal_library, 0, 20);
+      ? array_merge(array_slice($nonterminal_library, 0, self::DUNGEON_MAX_PLACEMENTS), array_slice($terminal_library, 0, 5))
+      : array_slice($nonterminal_library, 0, self::DUNGEON_MAX_PLACEMENTS);
     $rooms = array_map(static fn(array $room): array => [
       'room_id' => $room['room_id'],
       'version_id' => $room['version_id'],
@@ -188,7 +194,7 @@ class CanonicalDungeonLayoutPlanService {
         'placement_count' => count((array) ($dungeon['room_placements'] ?? [])),
       ],
       'published_room_library' => $rooms,
-      'nonterminal_room_ids' => array_values(array_map(static fn(array $room): string => (string) $room['room_id'], array_slice($nonterminal_library, 0, 20))),
+      'nonterminal_room_ids' => array_values(array_map(static fn(array $room): string => (string) $room['room_id'], array_slice($nonterminal_library, 0, self::DUNGEON_MAX_PLACEMENTS))),
       'terminal_room_ids' => array_values(array_map(static fn(array $room): string => (string) $room['room_id'], array_slice($terminal_library, 0, 20))),
       'allowed_room_ids' => $allowed_room_ids,
       'site_topology_contract' => CanonicalSiteTopologyContract::describe(),
@@ -344,6 +350,15 @@ class CanonicalDungeonLayoutPlanService {
     $requested = is_array($decoded['rooms'] ?? NULL) && array_is_list($decoded['rooms']) ? $decoded['rooms'] : [];
     if (count($requested) < $input['room_count']) {
       throw $this->nonconforming([$this->finding('required_missing', '/rooms', sprintf('Generated dungeon must include at least %d room references.', $input['room_count']))]);
+    }
+    if (!empty($input['publication_ready']) && $input['required_room_ids'] !== []) {
+      // The room set is fixed, so where the path ends is a fact about the
+      // rooms, not a choice: the room without an exit goes last.
+      $has_exit = static fn(mixed $spec): bool => !is_array($spec) || (int) ($by_id[(string) ($spec['room_id'] ?? '')]['exit_port_count'] ?? 1) !== 0;
+      $requested = [
+        ...array_values(array_filter($requested, $has_exit)),
+        ...array_values(array_filter($requested, static fn(mixed $spec): bool => !$has_exit($spec))),
+      ];
     }
     $selected = [];
     foreach ($requested as $index => $spec) {

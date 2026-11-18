@@ -8,6 +8,7 @@ use Drupal\dungeoncrawler_content\Service\EditorGm\EditorCanonicalGenerationPlan
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolContext;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolDefinition;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolInterface;
+use Drupal\dungeoncrawler_content\Service\Generation\CanonicalDungeonLayoutPlanService;
 use Drupal\dungeoncrawler_content\Service\Generation\CanonicalRoomBuildService;
 use Drupal\dungeoncrawler_content\Service\StorylineAuthoringDraftService;
 
@@ -22,7 +23,7 @@ use Drupal\dungeoncrawler_content\Service\StorylineAuthoringDraftService;
 final class BuildSiteFromStoryBriefTool implements EditorGmToolInterface {
 
   private const TIME_BUDGET_SECONDS = 60.0;
-  private const MAX_ROOMS = 20;
+  private const MAX_ROOMS = CanonicalDungeonLayoutPlanService::DUNGEON_MAX_PLACEMENTS;
 
   public function __construct(
     private readonly StorylineAuthoringDraftService $storylines,

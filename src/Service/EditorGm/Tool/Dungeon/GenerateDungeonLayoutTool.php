@@ -7,6 +7,7 @@ use Drupal\dungeoncrawler_content\Service\EditorGm\EditorCanonicalGenerationPlan
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolContext;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolDefinition;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolInterface;
+use Drupal\dungeoncrawler_content\Service\Generation\CanonicalDungeonLayoutPlanService;
 
 /**
  * Generates a preview-only Dungeon Editor command plan.
@@ -25,7 +26,7 @@ final class GenerateDungeonLayoutTool implements EditorGmToolInterface {
       [
         EditorGmToolDefinition::argument('prompt', 'string', TRUE, 'Original dungeon request, 1..2000 chars.'),
         EditorGmToolDefinition::argument('theme', 'string', FALSE, 'Optional theme, 0..100 chars.'),
-        EditorGmToolDefinition::argument('room_count', 'integer', FALSE, 'Number of room placements, 3..20, default 3.'),
+        EditorGmToolDefinition::argument('room_count', 'integer', FALSE, 'Number of room placements, 3..' . CanonicalDungeonLayoutPlanService::DUNGEON_MAX_PLACEMENTS . ', default 3.'),
         EditorGmToolDefinition::argument('level', 'integer', FALSE, 'Dungeon level -1..25, default 1.'),
         EditorGmToolDefinition::argument('link_kind', 'string', FALSE, 'hallway|archway|door|hatch|portcullis|secret_door|magical_barrier|collapsed|bridge|one_way_drop.'),
         EditorGmToolDefinition::argument('link_direction', 'string', FALSE, 'bidirectional|one_way.'),

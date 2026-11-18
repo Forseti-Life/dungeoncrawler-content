@@ -70,8 +70,8 @@ class BuildSiteFromStoryBriefToolTest extends UnitTestCase {
     $editor->method('getDraft')->willReturn(['draft_id' => 'd1', 'revision' => 3, 'dungeon' => ['dungeon_id' => 'kobold-caves', 'room_placements' => []]]);
 
     $this->expectException(\DomainException::class);
-    $this->expectExceptionMessage("puts 21 rooms in 'kobold-caves'; one site can be laid out with at most 20");
-    $ids = array_map(static fn(int $number): string => 'room-' . $number, range(1, 21));
+    $this->expectExceptionMessage("puts 31 rooms in 'kobold-caves'; one site can be laid out with at most 30");
+    $ids = array_map(static fn(int $number): string => 'room-' . $number, range(1, 31));
     $this->tool($this->brief($ids), $rooms, $this->createMock(EditorCanonicalGenerationPlanService::class))
       ->execute(['expected_revision' => 3], $this->context($editor));
   }
