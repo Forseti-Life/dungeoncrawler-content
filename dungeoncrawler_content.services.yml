@@ -645,10 +645,7 @@ services:
     arguments:
       - '@dungeoncrawler_content.runtime_canonical_content_resolver'
       - '@dungeoncrawler_content.canonical_room_projection'
-      - '@dungeoncrawler_content.editor_canonical_generation_plan'
-      - '@dungeoncrawler_content.room_editor'
-      - '@dungeoncrawler_content.canonical_definitions'
-      - '@uuid'
+      - '@dungeoncrawler_content.canonical_room_build'
 
   dungeoncrawler_content.canonical_room_build:
     class: Drupal\dungeoncrawler_content\Service\Generation\CanonicalRoomBuildService

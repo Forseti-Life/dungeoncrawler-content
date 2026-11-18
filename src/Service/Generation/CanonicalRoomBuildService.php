@@ -12,11 +12,11 @@ use Drupal\dungeoncrawler_content\Geometry\RoomPortEdgePolicy;
 use Drupal\dungeoncrawler_content\Service\RoomEditorService;
 
 /**
- * Builds one named room through the Room Editor and publishes it.
+ * Builds a room through the Room Editor and publishes it.
  *
  * Draft, generated layout, validation and publication all go through
- * RoomEditorService; this only sequences them for a room that must exist
- * under a given ID.
+ * RoomEditorService; this only sequences them, for a storyline's named room
+ * and for a room generated during play.
  */
 class CanonicalRoomBuildService {
 
@@ -54,6 +54,41 @@ class CanonicalRoomBuildService {
     if ($this->isPublished($room_id)) {
       throw new \DomainException('canonical_room_already_published:' . $room_id);
     }
+    $this->generateAndPublish($generation_arguments, $room_id, $exit_ports, NULL, '1.0.0', $publication_note);
+    if (!$this->isPublished($room_id)) {
+      throw new \LogicException('canonical_room_publication_not_recorded:' . $room_id);
+    }
+  }
+
+  /**
+   * The one sequence that turns a generated layout into a published room.
+   *
+   * Draft, generated commands, exits, metadata, publication validation,
+   * publish. Authoring and play-time generation both run it.
+   *
+   * @param string|null $room_id
+   *   The ID the room must have, or NULL to keep the generated one.
+   * @param int|null $exit_ports
+   *   Exits the room must have, or NULL to keep what was generated.
+   * @param callable|null $metadata
+   *   Given the generated room, returns `set_room_metadata` changes.
+   * @param string|callable $version
+   *   The version to publish, or a callable given the final room.
+   *
+   * @return array{published: array<string, mixed>, room: array<string, mixed>, version: string}
+   *
+   * @throws \DomainException
+   *   `canonical_room_build_exits_short:<id>` or
+   *   `canonical_room_build_invalid:<id>: <first error>`.
+   */
+  public function generateAndPublish(
+    array $generation_arguments,
+    ?string $room_id,
+    ?int $exit_ports,
+    ?callable $metadata,
+    string|callable $version,
+    string $publication_note,
+  ): array {
     $draft = $this->roomEditor->createDraft();
     $draft_id = (string) $draft['draft_id'];
     $revision = (int) $draft['revision'];
@@ -67,7 +102,9 @@ class CanonicalRoomBuildService {
       ]);
       $revision = (int) $result['draft']['revision'];
     };
-    $command('set_room_metadata', ['changes' => ['room_id' => $room_id]]);
+    if ($room_id !== NULL) {
+      $command('set_room_metadata', ['changes' => ['room_id' => $room_id]]);
+    }
     $generated = $this->generation->generateRoomLayout(
       $generation_arguments,
       new RoomEditorGmToolContext($draft_id, 'editing', $this->roomEditor, $this->definitions),
@@ -75,36 +112,43 @@ class CanonicalRoomBuildService {
     foreach ($generated['command_plan']['steps'] as $step) {
       $command((string) $step['command_type'], (array) $step['payload']);
     }
-    $exits = array_column($this->roomEditor->getDraft($draft_id)['room']['exit_ports'], 'port_id');
-    if (count($exits) < $exit_ports) {
-      throw new \DomainException(sprintf('canonical_room_build_exits_short:%s: needs %d exit(s), generated %d (room draft %s kept for review)', $room_id, $exit_ports, count($exits), $draft_id));
+    $room = $this->roomEditor->getDraft($draft_id)['room'];
+    $label = (string) ($room_id ?? $room['room_id'] ?? '');
+    if ($exit_ports !== NULL) {
+      $exits = array_column($room['exit_ports'], 'port_id');
+      if (count($exits) < $exit_ports) {
+        throw new \DomainException(sprintf('canonical_room_build_exits_short:%s: needs %d exit(s), generated %d (room draft %s kept for review)', $label, $exit_ports, count($exits), $draft_id));
+      }
+      foreach (array_slice($exits, $exit_ports) as $port_id) {
+        $command('remove_exit_port', ['port_id' => $port_id]);
+      }
+      if ($exit_ports === 1) {
+        $revision = $this->placeExitAcrossFromEntrance($draft_id, $revision);
+      }
     }
-    foreach (array_slice($exits, $exit_ports) as $port_id) {
-      $command('remove_exit_port', ['port_id' => $port_id]);
-    }
-    if ($exit_ports === 1) {
-      $revision = $this->placeExitAcrossFromEntrance($draft_id, $revision);
+    if ($metadata !== NULL) {
+      $command('set_room_metadata', ['changes' => $metadata($this->roomEditor->getDraft($draft_id)['room'])]);
     }
     $validation = $this->roomEditor->validateDraft($draft_id, 'publication');
     if (!$validation['is_valid']) {
       $errors = RoomEditorService::errorFindings($validation);
       throw new \DomainException(sprintf(
         'canonical_room_build_invalid:%s: %s (%d error(s); room draft %s kept for review)',
-        $room_id,
+        $label,
         (string) ($errors[0]['message'] ?? 'unknown'),
         count($errors),
         $draft_id,
       ));
     }
-    $this->roomEditor->publish($draft_id, [
-      'version' => '1.0.0',
+    $room = $this->roomEditor->getDraft($draft_id)['room'];
+    $version = is_string($version) ? $version : (string) $version($room);
+    $published = $this->roomEditor->publish($draft_id, [
+      'version' => $version,
       'expected_revision' => $revision,
       'expected_base_version_id' => NULL,
       'publication_note' => $publication_note,
     ]);
-    if (!$this->isPublished($room_id)) {
-      throw new \LogicException('canonical_room_publication_not_recorded:' . $room_id);
-    }
+    return ['published' => $published, 'room' => $room, 'version' => $version];
   }
 
   /**

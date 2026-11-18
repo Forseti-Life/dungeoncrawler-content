@@ -43,6 +43,8 @@ A code with no declared route is a programming error and throws.
 
 A site a storyline names is built from that storyline's brief.
 
+- The Dungeon Manager (`/dungeons`) lists the library, working drafts with
+  the status this editor reports, and the storylines each dungeon serves.
 - `list_unattached_dungeons` is the standing check: every published
   dungeon no storyline names, with the campaigns using it.
 - Validation warns when the build differs from a storyline that names the

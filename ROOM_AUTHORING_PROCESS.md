@@ -32,6 +32,12 @@ definition is missing or invalid). A code with no declared route throws.
 
 ## Built for a storyline
 
+- The Room Manager (`/rooms`) lists the library, working drafts with the
+  status this editor reports, and the dungeons and storylines using each
+  room.
+- `CanonicalRoomBuildService::generateAndPublish` is the one sequence that
+  turns a generated layout into a published room; the site build and
+  play-time generation both run it.
 - `load_story_brief` returns what each storyline that names this room
   needs from it: its narrative, scene, tasks, the objectives that name it
   and the cast that starts there. Read it before generating a layout or

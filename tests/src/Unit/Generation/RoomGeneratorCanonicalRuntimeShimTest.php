@@ -62,11 +62,11 @@ final class RoomGeneratorCanonicalRuntimeShimTest extends UnitTestCase {
   }
 
   public function testHotPathSelectionDoesNotCallGenerationAdapter(): void {
-    $generation_adapter = new class extends EditorCanonicalGenerationPlanService {
+    $generation_adapter = new class extends \Drupal\dungeoncrawler_content\Service\Generation\CanonicalRoomBuildService {
       public function __construct() {}
 
-      public function generateRoomLayout(array $arguments, \Drupal\dungeoncrawler_content\Service\EditorGm\RoomEditorGmToolContext $context): array {
-        throw new \RuntimeException('generation adapter must not be called on hot path');
+      public function generateAndPublish(array $generation_arguments, ?string $room_id, ?int $exit_ports, ?callable $metadata, string|callable $version, string $publication_note): array {
+        throw new \RuntimeException('room build must not be called on hot path');
       }
     };
     $service = new RuntimeCanonicalRoomService(

@@ -2,11 +2,6 @@
 
 namespace Drupal\dungeoncrawler_content\Service\Generation;
 
-use Drupal\Component\Uuid\UuidInterface;
-use Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService;
-use Drupal\dungeoncrawler_content\Service\EditorGm\EditorCanonicalGenerationPlanService;
-use Drupal\dungeoncrawler_content\Service\EditorGm\RoomEditorGmToolContext;
-use Drupal\dungeoncrawler_content\Service\RoomEditorService;
 
 /**
  * R3 runtime room facade over the canonical generation/selection path.
@@ -16,10 +11,7 @@ final class RuntimeCanonicalRoomService {
   public function __construct(
     private readonly RuntimeCanonicalContentResolver $resolver,
     private readonly CanonicalRoomProjectionService $projection,
-    private readonly ?EditorCanonicalGenerationPlanService $editorGenerationPlan = NULL,
-    private readonly ?RoomEditorService $roomEditor = NULL,
-    private readonly ?CanonicalDefinitionService $definitions = NULL,
-    private readonly ?UuidInterface $uuid = NULL,
+    private readonly ?CanonicalRoomBuildService $roomBuild = NULL,
   ) {}
 
   /**
@@ -54,95 +46,61 @@ final class RuntimeCanonicalRoomService {
    * @return array{room_version_id:string,room_payload:array<string,mixed>,room_id:string,version:string,row:array<string,mixed>,selection:array<string,mixed>}
    */
   private function generatePublishAndResolveRuntimeRoom(array $context, array $criteria): array {
-    if (!$this->editorGenerationPlan || !$this->roomEditor || !$this->definitions || !$this->uuid) {
+    if (!$this->roomBuild) {
       throw new RuntimeGenerationException('runtime_generation_failed', [[
         'code' => 'runtime_generation_failed',
         'pointer' => '/services',
-        'message' => 'Runtime canonical generation requires editor generation, room editor, definition, and uuid services.',
+        'message' => 'Runtime canonical generation requires the canonical room build service.',
         'severity' => 'error',
       ]], 500);
     }
 
     try {
-      $draft = $this->roomEditor->createDraft(NULL);
-      $draft_id = (string) $draft['draft_id'];
       $seed = (int) ($criteria['seed'] ?? 0);
-      $tool_context = new RoomEditorGmToolContext($draft_id, 'editing', $this->roomEditor, $this->definitions);
-      $plan_result = $this->editorGenerationPlan->generateRoomLayout([
-        'prompt' => $this->runtimeRoomPrompt($context),
-        'theme' => (string) ($context['theme'] ?? ''),
-        'size_category' => $this->canonicalSizeCategory((string) ($context['room_size'] ?? 'medium')),
-        'room_type' => $this->canonicalRoomType((string) ($context['room_type'] ?? 'chamber')),
-        'level' => max(-1, min(25, (int) ($context['party_level'] ?? 1))),
-        'seed' => $seed,
-      ], $tool_context);
-      $command_plan = is_array($plan_result['command_plan'] ?? NULL) ? $plan_result['command_plan'] : [];
-      $revision = (int) ($command_plan['base_revision'] ?? $draft['revision'] ?? 0);
-      foreach ((array) ($command_plan['steps'] ?? []) as $step) {
-        if (!is_array($step)) {
-          continue;
-        }
-        $result = $this->roomEditor->applyCommand($draft_id, [
-          'command_id' => $this->uuid->generate(),
-          'expected_revision' => $revision,
-          'type' => (string) ($step['command_type'] ?? ''),
-          'payload' => is_array($step['payload'] ?? NULL) ? $step['payload'] : [],
-        ]);
-        $revision = (int) ($result['draft']['revision'] ?? ($revision + 1));
-      }
-
-      $draft = $this->roomEditor->getDraft($draft_id);
-      $room = is_array($draft['room'] ?? NULL) ? $draft['room'] : [];
-      $generated_by = is_array($room['metadata']['generated_by'] ?? NULL) ? $room['metadata']['generated_by'] : [];
-      $generated_by = $generated_by + [
-        'source' => 'runtime_generated',
-        'service' => 'canonical_generation',
-      ];
-      $generated_by['requested_by_uid'] = (int) ($context['requested_by_uid'] ?? 0);
-      $generated_by['campaign_id'] = (int) ($context['campaign_id'] ?? 0);
-      $generated_by['origin_room_id'] = (string) ($context['origin_room_id'] ?? '');
-      $generated_by['generated_at'] = gmdate(DATE_RFC3339);
-      $tags = array_values(array_unique(array_filter(array_map('strval', array_merge(
-        (array) ($room['metadata']['tags'] ?? []),
-        (array) ($criteria['tags'] ?? []),
-        ['runtime_generated']
-      )))));
-      $metadata_result = $this->roomEditor->applyCommand($draft_id, [
-        'command_id' => $this->uuid->generate(),
-        'expected_revision' => (int) $draft['revision'],
-        'type' => 'set_room_metadata',
-        'payload' => [
-          'changes' => [
-            'metadata' => [
-              'generated_by' => $generated_by,
-              'runtime_generated' => TRUE,
-              'tags' => $tags,
-            ],
-          ],
+      $built = $this->roomBuild->generateAndPublish(
+        [
+          'prompt' => $this->runtimeRoomPrompt($context),
+          'theme' => (string) ($context['theme'] ?? ''),
+          'size_category' => $this->canonicalSizeCategory((string) ($context['room_size'] ?? 'medium')),
+          'room_type' => $this->canonicalRoomType((string) ($context['room_type'] ?? 'chamber')),
+          'level' => max(-1, min(25, (int) ($context['party_level'] ?? 1))),
+          'seed' => $seed,
         ],
-      ]);
-      $draft = $metadata_result['draft'];
-      $validation = $this->roomEditor->validateDraft($draft_id, 'publication');
-      if (!$validation['is_valid']) {
-        throw new RuntimeGenerationException('runtime_generation_failed', RoomEditorService::errorFindings($validation));
-      }
-      $room = is_array($draft['room'] ?? NULL) ? $draft['room'] : [];
-      $version = $this->runtimeVersion((string) ($room['room_id'] ?? ''), $seed);
-      $published = $this->roomEditor->publish($draft_id, [
-        'expected_revision' => (int) $draft['revision'],
-        'expected_base_version_id' => $draft['base_version_id'] ?? NULL,
-        'version' => $version,
-        'publication_note' => 'Runtime-generated canonical room pending curation.',
-      ]);
+        NULL,
+        NULL,
+        static function (array $room) use ($context, $criteria): array {
+          $generated_by = (is_array($room['metadata']['generated_by'] ?? NULL) ? $room['metadata']['generated_by'] : []) + [
+            'source' => 'runtime_generated',
+            'service' => 'canonical_generation',
+          ];
+          $generated_by['requested_by_uid'] = (int) ($context['requested_by_uid'] ?? 0);
+          $generated_by['campaign_id'] = (int) ($context['campaign_id'] ?? 0);
+          $generated_by['origin_room_id'] = (string) ($context['origin_room_id'] ?? '');
+          $generated_by['generated_at'] = gmdate(DATE_RFC3339);
+          return ['metadata' => [
+            'generated_by' => $generated_by,
+            'runtime_generated' => TRUE,
+            'tags' => array_values(array_unique(array_filter(array_map('strval', array_merge(
+              (array) ($room['metadata']['tags'] ?? []),
+              (array) ($criteria['tags'] ?? []),
+              ['runtime_generated']
+            ))))),
+          ]];
+        },
+        // A generated room is new to the library: its first version.
+        '1.0.0',
+        'Runtime-generated canonical room pending curation.',
+      );
+      $published = $built['published'];
       return [
         'room_version_id' => (string) $published['version_id'],
-        'room_payload' => $room,
+        'room_payload' => $built['room'],
         'room_id' => (string) $published['room_id'],
-        'version' => $version,
+        'version' => $built['version'],
         'row' => [
           'version_id' => (string) $published['version_id'],
           'room_id' => (string) $published['room_id'],
-          'version' => $version,
+          'version' => $built['version'],
         ],
         'selection' => [
           'criteria' => $criteria,
@@ -221,10 +179,6 @@ final class RuntimeCanonicalRoomService {
       (int) ($context['party_level'] ?? 1),
       (string) ($context['terrain_type'] ?? 'stone_floor')
     );
-  }
-
-  private function runtimeVersion(string $room_id, int $seed): string {
-    return '0.0.1-runtime.' . gmdate('ymd') . '.' . substr(hash('sha256', $room_id . ':' . $seed . ':' . microtime(TRUE)), 0, 6);
   }
 
   private function buildRoomId(array $context): string {
