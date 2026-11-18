@@ -521,6 +521,16 @@ class StorylineGmGuidanceTest extends UnitTestCase {
     $this->assertSame(['Have the GM develop the first story character.'], StorylineAuthoringDraftService::recommendNextAuthoringAction([
       'missing_content' => ['At least one actor binding', 'At least one dungeon binding', 'At least one room binding'],
     ]));
+    foreach ([
+      'At least one institution' => "Have the GM define the story's institutions.",
+      'Every institution has a cast member' => 'Have the GM tie a cast member to each institution.',
+      'Every new cast member is tied to an institution' => "Have the GM tie the cast to the story's institutions.",
+    ] as $missing => $step) {
+      $this->assertSame([$step], StorylineAuthoringDraftService::recommendNextAuthoringAction([
+        'missing_content' => [$missing, 'Every actor has a current character sheet'],
+        'error_count' => 3,
+      ]));
+    }
     $this->assertSame(['Have the GM address the next validation finding.'], StorylineAuthoringDraftService::recommendNextAuthoringAction([
       'error_count' => 28,
       'warning_count' => 10,

@@ -57,14 +57,21 @@
         };
         const actors = () => draft.payload.objects.actors.generation_specs;
         const relationships = () => draft.payload.objects.actors.relationships || [];
+        // Institutions are defined in the builder's Institutions stage.
+        const institutions = () => draft.payload.objects.institutions || [];
+        const institutionById = (id) => institutions().find((institution) => institution.institution_id === id);
         // The institutions an actor belongs to in one domain.
         const institutionsOf = (actor, domain) => {
           if (domain === 'ancestry') return actor.ancestry ? [actor.ancestry] : [];
           if (domain === 'profession') return actor.class ? [actor.class] : [];
-          return (actor.affiliations || []).filter((affiliation) => affiliation.domain === domain).map((affiliation) => affiliation.name);
+          // Members and leaders belong; exiles and allies are tied without belonging.
+          return (actor.affiliations || [])
+            .filter((affiliation) => ['member', 'leader'].includes(affiliation.standing || 'member'))
+            .map((affiliation) => institutionById(affiliation.institution_id))
+            .filter((institution) => institution && institution.domain === domain)
+            .map((institution) => institution.name);
         };
         const groupOf = (actor) => institutionsOf(actor, groupDomain)[0] || UNAFFILIATED;
-        const knownInstitutions = (domain) => [...new Set(actors().flatMap((actor) => institutionsOf(actor, domain)))].sort();
         const nameOf = (actorId) => (actors().find((actor) => actor.actor_id === actorId) || {}).display_name || actorId;
         const reviewUrl = (actorId) => settings.actorUrlTemplate.replace('{actor_id}', encodeURIComponent(actorId));
 
@@ -226,13 +233,15 @@
             affiliationList.appendChild(el('li', { class: 'actor-graph__meta' }, `${label}: ${value || 'not set — it comes from the actor\'s sheet'}`));
           });
           (actor.affiliations || []).forEach((affiliation) => {
-            const item = el('li', {}, `${settings.domains[affiliation.domain]}: ${affiliation.name}`);
+            const institution = institutionById(affiliation.institution_id);
+            const standing = affiliation.standing && affiliation.standing !== 'member' ? ` (${affiliation.standing})` : '';
+            const item = el('li', {}, `${settings.domains[institution.domain]}: ${institution.name}${standing}`);
             if (editable) {
-              const remove = el('button', { type: 'button', class: 'btn btn-link btn-sm actor-graph__remove', 'aria-label': `Remove ${affiliation.name}` }, 'Remove');
+              const remove = el('button', { type: 'button', class: 'btn btn-link btn-sm actor-graph__remove', 'aria-label': `Remove ${institution.name}` }, 'Remove');
               remove.addEventListener('click', () => {
                 const index = actor.affiliations.indexOf(affiliation);
                 actor.affiliations.splice(index, 1);
-                save(`${actor.display_name} left ${affiliation.name}.`).catch((error) => { actor.affiliations.splice(index, 0, affiliation); setStatus(error.message, true); });
+                save(`${actor.display_name} left ${institution.name}.`).catch((error) => { actor.affiliations.splice(index, 0, affiliation); setStatus(error.message, true); });
               });
               item.appendChild(remove);
             }
@@ -241,21 +250,28 @@
           panel.appendChild(affiliationList);
           if (editable) {
             const affiliationForm = el('form', { class: 'actor-graph__form' });
-            const domainSelect = el('select', { class: 'form-select', 'aria-label': 'Kind of institution' });
-            Object.entries(settings.domains).forEach(([domain, label]) => domainSelect.appendChild(el('option', { value: domain }, label)));
-            domainSelect.value = settings.domains[groupDomain] ? groupDomain : 'family';
-            const nameInput = el('input', { type: 'text', class: 'form-text', list: 'actor-graph-institutions', placeholder: 'Name (Blackroot Clan)', required: 'required', 'aria-label': 'Institution name' });
-            const names = el('datalist', { id: 'actor-graph-institutions' });
-            const fillNames = () => names.replaceChildren(...knownInstitutions(domainSelect.value).map((value) => el('option', { value })));
-            domainSelect.addEventListener('change', fillNames);
-            fillNames();
-            affiliationForm.append(domainSelect, nameInput, names, el('button', { type: 'submit', class: 'btn btn-secondary btn-sm' }, 'Add affiliation'));
+            const tied = new Set((actor.affiliations || []).map((affiliation) => affiliation.institution_id));
+            const open = institutions().filter((institution) => !tied.has(institution.institution_id));
+            const institutionSelect = el('select', { class: 'form-select', 'aria-label': 'Institution', required: 'required' });
+            open.forEach((institution) => institutionSelect.appendChild(el('option', { value: institution.institution_id }, `${institution.name} (${settings.domains[institution.domain]})`)));
+            const standingSelect = el('select', { class: 'form-select', 'aria-label': 'Standing' });
+            ['member', 'leader', 'exile', 'ally'].forEach((standing) => standingSelect.appendChild(el('option', { value: standing }, standing)));
+            if (open.length === 0) {
+              affiliationForm.append(el('p', { class: 'actor-graph__hint' }, institutions().length === 0
+                ? 'This storyline has no institutions yet. Define them in the builder\'s Institutions stage.'
+                : 'This actor is tied to every institution of the storyline.'));
+            } else {
+              affiliationForm.append(institutionSelect, standingSelect, el('button', { type: 'submit', class: 'btn btn-secondary btn-sm' }, 'Add affiliation'));
+            }
             affiliationForm.addEventListener('submit', (event) => {
               event.preventDefault();
-              const affiliation = { domain: domainSelect.value, name: nameInput.value.trim() };
+              const institution = institutionById(institutionSelect.value);
+              const affiliation = standingSelect.value === 'member'
+                ? { institution_id: institution.institution_id }
+                : { institution_id: institution.institution_id, standing: standingSelect.value };
               actor.affiliations = actor.affiliations || [];
               actor.affiliations.push(affiliation);
-              save(`${actor.display_name} joined ${affiliation.name} (${settings.domains[affiliation.domain]}).`)
+              save(`${actor.display_name} is now tied to ${institution.name} as ${standingSelect.value}.`)
                 .catch((error) => { actor.affiliations.splice(actor.affiliations.indexOf(affiliation), 1); setStatus(error.message, true); });
             });
             panel.appendChild(affiliationForm);

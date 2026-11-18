@@ -76,6 +76,16 @@ dungeoncrawler_content.gm_storyline_scene_review:
     _user_is_logged_in: 'TRUE'
     _permission: 'edit canonical dungeoncrawler storylines'
 
+dungeoncrawler_content.gm_storyline_institution_review:
+  path: '/game-master/storyline-builder/institutions'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GmStorylineBuilderController::institutionReview'
+    _title: 'Storyline institutions and their members'
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'edit canonical dungeoncrawler storylines'
+
 dungeoncrawler_content.gm_storyline_builder_legacy:
   path: '/admin/content/dungeoncrawler/gm-storyline-builder'
   defaults:

@@ -291,7 +291,53 @@ consequences, and intended progression. The stage remains incomplete while any
 beat, requirement, scene, task, objective, or conflict is absent, but the
 author can continue working in any stage.
 
-## Stage 3: Actors and Relationships
+## Stage 3: Institutions
+
+Institutions come before the cast: the clans, families, settlements,
+factions, guards and guilds the story is about.
+
+### Objects produced
+
+Each row of `objects.institutions`:
+
+- `domain` (family, government, allegiance, settlement, religion, employer,
+  education, noble, security, criminal, culture) and `name`
+- `institution_id`, derived by the save from the domain and name and never
+  typed; renaming an institution changes its ID everywhere in the same save
+- description, and purpose in this story
+- `seat_id` (a room or site of this storyline) and `leader_actor_id` (a cast
+  member who belongs to it)
+- `parent_institution_id` and `stances` toward other institutions (attitude
+  and reason)
+
+A cast member is tied to an institution by an entry in its `affiliations`
+(`institution_id` and a standing: member, leader, exile or ally). The builder
+edits institutions in Step 3 and each actor's ties in Step 4. A new
+institution can be chosen as a parent, in a stance or on a cast member once
+the draft has been saved and its ID exists.
+
+### Completion check
+
+When the cast has two or more members:
+
+- at least one institution is defined;
+- every cast member new to the story is tied to at least one institution (a
+  character that was in the library before the draft is exempt).
+
+Always: every institution has at least one cast member tied to it.
+
+The status card reports institutions, cast members tied, and stances. The
+next step asks the GM to define the story's institutions, to tie a cast
+member to each institution, or to tie the cast to the story's institutions.
+A leader outside the cast or outside the institution, and a seat that is not
+a place of this storyline, are blocking validation findings.
+
+The saved draft's institutions, with the cast tied to each grouped by
+standing and the cast tied to none, are listed read-only at
+`/game-master/storyline-builder/institutions?draft_id=<draft id>`, linked
+from the builder under "In this storyline".
+
+## Stage 4: Actors and Relationships
 
 ### Decisions
 
@@ -357,7 +403,7 @@ created; remediation refuses an actor (`storyline_remediation_actor_not_supporte
 Validation reports one blocking finding per actor in the stage
 `actor_character_sheets`: `actor_sheet_missing` when no sheet is linked,
 `actor_sheet_outdated` when the actor was edited after its sheet was built.
-Stage 3 is not complete, and the draft cannot be published, while any
+Stage 4 is not complete, and the draft cannot be published, while any
 remain. The next step names it.
 
 An actor whose name matches a character already in the library under a
@@ -390,7 +436,7 @@ See [`docs/dungeoncrawler/STORYLINE_ACTOR_LEVEL_AND_RETINUE_SCALING_DESIGN.md`](
 for the schema contracts (`level_scaling`, `retinue_scaling`), deterministic
 PF2E resolution math, and codebase integration seams.
 
-## Stage 4: Dungeons, Rooms, and Traversal
+## Stage 5: Dungeons, Rooms, and Traversal
 
 ### Decisions
 
@@ -435,7 +481,7 @@ Completion requires a coherent location plan, traversal logic, scene-to-room
 bindings, and canonical IDs. Every required scene has an intentional location
 or an explicit location-independent decision.
 
-## Stage 5: Items, Clues, Rewards, and Prerequisites
+## Stage 6: Items, Clues, Rewards, and Prerequisites
 
 ### Decisions
 
@@ -473,7 +519,7 @@ Completion requires every necessary item, clue, reward, acquisition path,
 prerequisite, and canonical ID. No critical progression edge may depend on an
 uncreated or unplaced item.
 
-## Stage 6: Composition and Validation
+## Stage 7: Composition and Validation
 
 ### Decisions
 
@@ -503,7 +549,7 @@ completeness, progression, continuity, and unresolved canonical references are
 warnings shown to the author. The generated definition and validation results
 are tied to the current saved draft revision.
 
-## Stage 7: Canonical Review and Creation
+## Stage 8: Canonical Review and Creation
 
 ### Review package
 
@@ -677,7 +723,7 @@ says how a request moves through the agent.
   and runs it only after the author explicitly approves. Quest records are
   not part of this: they are written when the storyline is published.
 - **Character sheets.** Roster actors get their sheets from the sheet
-  build (Stage 3), on request. It is separate from remediation.
+  build (Stage 4), on request. It is separate from remediation.
 
 Every draft edit goes through the same save path,
 `StorylineAuthoringDraftService::applyDraftOperations()`.
@@ -831,3 +877,22 @@ published quest:
 The model may answer with several tool calls. They run in order as one
 queue, the same as `task_queue`. A tool call mixed with an answer or a
 question is refused (`editor_gm_intent_parallel_call_not_a_tool`).
+
+### Institutions: identity, reuse and play
+
+- An institution's ID is the institution engine's subject ID for its
+  domain and name (`institution_family_blackroot-clan`). The same domain
+  and name is the same institution in every storyline and campaign, so
+  give story-specific groups story-specific names.
+- `find_existing_institutions` lists the institutions other storylines,
+  campaigns and library characters already name. To reuse one, define it
+  with the same domain and name.
+- When a storyline is attached to a campaign,
+  `StorylineInstitutionRealizationService` creates the institutions that
+  have a tied cast member, their hierarchy, members' memberships, stances
+  as institution matrix edges, and exile and ally ties as sentiment, all
+  through the existing institution authorities. See
+  `INSTITUTIONAL_DISPOSITION_TARGET_ARCHITECTURE_AND_IMPLEMENTATION_PLAN.md`.
+- A character sheet is built from the actor's name, role, motivation,
+  attitude, knowledge, class, ancestry and level. Placing an actor or
+  tying it to an institution does not make its sheet out of date.

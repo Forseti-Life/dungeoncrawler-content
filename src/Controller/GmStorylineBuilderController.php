@@ -42,16 +42,8 @@ class GmStorylineBuilderController extends ControllerBase {
    * Read-only review of one draft's scenes, in authored order.
    */
   public function sceneReview(\Symfony\Component\HttpFoundation\Request $request): array {
-    $draft_id = (string) $request->query->get('draft_id', '');
-    if (preg_match('/^[0-9a-f-]{36}$/', $draft_id) !== 1) {
-      throw new \Symfony\Component\HttpKernel\Exception\NotFoundHttpException();
-    }
-    try {
-      $draft = $this->storylineDrafts->getDraftForViewing($draft_id);
-    }
-    catch (\OutOfBoundsException) {
-      throw new \Symfony\Component\HttpKernel\Exception\NotFoundHttpException();
-    }
+    $draft = $this->reviewDraft($request);
+    $draft_id = (string) $draft['draft_id'];
     $payload = is_array($draft['payload'] ?? NULL) ? $draft['payload'] : [];
     $flow = is_array($payload['process_flow'] ?? NULL) ? $payload['process_flow'] : [];
     $rows = static fn(mixed $value): array => array_values(array_filter((array) $value, 'is_array'));
@@ -240,6 +232,161 @@ TWIG,
   }
 
   /**
+   * The saved draft a read-only review page is about.
+   */
+  private function reviewDraft(\Symfony\Component\HttpFoundation\Request $request): array {
+    $draft_id = (string) $request->query->get('draft_id', '');
+    if (preg_match('/^[0-9a-f-]{36}$/', $draft_id) !== 1) {
+      throw new \Symfony\Component\HttpKernel\Exception\NotFoundHttpException();
+    }
+    try {
+      return $this->storylineDrafts->getDraftForViewing($draft_id);
+    }
+    catch (\OutOfBoundsException) {
+      throw new \Symfony\Component\HttpKernel\Exception\NotFoundHttpException();
+    }
+  }
+
+  /**
+   * Read-only review of one draft's institutions and the cast tied to them.
+   */
+  public function institutionReview(\Symfony\Component\HttpFoundation\Request $request): array {
+    $draft = $this->reviewDraft($request);
+    $draft_id = (string) $draft['draft_id'];
+    $payload = is_array($draft['payload'] ?? NULL) ? $draft['payload'] : [];
+    $rows = static fn(mixed $value): array => array_values(array_filter((array) $value, 'is_array'));
+    $cast = $rows($payload['objects']['actors']['generation_specs'] ?? []);
+    $institutions = array_column($rows($payload['objects']['institutions'] ?? []), NULL, 'institution_id');
+
+    $actors = [];
+    foreach ($cast as $actor) {
+      $actor_id = trim((string) ($actor['actor_id'] ?? ''));
+      $actors[$actor_id] = [
+        'name' => trim((string) ($actor['display_name'] ?? '')) ?: $actor_id,
+        'role' => str_replace('_', ' ', trim((string) ($actor['role'] ?? ''))),
+        'url' => Url::fromRoute('dungeoncrawler_content.actor_view', ['actor_id' => $actor_id], ['query' => ['draft_id' => $draft_id]])->toString(),
+      ];
+    }
+    // Leaders first, then those who belong, then those who stand outside.
+    $members = array_fill_keys(array_keys($institutions), ['leader' => [], 'member' => [], 'ally' => [], 'exile' => []]);
+    $untied = [];
+    foreach ($cast as $actor) {
+      $entry = $actors[trim((string) ($actor['actor_id'] ?? ''))];
+      $affiliations = $rows($actor['affiliations'] ?? []);
+      if ($affiliations === []) {
+        $untied[] = $entry;
+      }
+      foreach ($affiliations as $affiliation) {
+        $members[(string) $affiliation['institution_id']][(string) ($affiliation['standing'] ?? 'member')][] = $entry;
+      }
+    }
+
+    $standing_labels = ['leader' => 'Leaders', 'member' => 'Members', 'ally' => 'Allies', 'exile' => 'Exiles'];
+    $review = [];
+    foreach ($institutions as $id => $institution) {
+      $leader = trim((string) ($institution['leader_actor_id'] ?? ''));
+      $parent = trim((string) ($institution['parent_institution_id'] ?? ''));
+      $stances = [];
+      foreach ($rows($institution['stances'] ?? []) as $stance) {
+        $stances[] = [
+          'toward' => trim((string) $institutions[(string) $stance['toward_institution_id']]['name']),
+          'attitude' => (string) $stance['attitude'],
+          'reason' => trim((string) ($stance['reason'] ?? '')),
+        ];
+      }
+      $groups = [];
+      foreach (array_filter($members[$id]) as $standing => $entries) {
+        $groups[] = ['label' => $standing_labels[$standing], 'actors' => $entries];
+      }
+      $review[] = [
+        'name' => trim((string) $institution['name']),
+        'kind' => InstitutionNormalizationService::AUTHORABLE_DOMAINS[(string) $institution['domain']],
+        'description' => trim((string) ($institution['description'] ?? '')),
+        'purpose' => trim((string) ($institution['purpose'] ?? '')),
+        'seat' => trim((string) ($institution['seat_id'] ?? '')),
+        // A leader outside the cast is a validation finding; it is shown as written.
+        'leader' => $leader === '' ? NULL : ($actors[$leader] ?? ['name' => $leader, 'role' => '', 'url' => '']),
+        'parent' => $parent === '' ? '' : trim((string) $institutions[$parent]['name']),
+        'stances' => $stances,
+        'groups' => $groups,
+      ];
+    }
+
+    return [
+      '#type' => 'inline_template',
+      '#cache' => ['max-age' => 0],
+      '#attached' => ['library' => ['dungeoncrawler_content/gm-storyline-scene-review']],
+      '#context' => [
+        'title' => trim((string) ($payload['title'] ?? '')),
+        'revision' => (int) ($draft['revision'] ?? 0),
+        'back_url' => Url::fromRoute('dungeoncrawler_content.gm_storyline_builder', [], ['query' => ['draft_id' => $draft_id]])->toString(),
+        'institutions' => $review,
+        'cast_count' => count($cast),
+        'untied' => $untied,
+      ],
+      '#template' => <<<'TWIG'
+<div class="scene-review">
+  <header class="scene-review__header">
+    <a class="scene-review__back" href="{{ back_url }}">← Back to the storyline draft</a>
+    <h2 class="scene-review__title">{{ title ?: 'Untitled storyline' }}</h2>
+    <p class="scene-review__meta">Revision {{ revision }} · {{ institutions|length }} institutions · {{ cast_count - untied|length }} of {{ cast_count }} cast members tied · read-only view of the saved draft</p>
+    <p class="scene-review__legend">Cast members open their actor page in a new tab.</p>
+  </header>
+  {% if institutions is empty %}<p>This draft has no institutions yet.</p>{% endif %}
+  {% macro actor(entry) %}
+    {% if entry.url %}<a class="scene-review__chip" href="{{ entry.url }}" target="_blank" rel="noopener" title="{{ entry.role }}">{{ entry.name }}</a>
+    {% else %}<span class="scene-review__chip scene-review__chip--plain" title="Not a cast member of this draft">{{ entry.name }}</span>{% endif %}
+  {% endmacro %}
+  <div class="scene-review__layout">
+    <nav class="scene-review__index" aria-label="Institutions">
+      <p class="scene-review__label">Institutions</p>
+      <ol>
+        {% for institution in institutions %}<li><a href="#institution-{{ loop.index }}">{{ institution.name }}</a></li>{% endfor %}
+        <li><a href="#untied-cast">Cast tied to no institution ({{ untied|length }})</a></li>
+      </ol>
+    </nav>
+    <div class="scene-review__body">
+      {% for institution in institutions %}
+        <section class="scene-review__scene" id="institution-{{ loop.index }}">
+          <p class="scene-review__number">{{ institution.kind }}</p>
+          <h3 class="scene-review__scene-title">{{ institution.name }}</h3>
+          {% if institution.description %}<p class="scene-review__summary">{{ institution.description }}</p>{% endif %}
+          <dl class="scene-review__facts">
+            <dt>Purpose</dt><dd>{{ institution.purpose ?: 'Not written' }}</dd>
+            <dt>Seat</dt><dd>{% if institution.seat %}<code>{{ institution.seat }}</code>{% else %}<span class="scene-review__none">None set</span>{% endif %}</dd>
+            <dt>Leader</dt><dd>{% if institution.leader %}{{ _self.actor(institution.leader) }}{% else %}<span class="scene-review__none">None named</span>{% endif %}</dd>
+            <dt>Part of</dt><dd>{% if institution.parent %}{{ institution.parent }}{% else %}<span class="scene-review__none">No other institution</span>{% endif %}</dd>
+          </dl>
+          <h4 class="scene-review__label">Stances</h4>
+          {% if institution.stances %}
+            <ul class="scene-review__choices">{% for stance in institution.stances %}
+              <li>
+                <span class="scene-review__choice-label">{{ stance.attitude|capitalize }} toward {{ stance.toward }}</span>
+                {% if stance.reason %}<span class="scene-review__choice-when">{{ stance.reason }}</span>{% endif %}
+              </li>
+            {% endfor %}</ul>
+          {% else %}<p class="scene-review__none">No stance toward another institution.</p>{% endif %}
+          {% for group in institution.groups %}
+            <h4 class="scene-review__label">{{ group.label }} ({{ group.actors|length }})</h4>
+            <p>{% for entry in group.actors %}{{ _self.actor(entry) }}{% endfor %}</p>
+          {% else %}
+            <h4 class="scene-review__label">Cast</h4>
+            <p class="scene-review__none">No cast member is tied to this institution.</p>
+          {% endfor %}
+        </section>
+      {% endfor %}
+      <section class="scene-review__scene" id="untied-cast">
+        <h3 class="scene-review__scene-title">Cast tied to no institution</h3>
+        <p>{% for entry in untied %}{{ _self.actor(entry) }}{% else %}<span class="scene-review__none">Every cast member is tied to an institution.</span>{% endfor %}</p>
+      </section>
+    </div>
+  </div>
+</div>
+TWIG,
+    ];
+  }
+
+  /**
    * Actor relationship graph for one storyline draft.
    *
    * The page only names the draft's API endpoints; the graph script loads
@@ -318,6 +465,7 @@ TWIG,
               ),
               'actorGraphUrl' => Url::fromRoute('dungeoncrawler_content.gm_storyline_actor_graph')->toString(),
               'sceneReviewUrl' => Url::fromRoute('dungeoncrawler_content.gm_storyline_scene_review')->toString(),
+              'institutionReviewUrl' => Url::fromRoute('dungeoncrawler_content.gm_storyline_institution_review')->toString(),
               'saveUrlTemplate' => str_replace('00000000-0000-4000-8000-000000000000', '{draft_id}', Url::fromRoute('dungeoncrawler_content.api.storyline_builder_draft_save', ['draft_id' => '00000000-0000-4000-8000-000000000000'])->toString()),
               'deleteUrlTemplate' => str_replace('00000000-0000-4000-8000-000000000000', '{draft_id}', Url::fromRoute('dungeoncrawler_content.api.storyline_builder_draft_delete', ['draft_id' => '00000000-0000-4000-8000-000000000000'])->toString()),
             ],
@@ -397,11 +545,12 @@ TWIG,
         <div class="character-setup-page__tabs" data-gm-storyline-step-tabs>
           <button type="button" class="character-setup-page__tab is-active" data-step-tab="1" title="Define the storyline identity, premise, player hook, entry point, level range, and intended ending."><span class="character-setup-page__tab-number">1</span><span class="character-setup-page__tab-copy"><span class="character-setup-page__tab-name">Title, Description, Premise</span><span class="character-setup-page__tab-description">Core identity and narrative premise.</span></span></button>
           <button type="button" class="character-setup-page__tab" data-step-tab="2" title="Build chapters, scenes, tasks, objectives, conflict arcs, relationship changes, and progression dependencies."><span class="character-setup-page__tab-number">2</span><span class="character-setup-page__tab-copy"><span class="character-setup-page__tab-name">Journal/Task Objective Flow</span><span class="character-setup-page__tab-description">Completion criteria and progression links.</span></span></button>
-          <button type="button" class="character-setup-page__tab" data-step-tab="3" title="Connect canonical actors to scenes, roles, motivations, dialogue, knowledge, attitudes, and locations."><span class="character-setup-page__tab-number">3</span><span class="character-setup-page__tab-copy"><span class="character-setup-page__tab-name">Actors Framework</span><span class="character-setup-page__tab-description">Generate/validate actors and role bindings.</span></span></button>
-          <button type="button" class="character-setup-page__tab" data-step-tab="4" title="Associate independent dungeon and room objects with chapters and scenes without conflating their identities."><span class="character-setup-page__tab-number">4</span><span class="character-setup-page__tab-copy"><span class="character-setup-page__tab-name">Dungeons & Rooms Framework</span><span class="character-setup-page__tab-description">Generate/validate traversal spaces.</span></span></button>
-          <button type="button" class="character-setup-page__tab" data-step-tab="5" title="Connect canonical items to scenes, quests, actors, acquisition requirements, prerequisites, and rewards."><span class="character-setup-page__tab-number">5</span><span class="character-setup-page__tab-copy"><span class="character-setup-page__tab-name">Items Framework</span><span class="character-setup-page__tab-description">Generate/validate rewards and dependencies.</span></span></button>
-          <button type="button" class="character-setup-page__tab" data-step-tab="6" title="Generate the canonical definition, run structural and narrative validation, and inspect conflicts or continuity findings."><span class="character-setup-page__tab-number">6</span><span class="character-setup-page__tab-copy"><span class="character-setup-page__tab-name">Composition & Validation</span><span class="character-setup-page__tab-description">Assemble canonical storyline contract.</span></span></button>
-          <button type="button" class="character-setup-page__tab" data-step-tab="7" title="Review story progression, choices, and validation before publishing."><span class="character-setup-page__tab-number">7</span><span class="character-setup-page__tab-copy"><span class="character-setup-page__tab-name">Review Storyline</span><span class="character-setup-page__tab-description">Visual story review and publication.</span></span></button>
+          <button type="button" class="character-setup-page__tab" data-step-tab="3" title="Define the groups the story is about: clans, families, settlements, factions, guards and guilds, with their purpose, seat, leader and stances."><span class="character-setup-page__tab-number">3</span><span class="character-setup-page__tab-copy"><span class="character-setup-page__tab-name">Institutions</span><span class="character-setup-page__tab-description">The groups the cast belongs to.</span></span></button>
+          <button type="button" class="character-setup-page__tab" data-step-tab="4" title="Connect canonical actors to scenes, roles, motivations, dialogue, knowledge, attitudes, and locations."><span class="character-setup-page__tab-number">4</span><span class="character-setup-page__tab-copy"><span class="character-setup-page__tab-name">Actors Framework</span><span class="character-setup-page__tab-description">Generate/validate actors and role bindings.</span></span></button>
+          <button type="button" class="character-setup-page__tab" data-step-tab="5" title="Associate independent dungeon and room objects with chapters and scenes without conflating their identities."><span class="character-setup-page__tab-number">5</span><span class="character-setup-page__tab-copy"><span class="character-setup-page__tab-name">Dungeons & Rooms Framework</span><span class="character-setup-page__tab-description">Generate/validate traversal spaces.</span></span></button>
+          <button type="button" class="character-setup-page__tab" data-step-tab="6" title="Connect canonical items to scenes, quests, actors, acquisition requirements, prerequisites, and rewards."><span class="character-setup-page__tab-number">6</span><span class="character-setup-page__tab-copy"><span class="character-setup-page__tab-name">Items Framework</span><span class="character-setup-page__tab-description">Generate/validate rewards and dependencies.</span></span></button>
+          <button type="button" class="character-setup-page__tab" data-step-tab="7" title="Generate the canonical definition, run structural and narrative validation, and inspect conflicts or continuity findings."><span class="character-setup-page__tab-number">7</span><span class="character-setup-page__tab-copy"><span class="character-setup-page__tab-name">Composition & Validation</span><span class="character-setup-page__tab-description">Assemble canonical storyline contract.</span></span></button>
+          <button type="button" class="character-setup-page__tab" data-step-tab="8" title="Review story progression, choices, and validation before publishing."><span class="character-setup-page__tab-number">8</span><span class="character-setup-page__tab-copy"><span class="character-setup-page__tab-name">Review Storyline</span><span class="character-setup-page__tab-description">Visual story review and publication.</span></span></button>
         </div>',
     ];
     $build['layout']['sidebar']['stack']['status'] = [
@@ -732,6 +881,11 @@ TWIG,
       StorylineManagerService::STORYLINE_BRANCH_TARGET_TYPES[3] => 'Chapter',
       StorylineManagerService::STORYLINE_BRANCH_TARGET_TYPES[4] => 'Storyline',
     ]);
+    $institution_domain_options = $this->renderSelectOptions(InstitutionNormalizationService::AUTHORABLE_DOMAINS);
+    $attitude_options = $this->renderSelectOptions(array_combine(
+      RelationshipAttitudeService::ATTITUDES,
+      array_map('ucfirst', RelationshipAttitudeService::ATTITUDES),
+    ));
     $storyline_operation_options = $this->renderSelectOptions([
       StorylineManagerService::STORYLINE_BRANCH_OPERATIONS[0] => 'Unlock',
       StorylineManagerService::STORYLINE_BRANCH_OPERATIONS[1] => 'Lock',
@@ -794,7 +948,7 @@ TWIG,
             <p class="gm-storyline-wizard__structured-eyebrow">Structured authoring, validation, and review</p>
             <h3 data-gm-storyline-active-step-title>Step 1 · Title, Description, Premise</h3>
           </div>
-          <p data-gm-storyline-active-step-meta>Step 1 of 7</p>
+          <p data-gm-storyline-active-step-meta>Step 1 of 8</p>
         </div>
         <section class="gm-storyline-wizard__step" data-step-panel="1">
           <h3>Step 1 · Title, Description, Premise</h3>
@@ -1025,7 +1179,42 @@ TWIG,
         </section>
 
         <section class="gm-storyline-wizard__step" data-step-panel="3" hidden>
-          <h3>Step 3 · Actor Object Generation + Validation</h3>
+          <h3>Step 3 · Institutions</h3>
+          <p>Define the groups the story is about (clans, families, settlements, factions, guards, guilds) before the cast. Cast members are tied to them in Step 4.</p>
+          <div class="gm-storyline-wizard__tools"><strong>Canonical output:</strong> institutions with their purpose, seat, leader, parent and stances; cast members belong to them through their affiliations.</div>
+          <div class="gm-storyline-wizard__collection" data-collection="institution_entries">
+            <div class="gm-storyline-wizard__collection-header"><h4>Institutions</h4><button type="button" class="btn btn-secondary btn-sm" data-add-row="institution_entries">Add institution</button></div>
+            <p>An institution's ID is derived from its kind and name when the draft is saved; renaming it changes the ID everywhere it is used. Save a new institution before choosing it as a parent, in a stance, or on a cast member.</p>
+            <div class="gm-storyline-wizard__rows" data-rows="institution_entries"></div>
+            <template data-row-template="institution_entries"><div class="gm-storyline-wizard__row gm-storyline-wizard__row--analysis">
+              <select class="form-select" aria-label="Kind of institution" data-col-field="domain"><option value="">Kind of institution…</option>{$institution_domain_options}</select>
+              <input type="text" class="form-text" placeholder="Name (Blackroot Clan)" aria-label="Institution name" data-col-field="name">
+              <input type="text" class="form-text" placeholder="ID (derived when saved)" aria-label="Institution ID, derived from kind and name" data-col-field="institution_id" readonly>
+              <textarea class="form-textarea" rows="2" placeholder="Description: what the institution is" aria-label="Institution description" data-col-field="description"></textarea>
+              <textarea class="form-textarea" rows="2" placeholder="Purpose: what it wants in this story" aria-label="Institution purpose" data-col-field="purpose"></textarea>
+              <input type="text" class="form-text" list="gm-storyline-place-ids" placeholder="Seat: room or site ID of this storyline" aria-label="Seat room or site ID" data-col-field="seat_id">
+              <input type="text" class="form-text" list="gm-storyline-cast-ids" placeholder="Leader: actor ID of a cast member" aria-label="Leader actor ID" data-col-field="leader_actor_id">
+              <select class="form-select" aria-label="Parent institution" data-col-field="parent_institution_id" data-institution-options><option value="">Part of no other institution</option></select>
+              <div class="gm-storyline-wizard__subrows" data-subrows="stances">
+                <div class="gm-storyline-wizard__collection-header"><strong>Stances toward other institutions</strong><button type="button" class="btn btn-secondary btn-sm" data-add-subrow>Add stance</button></div>
+                <div class="gm-storyline-wizard__rows" data-subrow-list></div>
+              </div>
+              <button type="button" class="btn btn-secondary btn-sm" data-remove-row>Remove</button>
+            </div></template>
+            <template data-subrow-template="stances"><div class="gm-storyline-wizard__subrow">
+              <select class="form-select" aria-label="Stance toward institution" data-sub-field="toward_institution_id" data-institution-options><option value="">Toward which institution…</option></select>
+              <select class="form-select" aria-label="Attitude" data-sub-field="attitude">{$attitude_options}</select>
+              <input type="text" class="form-text" placeholder="Reason" aria-label="Reason for the stance" data-sub-field="reason">
+              <button type="button" class="btn btn-secondary btn-sm" data-remove-subrow>Remove</button>
+            </div></template>
+            <datalist id="gm-storyline-place-ids" data-reference-list="places"></datalist>
+            <datalist id="gm-storyline-cast-ids" data-reference-list="cast"></datalist>
+          </div>
+          <div class="gm-storyline-wizard__actions"><button type="button" class="btn btn-secondary" data-step-back="2">Back</button></div>
+        </section>
+
+        <section class="gm-storyline-wizard__step" data-step-panel="4" hidden>
+          <h3>Step 4 · Actor Object Generation + Validation</h3>
           <p>Define actor objects and validation expectations with existing actor frameworks.</p>
           <div class="gm-storyline-wizard__tools"><strong>Canonical output:</strong> actor contacts, placements, knowledge, dialogue guidance, and relationship anchors.</div>
           <div class="gm-storyline-wizard__link-chips">{$actor_library} {$editor_suite}</div>
@@ -1045,14 +1234,23 @@ TWIG,
               <input type="text" class="form-text" placeholder="Chapter ID" data-col-field="chapter_id">
               <input type="text" class="form-text" placeholder="Scene ID" data-col-field="scene_id">
               <input type="text" class="form-text" placeholder="Location ID" data-col-field="location_id">
+              <div class="gm-storyline-wizard__subrows" data-subrows="affiliations">
+                <div class="gm-storyline-wizard__collection-header"><strong>Institutions this actor is tied to</strong><button type="button" class="btn btn-secondary btn-sm" data-add-subrow>Add institution tie</button></div>
+                <div class="gm-storyline-wizard__rows" data-subrow-list></div>
+              </div>
               <button type="button" class="btn btn-secondary btn-sm" data-remove-row>Remove</button>
             </div></template>
+            <template data-subrow-template="affiliations"><div class="gm-storyline-wizard__subrow">
+              <select class="form-select" aria-label="Institution" data-sub-field="institution_id" data-institution-options><option value="">Institution…</option></select>
+              <select class="form-select" aria-label="Standing in the institution" data-sub-field="standing"><option value="member">Member</option><option value="leader">Leader</option><option value="exile">Exile</option><option value="ally">Ally</option></select>
+              <button type="button" class="btn btn-secondary btn-sm" data-remove-subrow>Remove</button>
+            </div></template>
           </div>
-          <div class="gm-storyline-wizard__actions"><button type="button" class="btn btn-secondary" data-step-back="2">Back</button></div>
+          <div class="gm-storyline-wizard__actions"><button type="button" class="btn btn-secondary" data-step-back="3">Back</button></div>
         </section>
 
-        <section class="gm-storyline-wizard__step" data-step-panel="4" hidden>
-          <h3>Step 4 · Dungeon and Room Object Generation + Validation</h3>
+        <section class="gm-storyline-wizard__step" data-step-panel="5" hidden>
+          <h3>Step 5 · Dungeon and Room Object Generation + Validation</h3>
           <p>Define dungeon and room assets, connectors, and required validation contracts.</p>
           <div class="gm-storyline-wizard__tools"><strong>Canonical output:</strong> independent dungeon and room references bound explicitly to chapters and scenes.</div>
           <div class="gm-storyline-wizard__link-chips">{$dungeon_editor} {$room_editor} {$editor_suite}</div>
@@ -1079,11 +1277,11 @@ TWIG,
               <button type="button" class="btn btn-secondary btn-sm" data-remove-row>Remove</button>
             </div></template>
           </div>
-          <div class="gm-storyline-wizard__actions"><button type="button" class="btn btn-secondary" data-step-back="3">Back</button></div>
+          <div class="gm-storyline-wizard__actions"><button type="button" class="btn btn-secondary" data-step-back="4">Back</button></div>
         </section>
 
-        <section class="gm-storyline-wizard__step" data-step-panel="5" hidden>
-          <h3>Step 5 · Item Object Generation + Validation</h3>
+        <section class="gm-storyline-wizard__step" data-step-panel="6" hidden>
+          <h3>Step 6 · Item Object Generation + Validation</h3>
           <p>Define canonical items and validate their links to objectives/tasks/journal flow.</p>
           <div class="gm-storyline-wizard__tools"><strong>Canonical output:</strong> item acquisition, reward, prerequisite, quest, actor, and location associations.</div>
           <div class="gm-storyline-wizard__link-chips">{$item_library} {$editor_suite}</div>
@@ -1103,20 +1301,20 @@ TWIG,
               <button type="button" class="btn btn-secondary btn-sm" data-remove-row>Remove</button>
             </div></template>
           </div>
-          <div class="gm-storyline-wizard__actions"><button type="button" class="btn btn-secondary" data-step-back="4">Back</button></div>
-        </section>
-
-        <section class="gm-storyline-wizard__step" data-step-panel="6" hidden>
-          <h3>Step 6 · Composition and Validation Orchestration</h3>
-          <p>Assemble sections into one canonical contract and define generation/validation run order.</p>
-          <div class="gm-storyline-wizard__tools"><strong>Canonical composition:</strong> assemble one canonical storyline object and run every contract stage without changing campaign state.</div>
-          <label>Generation orchestration steps (one per line)<textarea class="form-textarea" rows="5" data-field="generation_orchestration" placeholder="1. Save canonical template\n2. Validate contract stages\n3. Generate campaign storyline runtime"></textarea></label>
-          <label>Validation orchestration steps (one per line: stage | expected pass condition)<textarea class="form-textarea" rows="6" data-field="validation_orchestration" placeholder="entity_linkage | all actors/rooms/items are linked to at least one objective path"></textarea></label>
           <div class="gm-storyline-wizard__actions"><button type="button" class="btn btn-secondary" data-step-back="5">Back</button></div>
         </section>
 
         <section class="gm-storyline-wizard__step" data-step-panel="7" hidden>
-          <h3>Step 7 · Review Your Storyline</h3>
+          <h3>Step 7 · Composition and Validation Orchestration</h3>
+          <p>Assemble sections into one canonical contract and define generation/validation run order.</p>
+          <div class="gm-storyline-wizard__tools"><strong>Canonical composition:</strong> assemble one canonical storyline object and run every contract stage without changing campaign state.</div>
+          <label>Generation orchestration steps (one per line)<textarea class="form-textarea" rows="5" data-field="generation_orchestration" placeholder="1. Save canonical template\n2. Validate contract stages\n3. Generate campaign storyline runtime"></textarea></label>
+          <label>Validation orchestration steps (one per line: stage | expected pass condition)<textarea class="form-textarea" rows="6" data-field="validation_orchestration" placeholder="entity_linkage | all actors/rooms/items are linked to at least one objective path"></textarea></label>
+          <div class="gm-storyline-wizard__actions"><button type="button" class="btn btn-secondary" data-step-back="6">Back</button></div>
+        </section>
+
+        <section class="gm-storyline-wizard__step" data-step-panel="8" hidden>
+          <h3>Step 8 · Review Your Storyline</h3>
           <p>Follow the story from scene to scene, inspect its choices, and review validation before publishing.</p>
           <section class="gm-storyline-wizard__review-summary" data-storyline-review-summary aria-label="Storyline overview"></section>
           <section class="gm-storyline-wizard__analysis" aria-labelledby="gm-storyline-analysis-title">
@@ -1130,7 +1328,7 @@ TWIG,
             <summary>Validation details</summary>
             <ul class="gm-storyline-wizard__validation-list" data-gm-template-validation-list></ul>
           </details>
-          <div class="gm-storyline-wizard__actions"><button type="button" class="btn btn-secondary" data-step-back="6">Back</button><button type="button" class="btn btn-secondary" data-gm-template-validate>Revalidate storyline</button><button type="button" class="btn btn-primary" data-gm-template-publish>Publish storyline</button></div>
+          <div class="gm-storyline-wizard__actions"><button type="button" class="btn btn-secondary" data-step-back="7">Back</button><button type="button" class="btn btn-secondary" data-gm-template-validate>Revalidate storyline</button><button type="button" class="btn btn-primary" data-gm-template-publish>Publish storyline</button></div>
         </section>
 
       </div>

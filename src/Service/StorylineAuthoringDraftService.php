@@ -1247,13 +1247,21 @@ class StorylineAuthoringDraftService {
   }
 
   /**
-   * The authored part of an actor row, without its character sheet link.
+   * The actor fields a character sheet is built from.
+   *
+   * Where the actor stands, which scene it appears in and which institutions
+   * it belongs to are the story's business, not the sheet's.
+   */
+  public const ACTOR_SHEET_SOURCE_FIELDS = ['actor_id', 'display_name', 'role', 'motivation', 'attitude', 'knowledge', 'class', 'ancestry', 'level'];
+
+  /**
+   * The part of an actor row its character sheet is built from.
    *
    * A sheet records this hash when it is built; a different hash later means
-   * the actor was edited after its sheet.
+   * the actor was edited in a way the sheet must follow.
    */
   public static function actorSpecHash(array $spec): string {
-    $source = array_diff_key($spec, array_flip(self::ACTOR_SHEET_LINK_FIELDS));
+    $source = array_intersect_key($spec, array_flip(self::ACTOR_SHEET_SOURCE_FIELDS));
     ksort($source);
     return hash('sha256', json_encode($source, JSON_THROW_ON_ERROR));
   }
@@ -1817,6 +1825,37 @@ class StorylineAuthoringDraftService {
   }
 
   /**
+   * How far the cast is tied to the storyline's institutions.
+   *
+   * A cast member is tied by any affiliation, whatever its standing. One that
+   * was in the library before the draft is not new to the story and need not
+   * be tied.
+   *
+   * @return array{stances: int, cast_tied: int, new_cast: int, new_cast_untied: int, institutions_without_members: int}
+   */
+  private function institutionTieStatus(array $draft): array {
+    $objects = (array) ($draft['payload']['objects'] ?? []);
+    $from_library = $this->libraryCharactersOlderThanDraft($draft);
+    $status = ['stances' => 0, 'cast_tied' => 0, 'new_cast' => 0, 'new_cast_untied' => 0, 'institutions_without_members' => 0];
+    $with_members = [];
+    foreach (array_filter((array) ($objects['actors']['generation_specs'] ?? []), 'is_array') as $member) {
+      $affiliations = array_filter((array) ($member['affiliations'] ?? []), 'is_array');
+      foreach ($affiliations as $affiliation) {
+        $with_members[(string) ($affiliation['institution_id'] ?? '')] = TRUE;
+      }
+      $new = !isset($from_library[trim((string) ($member['actor_id'] ?? ''))]);
+      $status['cast_tied'] += $affiliations === [] ? 0 : 1;
+      $status['new_cast'] += $new ? 1 : 0;
+      $status['new_cast_untied'] += $new && $affiliations === [] ? 1 : 0;
+    }
+    foreach (array_filter((array) ($objects['institutions'] ?? []), 'is_array') as $institution) {
+      $status['stances'] += count(array_filter((array) ($institution['stances'] ?? []), 'is_array'));
+      $status['institutions_without_members'] += isset($with_members[(string) ($institution['institution_id'] ?? '')]) ? 0 : 1;
+    }
+    return $status;
+  }
+
+  /**
    * Builds one status projection shared by the GM and Storyline Builder UI.
    */
   public function summarizeDraftState(array $draft, array $validation): array {
@@ -1843,6 +1882,7 @@ class StorylineAuthoringDraftService {
         'dungeons' => count($rows($objects['dungeons']['generation_specs'] ?? [])),
         'rooms' => count($rows($objects['rooms']['generation_specs'] ?? [])),
         'items' => count($rows($objects['items']['generation_specs'] ?? [])),
+        'institutions' => count($rows($objects['institutions'] ?? [])),
         'narrative_beats_complete' => $narrative['beats_complete'],
         'adventure_requirements_complete' => $narrative['requirements_complete'],
       ];
@@ -1873,18 +1913,45 @@ class StorylineAuthoringDraftService {
       ] as $field => $label) {
         $add("identity_{$field}", $label, trim((string) ($payload[$field] ?? '')) !== '', 'minimum_content');
       }
-      foreach ([
+      $content = static function (array $labels) use ($add, $counts): void {
+        foreach ($labels as $key => $label) {
+          $add("content_{$key}", $label, $counts[$key] > 0, 'minimum_content', (string) $counts[$key]);
+        }
+      };
+      $content([
         'scenes' => 'At least one scene',
         'tasks' => 'At least one task',
         'objectives' => 'At least one objective',
         'conflicts' => 'At least one conflict',
         'decisions' => 'At least one branching decision',
-        'actors' => 'At least one actor binding',
+      ]);
+      // Institutions come before the cast; the cast's ties follow it. A lone
+      // cast member has nobody to share an institution with.
+      $ties = $this->institutionTieStatus($draft);
+      $needs_institutions = $counts['actors'] >= 2;
+      $institutions_defined = !$needs_institutions || $counts['institutions'] > 0;
+      $institutions_have_members = $ties['institutions_without_members'] === 0;
+      $new_cast_tied = !$needs_institutions || $ties['new_cast_untied'] === 0;
+      $add('content_institutions', 'At least one institution', $institutions_defined, 'minimum_content', (string) $counts['institutions']);
+      $content(['actors' => 'At least one actor binding']);
+      $add(
+        'content_institution_members',
+        'Every institution has a cast member',
+        $institutions_have_members,
+        'minimum_content',
+        sprintf('%d/%d', $counts['institutions'] - $ties['institutions_without_members'], $counts['institutions']),
+      );
+      $add(
+        'content_actor_institutions',
+        'Every new cast member is tied to an institution',
+        $new_cast_tied,
+        'minimum_content',
+        sprintf('%d/%d', $ties['new_cast'] - $ties['new_cast_untied'], $ties['new_cast']),
+      );
+      $content([
         'dungeons' => 'At least one dungeon binding',
         'rooms' => 'At least one room binding',
-      ] as $key => $label) {
-        $add("content_{$key}", $label, $counts[$key] > 0, 'minimum_content', (string) $counts[$key]);
-      }
+      ]);
       foreach ($narrative['beat_checks'] as $key => $complete) {
         $add("narrative_beat_{$key}", self::NARRATIVE_BEATS[$key]['label'], $complete, 'minimum_content');
       }
@@ -1931,22 +1998,27 @@ class StorylineAuthoringDraftService {
           $counts['decisions'] > 0,
         ], array_values($narrative['beat_checks']), array_values($narrative['requirement_checks'])),
         3 => [
+          $institutions_defined,
+          $institutions_have_members,
+          $new_cast_tied,
+        ],
+        4 => [
           $counts['actors'] > 0,
           $all_have($rows($objects['actors']['generation_specs'] ?? []), ['contact_id', 'actor_id', 'role', 'display_name']),
           $sheets_complete,
         ],
-        4 => [
+        5 => [
           $counts['dungeons'] > 0 && $counts['rooms'] > 0,
           $all_have($rows($objects['rooms']['generation_specs'] ?? []), ['room_id', 'dungeon_id', 'scene_id']),
         ],
-        5 => [
+        6 => [
           $counts['items'] > 0,
           $all_have($rows($objects['items']['generation_specs'] ?? []), ['item_id', 'purpose']),
         ],
-        6 => [
+        7 => [
           ($validation['valid'] ?? FALSE) === TRUE,
         ],
-        7 => [
+        8 => [
           ($validation['valid'] ?? FALSE) === TRUE,
           (string) ($draft['status'] ?? '') === 'published',
         ],
@@ -1954,11 +2026,12 @@ class StorylineAuthoringDraftService {
       $stage_labels = [
         1 => 'Identity and premise',
         2 => 'Progression and conflict',
-        3 => 'Actors and relationships',
-        4 => 'Dungeons and rooms',
-        5 => 'Items and prerequisites',
-        6 => 'Composition and validation',
-        7 => 'Canonical review and creation',
+        3 => 'Institutions',
+        4 => 'Actors and relationships',
+        5 => 'Dungeons and rooms',
+        6 => 'Items and prerequisites',
+        7 => 'Composition and validation',
+        8 => 'Canonical review and creation',
       ];
       $stage_metrics = [
         1 => ['fields_complete' => count(array_filter(array_slice($stage_rows[1], 0, 6))), 'fields_total' => 6],
@@ -1970,13 +2043,18 @@ class StorylineAuthoringDraftService {
           ],
         ),
         3 => [
+          'institutions' => $counts['institutions'],
+          'cast_tied' => sprintf('%d/%d', $ties['cast_tied'], $counts['actors']),
+          'stances' => $ties['stances'],
+        ],
+        4 => [
           'actors' => $counts['actors'],
           'character_sheets' => sprintf('%d/%d', count($actor_rows) - $actors_without_sheet, count($actor_rows)),
         ],
-        4 => ['dungeons' => $counts['dungeons'], 'rooms' => $counts['rooms']],
-        5 => ['items' => $counts['items']],
-        6 => ['errors' => (int) ($validation['error_count'] ?? 0), 'warnings' => (int) ($validation['warning_count'] ?? 0)],
-        7 => ['canonical_valid' => ($validation['valid'] ?? FALSE) === TRUE],
+        5 => ['dungeons' => $counts['dungeons'], 'rooms' => $counts['rooms']],
+        6 => ['items' => $counts['items']],
+        7 => ['errors' => (int) ($validation['error_count'] ?? 0), 'warnings' => (int) ($validation['warning_count'] ?? 0)],
+        8 => ['canonical_valid' => ($validation['valid'] ?? FALSE) === TRUE],
       ];
       $stages = [];
       foreach ($stage_rows as $stage => $checks) {
@@ -1997,9 +2075,9 @@ class StorylineAuthoringDraftService {
         static fn(array $item): string => $item['label'],
         array_filter($checklist, static fn(array $item): bool => $item['group'] === 'minimum_content' && !$item['complete']),
       ));
-      $current_stage = 7;
+      $current_stage = 8;
       foreach ($stage_rows as $stage => $checks) {
-        if ($stage <= 6 && count(array_filter($checks)) !== count($checks)) {
+        if ($stage <= 7 && count(array_filter($checks)) !== count($checks)) {
           $current_stage = $stage;
           break;
         }
@@ -2048,7 +2126,10 @@ class StorylineAuthoringDraftService {
         'At least one objective' => 'Have the GM add one goal to the current quest.',
         'At least one conflict' => 'Choose the central opposition.',
         'At least one branching decision' => 'Have the GM add a meaningful choice to the next scene.',
+        'At least one institution' => 'Have the GM define the story\'s institutions.',
         'At least one actor binding' => 'Have the GM develop the first story character.',
+        'Every institution has a cast member' => 'Have the GM tie a cast member to each institution.',
+        'Every new cast member is tied to an institution' => 'Have the GM tie the cast to the story\'s institutions.',
         'Every actor has a current character sheet' => 'Have the GM build the character sheets for the roster.',
         'At least one dungeon binding' => 'Have the GM develop the first adventure location.',
         'At least one room binding' => 'Have the GM develop one room for that location.',

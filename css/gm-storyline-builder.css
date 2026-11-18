@@ -329,6 +329,25 @@
   grid-column: span 2;
 }
 
+.gm-storyline-wizard__subrows {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 0.4rem;
+  padding-left: 0.75rem;
+  border-left: 2px solid rgba(255, 240, 202, 0.35);
+}
+
+.gm-storyline-wizard__subrow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.gm-storyline-wizard__subrow > .form-select,
+.gm-storyline-wizard__subrow > .form-text {
+  flex: 1 1 12rem;
+}
+
 .gm-storyline-wizard__narrative-section {
   padding: 0.8rem;
 }

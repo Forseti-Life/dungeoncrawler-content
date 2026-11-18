@@ -574,7 +574,7 @@ class StorylineManagementController extends ControllerBase {
     }
 
     $narrative = $this->averagePercent([$stages[1] ?? 0, $stages[2] ?? 0]);
-    $structure_object = $this->averagePercent([$stages[3] ?? 0, $stages[4] ?? 0, $stages[5] ?? 0]);
+    $structure_object = $this->averagePercent([$stages[3] ?? 0, $stages[4] ?? 0, $stages[5] ?? 0, $stages[6] ?? 0]);
 
     return [
       'narrative' => $narrative,

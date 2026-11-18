@@ -66,6 +66,7 @@ class AgentHarnessManagementService {
     'get_storyline_synopsis',
     'find_library_characters',
     'bind_library_characters',
+    'find_existing_institutions',
     'load_existing_quests',
     'inspect_storyline_actor_sheets',
     'build_storyline_actor_sheets',

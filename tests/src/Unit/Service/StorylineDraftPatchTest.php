@@ -5,6 +5,8 @@ namespace Drupal\Tests\dungeoncrawler_content\Unit\Service;
 use Drupal\Component\Datetime\TimeInterface;
 use Drupal\Component\Uuid\UuidInterface;
 use Drupal\Core\Database\Connection;
+use Drupal\Core\Database\Query\SelectInterface;
+use Drupal\Core\Database\StatementInterface;
 use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\dungeoncrawler_content\Service\CanonicalQuestTemplateService;
 use Drupal\dungeoncrawler_content\Service\ObjectiveTypeService;
@@ -668,6 +670,65 @@ class StorylineDraftPatchTest extends UnitTestCase {
 
     $this->assertSame(1, $state['counts']['decisions']);
     $this->assertSame(1, $state['counts']['choices']);
+  }
+
+  /**
+   * Institutions are stage 3: defined for a cast, peopled, and tied to it.
+   */
+  public function testInstitutionsStageFollowsTheCastsTies(): void {
+    // 'veteran' was in the library before the draft, so it need not be tied.
+    $statement = $this->createMock(StatementInterface::class);
+    $statement->method('fetchCol')->willReturn(['veteran']);
+    $select = $this->createMock(SelectInterface::class);
+    $select->method('fields')->willReturnSelf();
+    $select->method('condition')->willReturnSelf();
+    $select->method('execute')->willReturn($statement);
+    $database = $this->createMock(Connection::class);
+    $database->method('select')->willReturn($select);
+    $service = new StorylineAuthoringDraftService(
+      $database,
+      $this->createMock(StorylineManagerService::class),
+      $this->createMock(AccountProxyInterface::class),
+      $this->createMock(UuidInterface::class),
+      $this->createMock(TimeInterface::class),
+    );
+    $actor = static fn(string $id, array $affiliations = []): array => [
+      'contact_id' => $id, 'actor_id' => $id, 'role' => 'scout', 'display_name' => ucfirst($id),
+    ] + ($affiliations === [] ? [] : ['affiliations' => $affiliations]);
+    $state = static fn(array $actors, ?array $institutions): array => $service->summarizeDraftState(['payload' => ['objects' => [
+      'actors' => ['generation_specs' => $actors],
+    ] + ($institutions === NULL ? [] : ['institutions' => $institutions])]], []);
+    $stage = static fn(array $state): array => array_column($state['stages'], NULL, 'stage')[3];
+    $clan = ['institution_id' => 'institution_family_blackroot-clan', 'domain' => 'family', 'name' => 'Blackroot Clan'];
+    $guard = ['institution_id' => 'institution_security_town-guard', 'domain' => 'security', 'name' => 'Town Guard', 'stances' => [
+      ['toward_institution_id' => $clan['institution_id'], 'attitude' => 'hostile'],
+    ]];
+
+    $none = $state([$actor('grubba'), $actor('nikka'), $actor('veteran')], NULL);
+    $this->assertSame([
+      'Identity and premise', 'Progression and conflict', 'Institutions', 'Actors and relationships',
+      'Dungeons and rooms', 'Items and prerequisites', 'Composition and validation', 'Canonical review and creation',
+    ], array_column($none['stages'], 'label'));
+    $this->assertSame(['institutions' => 0, 'cast_tied' => '0/3', 'stances' => 0], $stage($none)['metrics']);
+    $this->assertSame(1, $stage($none)['complete_checks']);
+    $this->assertContains('At least one institution', $none['missing_content']);
+    $this->assertContains('Every new cast member is tied to an institution', $none['missing_content']);
+    $this->assertNotContains('Every institution has a cast member', $none['missing_content']);
+
+    $partial = $state([$actor('grubba', [['institution_id' => $clan['institution_id'], 'standing' => 'leader']]), $actor('nikka'), $actor('veteran')], [$clan, $guard]);
+    $this->assertSame(['institutions' => 2, 'cast_tied' => '1/3', 'stances' => 1], $stage($partial)['metrics']);
+    $this->assertSame(2, $partial['counts']['institutions']);
+    $this->assertSame(1, $stage($partial)['complete_checks'], 'The guard has no member and Nikka has no institution.');
+
+    $tied = $state([
+      $actor('grubba', [['institution_id' => $clan['institution_id'], 'standing' => 'leader']]),
+      $actor('nikka', [['institution_id' => $guard['institution_id'], 'standing' => 'ally']]),
+      $actor('veteran'),
+    ], [$clan, $guard]);
+    $this->assertTrue($stage($tied)['complete'], 'A library character need not be tied.');
+    $this->assertSame('2/3', $stage($tied)['metrics']['cast_tied']);
+
+    $this->assertTrue($stage($state([$actor('grubba')], NULL))['complete'], 'A cast of one needs no institution.');
   }
 
   /**

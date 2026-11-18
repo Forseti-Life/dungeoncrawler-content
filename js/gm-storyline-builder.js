@@ -41,8 +41,8 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
         : 'No draft';
     }
     if (storylineStatusFocus) {
-      storylineStatusFocus.textContent = Number(current.current_stage || 1) <= 6
-        ? `Stage ${Number(current.current_stage || 1)} of 6`
+      storylineStatusFocus.textContent = Number(current.current_stage || 1) <= 7
+        ? `Stage ${Number(current.current_stage || 1)} of 7`
         : 'Final review';
     }
     if (storylineStatusCounts) {
@@ -256,6 +256,7 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
           branch_environment_effect_entries: ['choice_id', 'target_type', 'target_id', 'effect', 'state_changes'],
           branch_storyline_effect_entries: ['choice_id', 'target_type', 'target_id', 'source_actor_id', 'operation', 'effect', 'follow_up_required', 'state_changes'],
           objective_entries: ['objective_id', 'task_id', 'type', 'next_step', 'target', 'requires_check', 'item', 'location', 'destination', 'kind', 'metric', 'description', 'required'],
+          institution_entries: ['domain', 'name', 'description', 'purpose', 'seat_id', 'leader_actor_id', 'parent_institution_id'],
           actor_entries: ['contact_id', 'actor_id', 'role', 'display_name', 'motivation', 'dialogue', 'knowledge', 'attitude', 'availability', 'chapter_id', 'scene_id', 'location_id'],
           dungeon_entries: ['dungeon_id', 'chapter_id', 'purpose', 'entrance_room'],
           room_entries: ['dungeon_id', 'chapter_id', 'scene_id', 'room_id', 'narrative'],
@@ -296,8 +297,12 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
         // Actor relationships are managed on the actor graph page; this form
         // carries them through a save untouched.
         let actorRelationships = [];
-        // Likewise each actor's institution affiliations, keyed by actor id.
-        let actorAffiliations = new Map();
+        // The saved draft's institutions: only these have an ID, so only these
+        // can be chosen as a parent, in a stance, or on a cast member.
+        let savedInstitutions = [];
+        // The saved record each row or sub-row was loaded from, so fields the
+        // form does not show survive a save.
+        const rowSource = new WeakMap();
         let draftIsOwner = false;
         let draftLibrary = new Map();
         let assistantBusy = false;
@@ -306,11 +311,12 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
         const stepLabels = {
           1: 'Title, Description, Premise',
           2: 'Journal/Task Objective Flow',
-          3: 'Actors Framework',
-          4: 'Dungeons & Rooms Framework',
-          5: 'Items Framework',
-          6: 'Composition & Validation',
-          7: 'Review Storyline',
+          3: 'Institutions',
+          4: 'Actors Framework',
+          5: 'Dungeons & Rooms Framework',
+          6: 'Items Framework',
+          7: 'Composition & Validation',
+          8: 'Review Storyline',
         };
 
         function setDraftStatus(text) {
@@ -494,15 +500,106 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
           return (await response.text()).trim();
         }
 
-        function listFromCollection(collection, keys) {
+        function entriesFromCollection(collection, keys) {
           const rows = wizard.querySelectorAll(`[data-rows="${collection}"] .gm-storyline-wizard__row`);
           return Array.from(rows).map((row) => {
             const item = {};
             keys.forEach((key) => {
               item[key] = (row.querySelector(`[data-col-field="${key}"]`)?.value || '').trim();
             });
-            return item;
-          }).filter((item) => Object.values(item).some((value) => value !== ''));
+            return { row, item };
+          }).filter(({ item }) => Object.values(item).some((value) => value !== ''));
+        }
+
+        function listFromCollection(collection, keys) {
+          return entriesFromCollection(collection, keys).map(({ item }) => item);
+        }
+
+        // The saved record with the form's values over it. A field left empty
+        // that the record never had stays absent.
+        function withEdits(source, edited) {
+          const result = { ...source };
+          Object.entries(edited).forEach(([key, value]) => {
+            if (value !== '' || key in source) {
+              result[key] = value;
+            }
+          });
+          return result;
+        }
+
+        function institutionOptionLabel(institution) {
+          const kind = wizard.querySelector('[data-row-template="institution_entries"]')
+            .content.querySelector(`[data-col-field="domain"] option[value="${institution.domain}"]`).textContent;
+          return `${institution.name} (${kind})`;
+        }
+
+        function fillInstitutionOptions(scope, excludedId) {
+          scope.querySelectorAll('select[data-institution-options]').forEach((select) => {
+            savedInstitutions.filter((institution) => institution.institution_id !== excludedId).forEach((institution) => {
+              const option = document.createElement('option');
+              option.value = institution.institution_id;
+              option.textContent = institutionOptionLabel(institution);
+              select.appendChild(option);
+            });
+          });
+        }
+
+        // Sub-rows of a row: an institution's stances, an actor's affiliations.
+        function addSubRow(row, kind, seed = {}) {
+          const subrow = wizard.querySelector(`[data-subrow-template="${kind}"]`)
+            .content.querySelector('.gm-storyline-wizard__subrow').cloneNode(true);
+          // An institution holds no stance toward itself.
+          fillInstitutionOptions(subrow, kind === 'stances' ? (rowSource.get(row).institution_id || '') : '');
+          subrow.querySelectorAll('[data-sub-field]').forEach((field) => {
+            const value = seed[field.getAttribute('data-sub-field')];
+            if (value != null) {
+              field.value = String(value);
+            }
+          });
+          rowSource.set(subrow, seed);
+          row.querySelector(`[data-subrows="${kind}"] [data-subrow-list]`).appendChild(subrow);
+          return subrow;
+        }
+
+        function subRowsOf(row, kind) {
+          return Array.from(row.querySelectorAll(`[data-subrows="${kind}"] .gm-storyline-wizard__subrow`)).map((subrow) => {
+            const edited = {};
+            subrow.querySelectorAll('[data-sub-field]').forEach((field) => {
+              edited[field.getAttribute('data-sub-field')] = field.value.trim();
+            });
+            return { source: rowSource.get(subrow), edited };
+          });
+        }
+
+        function institutionsFromForm() {
+          return Array.from(wizard.querySelectorAll('[data-rows="institution_entries"] .gm-storyline-wizard__row')).map((row) => {
+            const source = rowSource.get(row);
+            const edited = {};
+            collections.institution_entries.forEach((key) => {
+              edited[key] = row.querySelector(`[data-col-field="${key}"]`).value.trim();
+            });
+            const stances = subRowsOf(row, 'stances')
+              .filter((stance) => stance.edited.toward_institution_id !== '' || stance.edited.reason !== '')
+              .map((stance) => withEdits(stance.source, stance.edited));
+            if (stances.length === 0 && Object.values(edited).every((value) => value === '')) {
+              return null;
+            }
+            const institution = withEdits(source, edited);
+            if (stances.length > 0 || 'stances' in source) {
+              institution.stances = stances;
+            }
+            return institution;
+          }).filter((institution) => institution !== null);
+        }
+
+        function affiliationsFromRow(row) {
+          return subRowsOf(row, 'affiliations')
+            .filter((affiliation) => affiliation.edited.institution_id !== '')
+            .map(({ source, edited }) => withEdits(source, {
+              institution_id: edited.institution_id,
+              // Member is the standing of an affiliation that states none.
+              standing: edited.standing === 'member' && !('standing' in source) ? '' : edited.standing,
+            }));
         }
 
         function addCollectionRow(collection, seed = {}) {
@@ -514,11 +611,17 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
           const prototype = template.content?.querySelector('.gm-storyline-wizard__row');
           const row = prototype instanceof Element ? prototype.cloneNode(true) : null;
           if (row) {
+            rowSource.set(row, seed);
+            fillInstitutionOptions(row, seed.institution_id || '');
             Object.entries(seed).forEach(([key, value]) => {
               const input = row.querySelector(`[data-col-field="${key}"]`);
               if (input) {
                 input.value = value == null ? '' : String(value);
               }
+            });
+            row.querySelectorAll('[data-subrows]').forEach((container) => {
+              const kind = container.getAttribute('data-subrows');
+              (Array.isArray(seed[kind]) ? seed[kind] : []).forEach((entry) => addSubRow(row, kind, entry));
             });
             const remove = row.querySelector('[data-remove-row]');
             if (remove) {
@@ -715,7 +818,8 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
           const conflictIdFor = createIdentifierAllocator(conflictDraftRows.map((conflict) => conflict.conflict_id));
           const objectiveDraftRows = listFromCollection('objective_entries', collections.objective_entries);
           const objectiveIdFor = createIdentifierAllocator(objectiveDraftRows.map((objective) => objective.objective_id));
-          const actorDraftRows = listFromCollection('actor_entries', collections.actor_entries);
+          const actorEntries = entriesFromCollection('actor_entries', collections.actor_entries);
+          const actorDraftRows = actorEntries.map(({ item }) => item);
           const actorIdFor = createIdentifierAllocator(actorDraftRows.map((actor) => actor.actor_id));
           const contactIdFor = createIdentifierAllocator(actorDraftRows.map((actor) => actor.contact_id));
           const actors = actorDraftRows.map((actor, index) => {
@@ -825,9 +929,12 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
             },
             objects: {
               actors: {
-                generation_specs: actors.map((actor) => {
-                  const affiliations = actorAffiliations.get(actor.actor_id);
-                  return affiliations && affiliations.length ? { ...actor, affiliations } : actor;
+                generation_specs: actors.map((actor, index) => {
+                  const { affiliations: saved, ...source } = rowSource.get(actorEntries[index].row);
+                  const affiliations = affiliationsFromRow(actorEntries[index].row);
+                  return affiliations.length > 0 || saved !== undefined
+                    ? { ...source, ...actor, affiliations }
+                    : { ...source, ...actor };
                 }),
                 relationships: actorRelationships.filter((relationship) => {
                   const ids = actors.map((actor) => actor.actor_id);
@@ -846,6 +953,7 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
                 generation_specs: items,
                 validation_criteria: parseLines(get('item_validation')),
               },
+              institutions: institutionsFromForm(),
             },
             orchestration: {
               generation: parseLines(get('generation_orchestration')),
@@ -854,11 +962,38 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
           };
         }
 
+        // Suggestions for the ID fields that name a place or a cast member.
+        function refreshReferenceLists(blueprint) {
+          const lists = {
+            places: [
+              ...blueprint.objects.rooms.generation_specs.map((room) => [room.room_id, 'Room']),
+              ...blueprint.objects.dungeons.generation_specs.map((dungeon) => [dungeon.dungeon_id, 'Site']),
+            ],
+            cast: blueprint.objects.actors.generation_specs.map((actor) => [actor.actor_id, actor.display_name]),
+          };
+          Object.entries(lists).forEach(([name, entries]) => {
+            const list = wizard.querySelector(`[data-reference-list="${name}"]`);
+            // Rebuilding an open suggestion list on every keystroke closes it.
+            const signature = JSON.stringify(entries);
+            if (list.dataset.signature === signature) {
+              return;
+            }
+            list.dataset.signature = signature;
+            list.replaceChildren(...entries.map(([value, label]) => {
+              const option = document.createElement('option');
+              option.value = value;
+              option.label = label;
+              return option;
+            }));
+          });
+        }
+
         function refreshObjectEditorLinks() {
           if (!objectEditorLinks) {
             return;
           }
           const blueprint = buildBlueprint();
+          refreshReferenceLists(blueprint);
           const objects = [
             ...(blueprint.objects?.dungeons?.generation_specs || []).map((dungeon) => ({
               kind: 'dungeon',
@@ -888,6 +1023,20 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
             objectEditorLinks.appendChild(sceneItem);
           }
           const actorCount = (blueprint.objects?.actors?.generation_specs || []).length;
+          const institutionCount = blueprint.objects.institutions.length;
+          if ((institutionCount > 0 || actorCount > 0) && draftId && draftsSettings.institutionReviewUrl) {
+            const institutionItem = document.createElement('li');
+            const institutionLink = document.createElement('a');
+            const institutionUrl = new URL(draftsSettings.institutionReviewUrl, window.location.origin);
+            institutionUrl.searchParams.set('draft_id', draftId);
+            institutionLink.href = institutionUrl.toString();
+            institutionLink.target = '_blank';
+            institutionLink.rel = 'noopener';
+            institutionLink.textContent = `Institutions and their members (${institutionCount})`;
+            institutionLink.title = 'Open every institution of the saved draft with the cast tied to it, and the cast tied to none';
+            institutionItem.appendChild(institutionLink);
+            objectEditorLinks.appendChild(institutionItem);
+          }
           if (actorCount > 0 && draftId && draftsSettings.actorGraphUrl) {
             const graphItem = document.createElement('li');
             const graphLink = document.createElement('a');
@@ -939,6 +1088,7 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
             ['Scenes', blueprint.process_flow.journal_entries],
             ['Quests', blueprint.process_flow.tasks],
             ['Choices', blueprint.process_flow.branch_choices],
+            ['Institutions', blueprint.objects.institutions],
             ['Actors', blueprint.objects.actors.generation_specs],
             ['Dungeons', blueprint.objects.dungeons.generation_specs],
           ]) {
@@ -958,9 +1108,7 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
             return;
           }
           actorRelationships = Array.isArray(payload?.objects?.actors?.relationships) ? payload.objects.actors.relationships : [];
-          actorAffiliations = new Map((payload?.objects?.actors?.generation_specs || [])
-            .filter((actor) => Array.isArray(actor?.affiliations))
-            .map((actor) => [actor.actor_id, actor.affiliations]));
+          savedInstitutions = Array.isArray(payload?.objects?.institutions) ? payload.objects.institutions : [];
           const setField = (key, value) => {
             const field = wizard.querySelector(`[data-field="${key}"]`);
             if (field) {
@@ -1074,6 +1222,7 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
                 : []
             ))],
             ['objective_entries', payload?.process_flow?.objective_completion_criteria || []],
+            ['institution_entries', savedInstitutions],
             ['actor_entries', payload?.objects?.actors?.generation_specs || []],
             ['dungeon_entries', payload?.objects?.dungeons?.generation_specs || []],
             ['room_entries', payload?.objects?.rooms?.generation_specs || []],
@@ -1278,6 +1427,8 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
             draftIsOwner = draft.is_owner === true;
             draftLifecycle = String(draft.status || '');
             draftDirty = false;
+            // The saved payload carries the institution IDs the server derived.
+            hydrateFromPayload(draft.payload);
             applyDraftOwnershipState();
             updateDraftUrl();
             setDraftStatus(`Saved draft ${draftId.slice(0, 8)} (rev ${draftRevision})`);
@@ -1569,10 +1720,10 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
               result.canonical_valid
                 ? `Canonical validation passes with ${Number(result.warning_count || 0)} warnings.`
                 : `Canonical validation has ${Number(result.error_count || 0)} errors and ${Number(result.warning_count || 0)} warnings.`,
-              `Content: ${Number(counts.scenes || 0)} scenes, ${Number(counts.tasks || 0)} tasks, ${Number(counts.objectives || 0)} objectives, ${Number(counts.conflicts || 0)} conflicts, ${Number(counts.actors || 0)} actors, ${Number(counts.dungeons || 0)} dungeons, ${Number(counts.rooms || 0)} rooms, and ${Number(counts.items || 0)} items.`,
-              Number(result.current_stage || 1) <= 6
+              `Content: ${Number(counts.scenes || 0)} scenes, ${Number(counts.tasks || 0)} tasks, ${Number(counts.objectives || 0)} objectives, ${Number(counts.conflicts || 0)} conflicts, ${Number(counts.institutions || 0)} institutions, ${Number(counts.actors || 0)} actors, ${Number(counts.dungeons || 0)} dungeons, ${Number(counts.rooms || 0)} rooms, and ${Number(counts.items || 0)} items.`,
+              Number(result.current_stage || 1) <= 7
                 ? `Current focus: Stage ${Number(result.current_stage || 1)}.`
-                : 'All six authoring stages are complete; final review is next.',
+                : 'All seven authoring stages are complete; final review is next.',
             ];
             const missing = Array.isArray(result.missing_content) ? result.missing_content : [];
             if (missing.length > 0) {
@@ -2016,7 +2167,7 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
           if (metaEl) {
             metaEl.textContent = `Step ${activeStep} of ${maxStep}`;
           }
-          if (activeStep === 7) {
+          if (activeStep === maxStep) {
             refreshPreview();
           }
         }
@@ -2040,7 +2191,7 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
             row?.querySelector('input, select, textarea')?.focus();
             const label = button.closest('.gm-storyline-wizard__collection-header')?.querySelector('h4')?.textContent?.trim() || 'collection';
             setDraftStatus(`Added a row to ${label}. Unsaved changes.`);
-            if (activeStep === 7) {
+            if (activeStep === maxStep) {
               refreshPreview();
             }
           });
@@ -2069,6 +2220,19 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
             activateStep(back.getAttribute('data-step-back'));
             return;
           }
+          const addSub = target.closest('[data-add-subrow]');
+          const removeSub = target.closest('[data-remove-subrow]');
+          if (addSub || removeSub) {
+            event.preventDefault();
+            if (addSub) {
+              const container = addSub.closest('[data-subrows]');
+              addSubRow(container.closest('.gm-storyline-wizard__row'), container.getAttribute('data-subrows')).querySelector('select').focus();
+            } else {
+              removeSub.closest('.gm-storyline-wizard__subrow').remove();
+            }
+            markDraftDirty();
+            return;
+          }
           const removeRow = target.closest('[data-remove-row]');
           if (removeRow) {
             event.preventDefault();
@@ -2076,7 +2240,7 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
             row?.remove();
             markDraftDirty();
             refreshObjectEditorLinks();
-            if (activeStep === 7) {
+            if (activeStep === maxStep) {
               refreshPreview();
             }
             return;
@@ -2132,7 +2296,7 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
         fields.forEach((field) => {
           field.addEventListener('input', () => {
             markDraftDirty();
-            if (activeStep === 7) {
+            if (activeStep === maxStep) {
               refreshPreview();
             }
           });
@@ -2390,7 +2554,7 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
           if (!(questOutlineEl && questOutlineEl.contains(document.activeElement))) {
             scheduleQuestOutline();
           }
-          if (event.target instanceof Element && event.target.closest('.gm-storyline-wizard__row') && activeStep === 7) {
+          if (event.target instanceof Element && event.target.closest('.gm-storyline-wizard__row') && activeStep === maxStep) {
             refreshPreview();
           }
           if (event.target instanceof Element && event.target.closest('.gm-storyline-wizard__row')) {
