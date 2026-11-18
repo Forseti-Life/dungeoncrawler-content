@@ -7,11 +7,12 @@ namespace Drupal\dungeoncrawler_content\Controller;
 use Drupal\Core\Access\CsrfRequestHeaderAccessCheck;
 use Drupal\Core\Access\CsrfTokenGenerator;
 use Drupal\Core\Controller\ControllerBase;
+use Drupal\Core\Render\Markup;
 use Drupal\Core\Url;
 use Drupal\dungeoncrawler_content\Service\InstitutionLibraryService;
 use Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService;
 use Drupal\dungeoncrawler_content\Service\Definition\DefinitionValidationException;
-use Drupal\dungeoncrawler_content\Render\DefinitionEditorGmPanel;
+use Drupal\dungeoncrawler_content\Render\DefinitionEditorPage;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -69,13 +70,22 @@ final class DefinitionEditorController extends ControllerBase {
       ];
     }
 
-    return $this->withGmPanel([
+    $total = array_sum(array_map(static fn(array $row): int => (int) $row[1], $rows));
+    return $this->inEditorPage([
       '#type' => 'table',
       '#header' => [$this->t('Family'), $this->t('Definitions'), $this->t('Schema'), $this->t('Storage'), ''],
       '#rows' => $rows,
       '#attributes' => ['class' => ['dc-definition-index']],
       '#cache' => ['max-age' => 0],
-    ], ['family' => 'creature']);
+    ], ['family' => 'creature'], DefinitionEditorPage::wrap(
+      $this->definitions,
+      (string) $this->t('Canonical Library'),
+      NULL,
+      [
+        ['label' => $this->t('Families'), 'value' => (string) count($rows)],
+        ['label' => $this->t('Definitions'), 'value' => (string) $total],
+      ],
+    ));
   }
 
   /**
@@ -128,22 +138,14 @@ final class DefinitionEditorController extends ControllerBase {
       ];
     }
 
-    return $this->withGmPanel([
-      'header' => [
-        '#type' => 'container',
-        'title' => ['#markup' => '<h2>' . $this->t('@title definitions', ['@title' => (string) ($schema['title'] ?? ucfirst($family))]) . '</h2>'],
-        'create' => [
-          '#type' => 'link',
-          '#title' => $this->t('Create @family', ['@family' => $family]),
-          '#url' => Url::fromRoute('dungeoncrawler_content.definition_create', ['family' => $family]),
-          '#attributes' => ['class' => ['button', 'button--primary']],
-        ],
-        'back' => [
-          '#type' => 'link',
-          '#title' => $this->t('All families'),
-          '#url' => Url::fromRoute('dungeoncrawler_content.definition_index'),
-          '#attributes' => ['class' => ['button']],
-        ],
+    $listed = count($rows);
+    $conforming = count(array_filter($rows, fn(array $row): bool => (string) $row[4] === (string) $this->t('conforms')));
+    $create_url = Url::fromRoute('dungeoncrawler_content.definition_create', ['family' => $family])->toString();
+    return $this->inEditorPage([
+      'actions' => [
+        '#type' => 'inline_template',
+        '#template' => '<div class="definition-editor__actions"><a class="btn btn-primary btn-sm" href="{{ url }}">{{ label }}</a></div>',
+        '#context' => ['url' => $create_url, 'label' => $this->t('Create @family', ['@family' => $family])],
       ],
       'search' => [
         '#type' => 'inline_template',
@@ -158,7 +160,20 @@ final class DefinitionEditorController extends ControllerBase {
         '#attributes' => ['class' => ['dc-definition-list']],
       ],
       '#cache' => ['max-age' => 0],
-    ], ['family' => $family]);
+    ], ['family' => $family], DefinitionEditorPage::wrap(
+      $this->definitions,
+      (string) $this->t('@title definitions', ['@title' => (string) ($schema['title'] ?? ucfirst($family))]),
+      $family,
+      [
+        ['label' => $search !== '' ? $this->t('Match the filter') : $this->t('In this family'), 'value' => (string) $catalog['total']],
+        ['label' => $this->t('Listed here'), 'value' => (string) $listed],
+        ['label' => $this->t('Conform to the schema'), 'value' => sprintf('%d of %d', $conforming, $listed)],
+        ...($search !== '' ? [['label' => $this->t('Filter'), 'value' => $search]] : []),
+      ],
+      $listed > 0 ? (int) round($conforming / $listed * 100) : NULL,
+      $listed > $conforming ? [(string) $this->formatPlural($listed - $conforming, '1 listed definition has schema findings', '@count listed definitions have schema findings')] : [],
+      [['label' => $this->t('Create @family', ['@family' => $family]), 'url' => $create_url]],
+    ));
   }
 
   /**
@@ -270,60 +285,29 @@ final class DefinitionEditorController extends ControllerBase {
   }
 
   /**
-   * Wraps canonical-library pages with the shared editor GM panel.
+   * Places library content in the shared editor page.
+   *
+   * @param array{prefix: string, suffix: string} $page
+   *   From DefinitionEditorPage::wrap().
    */
-  private function withGmPanel(array $content, array $scope): array {
+  private function inEditorPage(array $content, array $scope, array $page): array {
     return [
-      '#type' => 'container',
-      '#attributes' => ['class' => ['dc-character-list', 'dc-character-list--storylines', 'hexmap-container', 'room-editor', 'definition-editor'], 'data-definition-editor' => ''],
-      '#attached' => $this->gmAttachment($scope),
-      'shell' => [
-        '#type' => 'container',
-        '#attributes' => ['class' => ['game-shell']],
-        'body' => [
-          '#type' => 'container',
-          '#attributes' => ['class' => ['definition-editor__body']],
-          'content' => [
-            '#type' => 'container',
-            '#attributes' => ['class' => ['definition-editor__content']],
-            'inner' => $content,
-          ],
-          'gm' => $this->gmPanel(),
-        ],
-      ],
-    ];
-  }
-
-  /**
-   * Browser settings for the definition GM panel.
-   */
-  private function gmAttachment(array $scope): array {
-    return [
-      'library' => ['dungeoncrawler_content/definition-editor'],
-      'drupalSettings' => [
-        'dungeoncrawlerContent' => [
-          'definitionEditor' => [
-            'gmUrl' => Url::fromRoute('dungeoncrawler_content.definition_editor_gm_describe')->toString(),
-            'csrfToken' => $this->csrfToken->get(CsrfRequestHeaderAccessCheck::TOKEN_KEY),
-            'scope' => $scope,
+      '#prefix' => Markup::create($page['prefix']),
+      '#suffix' => Markup::create($page['suffix']),
+      '#attached' => [
+        'library' => ['dungeoncrawler_content/definition-editor'],
+        'drupalSettings' => [
+          'dungeoncrawlerContent' => [
+            'definitionEditor' => [
+              'gmUrl' => Url::fromRoute('dungeoncrawler_content.definition_editor_gm_describe')->toString(),
+              'csrfToken' => $this->csrfToken->get(CsrfRequestHeaderAccessCheck::TOKEN_KEY),
+              'scope' => $scope,
+            ],
           ],
         ],
       ],
+      'content' => $content,
     ];
-  }
-
-  /**
-   * Shared GM panel structure consumed by DefinitionEditorShell.js.
-   */
-  private function gmPanel(): array {
-    return [
-      '#type' => 'inline_template',
-      '#template' => $this->gmPanelMarkup(),
-    ];
-  }
-
-  private function gmPanelMarkup(): string {
-    return DefinitionEditorGmPanel::markup();
   }
 
   private function validateCsrf(Request $request): ?JsonResponse {

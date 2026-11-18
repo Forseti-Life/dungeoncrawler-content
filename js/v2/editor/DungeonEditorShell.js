@@ -44,8 +44,8 @@ import {
   restoreEditorGmConversation,
   selectEditorGmTool,
   shouldSubmitEditorGmKey,
-} from './EditorGmChatClient.js?v=20261118-format-3';
-import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261118-format-3';
+} from './EditorGmChatClient.js?v=20261118-format-5';
+import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261118-format-5';
 
 const transform = globalThis.DungeonCrawlerPlacementTransform;
 if (!transform) {

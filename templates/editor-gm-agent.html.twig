@@ -14,6 +14,14 @@
  * - intro: what the author can ask for here.
  * - placeholder: composer placeholder.
  * - prompts: list of { label, text } suggested requests.
+ * - dry_run: FALSE to leave out the dry-run tick (default shown).
+ * - composer_form: FALSE when the surface's script sends from the button
+ *   rather than from a form submit (default: a form).
+ * - plan_title, plan_actions: heading and the preview / apply / discard
+ *   action names of the proposal block (defaults: the command plan).
+ *
+ * Block `extra`: further tools shown beside "What the GM sees" and
+ * "Toolset" (the Definition Editor's generate-from-a-prompt form).
  */
 #}
 <section class="gm-storyline-wizard__assistant-panel gm-storyline-wizard__assistant-panel--primary editor-gm-agent"
@@ -38,24 +46,27 @@
   <ol class="gm-storyline-wizard__assistant-log" data-{{ surface }}-gm-transcript aria-label="{{ 'GM conversation'|t }}" aria-live="polite" aria-relevant="additions"></ol>
 
   <div class="editor-gm-agent__plan" data-{{ surface }}-gm-plan hidden>
-    <p class="gm-storyline-wizard__assistant-eyebrow">{{ 'Proposed command plan'|t }}</p>
+    <p class="gm-storyline-wizard__assistant-eyebrow">{{ plan_title|default('Proposed command plan'|t) }}</p>
     <ol class="editor-gm-agent__plan-list" data-{{ surface }}-gm-plan-list></ol>
     <div class="editor-gm-agent__plan-actions">
-      <button type="button" class="btn btn-secondary btn-sm" data-{{ surface }}-action="gm-preview-plan">{{ 'Preview'|t }}</button>
-      <button type="button" class="btn btn-primary btn-sm" data-{{ surface }}-action="gm-apply-plan">{{ 'Apply plan'|t }}</button>
-      <button type="button" class="btn btn-secondary btn-sm" data-{{ surface }}-action="gm-discard-plan">{{ 'Discard'|t }}</button>
+      <button type="button" class="btn btn-secondary btn-sm" data-{{ surface }}-action="{{ plan_actions.preview|default('gm-preview-plan') }}">{{ 'Preview'|t }}</button>
+      <button type="button" class="btn btn-primary btn-sm" data-{{ surface }}-action="{{ plan_actions.apply|default('gm-apply-plan') }}">{{ 'Apply'|t }}</button>
+      <button type="button" class="btn btn-secondary btn-sm" data-{{ surface }}-action="{{ plan_actions.discard|default('gm-discard-plan') }}">{{ 'Discard'|t }}</button>
     </div>
   </div>
 
-  <form class="gm-storyline-wizard__assistant-composer" data-{{ surface }}-gm-form>
+  {% set as_form = composer_form is not defined or composer_form %}
+  <{{ as_form ? 'form' : 'div' }} class="gm-storyline-wizard__assistant-composer" data-{{ surface }}-gm-form>
     <label for="{{ surface }}-gm-input">{{ 'Ask the Game Master Agent'|t }}</label>
     <textarea id="{{ surface }}-gm-input" class="form-textarea" rows="4" data-{{ surface }}-gm-input placeholder="{{ placeholder }}"></textarea>
     <div class="gm-storyline-wizard__assistant-composer-actions">
       <span>{{ 'Enter to send · Shift + Enter for a new line'|t }}</span>
-      <label class="editor-gm-agent__dry-run"><input type="checkbox" data-{{ surface }}-gm-dry-run> {{ 'Dry run'|t }}</label>
-      <button type="submit" class="btn btn-primary" data-{{ surface }}-action="gm-send">{{ 'Send to GM'|t }}</button>
+      {% if dry_run is not defined or dry_run %}
+        <label class="editor-gm-agent__dry-run"><input type="checkbox" data-{{ surface }}-gm-dry-run> {{ 'Dry run'|t }}</label>
+      {% endif %}
+      <button type="{{ as_form ? 'submit' : 'button' }}" class="btn btn-primary" data-{{ surface }}-action="gm-send">{{ 'Send to GM'|t }}</button>
     </div>
-  </form>
+  </{{ as_form ? 'form' : 'div' }}>
 
   <div class="editor-gm-agent__disclosures">
     <section aria-label="{{ 'Grounded editor context'|t }}">
@@ -72,5 +83,6 @@
               aria-controls="{{ surface }}-gm-tools-body">{{ 'Toolset'|t }}</button>
       <div id="{{ surface }}-gm-tools-body" class="room-editor__gm-tools-body" data-{{ surface }}-gm-tools hidden></div>
     </section>
+    {% block extra %}{% endblock %}
   </div>
 </section>

@@ -8,11 +8,12 @@ use Drupal\Core\Form\FormBase;
 use Drupal\Core\Access\CsrfRequestHeaderAccessCheck;
 use Drupal\Core\Access\CsrfTokenGenerator;
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\Render\Markup;
 use Drupal\Core\Url;
 use Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService;
 use Drupal\dungeoncrawler_content\Service\Definition\DefinitionFormMapper;
 use Drupal\dungeoncrawler_content\Service\Definition\DefinitionValidationException;
-use Drupal\dungeoncrawler_content\Render\DefinitionEditorGmPanel;
+use Drupal\dungeoncrawler_content\Render\DefinitionEditorPage;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
@@ -97,8 +98,26 @@ final class SchemaDrivenDefinitionForm extends FormBase {
       'csrfToken' => $this->csrfToken->get(CsrfRequestHeaderAccessCheck::TOKEN_KEY),
       'scope' => $scope,
     ];
-    $form['#prefix'] = '<div class="dc-character-list dc-character-list--storylines hexmap-container room-editor definition-editor definition-editor__form-prefix" data-definition-editor><div class="game-shell"><div class="definition-editor__body"><main class="definition-editor__content">';
-    $form['#suffix'] = '</main>' . $this->gmPanelMarkup() . '</div></div></div>';
+    $label = $definition_id === NULL
+      ? (string) $this->t('New @family', ['@family' => $family])
+      : (string) (($payload['name'] ?? $payload['display_name'] ?? $payload['label'] ?? '') ?: $definition_id);
+    $page = DefinitionEditorPage::wrap(
+      $this->definitions,
+      $label,
+      $family,
+      [
+        ['label' => $this->t('Family'), 'value' => ucfirst($family)],
+        ['label' => $this->t('Version'), 'value' => $current_version === NULL ? (string) $this->t('not saved yet') : (string) $current_version],
+        ['label' => $this->t('Schema'), 'value' => $definition_id === NULL ? '—' : ($stored_findings === [] ? (string) $this->t('conforms') : (string) $this->formatPlural(count($stored_findings), '1 finding', '@count findings'))],
+        ['label' => $this->t('Used by published rooms'), 'value' => (string) count($affected)],
+      ],
+      NULL,
+      array_slice(array_map(static fn(array $f): string => $f['pointer'] . ': ' . $f['message'], $stored_findings), 0, 5),
+      [['label' => $this->t('Back to @family list', ['@family' => $family]), 'url' => Url::fromRoute('dungeoncrawler_content.definition_family', ['family' => $family])->toString()]],
+    );
+    // Markup, not a string: the page holds the agent's form controls.
+    $form['#prefix'] = Markup::create($page['prefix']);
+    $form['#suffix'] = Markup::create($page['suffix']);
 
     $form['#attributes']['class'][] = 'dc-definition-form';
     $form['#attributes']['class'][] = 'dc-sheet';
@@ -179,13 +198,6 @@ final class SchemaDrivenDefinitionForm extends FormBase {
     $this->attachRowButtonHandlers($form);
 
     return $form;
-  }
-
-  /**
-   * Shared GM panel structure consumed by DefinitionEditorShell.js.
-   */
-  private function gmPanelMarkup(): string {
-    return DefinitionEditorGmPanel::markup();
   }
 
   /**

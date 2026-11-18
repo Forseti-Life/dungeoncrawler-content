@@ -4,6 +4,7 @@
 
 import {
   appendEditorGmMessage,
+  bindEditorGmPrompts,
   buildEditorGmRequest,
   describeEditorGmToolCall,
   parseEditorGmMessage,
@@ -12,7 +13,7 @@ import {
   renderEditorGmToolset,
   selectEditorGmTool,
   shouldSubmitEditorGmKey,
-} from './EditorGmChatClient.js?v=20261118-format-3';
+} from './EditorGmChatClient.js?v=20261118-format-5';
 
 function makeEl(tag, className = null, text = null) {
   const el = document.createElement(tag);
@@ -403,6 +404,7 @@ export class DefinitionEditorShell {
   }
 
   _bindEvents() {
+    bindEditorGmPrompts(this.root, this._dom.gmInput, () => this._submitGmMessage());
     this._on(this._dom.gmForm, 'submit', (event) => {
       event.preventDefault();
       this._submitGmMessage();

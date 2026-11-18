@@ -5,21 +5,26 @@
   {% endif %}
 {% endfor %}
 
-<div class="character-setup-page" data-character-setup-root>
-  <div class="character-setup-page__header">
-    <div>
-      <p class="character-setup-page__eyebrow">Character creation workspace</p>
-      <h1 class="character-setup-page__title">Character Setup</h1>
-      <p class="character-setup-page__intro">Build with your character creation GM. Use the steps on the left to inspect choices; review and approve proposed changes before they are saved.</p>
-    </div>
-    <a href="{{ back_url }}" class="btn btn-secondary character-setup-page__back">Back to characters</a>
-  </div>
-
-  <div class="character-setup-page__layout">
-    <aside class="character-setup-page__sidebar" aria-label="Character creation navigation">
-      <div class="character-setup-page__sidebar-stack">
-        <div class="character-setup-page__sidebar-card">
-          <h2 class="character-setup-page__sidebar-title">Creation steps</h2>
+{#
+  The character workspace in the shared editor page format
+  (editor-page-shell.html.twig): creation steps, current state and links on
+  the left; the Character Creation GM above the step being edited.
+#}
+{% embed '@dungeoncrawler_content/editor-page-shell.html.twig' with {
+  surface: '',
+  root_attribute: 'data-character-setup-root',
+  eyebrow: 'Character creation workspace'|t,
+  title: 'Character Setup'|t,
+  intro: 'Build with your character creation GM. Use the steps on the left to inspect choices; review and approve proposed changes before they are saved.'|t,
+  back_url: back_url,
+  back_label: 'Back to characters'|t,
+  stages_title: 'Creation steps'|t,
+  panel_meta: 'Ask the Game Master Agent, or edit the step below'|t,
+  quick_links: [
+    { label: 'Characters'|t, url: back_url }
+  ],
+} %}
+  {% block stages %}
           <nav class="character-setup-page__tabs" aria-label="Character creation steps">
             {% for step in steps %}
               <a href="{{ step.url }}"
@@ -35,30 +40,42 @@
               </a>
             {% endfor %}
           </nav>
-        </div>
-        <div class="character-setup-page__sidebar-card">
-          <h2 class="character-setup-page__sidebar-title">Quicklinks</h2>
-          <nav class="character-setup-page__quicklinks" aria-label="Workspace quicklinks">
-            <a href="#character-setup-assistant-title">GM conversation</a>
-            <a href="#character-setup-editor">Current editor</a>
-            <a href="#character-setup-validation">Validation findings</a>
-            <a href="{{ back_url }}">Characters</a>
-          </nav>
-          <p>Changes stay in this draft. The final creation action completes the character.</p>
-          <div data-character-workspace-status role="status" aria-live="polite"></div>
-          <div data-character-dirty-actions hidden>
-            <p>Save your changes before switching steps or applying a GM plan.</p>
-            <button type="button" class="btn btn-secondary btn-sm" data-character-discard>Discard unsaved edits</button>
-          </div>
-        </div>
+  {% endblock %}
+
+  {% block state %}
+    <section class="character-setup-page__sidebar-card gm-storyline-status" aria-labelledby="character-setup-status-title">
+      <h2 id="character-setup-status-title" class="character-setup-page__sidebar-title">{{ 'Current state'|t }}</h2>
+      <dl>
+        <div><dt>{{ 'Current step'|t }}</dt><dd>{{ active_step }} {{ 'of'|t }} {{ steps|length }}: {{ active_step_name }}</dd></div>
+      </dl>
+      <p>{{ 'Changes stay in this draft. The final creation action completes the character.'|t }}</p>
+      <div data-character-workspace-status role="status" aria-live="polite"></div>
+      <div data-character-dirty-actions hidden>
+        <p>{{ 'Save your changes before switching steps or applying a GM plan.'|t }}</p>
+        <button type="button" class="btn btn-secondary btn-sm" data-character-discard>{{ 'Discard unsaved edits'|t }}</button>
       </div>
-    </aside>
-    <div class="character-setup-page__workspace">
+    </section>
+  {% endblock %}
+
+  {% block links %}
+    <h3 class="character-setup-page__sidebar-title">{{ 'On this page'|t }}</h3>
+    <ul class="character-setup-page__quick-links">
+      <li><a href="#character-setup-assistant-title">{{ 'GM conversation'|t }}</a></li>
+      <li><a href="#character-setup-editor">{{ 'Current editor'|t }}</a></li>
+      <li><a href="#character-setup-validation">{{ 'Validation findings'|t }}</a></li>
+    </ul>
+  {% endblock %}
+
+  {% block heading %}
+    <h2 class="character-setup-page__panel-title" data-gm-chat-summary-heading>{{ summary.name ?: 'Unnamed Character' }}</h2>
+  {% endblock %}
+
+  {% block frame %}
     <section class="gm-storyline-wizard__assistant-panel gm-storyline-wizard__assistant-panel--primary" data-character-gm-chat aria-labelledby="character-setup-assistant-title">
       <div class="gm-storyline-wizard__assistant-header">
         <div>
           <p class="gm-storyline-wizard__assistant-eyebrow">Primary character interface</p>
-          <h2 id="character-setup-assistant-title">Character Creation GM</h2>
+          <h3 id="character-setup-assistant-title">Game Master Agent</h3>
           <p>This GM works on your character draft, not the campaign runtime. Ask for guidance, validation, or a proposed build change.</p>
         </div>
       </div>
@@ -107,6 +124,5 @@
       <div data-character-validation-findings></div>
     </details>
     {% include '@dungeoncrawler_content/character-setup-step.html.twig' with {step_form: step_form, active_step: active_step, step_name: active_step_name} only %}
-    </div>
-  </div>
-</div>
+  {% endblock %}
+{% endembed %}

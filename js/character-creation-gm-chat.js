@@ -2,7 +2,7 @@ import {
   appendEditorGmMessage, buildEditorGmRequest, renderEditorGmToolCalls,
   restoreEditorGmConversation, renderEditorGmClarification,
   shouldSubmitEditorGmKey,
-} from './v2/editor/EditorGmChatClient.js?v=20261118-format-3';
+} from './v2/editor/EditorGmChatClient.js?v=20261118-format-5';
 
 (function (Drupal, once, drupalSettings) {
   'use strict';
@@ -39,6 +39,9 @@ import {
               const target = root.querySelector('[data-gm-chat-summary-field="' + key + '"]');
               if (target) target.textContent = value === '' || value === null ? 'Not selected' : String(value);
             });
+            // The page heading names the character being built.
+            const heading = root.closest('[data-character-setup-root]')?.querySelector('[data-gm-chat-summary-heading]');
+            if (heading) heading.textContent = summary.name || 'Unnamed Character';
           }
           const validation = data.validation;
           const workspace = root.closest('[data-character-setup-root]');

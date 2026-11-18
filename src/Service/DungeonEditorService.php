@@ -283,6 +283,34 @@ class DungeonEditorService {
   }
 
   /**
+   * Preserve an abandoned draft and its command log for audit.
+   *
+   * Same operation as RoomEditorService::abandonDraft(). The draft leaves
+   * every list of work in progress; nothing is deleted.
+   */
+  public function abandonDraft(string $draft_id, int $expected_revision): array {
+    $draft = $this->getDraft($draft_id);
+    if ($draft['status'] !== 'active') {
+      throw new \DomainException('draft_not_active');
+    }
+    $changed = $this->database->update('dungeoncrawler_content_dungeon_editor_drafts')
+      ->fields([
+        'status' => 'abandoned',
+        'revision' => $expected_revision + 1,
+        'updated_by' => (int) $this->currentUser->id(),
+        'updated_at' => time(),
+      ])
+      ->condition('draft_id', $draft_id)
+      ->condition('revision', $expected_revision)
+      ->condition('status', 'active')
+      ->execute();
+    if ($changed !== 1) {
+      throw new \RuntimeException('revision_conflict');
+    }
+    return $this->getDraft($draft_id);
+  }
+
+  /**
    * Finds current published and active-draft placements of one room.
    */
   public function roomUsage(string $room_id): array {

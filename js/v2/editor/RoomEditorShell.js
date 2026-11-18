@@ -48,8 +48,8 @@ import {
   restoreEditorGmConversation,
   selectEditorGmTool,
   shouldSubmitEditorGmKey,
-} from './EditorGmChatClient.js?v=20261118-format-3';
-import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261118-format-3';
+} from './EditorGmChatClient.js?v=20261118-format-5';
+import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261118-format-5';
 
 const FAMILIES = ['creature', 'actor', 'item', 'obstacle', 'trap', 'hazard'];
 const SOLID_FAMILIES = ['actor', 'creature', 'obstacle'];

@@ -74,7 +74,7 @@ character-creation-style:
     - dungeoncrawler_content/character-step-base
 
 character-creation-gm-chat:
-  version: 20261118-format-4
+  version: 20261118-format-7
   css:
     theme:
       css/character-creation-gm-chat.css: {}
@@ -88,7 +88,7 @@ character-creation-gm-chat:
     - core/drupalSettings
 
 character-setup-tabs:
-  version: 20261115-character-gm-autofill-2
+  version: 20261118-format-7
   css:
     theme:
       css/character-setup-tabs.css: {}
@@ -102,7 +102,7 @@ character-setup-tabs:
     - core/drupal.ajax
 
 editor-gm-chat-style:
-  version: 20261118-format-4
+  version: 20261118-format-7
   css:
     theme:
       css/gm-storyline-builder.css: {}
@@ -126,7 +126,7 @@ gm-storyline-scene-review:
       css/gm-storyline-scene-review.css: {}
 
 gm-storyline-builder:
-  version: 20261118-format-4
+  version: 20261118-format-7
   js:
     js/gm-storyline-builder.js: { attributes: { type: module } }
   dependencies:
@@ -266,7 +266,7 @@ hexmap-v2:
     - core/once
 
 room-editor:
-  version: 20261118-format-4
+  version: 20261118-format-7
   js:
     https://cdn.jsdelivr.net/npm/pixi.js@7.3.2/dist/pixi.min.js: { type: external, minified: true }
     js/room-editor.js: { attributes: { type: module } }
@@ -294,7 +294,7 @@ editor-library:
     - core/once
 
 editor-suite:
-  version: 20261118-format-4
+  version: 20261118-format-7
   js:
     js/editor-suite.js: { attributes: { type: module } }
   css:
@@ -335,7 +335,7 @@ module-explorer:
     - core/once
 
 dungeon-editor:
-  version: 20261118-format-4
+  version: 20261118-format-7
   js:
     https://cdn.jsdelivr.net/npm/pixi.js@7.3.2/dist/pixi.min.js: { type: external, minified: true }
     js/dungeon-editor.js: { attributes: { type: module } }
@@ -353,14 +353,16 @@ dungeon-editor:
     - core/once
 
 definition-editor:
-  version: 20261118-format-4
+  version: 20261118-format-7
   js:
     js/definition-editor.js: { attributes: { type: module } }
   css:
     theme:
       css/room-editor.css: {}
+      css/editor-page.css: {}
       css/definition-editor.css: {}
   dependencies:
+    - dungeoncrawler_content/character-setup-tabs
     - dungeoncrawler_content/editor-gm-chat-style
     - core/drupal
     - core/drupalSettings

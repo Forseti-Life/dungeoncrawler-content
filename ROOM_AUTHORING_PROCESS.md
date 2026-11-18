@@ -78,3 +78,9 @@ Every editor's agent conversation is rendered by one client,
 js/v2/editor/EditorGmChatClient.js, with one set of styles
 (css/gm-storyline-builder.css): Storyline, Dungeon, Room, Definition and
 Character pages.
+
+The same page format is used by every authoring page: Storyline Builder,
+Dungeon Editor, Room Editor, Definition Editor (library, family lists and
+the definition form, laid out by Render/DefinitionEditorPage and
+templates/definition-editor-page.html.twig) and Character Setup
+(templates/character-setup-page.html.twig).

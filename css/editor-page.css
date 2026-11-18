@@ -154,3 +154,84 @@
   width: auto;
   margin: 0;
 }
+
+/* Definition Editor: its generate form and its tables inside the page. */
+.editor-gm-agent__generate {
+  flex: 1 1 100%;
+}
+
+.editor-gm-agent__generate > summary {
+  display: inline-block;
+  list-style: none;
+  cursor: pointer;
+}
+
+.editor-gm-agent__generate > summary::-webkit-details-marker {
+  display: none;
+}
+
+.editor-gm-agent__generate-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.6rem 0.9rem;
+  margin: 0.8rem 0;
+}
+
+.editor-gm-agent__generate-wide {
+  grid-column: 1 / -1;
+}
+
+.editor-page .definition-editor__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.7rem;
+}
+
+.editor-page .dc-definition-search {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.9rem;
+}
+
+.editor-page .dc-definition-search input {
+  flex: 1 1 auto;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid rgba(186, 143, 76, 0.3);
+  border-radius: 8px;
+  background: rgba(4, 9, 17, 0.85);
+  color: #fff8e6;
+}
+
+.editor-page .dc-definition-search button {
+  padding: 0.45rem 0.9rem;
+  border: 1px solid rgba(186, 143, 76, 0.4);
+  border-radius: 8px;
+  background: rgba(53, 40, 18, 0.9);
+  color: #fff8e6;
+}
+
+.editor-page .definition-editor__content table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.editor-page .definition-editor__content th,
+.editor-page .definition-editor__content td {
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid rgba(186, 143, 76, 0.18);
+  color: rgba(255, 248, 230, 0.88);
+  text-align: left;
+  background: transparent;
+}
+
+.editor-page .definition-editor__content th {
+  color: #f8dfae;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.editor-page .definition-editor__content tbody tr:hover td {
+  background: rgba(240, 200, 122, 0.06);
+}

@@ -3,7 +3,7 @@
  * Drupal behavior bootstrap for canonical-library GM panels.
  */
 
-import { DefinitionEditorShell } from './v2/editor/DefinitionEditorShell.js?v=20261118-format-3';
+import { DefinitionEditorShell } from './v2/editor/DefinitionEditorShell.js?v=20261118-format-5';
 
 (function (Drupal, drupalSettings, once) {
   'use strict';

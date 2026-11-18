@@ -266,10 +266,18 @@ final class DefinitionEditorGmContractTest extends TestCase {
 
     $controller = $this->source('src/Controller/DefinitionEditorController.php');
     $form = $this->source('src/Form/SchemaDrivenDefinitionForm.php');
-    $panel = $this->source('src/Render/DefinitionEditorGmPanel.php');
+    // The page and its agent panel come from the shared editor templates.
+    $this->assertStringContainsString('DefinitionEditorPage::wrap(', $controller);
+    $this->assertStringContainsString('DefinitionEditorPage::wrap(', $form);
+    $page = $this->source('templates/definition-editor-page.html.twig');
+    $this->assertStringContainsString("@dungeoncrawler_content/editor-page-shell.html.twig", $page);
+    $this->assertStringContainsString("@dungeoncrawler_content/editor-gm-agent.html.twig", $page);
+    $this->assertStringContainsString("surface: 'definition-editor'", $page);
+    $agent = $this->source('templates/editor-gm-agent.html.twig');
     $shell = $this->source('js/v2/editor/DefinitionEditorShell.js');
-    foreach (['data-definition-editor', 'data-definition-editor-gm-panel', 'data-definition-editor-gm-plan', 'describe_definition_schema'] as $token) {
-      $this->assertStringContainsString($token, $controller . $form . $panel . $shell);
+    foreach (['gm-plan', 'gm-transcript', 'gm-input'] as $part) {
+      $this->assertStringContainsString('data-{{ surface }}-' . $part, $agent);
+      $this->assertStringContainsString('[data-definition-editor-' . $part, $shell);
     }
     $this->assertStringContainsString('definition-editor:', $this->source('dungeoncrawler_content.libraries.yml'));
   }

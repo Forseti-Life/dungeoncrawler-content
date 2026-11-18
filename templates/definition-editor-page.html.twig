@@ -1,0 +1,151 @@
+{#
+/**
+ * @file
+ * A Definition Editor page (library index, family list, one definition) in
+ * the shared editor page format.
+ *
+ * Rendered by Render\DefinitionEditorPage, which splits the result at the
+ * content marker so a table or a Drupal form can sit inside it.
+ *
+ * Variables:
+ * - families: list of { id, label, count, url, active }.
+ * - page_name: what the workspace heading names.
+ * - percent: completion percent, or null when the page has none.
+ * - facts: list of { label, value } for the Current state card.
+ * - needed: list of strings still needed, or empty.
+ * - family_links: list of { label, url } for this family or definition.
+ * - quick_links: list of { label, url }.
+ * - content_marker: where the page content goes.
+ */
+#}
+{% embed '@dungeoncrawler_content/editor-page-shell.html.twig' with {
+  surface: 'definition-editor',
+  title: 'Definition Editor'|t,
+  intro: 'Create and maintain the library everything else is built from: items, creatures, actors, obstacles, traps and hazards.'|t,
+  back_url: path('dungeoncrawler_content.definition_index'),
+  back_label: 'Back to the library'|t,
+  stages_title: 'Definition families'|t,
+  panel_meta: 'Ask the Game Master Agent, or edit the fields below'|t,
+} %}
+  {% block stages %}
+    <nav class="character-setup-page__tabs" aria-label="{{ 'Definition families'|t }}">
+      {% for family in families %}
+        <a href="{{ family.url }}" class="character-setup-page__tab{{ family.active ? ' is-active' : '' }}"{% if family.active %} aria-current="page"{% endif %}>
+          <span class="character-setup-page__tab-number">{{ loop.index }}</span>
+          <span class="character-setup-page__tab-copy">
+            <span class="character-setup-page__tab-name">{{ family.label }}</span>
+            <span class="character-setup-page__tab-description">{{ family.count }} {{ family.count == 1 ? 'definition'|t : 'definitions'|t }}</span>
+          </span>
+        </a>
+      {% endfor %}
+    </nav>
+  {% endblock %}
+
+  {% block state %}
+    <section class="character-setup-page__sidebar-card gm-storyline-status" aria-labelledby="definition-editor-status-title">
+      <h2 id="definition-editor-status-title" class="character-setup-page__sidebar-title">{{ 'Current state'|t }}</h2>
+      {% if percent is not null %}
+        <div class="gm-storyline-status__score"><strong>{{ percent }}%</strong><span>{{ 'conform to their schema'|t }}</span></div>
+        <progress max="100" value="{{ percent }}">{{ percent }}%</progress>
+      {% endif %}
+      <dl>
+        {% for fact in facts %}
+          <div><dt>{{ fact.label }}</dt><dd>{{ fact.value }}</dd></div>
+        {% endfor %}
+      </dl>
+      {% if needed %}
+        <p class="gm-storyline-status__label"><strong>{{ 'Still needed'|t }}</strong></p>
+        <ul>{% for item in needed %}<li>{{ item }}</li>{% endfor %}</ul>
+      {% endif %}
+    </section>
+  {% endblock %}
+
+  {% block links %}
+    {% if family_links %}
+      <h3 class="character-setup-page__sidebar-title">{{ 'Here'|t }}</h3>
+      <ul class="character-setup-page__quick-links">
+        {% for link in family_links %}
+          <li><a href="{{ link.url }}">{{ link.label }}</a></li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+  {% endblock %}
+
+  {% block heading %}
+    <h2 class="character-setup-page__panel-title">{{ page_name }}</h2>
+  {% endblock %}
+
+  {% block gm %}
+    {% embed '@dungeoncrawler_content/editor-gm-agent.html.twig' with {
+      surface: 'definition-editor',
+      eyebrow: 'Primary definition interface'|t,
+      intro: 'Describe what you want to build, ask what a definition is missing, or request a change. Proposed updates are shown for approval before they are saved.'|t,
+      placeholder: 'Describe a definition, ask what is missing, or request a change.'|t,
+      prompts: [
+        { label: 'What is missing'|t, text: 'Review what is in scope here and tell me what is missing or does not conform. Name one finding and how it is fixed.'|t },
+        { label: 'Explain the fields'|t, text: 'Describe the schema for this family: which fields are required and what each one is for.'|t },
+        { label: 'Find duplicates'|t, text: 'Check this family for definitions that describe the same thing under different IDs.'|t }
+      ],
+      dry_run: false,
+      composer_form: false,
+      plan_title: 'Proposed definition update'|t,
+      plan_actions: { preview: 'gm-preview-definition', apply: 'gm-apply-definition', discard: 'gm-discard-definition' },
+    } only %}
+      {% block extra %}
+        <details class="editor-gm-agent__generate" data-definition-editor-generation>
+          <summary class="btn btn-secondary btn-sm">{{ 'Generate from a prompt'|t }}</summary>
+          <div class="editor-gm-agent__generate-fields">
+            <label>{{ 'Family'|t }}
+              <select data-definition-editor-generation-family>
+                <option value="item">{{ 'Item'|t }}</option>
+                <option value="creature">{{ 'Creature'|t }}</option>
+                <option value="actor">{{ 'NPC'|t }}</option>
+                <option value="obstacle">{{ 'Obstacle / Object'|t }}</option>
+                <option value="hazard">{{ 'Hazard'|t }}</option>
+                <option value="trap">{{ 'Trap'|t }}</option>
+              </select>
+            </label>
+            <label class="editor-gm-agent__generate-wide">{{ 'Prompt'|t }}
+              <textarea data-definition-editor-generation-prompt rows="3" maxlength="2000" placeholder="{{ 'A rusted but enchanted lantern, an oak banquet table, or a lava fissure'|t }}"></textarea>
+            </label>
+            <label data-definition-editor-generation-level-field>{{ 'Level'|t }}
+              <input type="number" data-definition-editor-generation-level min="-1" max="30" step="1" value="1">
+            </label>
+            <label data-definition-editor-generation-rarity-field>{{ 'Rarity'|t }}
+              <select data-definition-editor-generation-rarity>
+                <option value="common">{{ 'Common'|t }}</option>
+                <option value="uncommon">{{ 'Uncommon'|t }}</option>
+                <option value="rare">{{ 'Rare'|t }}</option>
+                <option value="unique">{{ 'Unique'|t }}</option>
+                <option value="epic">{{ 'Epic'|t }}</option>
+                <option value="legendary">{{ 'Legendary'|t }}</option>
+              </select>
+            </label>
+            <label data-definition-editor-generation-role-field>{{ 'Role / Category / Type'|t }}
+              <input type="text" data-definition-editor-generation-role maxlength="100" placeholder="{{ 'informant, guardian, table, decor, mechanical, complex'|t }}">
+            </label>
+            <label data-definition-editor-generation-attitude-field>{{ 'Attitude'|t }}
+              <select data-definition-editor-generation-attitude>
+                <option value="">{{ 'Default'|t }}</option>
+                <option value="hostile">{{ 'Hostile'|t }}</option>
+                <option value="unfriendly">{{ 'Unfriendly'|t }}</option>
+                <option value="indifferent">{{ 'Indifferent'|t }}</option>
+                <option value="friendly">{{ 'Friendly'|t }}</option>
+                <option value="helpful">{{ 'Helpful'|t }}</option>
+              </select>
+            </label>
+            <label>{{ 'Seed (optional)'|t }}
+              <input type="number" data-definition-editor-generation-seed min="0" max="2147483647" step="1">
+            </label>
+          </div>
+          <button type="button" class="btn btn-primary btn-sm" data-definition-editor-action="generate-definition">{{ 'Generate definition'|t }}</button>
+          <p data-definition-editor-generation-unavailable hidden>{{ 'Generation is available for item, creature, actor/NPC, obstacle, hazard and trap scopes.'|t }}</p>
+        </details>
+      {% endblock %}
+    {% endembed %}
+  {% endblock %}
+
+  {% block editor %}
+    <div class="definition-editor definition-editor__content">{{ content_marker|raw }}</div>
+  {% endblock %}
+{% endembed %}

@@ -21,6 +21,10 @@
  * - surface: 'dungeon-editor' or 'room-editor', or empty. Becomes the root
  *   data attribute the editor shell binds to (data-dungeon-editor) and the
  *   prefix of the status attribute (data-dungeon-editor-gm-status).
+ * - root_attribute: a data attribute a page's own script binds to, when it
+ *   is not an editor surface (the character workspace).
+ * - eyebrow: the small label over the title; "Game master workspace" when
+ *   not given.
  * - panel_meta: the line beside the workspace heading.
  * - title, intro: page heading and one-sentence purpose.
  * - back_url, back_label: link to the manager page.
@@ -34,9 +38,9 @@
  * js/v2/editor/EditorDraftStatusCard.js; nothing in it is computed here.
  */
 #}
-<div class="character-setup-page{% if surface %} editor-page editor-page--{{ surface }}{% endif %}"{% if surface %} data-{{ surface }}{% endif %}>
+<div class="character-setup-page{% if surface %} editor-page editor-page--{{ surface }}{% endif %}"{% if surface %} data-{{ surface }}{% endif %}{% if root_attribute %} {{ root_attribute }}{% endif %}>
   <div class="character-setup-page__header">
-    <p class="character-setup-page__eyebrow">{{ 'Game master workspace'|t }}</p>
+    <p class="character-setup-page__eyebrow">{{ eyebrow|default('Game master workspace'|t) }}</p>
     <h1 class="character-setup-page__title">{{ title }}</h1>
     <p class="character-setup-page__intro">{{ intro }}</p>
     <a class="btn btn-secondary character-setup-page__back" href="{{ back_url }}">{{ back_label }}</a>

@@ -3,7 +3,7 @@
  * Drupal behavior bootstrap for the editor suite hub.
  */
 
-import { EditorSuiteShell } from './v2/editor/EditorSuiteShell.js?v=20261118-format-3';
+import { EditorSuiteShell } from './v2/editor/EditorSuiteShell.js?v=20261118-format-5';
 
 (function (Drupal, drupalSettings, once) {
   'use strict';

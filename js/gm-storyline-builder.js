@@ -6,7 +6,7 @@ import {
   renderEditorGmClarification,
   renderEditorGmToolCalls,
   shouldSubmitEditorGmKey,
-} from './v2/editor/EditorGmChatClient.js?v=20261118-format-3';
+} from './v2/editor/EditorGmChatClient.js?v=20261118-format-5';
 import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117-review-2';
 
 (function (Drupal, once, drupalSettings) {

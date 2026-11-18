@@ -183,48 +183,23 @@
   }
 }
 
-  .character-setup-page[data-character-setup-root] .character-setup-page__layout {
-    grid-template-columns: minmax(13rem, 17rem) minmax(0, 1fr);
-  }
-
+  /* The character workspace uses the shared editor page; only what its
+     step editing needs is set here. */
   .character-setup-page[data-character-setup-root] .character-setup-page__workspace {
-    display: grid;
-    gap: 1.25rem;
     overflow-anchor: none;
   }
 
-  .character-setup-page[data-character-setup-root] .character-setup-page__sidebar {
-    max-height: calc(100vh - var(--drupal-displace-offset-top, 0px) - 2rem);
-    overflow-y: auto;
+  .character-setup-page[data-character-setup-root] .character-setup-page__frame-shell {
+    display: grid;
+    gap: 1.25rem;
   }
 
   .character-setup-page[data-character-setup-root] .character-setup-page__tab[aria-disabled='true'] {
     pointer-events: auto;
   }
 
-  .character-setup-page__quicklinks {
-    display: grid;
-    gap: 0.6rem;
-  }
-
-  .character-setup-page[data-character-setup-root] .gm-storyline-wizard__assistant-log {
-    max-height: 22rem;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-  }
-
   .character-setup-page[data-character-setup-root] .gm-storyline-wizard__assistant-item {
-    white-space: pre-wrap;
     overflow-wrap: anywhere;
-    padding: 0.75rem;
-    border-radius: 0.6rem;
-    background: rgba(18, 24, 38, 0.9);
-  }
-
-  .character-setup-page[data-character-setup-root] .gm-storyline-wizard__assistant-item pre {
-    max-height: 14rem;
-    overflow: auto;
-    white-space: pre-wrap;
   }
 
   [data-character-workspace-status].is-error {
@@ -237,15 +212,6 @@
   }
 
   @media (max-width: 880px) {
-    .character-setup-page[data-character-setup-root] .character-setup-page__layout {
-      grid-template-columns: 1fr;
-    }
-
-    .character-setup-page[data-character-setup-root] .character-setup-page__sidebar {
-      max-height: none;
-      overflow: visible;
-    }
-
     .character-setup-page[data-character-setup-root] .character-setup-page__tabs {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));

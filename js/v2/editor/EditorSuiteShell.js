@@ -17,7 +17,7 @@ import {
   renderEditorGmToolset,
   selectEditorGmTool,
   shouldSubmitEditorGmKey,
-} from './EditorGmChatClient.js?v=20261118-format-3';
+} from './EditorGmChatClient.js?v=20261118-format-5';
 
 function clearElement(el) {
   while (el && el.firstChild) {
