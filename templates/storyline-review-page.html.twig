@@ -1,0 +1,62 @@
+{#
+/**
+ * @file
+ * A read-only review page of one storyline draft (scenes, actors and
+ * relationships, institutions) in the shared editor page format.
+ *
+ * Rendered through Render\EditorPageShell::split(), so the page content (a
+ * render array) sits where content_marker is printed.
+ *
+ * Variables:
+ * - storyline_title: the storyline's title.
+ * - builder_url: the Storyline Builder opened on this draft.
+ * - pages: list of { label, description, url, active }.
+ * - facts: list of { label, value } for the Current state card.
+ * - quick_links: list of { label, url }.
+ * - content_marker: where the page content goes.
+ */
+#}
+{% embed '@dungeoncrawler_content/editor-page-shell.html.twig' with {
+  surface: '',
+  title: 'GM Storyline Builder'|t,
+  intro: 'Read the storyline as it is saved: its scenes in order, its cast and their ties, and the institutions they belong to.'|t,
+  back_url: builder_url,
+  back_label: 'Back to the storyline draft'|t,
+  stages_title: 'Storyline pages'|t,
+  panel_meta: 'Read-only review. Changes are made in the storyline draft, by you or its Game Master Agent.'|t,
+} %}
+  {% block stages %}
+    <nav class="character-setup-page__tabs" aria-label="{{ 'Storyline pages'|t }}">
+      {% for page in pages %}
+        <a href="{{ page.url }}" class="character-setup-page__tab{{ page.active ? ' is-active' : '' }}"{% if page.active %} aria-current="page"{% endif %}>
+          <span class="character-setup-page__tab-number">{{ loop.index }}</span>
+          <span class="character-setup-page__tab-copy">
+            <span class="character-setup-page__tab-name">{{ page.label }}</span>
+            <span class="character-setup-page__tab-description">{{ page.description }}</span>
+          </span>
+        </a>
+      {% endfor %}
+    </nav>
+  {% endblock %}
+
+  {% block state %}
+    <section class="character-setup-page__sidebar-card gm-storyline-status" aria-labelledby="storyline-review-status-title">
+      <h2 id="storyline-review-status-title" class="character-setup-page__sidebar-title">{{ 'Current state'|t }}</h2>
+      <dl>
+        {% for fact in facts %}
+          <div><dt>{{ fact.label }}</dt><dd>{{ fact.value }}</dd></div>
+        {% endfor %}
+      </dl>
+    </section>
+  {% endblock %}
+
+  {% block links %}{% endblock %}
+
+  {% block heading %}
+    <h2 class="character-setup-page__panel-title">{{ storyline_title ?: 'Untitled storyline'|t }}</h2>
+  {% endblock %}
+
+  {% block frame %}
+    <div class="editor-page__review">{{ content_marker|raw }}</div>
+  {% endblock %}
+{% endembed %}

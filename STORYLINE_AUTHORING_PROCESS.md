@@ -1010,3 +1010,12 @@ one template the Storyline Builder, the Dungeon Editor and the Room Editor
 all embed: header, left column (stages, current state, quick links) and
 workspace. This page fills the template's blocks with its own stage
 buttons, state card, "In this storyline" links and wizard.
+
+The read-only pages about a draft (scenes in order, actors and
+relationships, institutions, and the page of one planned actor) use the
+same page through Render/StorylineReviewPage and
+templates/storyline-review-page.html.twig: the four storyline pages on the
+left, the draft's counts as its current state, the content on the right.
+A library actor's sheet opened outside a campaign sits in the Definition
+Editor page with the agent scoped to that actor; in a campaign the sheet
+is shown plain, as players see it.

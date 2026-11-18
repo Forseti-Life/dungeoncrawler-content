@@ -235,3 +235,9 @@
 .editor-page .definition-editor__content tbody tr:hover td {
   background: rgba(240, 200, 122, 0.06);
 }
+
+/* Review pages and sheets placed inside the page keep their own panels. */
+.editor-page__review,
+.editor-page .definition-editor__content > .dc-character-sheet {
+  min-width: 0;
+}

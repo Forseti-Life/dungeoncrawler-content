@@ -7,6 +7,7 @@ use Drupal\dungeoncrawler_content\Service\RelationshipAttitudeService;
 use Drupal\Component\Utility\Html;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Link;
+use Drupal\dungeoncrawler_content\Render\StorylineReviewPage;
 use Drupal\Core\Url;
 use Drupal\dungeoncrawler_content\Service\RoomEditorService;
 use Drupal\dungeoncrawler_content\Service\StorylineAuthoringDraftService;
@@ -144,7 +145,7 @@ class GmStorylineBuilderController extends ControllerBase {
       ];
     }
 
-    return [
+    $page = [
       '#type' => 'inline_template',
       '#cache' => ['max-age' => 0],
       '#attached' => ['library' => ['dungeoncrawler_content/gm-storyline-scene-review']],
@@ -158,7 +159,6 @@ class GmStorylineBuilderController extends ControllerBase {
       '#template' => <<<'TWIG'
 <div class="scene-review">
   <header class="scene-review__header">
-    <a class="scene-review__back" href="{{ back_url }}">← Back to the storyline draft</a>
     <h2 class="scene-review__title">{{ title ?: 'Untitled storyline' }}</h2>
     <p class="scene-review__meta">Revision {{ revision }} · {{ scenes|length }} scenes · read-only view of the saved draft</p>
     <p class="scene-review__legend">Characters and rooms open in a new tab. A dashed name has nothing to open yet: the room is not built, or the character is not an actor in this draft.</p>
@@ -229,6 +229,17 @@ class GmStorylineBuilderController extends ControllerBase {
 </div>
 TWIG,
     ];
+    return $this->inStorylinePage($page, $draft, 'scenes');
+  }
+
+  /**
+   * Places a storyline review page in the shared editor page.
+   *
+   * @param string $active
+   *   Which page this is: scenes, actors or institutions.
+   */
+  private function inStorylinePage(array $page, array $draft, string $active): array {
+    return StorylineReviewPage::wrap($page, $draft, $active);
   }
 
   /**
@@ -382,7 +393,7 @@ TWIG,
       $types[] = ['label' => InstitutionNormalizationService::AUTHORABLE_DOMAINS[$domain], 'hint' => InstitutionNormalizationService::DOMAIN_HINTS[$domain], 'count' => $count];
     }
 
-    return [
+    $page = [
       '#type' => 'inline_template',
       '#cache' => ['max-age' => 0],
       '#attached' => ['library' => ['dungeoncrawler_content/gm-storyline-scene-review']],
@@ -399,7 +410,6 @@ TWIG,
       '#template' => <<<'TWIG'
 <div class="scene-review">
   <header class="scene-review__header">
-    <a class="scene-review__back" href="{{ back_url }}">← Back to the storyline draft</a>
     <h2 class="scene-review__title">{{ title ?: 'Untitled storyline' }}</h2>
     <p class="scene-review__meta">Revision {{ revision }} · {{ institutions|length }} institutions · {{ cast_count - untied|length }} of {{ cast_count }} cast members tied · read-only view of the saved draft</p>
     <p class="scene-review__meta">{% for type in types %}<span title="{{ type.hint }}">{{ type.label }} {{ type.count }}</span>{% if not loop.last %} · {% endif %}{% endfor %}</p>
@@ -469,6 +479,7 @@ TWIG,
 </div>
 TWIG,
     ];
+    return $this->inStorylinePage($page, $draft, 'institutions');
   }
 
   /**
@@ -485,7 +496,7 @@ TWIG,
     $draft_route = ['draft_id' => $draft_id];
     $actor_url = Url::fromRoute('dungeoncrawler_content.actor_view', ['actor_id' => 'ACTORID'], ['query' => $draft_route])->toString();
 
-    return [
+    $page = [
       '#type' => 'container',
       '#attributes' => ['class' => ['actor-graph'], 'data-actor-graph-root' => ''],
       '#cache' => ['max-age' => 0],
@@ -506,7 +517,6 @@ TWIG,
       'bar' => [
         '#type' => 'container',
         '#attributes' => ['class' => ['actor-graph__bar']],
-        'back' => Link::fromTextAndUrl($this->t('← Back to the storyline draft'), Url::fromRoute('dungeoncrawler_content.gm_storyline_builder', [], ['query' => $draft_route]))->toRenderable(),
         'group' => ['#markup' => '<div class="actor-graph__group" data-actor-graph-group></div>'],
         'status' => ['#markup' => '<p class="actor-graph__status" data-actor-graph-status aria-live="polite"></p>'],
       ],
@@ -517,6 +527,7 @@ TWIG,
         'panel' => ['#markup' => '<aside class="actor-graph__panel" data-actor-graph-panel aria-label="Selected actor"></aside>'],
       ],
     ];
+    return $this->inStorylinePage($page, $this->reviewDraft($request), 'actors');
   }
 
   /** The eight stage buttons of the left column. */

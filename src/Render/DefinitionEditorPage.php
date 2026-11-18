@@ -16,8 +16,6 @@ use Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService;
  */
 final class DefinitionEditorPage {
 
-  private const CONTENT_MARKER = '<!--definition-editor-content-->';
-
   /**
    * @param string $page_name
    *   What the workspace heading names.
@@ -47,7 +45,7 @@ final class DefinitionEditorPage {
       ];
     }
     $quick = static fn(string $label, string $route): array => ['label' => t($label), 'url' => Url::fromRoute($route)->toString()];
-    $html = (string) \Drupal::service('twig')->render('@dungeoncrawler_content/definition-editor-page.html.twig', [
+    return EditorPageShell::split('@dungeoncrawler_content/definition-editor-page.html.twig', [
       'families' => $families,
       'page_name' => $page_name,
       'percent' => $percent,
@@ -60,13 +58,7 @@ final class DefinitionEditorPage {
         $quick('Dungeon Manager', 'dungeoncrawler_content.dungeon_management'),
         $quick('Room Manager', 'dungeoncrawler_content.room_management'),
       ],
-      'content_marker' => self::CONTENT_MARKER,
     ]);
-    $parts = explode(self::CONTENT_MARKER, $html);
-    if (count($parts) !== 2) {
-      throw new \LogicException('definition_editor_page_content_marker_missing');
-    }
-    return ['prefix' => $parts[0], 'suffix' => $parts[1]];
   }
 
 }

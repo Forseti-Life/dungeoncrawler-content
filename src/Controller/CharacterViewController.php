@@ -5,7 +5,12 @@ namespace Drupal\dungeoncrawler_content\Controller;
 use Drupal\Component\Datetime\TimeInterface;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Database\Connection;
+use Drupal\Core\Access\CsrfRequestHeaderAccessCheck;
+use Drupal\Core\Render\Markup;
 use Drupal\Core\Url;
+use Drupal\dungeoncrawler_content\Render\DefinitionEditorPage;
+use Drupal\dungeoncrawler_content\Render\StorylineReviewPage;
+use Drupal\dungeoncrawler_content\Service\InstitutionLibraryService;
 use Drupal\dungeoncrawler_content\Form\CharacterPortraitRegenerateForm;
 use Drupal\dungeoncrawler_content\Form\CharacterPortraitUploadForm;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
@@ -620,12 +625,20 @@ class CharacterViewController extends ControllerBase {
       if (!$is_admin && !$is_owner && !$is_campaign_owner && $campaign_id <= 0) {
         throw new AccessDeniedHttpException();
       }
-      return $this->buildCharacterSheetRenderArray($record, $campaign_id);
+      $sheet = $this->buildCharacterSheetRenderArray($record, $campaign_id);
+      // Outside a campaign, a library actor is an object being authored:
+      // its sheet sits in the Definition Editor's page.
+      return $campaign_id <= 0 ? $this->inActorEditorPage($sheet, $actor_id, $record) : $sheet;
     }
 
     $draft_id = trim((string) \Drupal::request()->query->get('draft_id', ''));
     if ($draft_id !== '' && $campaign_id <= 0) {
-      return $this->buildStorylineDraftActorPage($draft_id, $actor_id);
+      $storyline_drafts = \Drupal::service('dungeoncrawler_content.storyline_authoring_drafts');
+      return StorylineReviewPage::wrap(
+        $this->buildStorylineDraftActorPage($draft_id, $actor_id),
+        $storyline_drafts->getDraftForViewing($draft_id),
+        'actors',
+      );
     }
 
     $descriptor = NULL;
@@ -678,6 +691,71 @@ class CharacterViewController extends ControllerBase {
       'meta' => [
         '#markup' => '<pre style="white-space:pre-wrap;">' . json_encode($sheet_meta, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . '</pre>',
       ],
+    ];
+  }
+
+  /**
+   * Places a library actor's sheet in the Definition Editor page.
+   *
+   * A character that is not an actor definition (a player's own character)
+   * keeps its plain sheet.
+   */
+  private function inActorEditorPage(array $sheet, string $actor_id, object $record): array {
+    $record = (array) $record;
+    $definitions = \Drupal::service('dungeoncrawler_content.canonical_definitions');
+    $definition_id = (string) ($record['instance_id'] ?? $actor_id);
+    try {
+      $definitions->definitionPayload('actor', $definition_id);
+    }
+    catch (\OutOfBoundsException) {
+      return $sheet;
+    }
+    $data = json_decode((string) ($record['character_data'] ?? ''), TRUE) ?: [];
+    $facts_sheet = [
+      'ancestry' => trim((string) ($record['ancestry'] ?? '')) ?: (is_string($data['ancestry'] ?? NULL) ? $data['ancestry'] : ''),
+      'class' => trim((string) ($record['class'] ?? '')) ?: (is_string($data['class'] ?? NULL) ? $data['class'] : ''),
+      'alignment' => (string) ($data['alignment'] ?? ''),
+    ];
+    $library = \Drupal::service('dungeoncrawler_content.institution_library');
+    $memberships = $library->characterMemberships($data);
+    $person = InstitutionLibraryService::isSocialActor($facts_sheet);
+    $gaps = $person ? InstitutionLibraryService::criticalTieGaps($facts_sheet, array_column($memberships, 'domain')) : [];
+    $or_none = fn(string $value): string => $value !== '' ? $value : (string) $this->t('not set');
+    $page = DefinitionEditorPage::wrap(
+      $definitions,
+      (string) ($record['name'] ?? $actor_id),
+      'actor',
+      [
+        ['label' => $this->t('Level'), 'value' => (string) (int) ($record['level'] ?? 0)],
+        ['label' => $this->t('Class'), 'value' => $or_none($facts_sheet['class'])],
+        ['label' => $this->t('Ancestry'), 'value' => $or_none($facts_sheet['ancestry'])],
+        ['label' => $this->t('Alignment'), 'value' => $or_none($facts_sheet['alignment'])],
+        ['label' => $this->t('Institutions'), 'value' => (string) count($memberships)],
+        ['label' => $this->t('Critical ties'), 'value' => (string) (!$person ? $this->t('not a person') : ($gaps === [] ? $this->t('complete') : $this->t('incomplete')))],
+      ],
+      NULL,
+      array_map(fn(string $gap): string => (string) $this->t('A @gap for this actor', ['@gap' => $gap]), $gaps),
+      [
+        ['label' => $this->t('Definition fields'), 'url' => Url::fromRoute('dungeoncrawler_content.definition_edit', ['family' => 'actor', 'definition_id' => $definition_id])->toString()],
+        ['label' => $this->t('All actors'), 'url' => Url::fromRoute('dungeoncrawler_content.definition_family', ['family' => 'actor'])->toString()],
+      ],
+    );
+    return [
+      '#prefix' => Markup::create($page['prefix']),
+      '#suffix' => Markup::create($page['suffix']),
+      '#attached' => [
+        'library' => ['dungeoncrawler_content/definition-editor'],
+        'drupalSettings' => [
+          'dungeoncrawlerContent' => [
+            'definitionEditor' => [
+              'gmUrl' => Url::fromRoute('dungeoncrawler_content.definition_editor_gm_describe')->toString(),
+              'csrfToken' => \Drupal::service('csrf_token')->get(CsrfRequestHeaderAccessCheck::TOKEN_KEY),
+              'scope' => ['family' => 'actor', 'definition_id' => $definition_id],
+            ],
+          ],
+        ],
+      ],
+      'sheet' => $sheet,
     ];
   }
 
