@@ -178,6 +178,8 @@ STEP;
     $execution_options['tool_choice'] = count($functions) === 1
       ? ['type' => 'function', 'function' => ['name' => (string) array_key_first($functions)]]
       : 'required';
+    // Several tool calls in one reply are a queue, where a queue is offered.
+    $execution_options['tool_calls_multiple'] = isset($functions['task_queue']);
     $result = $this->ai->invokeModelDirect(
       $this->buildPrompt($utterance, $context_snapshot, $registry, $surface_label),
       self::MODULE,
@@ -203,10 +205,11 @@ STEP;
       throw new \RuntimeException('editor_gm_intent_output_truncated', 502);
     }
 
-    $call = is_array($result['tool_call'] ?? NULL) ? $result['tool_call'] : [];
+    $calls = array_values(array_filter((array) ($result['tool_calls'] ?? [$result['tool_call'] ?? NULL]), 'is_array'));
+    $call = $calls[0] ?? [];
     try {
       return $this->decodeIntent(
-        $this->decodeFunctionCall($call, $functions),
+        count($calls) > 1 ? $this->queueFromFunctionCalls($calls, $functions) : $this->decodeFunctionCall($call, $functions),
         $registry,
         $surface_label === 'Storyline Builder',
       );
@@ -360,6 +363,29 @@ STEP;
       ] + ($function['strict'] ? ['strict' => TRUE] : [])];
     }
     return $tools;
+  }
+
+  /**
+   * Reads several function calls in one reply as a task queue.
+   *
+   * The model asks for several tools at once by calling each; that is the
+   * same request as task_queue. Every call must be a registered tool: an
+   * answer or a question cannot be mixed with work.
+   */
+  private function queueFromFunctionCalls(array $calls, array $functions): array {
+    $tasks = [];
+    foreach ($calls as $call) {
+      $task = $this->decodeFunctionCall($call, $functions);
+      if ($task['type'] !== 'tool_call') {
+        throw new \DomainException('editor_gm_intent_parallel_call_not_a_tool:' . (string) ($call['name'] ?? ''));
+      }
+      $tasks[] = array_diff_key($task, ['type' => TRUE]);
+    }
+    return [
+      'type' => 'task_queue',
+      'reasoning' => implode(' ', array_unique(array_column($tasks, 'reasoning'))),
+      'tasks' => $tasks,
+    ];
   }
 
   /**
@@ -798,8 +824,10 @@ using only the grounded editor context you are given. Select an internal tool
 only when the request requires one.
 
 Hard rules:
-- Reply by calling exactly one of the provided functions. Never answer in
-  plain text.
+- Reply by calling one of the provided functions. Never answer in plain
+  text. When the request needs several tools, either call task_queue or call
+  each tool; the calls run in the order given. Never combine a tool with
+  direct_response or clarification.
 - You may only use a tool name from the provided toolset. Never invent one.
 - Never invent canonical room ids, placement ids, hex coordinates, port ids,
   instance ids, or catalog definition ids. Use only canonical values present

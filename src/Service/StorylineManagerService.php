@@ -1521,7 +1521,7 @@ class StorylineManagerService {
 
     foreach ($quest_ids as $quest_id) {
       try {
-        $phases = $this->loadQuestTemplateObjectivePhases($quest_id);
+        $phases = $this->questObjectivePhasesUnderValidation($storyline_data, $quest_id);
       }
       catch (\Throwable $exception) {
         $errors[] = "Task contract validation for quest template '{$quest_id}' failed: {$exception->getMessage()}";
@@ -1626,7 +1626,7 @@ class StorylineManagerService {
     $quest_ids = $this->collectStorylineQuestIdsForObjectiveValidation($storyline_data);
     foreach ($quest_ids as $quest_id) {
       try {
-        $phases = $this->loadQuestTemplateObjectivePhases($quest_id);
+        $phases = $this->questObjectivePhasesUnderValidation($storyline_data, $quest_id);
       }
       catch (\Throwable $exception) {
         $errors[] = "Objective playability validation for quest template '{$quest_id}' failed: {$exception->getMessage()}";
@@ -1807,7 +1807,7 @@ class StorylineManagerService {
     $quest_ids = $this->collectStorylineQuestIdsForObjectiveValidation($storyline_data);
     foreach ($quest_ids as $quest_id) {
       try {
-        $phases = $this->loadQuestTemplateObjectivePhases($quest_id);
+        $phases = $this->questObjectivePhasesUnderValidation($storyline_data, $quest_id);
       }
       catch (\Throwable $exception) {
         $errors[] = "Entity linkage validation for quest template '{$quest_id}' failed: {$exception->getMessage()}";
@@ -6941,6 +6941,25 @@ class StorylineManagerService {
         $this->collectObjectiveIdsRecursively($child, $ids);
       }
     }
+  }
+
+  /**
+   * The objective phases to judge for one quest of a storyline definition.
+   *
+   * A definition authored in the Storyline Builder carries its objectives as
+   * builder rows, and publication writes each task's quest record from those
+   * rows. The stored quest under the same ID is the last publication, or
+   * another storyline's quest, not what this definition says. A task without
+   * rows has nothing to judge here; the objective stage reports it.
+   */
+  protected function questObjectivePhasesUnderValidation(array $storyline_data, string $quest_id): ?array {
+    $builder = $storyline_data['metadata']['storyline_builder'] ?? NULL;
+    if (!is_array($builder) || !array_key_exists('objective_completion_criteria', $builder)) {
+      return $this->loadQuestTemplateObjectivePhases($quest_id);
+    }
+    $rows = StorylineQuestRecordBuilder::rowsByTask(array_values(array_filter((array) $builder['objective_completion_criteria'], 'is_array')))[$quest_id] ?? [];
+    $rows = array_values(array_filter($rows, [StorylineQuestRecordBuilder::class, 'hasExpressibleType']));
+    return $rows === [] ? NULL : (new StorylineQuestRecordBuilder($this->objectiveTypeService))->objectivePhases($rows);
   }
 
   /**
