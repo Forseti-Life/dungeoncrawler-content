@@ -227,7 +227,7 @@ class StorylineAuthoringDraftService {
       'process' => [
         'Read the current draft and revision; distinguish inspection from an authorized edit.',
         'Reuse grounded IDs for existing objects; look up named canonical objects before rebinding.',
-        'Before adding a character, search the character library with find_library_characters. When a library character fits, bind it by its actor_id instead of inventing one, and offer the matches to the author when the choice is theirs. A quest giver or hook is a library character whenever one fits.',
+        'To add a character the author names, use bind_library_characters; it looks the character up and saves the cast row. Before inventing a character, search the character library with find_library_characters. When a library character fits, bind it by its actor_id instead of inventing one, and offer the matches to the author when the choice is theirs. A quest giver or hook is a library character whenever one fits.',
         'A character new to the story is placed: its location_id names a room or site of this storyline.',
         'For new append rows, omit generated identity fields and let the authority allocate collision-free, draft-scoped IDs.',
         'Give related new rows internal batch keys and link them with $draft_ref values; never ask the author to supply keys or IDs.',
@@ -1297,10 +1297,13 @@ class StorylineAuthoringDraftService {
       ->condition('name', array_values(array_map(static fn(array $spec): string => trim((string) $spec['display_name']), $named)), 'IN')
       ->execute()
       ->fetchAll(\PDO::FETCH_ASSOC);
+    // A cast member bound to a library record is not a duplicate of it,
+    // nor of other library records that share its name.
+    $library_ids = array_fill_keys(array_column($rows, 'instance_id'), TRUE);
     $findings = [];
     foreach ($rows as $row) {
       $spec = $named[mb_strtolower(trim((string) $row['name']))] ?? NULL;
-      if ($spec === NULL || (string) $row['instance_id'] === (string) $spec['actor_id']) {
+      if ($spec === NULL || isset($library_ids[(string) $spec['actor_id']])) {
         continue;
       }
       $findings[] = [
