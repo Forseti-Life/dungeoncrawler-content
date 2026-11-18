@@ -1185,6 +1185,7 @@ TWIG,
               <select class="form-select" aria-label="Actor interaction" data-col-field="trigger_interaction">{$trigger_interaction_options}</select>
               <input type="text" class="form-text" placeholder="Trigger condition" aria-label="Trigger condition" data-col-field="trigger_condition">
               <input type="text" class="form-text" placeholder="Affected actor/source ID" aria-label="Trigger source ID" data-col-field="trigger_source_id">
+              <input type="text" class="form-text" placeholder='Story state (optional), e.g. {"subject_type":"institution","subject_id":"…","measure":"members_lost","at_least":0.5}' aria-label="Measurable story state that resolves this choice on its own" title="When this state comes true in play, the engine resolves the choice by itself. Institution: members_lost with at_least (share of members dead or fled). Actor: dead, fled or lost. Task: completed, failed or superseded." data-col-field="trigger_when">
               <input type="text" class="form-text" placeholder="Effect summary" aria-label="Effect summary" data-col-field="effect_summary">
               <input type="text" class="form-text" placeholder="Target task ID" aria-label="Target task ID" data-col-field="target_task_id">
               <input type="text" class="form-text" placeholder="Target scene ID" aria-label="Target scene ID" data-col-field="target_scene_id">

@@ -1149,6 +1149,13 @@ class QuestTrackerService {
     if ($character_id === NULL || $character_id <= 0) {
       throw new \InvalidArgumentException('Quest completion requires a positive character_id.');
     }
+    // A quest is completed as a success or a failure. A quest the story has
+    // moved past is superseded (StorylineQuestLifecycleService), not
+    // completed: it pays nothing and costs nothing.
+    $outcome = strtolower(trim($outcome));
+    if (!in_array($outcome, ['success', 'failure'], TRUE)) {
+      throw new \InvalidArgumentException(sprintf("Quest completion outcome must be 'success' or 'failure'; got '%s' (campaign_id=%d, quest_id=%s).", $outcome, $campaign_id, $quest_id));
+    }
 
     $now = $this->time->getRequestTime();
     $progress_record = $this->loadProgress($campaign_id, $quest_id, $character_id);

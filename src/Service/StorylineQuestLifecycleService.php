@@ -278,6 +278,31 @@ class StorylineQuestLifecycleService {
     return $update->execute() > 0;
   }
 
+  /** A quest still open to the party. */
+  public const OPEN_STATUSES = ['active', 'ready_for_turn_in', 'offered', 'lead', 'available'];
+
+  /**
+   * Closes an open quest the story has moved past.
+   *
+   * Neither a success nor a failure: nothing is paid and no standing
+   * changes. The quest and each open progress record are marked superseded.
+   *
+   * @return bool
+   *   Whether the quest was open and is now closed.
+   */
+  public function supersedeOpenQuest(int $campaign_id, string $quest_id): bool {
+    if (!$this->setQuestStatusByQuestId($campaign_id, $quest_id, 'superseded', self::OPEN_STATUSES)) {
+      return FALSE;
+    }
+    $this->database->update('dc_campaign_quest_progress')
+      ->fields(['completed_at' => time(), 'outcome' => 'superseded'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('quest_id', trim($quest_id))
+      ->isNull('completed_at')
+      ->execute();
+    return TRUE;
+  }
+
   /**
    * Start an offered quest through the canonical tracker service.
    */

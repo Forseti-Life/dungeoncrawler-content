@@ -27,6 +27,12 @@ class StorylineManagerService {
     'gm_decision',
   ];
   public const STORYLINE_BRANCH_INTERACTIONS = ['other', 'attacked', 'killed'];
+  /** What a story-state condition can measure, by the kind of its subject. */
+  public const STORY_STATE_MEASURES = [
+    'institution' => ['members_lost'],
+    'actor' => ['dead', 'fled', 'lost'],
+    'task' => ['completed', 'failed', 'superseded'],
+  ];
   public const STORYLINE_BRANCH_ENVIRONMENT_TARGET_TYPES = ['room', 'dungeon', 'location', 'world'];
   public const STORYLINE_BRANCH_TARGET_TYPES = ['task', 'scene', 'conflict', 'chapter', 'storyline'];
   public const STORYLINE_BRANCH_OPERATIONS = ['unlock', 'lock', 'reveal', 'conceal', 'redirect', 'escalate', 'resolve', 'set'];
@@ -3910,7 +3916,204 @@ class StorylineManagerService {
       $this->persistCampaignStorylinePointers($campaign_id, $storyline_id, !empty($changes['is_primary']));
     }
 
+    if ($branch_result !== []) {
+      $this->applyBranchChoiceToQuests($campaign_id, $storyline_id, $branch_result);
+    }
+
     return $this->getCampaignStoryline($campaign_id, $storyline_id, FALSE);
+  }
+
+  /**
+   * Makes a resolved choice's storyline effects real for the party's quests.
+   *
+   * `lock` or `resolve` on a task closes its open quest as superseded: the
+   * story moved past it, so nothing is paid and no standing changes.
+   * `redirect` on the storyline closes every open quest of the storyline
+   * except the choice's own target. The quests of the scene the storyline
+   * moved to are then offered.
+   */
+  protected function applyBranchChoiceToQuests(int $campaign_id, string $storyline_id, array $branch_result): void {
+    $lifecycle = $this->resolveStorylineQuestLifecycleService();
+    $superseded = [];
+    $target_template_id = (string) $branch_result['target_quest_id'];
+    foreach (array_values(array_filter((array) ($branch_result['effects']['storyline'] ?? []), 'is_array')) as $effect) {
+      $target_type = (string) ($effect['target_type'] ?? '');
+      $operation = (string) ($effect['operation'] ?? '');
+      if ($target_type === 'task' && in_array($operation, ['lock', 'resolve'], TRUE)) {
+        $quest = $lifecycle->loadQuestByTemplate($campaign_id, (string) $effect['target_id']);
+        if ($quest !== NULL && $lifecycle->supersedeOpenQuest($campaign_id, (string) $quest['quest_id'])) {
+          $superseded[] = (string) $quest['quest_id'];
+        }
+      }
+      elseif ($target_type === 'storyline' && $operation === 'redirect') {
+        $open = $this->database->select('dc_campaign_quests', 'q')
+          ->fields('q', ['quest_id', 'source_template_id'])
+          ->condition('campaign_id', $campaign_id)
+          ->condition('storyline_id', $storyline_id)
+          ->condition('status', StorylineQuestLifecycleService::OPEN_STATUSES, 'IN')
+          ->execute()
+          ->fetchAll(\PDO::FETCH_ASSOC);
+        foreach ($open as $quest) {
+          if ((string) $quest['source_template_id'] !== $target_template_id && $lifecycle->supersedeOpenQuest($campaign_id, (string) $quest['quest_id'])) {
+            $superseded[] = (string) $quest['quest_id'];
+          }
+        }
+      }
+    }
+    $row = $this->database->select('dc_campaign_storylines', 's')
+      ->fields('s')
+      ->condition('campaign_id', $campaign_id)
+      ->condition('storyline_id', $storyline_id)
+      ->execute()
+      ->fetchAssoc();
+    $offered = is_array($row) && $this->materializeCurrentStorylineQuestTemplates($campaign_id, $storyline_id, 'branch_resolved', NULL, [], $row);
+    if ($superseded !== [] || $offered) {
+      $this->logStorylineEvent(
+        $campaign_id,
+        $storyline_id,
+        'branch_quests_updated',
+        ['decision_id' => $branch_result['decision_id'], 'choice_id' => $branch_result['choice_id'], 'superseded_quest_ids' => $superseded, 'offered_scene_quests' => $offered],
+        sprintf('The story moved on: %d quest(s) closed as superseded%s.', count($superseded), $offered ? ', and the next scene\'s quests offered' : ''),
+      );
+    }
+  }
+
+  /**
+   * Resolves the choices whose measurable story state has come true.
+   *
+   * Called when the facts a condition reads change: an encounter ends, a
+   * quest changes state. A choice fires once; each firing may make another
+   * true, so the storylines are read again until nothing more fires.
+   *
+   * @return array<int, array{storyline_id: string, decision_id: string, choice_id: string}>
+   *   The choices resolved, in order.
+   */
+  public function evaluateStoryStateTriggers(int $campaign_id): array {
+    if ($this->evaluatingStoryState || !$this->isRuntimeStorylineStorageReady()) {
+      return [];
+    }
+    $this->evaluatingStoryState = TRUE;
+    $fired = [];
+    try {
+      for ($pass = 0; $pass < 20; $pass++) {
+        $next = NULL;
+        $rows = $this->database->select('dc_campaign_storylines', 's')
+          ->fields('s', ['storyline_id', 'storyline_data', 'variables'])
+          ->condition('campaign_id', $campaign_id)
+          ->condition('status', 'active')
+          ->execute()
+          ->fetchAll(\PDO::FETCH_ASSOC);
+        foreach ($rows as $row) {
+          $data = $this->decodeJsonColumn($row['storyline_data'] ?? NULL);
+          $resolved = (array) ($this->decodeJsonColumn($row['variables'] ?? NULL)['branch_choices'] ?? []);
+          // A storyline-wide choice can fire from anywhere; a task's own
+          // choice only while that task's quest is open.
+          $choices = array_values(array_filter((array) ($data['questline']['storyline_choices'] ?? []), 'is_array'));
+          foreach (array_values(array_filter((array) ($data['questline']['quest_nodes'] ?? []), 'is_array')) as $node) {
+            $quest = $this->resolveStorylineQuestLifecycleService()->loadQuestByTemplate($campaign_id, (string) ($node['quest_id'] ?? ''));
+            if ($quest !== NULL && in_array((string) $quest['status'], StorylineQuestLifecycleService::OPEN_STATUSES, TRUE)) {
+              array_push($choices, ...array_values(array_filter((array) ($node['choices'] ?? []), 'is_array')));
+            }
+          }
+          foreach ($choices as $choice) {
+            $when = $choice['trigger']['when'] ?? NULL;
+            $decision_id = (string) ($choice['decision_id'] ?? '');
+            if (!is_array($when) || $decision_id === '' || isset($resolved[$decision_id])) {
+              continue;
+            }
+            if ($this->storyStateHolds($campaign_id, $data, $when)) {
+              $next = ['storyline_id' => (string) $row['storyline_id'], 'decision_id' => $decision_id, 'choice_id' => (string) $choice['choice_id']];
+              break 2;
+            }
+          }
+        }
+        if ($next === NULL) {
+          break;
+        }
+        $this->advanceCampaignStoryline($campaign_id, $next['storyline_id'], [
+          'branch_choice' => ['decision_id' => $next['decision_id'], 'choice_id' => $next['choice_id']],
+        ]);
+        $fired[] = $next;
+      }
+    }
+    finally {
+      $this->evaluatingStoryState = FALSE;
+    }
+    return $fired;
+  }
+
+  /** Set while story-state conditions are being evaluated, so closing a quest does not re-enter. */
+  protected bool $evaluatingStoryState = FALSE;
+
+  /**
+   * Whether one measurable story state is true in a campaign.
+   *
+   * An actor is lost when it died or fled the room in an encounter; that
+   * fate is recorded on the campaign actor when the encounter ends.
+   */
+  protected function storyStateHolds(int $campaign_id, array $storyline_data, array $when): bool {
+    $subject_id = trim((string) ($when['subject_id'] ?? ''));
+    $measure = (string) ($when['measure'] ?? '');
+    $fates = function (array $instance_ids) use ($campaign_id): array {
+      if ($instance_ids === []) {
+        return [];
+      }
+      $fates = [];
+      $rows = $this->database->select('dc_campaign_characters', 'c')
+        ->fields('c', ['instance_id', 'state_data'])
+        ->condition('campaign_id', $campaign_id)
+        ->condition('instance_id', $instance_ids, 'IN')
+        ->execute()
+        ->fetchAll(\PDO::FETCH_ASSOC);
+      foreach ($rows as $row) {
+        $fates[(string) $row['instance_id']] = (string) ($this->decodeJsonColumn($row['state_data'] ?? NULL)['fate']['state'] ?? '');
+      }
+      return $fates;
+    };
+    switch ((string) ($when['subject_type'] ?? '')) {
+      case 'institution':
+        $members = array_map('strval', $this->database->select('dc_campaign_relationships', 'r')
+          ->fields('r', ['source_id'])
+          ->condition('campaign_id', $campaign_id)
+          ->condition('relationship_type', 'institution_member')
+          ->condition('target_type', 'institution')
+          ->condition('target_id', $subject_id)
+          ->execute()
+          ->fetchCol());
+        if ($members === []) {
+          return FALSE;
+        }
+        $lost = count(array_filter($fates($members), static fn(string $fate): bool => in_array($fate, ['dead', 'fled'], TRUE)));
+        return $lost / count($members) >= (float) $when['at_least'];
+
+      case 'actor':
+        $instance_id = '';
+        foreach (array_filter((array) ($storyline_data['contacts'] ?? []), 'is_array') as $contact) {
+          if ((string) ($contact['entity_id'] ?? '') === $subject_id) {
+            $instance_id = trim((string) ($contact['runtime_entity_id'] ?? ''));
+          }
+        }
+        $fate = $instance_id === '' ? '' : ($fates([$instance_id])[$instance_id] ?? '');
+        return $measure === 'lost' ? in_array($fate, ['dead', 'fled'], TRUE) : $fate === $measure;
+
+      case 'task':
+        $quest = $this->resolveStorylineQuestLifecycleService()->loadQuestByTemplate($campaign_id, $subject_id);
+        if ($quest === NULL) {
+          return FALSE;
+        }
+        if ($measure === 'superseded') {
+          return (string) $quest['status'] === 'superseded';
+        }
+        $outcomes = $this->database->select('dc_campaign_quest_progress', 'p')
+          ->fields('p', ['outcome'])
+          ->condition('campaign_id', $campaign_id)
+          ->condition('quest_id', (string) $quest['quest_id'])
+          ->isNotNull('completed_at')
+          ->execute()
+          ->fetchCol();
+        return in_array($measure === 'completed' ? 'success' : 'failure', $outcomes, TRUE);
+    }
+    throw new \InvalidArgumentException(sprintf('Story-state condition has unsupported subject type "%s".', (string) ($when['subject_type'] ?? '')));
   }
 
   /**
@@ -4150,6 +4353,11 @@ class StorylineManagerService {
       ],
       'Quest state updated for storyline: ' . $quest_id
     );
+
+    // A task finishing may be the state a storyline choice waits for.
+    if ($this->evaluateStoryStateTriggers($campaign_id) !== []) {
+      return $this->getCampaignStoryline($campaign_id, $storyline_id, FALSE);
+    }
 
     return $this->hydrateCampaignStorylineRow($row);
   }
@@ -5615,7 +5823,7 @@ class StorylineManagerService {
 
     foreach (array_keys($node_ids) as $quest_id) {
       if (!isset($visited[$quest_id])) {
-        $errors[] = "Questline node '{$quest_id}' is unreachable from primary quest '{$primary_quest_id}'.";
+        $errors[] = "Questline node '{$quest_id}' is unreachable from primary quest '{$primary_quest_id}'. Lead an earlier task or one of its choices to it, or, when a story state opens it, make it the target of a storyline-wide choice (a choice with no source task).";
       }
     }
 
@@ -5748,6 +5956,20 @@ class StorylineManagerService {
     $interaction = trim((string) ($trigger['interaction'] ?? ''));
     if ($type === 'action' && !in_array($interaction, self::STORYLINE_BRANCH_INTERACTIONS, TRUE)) {
       $errors[] = "Branch choice '{$choice_key}' on quest '{$quest_id}' action trigger must classify interaction as one of: " . implode(', ', self::STORYLINE_BRANCH_INTERACTIONS) . '.';
+    }
+    if (array_key_exists('when', $trigger)) {
+      $when = is_array($trigger['when']) ? $trigger['when'] : [];
+      $subject_type = (string) ($when['subject_type'] ?? '');
+      $measure = (string) ($when['measure'] ?? '');
+      if (!isset(self::STORY_STATE_MEASURES[$subject_type]) || trim((string) ($when['subject_id'] ?? '')) === '') {
+        $errors[] = "Branch choice '{$choice_key}' has a story-state condition without a subject. Name an institution, actor or task.";
+      }
+      elseif (!in_array($measure, self::STORY_STATE_MEASURES[$subject_type], TRUE)) {
+        $errors[] = "Branch choice '{$choice_key}' measures '{$measure}' on a {$subject_type}. Allowed for a {$subject_type}: " . implode(', ', self::STORY_STATE_MEASURES[$subject_type]) . '.';
+      }
+      elseif ($measure === 'members_lost' && !(is_numeric($when['at_least'] ?? NULL) && $when['at_least'] > 0 && $when['at_least'] <= 1)) {
+        $errors[] = "Branch choice '{$choice_key}' measures members_lost without at_least. Set at_least to the share of members lost that triggers it, above 0 and up to 1 (1 means all).";
+      }
     }
     return $errors;
   }
@@ -8545,6 +8767,7 @@ class StorylineManagerService {
       'available' => 40,
       'pending' => 30,
       'failed' => 20,
+      'superseded' => 15,
       'abandoned' => 10,
     ];
 
@@ -8571,7 +8794,7 @@ class StorylineManagerService {
     array $triggering_quest,
     array $storyline_row
   ): bool {
-    if (strtolower(trim($event_type)) !== 'quest_completed') {
+    if (!in_array(strtolower(trim($event_type)), ['quest_completed', 'branch_resolved'], TRUE)) {
       return FALSE;
     }
 

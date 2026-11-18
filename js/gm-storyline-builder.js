@@ -259,7 +259,7 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
           conflict_entries: ['conflict_id', 'title', 'actor_ids', 'introduced_scene_id', 'escalation_scene_ids', 'resolved_scene_id', 'status'],
           relationship_entries: ['scene_id', 'source_actor_id', 'target_actor_id', 'before', 'after', 'reason'],
           task_entries: ['task_id', 'chapter_id', 'scene_id', 'status', 'goal_text', 'gm_notes', 'open_resolution'],
-          branch_choice_entries: ['decision_id', 'source_task_id', 'choice_id', 'label', 'trigger_type', 'trigger_interaction', 'trigger_condition', 'trigger_source_id', 'effect_summary', 'target_task_id', 'target_scene_id', 'terminal', 'approach_visibility', 'approach_outcome_label', 'approach_reveal', 'approach_objective_ids', 'approach_reward_xp', 'approach_reward_gold'],
+          branch_choice_entries: ['decision_id', 'source_task_id', 'choice_id', 'label', 'trigger_type', 'trigger_interaction', 'trigger_condition', 'trigger_source_id', 'trigger_when', 'effect_summary', 'target_task_id', 'target_scene_id', 'terminal', 'approach_visibility', 'approach_outcome_label', 'approach_reveal', 'approach_objective_ids', 'approach_reward_xp', 'approach_reward_gold'],
           branch_actor_effect_entries: ['choice_id', 'actor_id', 'interaction', 'reaction', 'effect', 'state_changes'],
           branch_environment_effect_entries: ['choice_id', 'target_type', 'target_id', 'effect', 'state_changes'],
           branch_storyline_effect_entries: ['choice_id', 'target_type', 'target_id', 'source_actor_id', 'operation', 'effect', 'follow_up_required', 'state_changes'],
@@ -792,6 +792,8 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
               condition: choice.trigger_condition,
               interaction: choice.trigger_interaction,
               source_id: choice.trigger_source_id,
+              // A measurable story state, kept as written.
+              ...(String(choice.trigger_when || '').trim() ? { when: JSON.parse(choice.trigger_when) } : {}),
             },
             effects: {
               summary: choice.effect_summary,
@@ -1203,6 +1205,7 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
               trigger_interaction: choice?.trigger?.interaction || 'other',
               trigger_condition: choice?.trigger?.condition || '',
               trigger_source_id: choice?.trigger?.source_id || '',
+              trigger_when: choice?.trigger?.when ? JSON.stringify(choice.trigger.when) : '',
               effect_summary: choice?.effects?.summary || '',
               target_task_id: choice?.target_task_id || '',
               target_scene_id: choice?.target_scene_id || '',

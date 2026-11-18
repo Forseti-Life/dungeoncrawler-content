@@ -186,8 +186,32 @@ class StorylineAuthoringDraftService {
     $task_ids = array_fill_keys(array_map(static fn(array $task): string => trim((string) ($task['task_id'] ?? '')), $tasks), TRUE);
     $findings = [];
     $choice_targets = [];
+    // What a measurable story state may name.
+    $subjects = [
+      'institution' => array_fill_keys(array_column(array_filter((array) ($payload['objects']['institutions'] ?? []), 'is_array'), 'institution_id'), TRUE),
+      'actor' => array_fill_keys(array_column(array_filter((array) ($payload['objects']['actors']['generation_specs'] ?? []), 'is_array'), 'actor_id'), TRUE),
+      'task' => $task_ids,
+    ];
+    $same_outcome = [];
     foreach (array_values(array_filter((array) ($payload['process_flow']['branch_choices'] ?? []), 'is_array')) as $choice) {
       $source = trim((string) ($choice['source_task_id'] ?? ''));
+      $label = trim((string) ($choice['label'] ?? ''));
+      $when = $choice['trigger']['when'] ?? NULL;
+      if (is_array($when) && isset($subjects[(string) ($when['subject_type'] ?? '')])
+        && !isset($subjects[(string) $when['subject_type']][(string) ($when['subject_id'] ?? '')])) {
+        $findings[] = [
+          'severity' => 'error',
+          'code' => 'choice_state_subject_unknown',
+          'choice_id' => trim((string) ($choice['choice_id'] ?? '')),
+          'label' => $label,
+          'message' => sprintf("The choice '%s' waits on %s '%s', which this storyline does not have. Name one of its %ss.", $label, (string) $when['subject_type'], (string) ($when['subject_id'] ?? ''), (string) $when['subject_type']),
+        ];
+      }
+      // The same outcome written on several tasks is one storyline state.
+      $target = trim((string) ($choice['target_task_id'] ?? ''));
+      if ($source !== '' && $target !== '' && !$this->normalizeBranchTerminal($choice['terminal'] ?? FALSE)) {
+        $same_outcome[$target][$source] = $label;
+      }
       if ($source === '') {
         continue;
       }
@@ -205,6 +229,19 @@ class StorylineAuthoringDraftService {
       $choice_targets[$source] ??= [];
       if (!$this->normalizeBranchTerminal($choice['terminal'] ?? FALSE)) {
         $choice_targets[$source][trim((string) ($choice['target_task_id'] ?? ''))] = TRUE;
+      }
+    }
+    foreach ($same_outcome as $target => $sources) {
+      if (count($sources) >= 3) {
+        $findings[] = [
+          'severity' => 'warning',
+          'code' => 'choice_outcome_repeated',
+          'target_task_id' => (string) $target,
+          'message' => sprintf(
+            "%d tasks each carry their own choice leading to '%s' (%s). An outcome that can happen at any point is one storyline-wide choice: a single choice with no source task, with a story-state condition (trigger.when) when it can be measured. Replace the copies with it.",
+            count($sources), (string) $target, implode('; ', array_slice(array_unique(array_values($sources)), 0, 3)),
+          ),
+        ];
       }
     }
     foreach ($tasks as $task) {
@@ -248,6 +285,7 @@ class StorylineAuthoringDraftService {
         'Reuse grounded IDs for existing objects; look up named canonical objects before rebinding.',
         'To add a character the author names, use bind_library_characters; it looks the character up and saves the cast row. Before inventing a character, search the character library with find_library_characters. When a library character fits, bind it by its actor_id instead of inventing one, and offer the matches to the author when the choice is theirs. A quest giver or hook is a library character whenever one fits.',
         'A character new to the story is placed: its location_id names a room or site of this storyline.',
+        'An outcome that can happen at any point in the story (the clan is destroyed or scattered, a patron dies, the escort fails) is one storyline-wide choice: a branch choice with no source_task_id, authored once, never a copy on each task. When the state can be measured, give its trigger a when: {subject_type: institution, subject_id: <institution_id>, measure: members_lost, at_least: <share from above 0 to 1; 1 is all, 0.5 is half>} for a group whose members are dead or have fled the room; {subject_type: actor, subject_id: <actor_id>, measure: dead, fled or lost}; {subject_type: task, subject_id: <task_id>, measure: completed, failed or superseded}. The engine then resolves the choice on its own when the state comes true; without when the narrator decides from the condition text. Its target_task_id and target_scene_id name the follow-up (report back to the quest giver); the quests of that scene are offered when it fires. To close the quests the story has moved past, give the choice a storyline effect with target_type storyline, target_id storyline and operation redirect (every other open quest closes as superseded: no reward, no penalty), or lock or resolve on single tasks.',
         'Institutions come before the cast. A group the story is about is a row in /objects/institutions with its domain, name, description, purpose in this story, seat (a room or site of this storyline), leader (a cast member), parent and stances toward the other institutions. There are five domains: state (a nation or realm, with its law and military), place (a settlement, district or region), kin (a culture, tribe, clan, house or family), organization (a faction, guild, order, school, company or covert group) and faith. Finer grain is nesting, not more domains: give an institution the parent_institution_id of the one it is part of, to any depth (household in clan in tribe in culture; team in department in company; squad in company in army in nation). The order is fixed: a state may sit only inside a state; a place inside a place or state; kin inside kin, a place or a state; an organization or faith inside anything. Institutions with the same parent are peers. Before defining one, look for it with find_existing_institutions and reuse its exact domain and name when it exists: the same domain and name is the same institution everywhere. Its institution_id is derived from the domain and name; never write one by hand, reference a new row with $draft_ref.',
         'Every cast member is tied to the cast when it is added or bound, in the same operations: an affiliation to each institution of this storyline it is tied to, by institution_id, with standing leader, exile or ally where it is not a plain member (define the institution in /objects/institutions first when the story has none that fits). Tie a cast member to its innermost institution only: membership is inherited upward, so a member of a household is already a member of its clan, and one /objects/actors/relationships row for each cast member it has a personal tie to, with the attitude and a bond such as spouse, parent, child, sibling, rival, mentor or serves. Every cast member also gets its alignment (LG, NG, CG, LN, N, CN, LE, NE or CE) in the same row; it makes the actor a member of the alignment institutions Lawful or Chaotic, Good or Evil, and Neutral, which are never added to /objects/institutions. Ancestry and class are not affiliations; they come from the sheet. Infer the obvious ties from the roles and the story; do not ask the author for them.',
         'For new append rows, omit generated identity fields and let the authority allocate collision-free, draft-scoped IDs.',
@@ -1059,9 +1097,12 @@ class StorylineAuthoringDraftService {
     $choice_findings = $this->authoredChoiceFindings($draft['payload'] ?? []);
     if ($choice_findings !== []) {
       $progression = is_array($stages['questline_progression'] ?? NULL) ? $stages['questline_progression'] : [];
+      $by_severity = static fn(string $severity): array => array_column(array_filter($choice_findings, static fn(array $finding): bool => $finding['severity'] === $severity), 'message');
+      $progression_errors = array_merge($by_severity('error'), (array) ($progression['errors'] ?? []));
       $stages['questline_progression'] = [
-        'valid' => FALSE,
-        'errors' => array_merge(array_column($choice_findings, 'message'), (array) ($progression['errors'] ?? [])),
+        'valid' => $progression_errors === [],
+        'errors' => $progression_errors,
+        'warnings' => array_merge($by_severity('warning'), (array) ($progression['warnings'] ?? [])),
         'findings' => array_merge($choice_findings, (array) ($progression['findings'] ?? [])),
       ] + $progression;
     }
@@ -4331,7 +4372,8 @@ class StorylineAuthoringDraftService {
       'condition' => trim((string) ($trigger['condition'] ?? '')),
       'interaction' => trim((string) ($trigger['interaction'] ?? 'other')) ?: 'other',
       'source_id' => trim((string) ($trigger['source_id'] ?? '')),
-    ];
+      // A measurable story state the engine resolves on its own.
+    ] + (is_array($trigger['when'] ?? NULL) ? ['when' => $trigger['when']] : []);
   }
 
   /**

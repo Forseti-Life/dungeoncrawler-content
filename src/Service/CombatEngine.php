@@ -95,7 +95,7 @@ class CombatEngine {
   protected ?RelationshipsActorIdentityResolverService $relationshipsActorIdentityResolver;
   protected ?AttackModifierResolverService $attackModifierResolver;
 
-  public function __construct(Connection $database, CombatEncounterStore $store, HPManager $hp_manager, NumberGenerationService $number_generation, CombatCalculator $combat_calculator = NULL, Calculator $calculator = NULL, ConditionManager $condition_manager = NULL, MovementResolverService $movement_resolver = NULL, AfflictionManager $affliction_manager = NULL, ?RelationshipAttitudeService $relationship_attitude_service = NULL, ?InstitutionMembershipService $institution_membership_service = NULL, ?RelationshipsActorIdentityResolverService $relationships_actor_identity_resolver = NULL, ?AttackModifierResolverService $attack_modifier_resolver = NULL) {
+  public function __construct(Connection $database, CombatEncounterStore $store, HPManager $hp_manager, NumberGenerationService $number_generation, CombatCalculator $combat_calculator = NULL, Calculator $calculator = NULL, ConditionManager $condition_manager = NULL, MovementResolverService $movement_resolver = NULL, AfflictionManager $affliction_manager = NULL, ?RelationshipAttitudeService $relationship_attitude_service = NULL, ?InstitutionMembershipService $institution_membership_service = NULL, ?RelationshipsActorIdentityResolverService $relationships_actor_identity_resolver = NULL, ?AttackModifierResolverService $attack_modifier_resolver = NULL, protected ?StorylineManagerService $storylineManager = NULL) {
     $this->database = $database;
     $this->store = $store;
     $this->hpManager = $hp_manager;
@@ -479,6 +479,11 @@ class CombatEngine {
     if (is_array($encounter)) {
       $this->reconcileInstitutionHostilityPersistence($encounter);
       $this->applyEncounterRelationshipResolution($encounter);
+      $this->recordEncounterFates($encounter);
+      // Who died or fled may be the state a storyline choice waits for.
+      if ($this->storylineManager !== NULL && (int) ($encounter['campaign_id'] ?? 0) > 0) {
+        $this->storylineManager->evaluateStoryStateTriggers((int) $encounter['campaign_id']);
+      }
     }
     $summary = [
       'encounter_id' => $encounter_id,
@@ -490,6 +495,70 @@ class CombatEngine {
 
     // TODO: Compute XP awards based on defeated enemies (PF2e encounter XP tables) and attach to summary.
     return $summary;
+  }
+
+  /**
+   * Records what became of each non-player actor in an ended encounter.
+   *
+   * Defeated: dead. Standing but no longer in the room the encounter was
+   * fought in: fled. Standing and still there: present, which clears an
+   * earlier flight. The fate is kept on the campaign actor
+   * (state_data.fate), where story-state conditions read it.
+   */
+  protected function recordEncounterFates(array $encounter): void {
+    $campaign_id = (int) ($encounter['campaign_id'] ?? 0);
+    $encounter_room = trim((string) ($encounter['room_id'] ?? ''));
+    if ($campaign_id <= 0) {
+      return;
+    }
+    foreach ((array) ($encounter['participants'] ?? []) as $participant) {
+      $instance_id = is_array($participant) ? trim((string) ($participant['entity_id'] ?? '')) : '';
+      if ($instance_id === '') {
+        continue;
+      }
+      $actor = $this->database->select('dc_campaign_characters', 'c')
+        ->fields('c', ['id', 'type', 'state_data'])
+        ->condition('campaign_id', $campaign_id)
+        ->condition('instance_id', $instance_id)
+        ->range(0, 1)
+        ->execute()
+        ->fetchAssoc();
+      if (!is_array($actor) || in_array(strtolower((string) $actor['type']), ['pc', 'player', 'character'], TRUE)) {
+        continue;
+      }
+      $state = json_decode((string) ($actor['state_data'] ?? ''), TRUE);
+      $state = is_array($state) ? $state : [];
+      $before = (string) ($state['fate']['state'] ?? '');
+      if (!empty($participant['is_defeated'])) {
+        $fate = 'dead';
+      }
+      elseif ($before === 'dead') {
+        continue;
+      }
+      else {
+        $room = (string) $this->database->select('dc_campaign_actor_runtime_state', 'r')
+          ->fields('r', ['room_id'])
+          ->condition('campaign_id', $campaign_id)
+          ->condition('actor_instance_id', $instance_id)
+          ->range(0, 1)
+          ->execute()
+          ->fetchField();
+        $fate = $encounter_room !== '' && $room !== '' && $room !== $encounter_room ? 'fled' : '';
+      }
+      if ($fate === $before) {
+        continue;
+      }
+      if ($fate === '') {
+        unset($state['fate']);
+      }
+      else {
+        $state['fate'] = ['state' => $fate, 'encounter_id' => (int) ($encounter['id'] ?? 0), 'room_id' => $encounter_room, 'at' => time()];
+      }
+      $this->database->update('dc_campaign_characters')
+        ->fields(['state_data' => json_encode($state, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)])
+        ->condition('id', (int) $actor['id'])
+        ->execute();
+    }
   }
 
   /**

@@ -640,6 +640,46 @@
         },
         "source_id": {
           "type": "string"
+        },
+        "when": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "subject_type",
+            "subject_id",
+            "measure"
+          ],
+          "description": "A measurable story state. When it becomes true in play the engine resolves this choice on its own; without it the narrator decides from the condition text. institution + members_lost: the share of the institution's members who are dead or have fled the room, at_least between 0 and 1 (1 = all). actor + dead, fled or lost (either). task + completed, failed or superseded.",
+          "properties": {
+            "subject_type": {
+              "enum": [
+                "institution",
+                "actor",
+                "task"
+              ]
+            },
+            "subject_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "measure": {
+              "enum": [
+                "members_lost",
+                "dead",
+                "fled",
+                "lost",
+                "completed",
+                "failed",
+                "superseded"
+              ]
+            },
+            "at_least": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "For members_lost only: the share of members lost that triggers the choice. Above 0, up to 1; questline validation rejects 0."
+            }
+          }
         }
       }
     },
@@ -1008,11 +1048,21 @@
           "type": "string",
           "pattern": "^[a-f0-9]{64}$"
         },
-"alignment": {
+        "alignment": {
           "description": "The actor's alignment. It makes the actor a member of the alignment institutions (Lawful or Chaotic, Good or Evil, Neutral) and is carried onto its character sheet.",
-          "enum": ["LG", "NG", "CG", "LN", "N", "CN", "LE", "NE", "CE"]
+          "enum": [
+            "LG",
+            "NG",
+            "CG",
+            "LN",
+            "N",
+            "CN",
+            "LE",
+            "NE",
+            "CE"
+          ]
         },
-                "class": {
+        "class": {
           "type": "string",
           "minLength": 1
         },

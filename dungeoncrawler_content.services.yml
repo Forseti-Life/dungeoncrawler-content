@@ -1049,6 +1049,7 @@ services:
       - '@?dungeoncrawler_content.institution_membership'
       - '@?dungeoncrawler_content.relationships_actor_identity_resolver'
       - '@dungeoncrawler_content.attack_modifier_resolver'
+      - '@dungeoncrawler_content.storyline_manager'
 
   dungeoncrawler_content.encounter_ai_provider.stub:
     class: Drupal\dungeoncrawler_content\Service\StubEncounterAiProvider
