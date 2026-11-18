@@ -300,8 +300,7 @@ factions, guards and guilds the story is about.
 
 Each row of `objects.institutions`:
 
-- `domain` (family, government, allegiance, settlement, religion, employer,
-  education, noble, security, criminal, culture) and `name`
+- `domain` (state, place, kin, organization, faith) and `name`
 - `institution_id`, derived by the save from the domain and name and never
   typed; renaming an institution changes its ID everywhere in the same save
 - description, and purpose in this story
