@@ -44,7 +44,7 @@ import {
   selectEditorGmTool,
   shouldSubmitEditorGmKey,
 } from './EditorGmChatClient.js?v=20261024-tool-calls-1';
-import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261117-draft-status-1';
+import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261118-storylines-1';
 
 const transform = globalThis.DungeonCrawlerPlacementTransform;
 if (!transform) {

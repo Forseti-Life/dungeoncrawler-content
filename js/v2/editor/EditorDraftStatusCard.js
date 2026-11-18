@@ -17,7 +17,25 @@ export function renderEditorDraftStatus(card, status) {
       return item;
     }));
   };
+  const stories = part('storylines');
+  const setStories = (rows) => {
+    if (!rows.length) {
+      const none = document.createElement('li');
+      none.textContent = 'No storyline uses this yet.';
+      stories.replaceChildren(none);
+      return;
+    }
+    stories.replaceChildren(...rows.map((row) => {
+      const item = document.createElement('li');
+      const link = document.createElement('a');
+      link.href = `/game-master/storyline-builder/scenes?draft_id=${encodeURIComponent(row.draft_id)}`;
+      link.textContent = row.title || 'Untitled storyline';
+      item.append(link, ` (${row.status})`);
+      return item;
+    }));
+  };
   if (!status) {
+    setStories([]);
     part('percent').textContent = '0%';
     part('progress').value = 0;
     part('validity').textContent = 'No draft';
@@ -33,5 +51,6 @@ export function renderEditorDraftStatus(card, status) {
     ? `Valid · ${status.warning_count} warnings`
     : `${status.error_count} validation errors`;
   part('stage').textContent = `${status.current_stage} of ${status.stages.length}: ${stage.label}`;
+  setStories(status.storylines);
   setMissing(status.missing_content.length ? status.missing_content : ['Nothing: minimum content is complete.']);
 }

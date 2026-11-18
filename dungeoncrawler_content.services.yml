@@ -577,6 +577,7 @@ services:
       - '@current_user'
       - '@uuid'
       - '@dungeoncrawler_content.canonical_definitions'
+      - '@dungeoncrawler_content.storyline_authoring_drafts'
 
   dungeoncrawler_content.connector_projection:
     class: Drupal\dungeoncrawler_content\Service\ConnectorProjectionService
@@ -596,6 +597,7 @@ services:
       - '@dungeoncrawler_content.canonical_definitions'
       - ~
       - '@dungeoncrawler_content.connector_projection'
+      - '@dungeoncrawler_content.storyline_authoring_drafts'
 
   dungeoncrawler_content.agent_harness_management:
     class: Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessManagementService

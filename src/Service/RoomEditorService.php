@@ -96,6 +96,7 @@ class RoomEditorService {
     protected AccountProxyInterface $currentUser,
     protected UuidInterface $uuid,
     protected CanonicalDefinitionService $definitions,
+    protected ?StorylineAuthoringDraftService $storylines = NULL,
   ) {}
 
   /**
@@ -491,6 +492,11 @@ class RoomEditorService {
         'metrics' => ['published_version_id' => $draft['published_version_id']],
       ],
     ], $counts);
+    $room_id = $text('room_id');
+    $result['storylines'] = $this->storylines === NULL || $room_id === '' ? [] : array_map(
+      static fn(array $story): array => array_intersect_key($story, array_flip(['draft_id', 'title', 'status'])),
+      $this->storylines->readStoryBriefs('room', $room_id)['storylines'],
+    );
     $result['next_steps'] = self::recommendNextAuthoringAction($result);
     return $result;
   }

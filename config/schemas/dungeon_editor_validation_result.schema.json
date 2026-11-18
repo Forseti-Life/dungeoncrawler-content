@@ -45,7 +45,9 @@
             "dungeon_entrance_ambiguous",
             "placement_unreachable",
             "exit_port_dangling",
-            "region_placement_unresolved"
+            "region_placement_unresolved",
+            "story_room_not_placed",
+            "story_entrance_differs"
           ]
         },
         "message": {"type": "string", "minLength": 1, "maxLength": 2000},
@@ -59,6 +61,7 @@
             "properties": {
               "placement_id": {"type": "string", "format": "uuid"},
               "link_id": {"type": "string", "format": "uuid"},
+              "storyline_draft_id": {"type": "string", "format": "uuid"},
               "region_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,99}$"},
               "port_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,99}$"}
             }

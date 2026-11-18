@@ -104,6 +104,9 @@ class DungeonEditorService {
     'dungeon_id_reserved' => 'outside_editor',
     'dungeon_id_scope_mismatch' => 'outside_editor',
     'publication_blocked_by_active_campaign' => 'outside_editor',
+    // The build differs from what a storyline says about this site.
+    'story_room_not_placed' => 'draft_command',
+    'story_entrance_differs' => 'draft_command',
   ];
 
   private ?array $aggregateSchema = NULL;
@@ -124,6 +127,7 @@ class DungeonEditorService {
     protected CanonicalDefinitionService $definitions,
     protected ?string $schemaDirectory = NULL,
     protected ?ConnectorProjectionService $connectorProjection = NULL,
+    protected ?StorylineAuthoringDraftService $storylines = NULL,
   ) {
     $this->schemaDirectory ??= dirname(__DIR__, 2) . '/config/schemas';
     $this->connectorProjection ??= new ConnectorProjectionService($database);
@@ -858,8 +862,76 @@ class DungeonEditorService {
         'metrics' => ['published_version_id' => $draft['published_version_id']],
       ],
     ], $counts);
+    $result['storylines'] = array_map(
+      static fn(array $story): array => array_intersect_key($story, array_flip(['draft_id', 'title', 'status'])),
+      $this->storiesUsing((string) $dungeon['dungeon_id']),
+    );
     $result['next_steps'] = self::recommendNextAuthoringAction($result);
     return $result;
+  }
+
+  /**
+   * Storylines that name this dungeon, with the rooms each puts in it.
+   */
+  private function storiesUsing(string $dungeon_id): array {
+    if ($this->storylines === NULL || $dungeon_id === '') {
+      return [];
+    }
+    return $this->storylines->readStoryBriefs('dungeon', $dungeon_id)['storylines'];
+  }
+
+  /**
+   * Published dungeons no storyline names.
+   *
+   * @return array<int, array{dungeon_id: string, name: string, campaigns: int}>
+   */
+  public function unattachedDungeons(): array {
+    $rows = $this->database->query(
+      "SELECT d.dungeon_id, d.name, (SELECT COUNT(DISTINCT c.campaign_id) FROM {dc_campaign_dungeons} c WHERE c.source_dungeon_id = d.dungeon_id OR c.dungeon_id = d.dungeon_id) AS campaigns FROM {dungeoncrawler_content_dungeons} d WHERE d.published_version_id IS NOT NULL ORDER BY d.name, d.dungeon_id"
+    )->fetchAll(\PDO::FETCH_ASSOC);
+    $unattached = [];
+    foreach ($rows as $row) {
+      if ($this->storiesUsing((string) $row['dungeon_id']) === []) {
+        $unattached[] = ['dungeon_id' => (string) $row['dungeon_id'], 'name' => (string) $row['name'], 'campaigns' => (int) $row['campaigns']];
+      }
+    }
+    return $unattached;
+  }
+
+  /**
+   * Warnings where the build differs from what a storyline says.
+   */
+  private function storyFindings(array $dungeon): array {
+    $placed = array_column($dungeon['room_placements'], 'room_id');
+    if ($placed === []) {
+      // Nothing is built yet; the status already says rooms are needed.
+      return [];
+    }
+    $entrance_rooms = array_column(array_filter(
+      $dungeon['room_placements'],
+      static fn(array $placement): bool => $placement['is_level_entrance'],
+    ), 'room_id');
+    $findings = [];
+    foreach ($this->storiesUsing((string) $dungeon['dungeon_id']) as $story) {
+      $missing = array_values(array_diff(array_column($story['rooms'], 'room_id'), $placed));
+      if ($missing !== []) {
+        $findings[] = $this->finding('warning', 'story_room_not_placed', sprintf(
+          "The storyline '%s' puts %d room(s) in this dungeon that are not placed: %s.",
+          $story['title'],
+          count($missing),
+          implode(', ', $missing),
+        ), [['storyline_draft_id' => $story['draft_id']]]);
+      }
+      if ($story['entrance_room'] !== '' && $entrance_rooms !== [] && !in_array($story['entrance_room'], $entrance_rooms, TRUE)) {
+        $findings[] = $this->finding('warning', 'story_entrance_differs', sprintf(
+          "The storyline '%s' enters this dungeon at '%s'; the level entrance here is '%s'.",
+          $story['title'],
+          $story['entrance_room'],
+          implode(', ', $entrance_rooms),
+        ), [['storyline_draft_id' => $story['draft_id']]]);
+      }
+    }
+    return $findings;
   }
 
   /**
@@ -1823,6 +1895,8 @@ class DungeonEditorService {
         }
       }
     }
+
+    $findings = [...$findings, ...$this->storyFindings($dungeon)];
 
     $counts = ['error' => 0, 'warning' => 0, 'info' => 0];
     foreach ($findings as $finding) {

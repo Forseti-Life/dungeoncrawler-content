@@ -352,8 +352,15 @@ class CanonicalDungeonLayoutPlanService {
       throw $this->nonconforming([$this->finding('required_missing', '/rooms', sprintf('Generated dungeon must include at least %d room references.', $input['room_count']))]);
     }
     if (!empty($input['publication_ready']) && $input['required_room_ids'] !== []) {
-      // The room set is fixed, so where the path ends is a fact about the
-      // rooms, not a choice: the room without an exit goes last.
+      // The room set is fixed, so both ends of the path are facts, not
+      // choices: the first required room is the entrance and the room
+      // without an exit goes last.
+      $entrance = $input['required_room_ids'][0];
+      $is_entrance = static fn(mixed $spec): bool => is_array($spec) && (string) ($spec['room_id'] ?? '') === $entrance;
+      $requested = [
+        ...array_values(array_filter($requested, $is_entrance)),
+        ...array_values(array_filter($requested, static fn(mixed $spec): bool => !$is_entrance($spec))),
+      ];
       $has_exit = static fn(mixed $spec): bool => !is_array($spec) || (int) ($by_id[(string) ($spec['room_id'] ?? '')]['exit_port_count'] ?? 1) !== 0;
       $requested = [
         ...array_values(array_filter($requested, $has_exit)),
@@ -406,7 +413,7 @@ class CanonicalDungeonLayoutPlanService {
       if ($limit_reached) {
         return NULL;
       }
-      $candidates = $remaining === [] ? [$terminal] : $remaining;
+      $candidates = $remaining === [] ? [$terminal] : ($ordered === [] ? array_slice($remaining, 0, 1, TRUE) : $remaining);
       foreach ($candidates as $key => $room) {
         $index = count($ordered);
         $placement_id = $this->deterministicUuid($input['seed'], 'dungeon-placement', $index + 1);

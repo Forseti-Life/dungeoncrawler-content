@@ -43,6 +43,15 @@ A code with no declared route is a programming error and throws.
 
 A site a storyline names is built from that storyline's brief.
 
+- `list_unattached_dungeons` is the standing check: every published
+  dungeon no storyline names, with the campaigns using it.
+- Validation warns when the build differs from a storyline that names the
+  dungeon: a room the story lists is not placed (`story_room_not_placed`),
+  or the level entrance is not the story's entrance room
+  (`story_entrance_differs`). The status card lists the storylines.
+- The first room a story site lists is its entrance and the room without
+  an exit is its end; the layout planner fixes both. A through-room built
+  for a site has its exit across the room from its entrance.
 - `load_story_brief` returns, for each storyline draft that names the
   site: its purpose, its entrance, its rooms in story order with each
   room's scene, tasks, objectives and starting cast. It reads the storyline

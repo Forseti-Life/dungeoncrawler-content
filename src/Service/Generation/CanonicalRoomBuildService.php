@@ -8,6 +8,7 @@ use Drupal\Component\Uuid\UuidInterface;
 use Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorCanonicalGenerationPlanService;
 use Drupal\dungeoncrawler_content\Service\EditorGm\RoomEditorGmToolContext;
+use Drupal\dungeoncrawler_content\Geometry\RoomPortEdgePolicy;
 use Drupal\dungeoncrawler_content\Service\RoomEditorService;
 
 /**
@@ -81,6 +82,9 @@ class CanonicalRoomBuildService {
     foreach (array_slice($exits, $exit_ports) as $port_id) {
       $command('remove_exit_port', ['port_id' => $port_id]);
     }
+    if ($exit_ports === 1) {
+      $revision = $this->placeExitAcrossFromEntrance($draft_id, $revision);
+    }
     $validation = $this->roomEditor->validateDraft($draft_id, 'publication');
     if (!$validation['is_valid']) {
       $errors = RoomEditorService::errorFindings($validation);
@@ -101,6 +105,59 @@ class CanonicalRoomBuildService {
     if (!$this->isPublished($room_id)) {
       throw new \LogicException('canonical_room_publication_not_recorded:' . $room_id);
     }
+  }
+
+  /**
+   * Puts a through-room's one exit on the far side from its entrance.
+   *
+   * Rooms on a path are chained exit to entrance. An exit beside the
+   * entrance folds the path back onto the rooms already placed, and the site
+   * cannot be laid out. The exit goes on the boundary hex farthest from the
+   * default entrance (ties: lowest q, then r), on the edge the Board port
+   * policy gives that hex.
+   *
+   * @return int
+   *   The draft revision after the change.
+   */
+  public function placeExitAcrossFromEntrance(string $draft_id, int $revision): int {
+    $room = $this->roomEditor->getDraft($draft_id)['room'];
+    $entries = array_values(array_filter($room['entry_ports'], static fn(array $port): bool => !empty($port['is_default'])));
+    if (count($entries) !== 1 || count($room['exit_ports']) !== 1) {
+      throw new \DomainException(sprintf(
+        'canonical_room_through_ports_invalid:%s: a through-room needs one default entrance and one exit; found %d and %d',
+        (string) $room['room_id'],
+        count($entries),
+        count($room['exit_ports']),
+      ));
+    }
+    $entrance = $entries[0]['hex'];
+    $far = NULL;
+    foreach ($room['hexes'] as $hex) {
+      $candidate = ['q' => (int) $hex['q'], 'r' => (int) $hex['r']];
+      if (RoomPortEdgePolicy::openEdges($room, $candidate) === []) {
+        continue;
+      }
+      $rank = [-RoomPortEdgePolicy::hexDistance($entrance, $candidate), $candidate['q'], $candidate['r']];
+      if ($far === NULL || $rank < $far['rank']) {
+        $far = ['rank' => $rank, 'hex' => $candidate];
+      }
+    }
+    if ($far === NULL) {
+      throw new \DomainException('canonical_room_through_ports_invalid:' . (string) $room['room_id'] . ': the room has no boundary hex');
+    }
+    $target = RoomPortEdgePolicy::target($room, ['hex' => $far['hex']]);
+    $exit = $room['exit_ports'][0];
+    if ($exit['hex'] === $target['hex'] && (int) $exit['edge'] === $target['edge']) {
+      return $revision;
+    }
+    $result = $this->roomEditor->applyCommand($draft_id, [
+      'command_id' => $this->uuid->generate(),
+      'expected_revision' => $revision,
+      'type' => 'update_exit_port',
+      'payload' => ['port_id' => $exit['port_id'], 'changes' => ['hex' => $target['hex'], 'edge' => $target['edge']]],
+      'issued_at' => gmdate(DATE_RFC3339),
+    ]);
+    return (int) $result['draft']['revision'];
   }
 
 }

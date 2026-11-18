@@ -1331,6 +1331,16 @@ class StorylineAuthoringDraftService {
    */
   public function storyBriefs(string $kind, string $id): array {
     $this->assertCanEdit();
+    return $this->readStoryBriefs($kind, $id);
+  }
+
+  /**
+   * The story brief without a permission check.
+   *
+   * For the Dungeon and Room editors, which derive status and findings from
+   * it. Callers show a storyline's title and room IDs only.
+   */
+  public function readStoryBriefs(string $kind, string $id): array {
     if (!in_array($kind, ['dungeon', 'room'], TRUE) || trim($id) === '') {
       throw new \InvalidArgumentException('storyline_story_brief_subject_invalid:' . $kind . ':' . $id);
     }

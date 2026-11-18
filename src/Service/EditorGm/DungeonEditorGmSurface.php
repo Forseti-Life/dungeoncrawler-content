@@ -6,6 +6,7 @@ use Drupal\Component\Uuid\UuidInterface;
 use Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService;
 use Drupal\dungeoncrawler_content\Service\DungeonEditorService;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\BuildSiteFromStoryBriefTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\ListUnattachedDungeonsTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\LoadStoryBriefTool;
 use Drupal\dungeoncrawler_content\Service\Generation\CanonicalRoomBuildService;
 use Drupal\dungeoncrawler_content\Service\StorylineAuthoringDraftService;
@@ -85,6 +86,7 @@ final class DungeonEditorGmSurface implements EditorGmSurfaceInterface {
       new PublishDungeonVersionTool(),
     ];
     if ($storylines !== NULL) {
+      $tools[] = new ListUnattachedDungeonsTool();
       $tools[] = new LoadStoryBriefTool($storylines, 'dungeon', static fn(EditorGmToolContext $context): string => (string) (
         DungeonEditorGmToolContext::of($context)->draft()['dungeon_id'] ?? ''
       ));
