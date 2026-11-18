@@ -24,6 +24,7 @@ use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\CheckStoryline
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\DescribeStorylineAuthoringContractTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\GetStorylineDraftStatusTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\FindLibraryCharactersTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\LoadExistingQuestsTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\GetStorylineBranchingTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\GetStorylineSynopsisTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\LoadStorylineDraftSnapshotTool;
@@ -77,6 +78,7 @@ final class StorylineBuilderGmSurface implements EditorGmSurfaceInterface {
       new GetStorylineBranchingTool(),
       new GetStorylineSynopsisTool(),
       new FindLibraryCharactersTool(),
+      new LoadExistingQuestsTool($questTemplates),
       new StorylineActorSheetTool($actorSheets, FALSE),
       new StorylineActorSheetTool($actorSheets, TRUE),
       new PreviewStorylineDefinitionTool(),

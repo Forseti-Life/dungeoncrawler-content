@@ -46,6 +46,61 @@ class CanonicalQuestTemplateService {
   ) {}
 
   /**
+   * Published quests by ID, as an author reads them.
+   *
+   * @param string[] $template_ids
+   *
+   * @return array<int, array<string, mixed>>
+   *   One entry per ID that has a published quest, in the order given.
+   */
+  public function describeQuests(array $template_ids): array {
+    $template_ids = array_values(array_unique(array_filter(array_map('strval', $template_ids))));
+    if ($template_ids === []) {
+      return [];
+    }
+    $rows = $this->database->select('dc_canonical_quests', 'q')
+      ->fields('q', ['template_id', 'name', 'description', 'quest_type', 'storyline_template_id', 'entry_point_actor_id', 'entry_point_location_id', 'objectives_schema'])
+      ->condition('template_id', $template_ids, 'IN')
+      ->execute()
+      ->fetchAllAssoc('template_id', \PDO::FETCH_ASSOC);
+    $quests = [];
+    foreach ($template_ids as $template_id) {
+      if (!isset($rows[$template_id])) {
+        continue;
+      }
+      $row = $rows[$template_id];
+      $objectives = [];
+      foreach (json_decode((string) $row['objectives_schema'], TRUE, 512, JSON_THROW_ON_ERROR) as $phase) {
+        foreach ((array) ($phase['objectives'] ?? []) as $objective) {
+          $objectives[] = array_filter([
+            'phase' => $phase['phase'] ?? NULL,
+            'objective_id' => $objective['objective_id'] ?? NULL,
+            'type' => $objective['type'] ?? NULL,
+            'description' => $objective['description'] ?? NULL,
+            'next_step' => $objective['next_step'] ?? NULL,
+            'target' => $objective['target'] ?? NULL,
+            'item' => $objective['item'] ?? NULL,
+            'location' => $objective['location_id'] ?? $objective['location'] ?? NULL,
+            'destination' => $objective['destination_id'] ?? $objective['destination'] ?? NULL,
+            'count' => $objective['target_count'] ?? NULL,
+          ], static fn(mixed $value): bool => $value !== NULL && $value !== '');
+        }
+      }
+      $quests[] = [
+        'task_id' => $template_id,
+        'name' => (string) $row['name'],
+        'description' => (string) $row['description'],
+        'quest_type' => (string) $row['quest_type'],
+        'belongs_to_storyline' => (string) $row['storyline_template_id'],
+        'quest_giver' => (string) $row['entry_point_actor_id'],
+        'starts_at' => (string) $row['entry_point_location_id'],
+        'objectives' => $objectives,
+      ];
+    }
+    return $quests;
+  }
+
+  /**
    * Whether a quest template is quarantined (excluded from canonical selection).
    *
    * A quarantined template is not part of the canonical library and must never

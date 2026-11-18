@@ -809,3 +809,25 @@ The system implementation is complete only when:
 - malformed schema/data contracts remain visible and block creation;
 - completeness and continuity findings remain visible as non-blocking warnings;
 - the final author action is required to create or publish the storyline.
+
+## Tasks that share an ID with a published quest
+
+A task is published as the quest with the same ID, written from the
+objective rows in the draft. When a task's ID already exists as a
+published quest:
+
+- `load_existing_quests` shows the GM that quest (name, giver, starting
+  place, owning storyline, objectives) so earlier goals can be read and
+  rewritten as objective rows. Text in `{braces}` there is an unfilled
+  placeholder.
+- Objective playability and entity linkage judge the draft's own rows, not
+  the published quest. A task without rows is reported once, as missing
+  objectives.
+- "Linked quest ... has canonical storyline_template_id ..." means
+  publishing would take that quest over from another storyline.
+
+## Several requests in one message
+
+The model may answer with several tool calls. They run in order as one
+queue, the same as `task_queue`. A tool call mixed with an answer or a
+question is refused (`editor_gm_intent_parallel_call_not_a_tool`).
