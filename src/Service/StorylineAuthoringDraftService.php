@@ -231,6 +231,33 @@ class StorylineAuthoringDraftService {
         $choice_targets[$source][trim((string) ($choice['target_task_id'] ?? ''))] = TRUE;
       }
     }
+    // An escort is lost when the one escorted is. A failed task opens
+    // nothing, so the story needs to say where it goes from there.
+    $failure_handled = [];
+    foreach (array_filter((array) ($payload['process_flow']['branch_choices'] ?? []), 'is_array') as $choice) {
+      $when = $choice['trigger']['when'] ?? NULL;
+      if (is_array($when) && ($when['subject_type'] ?? '') === 'task' && ($when['measure'] ?? '') === 'failed') {
+        $failure_handled[(string) ($when['subject_id'] ?? '')] = TRUE;
+      }
+    }
+    $can_fail = [];
+    foreach (array_filter((array) ($payload['process_flow']['objective_completion_criteria'] ?? []), 'is_array') as $objective) {
+      if (($objective['type'] ?? '') === 'escort') {
+        $can_fail[trim((string) ($objective['task_id'] ?? ''))] = TRUE;
+      }
+    }
+    $last_task_id = $tasks === [] ? '' : trim((string) ($tasks[count($tasks) - 1]['task_id'] ?? ''));
+    foreach ($tasks as $task) {
+      $task_id = trim((string) ($task['task_id'] ?? ''));
+      if (isset($can_fail[$task_id]) && !isset($failure_handled[$task_id]) && $task_id !== $last_task_id) {
+        $findings[] = [
+          'severity' => 'warning',
+          'code' => 'task_failure_strands_story',
+          'task_id' => $task_id,
+          'message' => "Task '{$task_id}' is an escort, which fails when the one escorted is lost, and a failed task opens nothing after it. Say where the story goes then: add a storyline-wide choice (no source task) whose trigger has when {subject_type: task, subject_id: {$task_id}, measure: failed}, leading to the follow-up task.",
+        ];
+      }
+    }
     foreach ($same_outcome as $target => $sources) {
       if (count($sources) >= 3) {
         $findings[] = [
@@ -4227,7 +4254,8 @@ class StorylineAuthoringDraftService {
         'unlocks_after' => [],
         'unlocks_to' => $this->normalizeCsvReferences($task['unlocks_to'] ?? []),
         'unlock_condition' => trim((string) ($task['unlock_condition'] ?? '')),
-        'prerequisite_mode' => 'all',
+        // Several routes in: any one opens it unless the author asks for all.
+        'prerequisite_mode' => ($task['prerequisite_mode'] ?? '') === 'all' ? 'all' : 'any',
         'goal' => $this->normalizeTaskGoal($task),
         'choices' => [],
       ];
@@ -4296,8 +4324,6 @@ class StorylineAuthoringDraftService {
       $quest_id = $node['quest_id'];
       $unlocks_after = array_values(array_unique((array) ($predecessors[$quest_id] ?? [])));
       $node['unlocks_after'] = $unlocks_after;
-      // A task several routes lead to opens when any one of them is done.
-      $node['prerequisite_mode'] = 'any';
       if ($node['unlock_condition'] === '') {
         $node['unlock_condition'] = $unlocks_after !== [] ? 'complete_previous_quest' : 'initially_available';
       }

@@ -695,7 +695,8 @@ the quest log, by scene progression and by what is offered:
 - A task that is the target of a choice opens when that choice is the one
   resolved and its source task succeeded. A storyline-wide choice opens
   its target at once.
-- A task several routes lead to opens when any one of them succeeds.
+- A task several routes lead to opens when any one of them succeeds. A
+  task may ask for all of them instead (`prerequisite_mode: all`).
 - A task reached both by order and by a choice opens either way.
 - Only success opens what follows. A failed quest has status `failed`, a
   quest the story moved past has status `superseded`; neither opens
@@ -705,6 +706,14 @@ the quest log, by scene progression and by what is offered:
 The storyline stands in the scene of the quest that is open. Only quests
 the rule has opened are offered. The storyline is complete when nothing is
 open and a task that leads nowhere further has succeeded.
+
+The quest outline in the builder states, for each quest, what it comes
+after, what it leads to and why (its choices, a link set on the quest, or
+the next quest in the list), and which storyline-wide choices can open it.
+
+Validation warns (`task_failure_strands_story`) about an escort task that
+has something after it and no choice saying where the story goes if it
+fails.
 
 ### Story-state conditions
 

@@ -520,6 +520,11 @@
         },
         "unlock_condition": {
           "type": "string"
+        },
+        "prerequisite_mode": {
+          "type": "string",
+          "enum": ["any", "all"],
+          "description": "When several tasks lead here: any (default) opens it after one of them succeeds; all waits for every one."
         }
       }
     },

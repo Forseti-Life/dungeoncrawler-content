@@ -1155,6 +1155,8 @@ TWIG,
               <input type="text" class="form-text" placeholder="Goal: what the players are trying to achieve" aria-label="Quest goal" data-col-field="goal_text">
               <input type="text" class="form-text" placeholder="GM notes on the goal (never shown to players)" aria-label="GM notes" data-col-field="gm_notes">
               <select class="form-select" aria-label="Unplanned ways" data-col-field="open_resolution"><option value="false">Only the authored ways count</option><option value="true">An unplanned way may also count</option></select>
+              <input type="text" class="form-text" placeholder="Leads to quest ID(s) (blank: the next quest in the list)" aria-label="Quests this one leads to" title="Used when the quest has no choices. Blank: the next quest in the list. Several IDs: comma separated." data-col-field="unlocks_to">
+              <select class="form-select" aria-label="When several quests lead here" data-col-field="prerequisite_mode"><option value="any">Opens after any one quest that leads here</option><option value="all">Opens only after every quest that leads here</option></select>
               <button type="button" class="btn btn-secondary btn-sm" data-remove-row>Remove</button>
             </div></template>
           </div>

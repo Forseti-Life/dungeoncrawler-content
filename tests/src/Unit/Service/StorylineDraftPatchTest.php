@@ -635,6 +635,54 @@ class StorylineDraftPatchTest extends UnitTestCase {
   }
 
   /**
+   * Routes rejoin on any one of them unless the task asks for all.
+   */
+  public function testRejoiningTaskOpensOnAnyRouteUnlessItAsksForAll(): void {
+    [$service] = $this->fixture();
+    $method = new \ReflectionMethod($service, 'buildQuestlineFromTaskRows');
+    $method->setAccessible(TRUE);
+    $tasks = [
+      ['task_id' => 'caves', 'unlocks_to' => 'wolf'],
+      ['task_id' => 'kin'],
+      ['task_id' => 'wolf'],
+    ];
+    $nodes = array_column($method->invoke($service, $tasks, [])['quest_nodes'], NULL, 'quest_id');
+    $this->assertSame(['caves', 'kin'], $nodes['wolf']['unlocks_after']);
+    $this->assertSame('any', $nodes['wolf']['prerequisite_mode']);
+
+    $tasks[2]['prerequisite_mode'] = 'all';
+    $nodes = array_column($method->invoke($service, $tasks, [])['quest_nodes'], NULL, 'quest_id');
+    $this->assertSame('all', $nodes['wolf']['prerequisite_mode']);
+  }
+
+  /**
+   * An escort that can fail with nowhere for the story to go is reported.
+   */
+  public function testEscortWhoseFailureStrandsTheStoryIsReported(): void {
+    [$service] = $this->fixture();
+    $method = new \ReflectionMethod($service, 'authoredChoiceFindings');
+    $method->setAccessible(TRUE);
+    $payload = ['process_flow' => [
+      'tasks' => [['task_id' => 'road'], ['task_id' => 'arrive'], ['task_id' => 'report']],
+      'objective_completion_criteria' => [
+        ['objective_id' => 'o1', 'task_id' => 'road', 'type' => 'escort'],
+        ['objective_id' => 'o2', 'task_id' => 'report', 'type' => 'escort'],
+      ],
+      'branch_choices' => [],
+    ]];
+    $findings = $method->invoke($service, $payload);
+    $this->assertSame(['task_failure_strands_story'], array_column($findings, 'code'), 'The last task leads nowhere, so its failure strands nothing.');
+    $this->assertSame('road', $findings[0]['task_id']);
+    $this->assertSame('warning', $findings[0]['severity']);
+
+    $payload['process_flow']['branch_choices'][] = [
+      'choice_id' => 'lost', 'label' => 'The escort is lost', 'source_task_id' => '', 'target_task_id' => 'report', 'terminal' => FALSE,
+      'trigger' => ['when' => ['subject_type' => 'task', 'subject_id' => 'road', 'measure' => 'failed']],
+    ];
+    $this->assertSame([], $method->invoke($service, $payload));
+  }
+
+  /**
    * A choice with no source task is storyline-wide, not a choice on a task.
    */
   public function testChoiceWithoutSourceTaskProjectsAsStorylineWide(): void {

@@ -258,7 +258,7 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
           journal_entries: ['chapter_id', 'scene_id', 'order', 'title', 'summary', 'trigger', 'room_ids', 'central_conflict', 'dramatic_function', 'themes', 'character_ids', 'foreshadows_scene_id'],
           conflict_entries: ['conflict_id', 'title', 'actor_ids', 'introduced_scene_id', 'escalation_scene_ids', 'resolved_scene_id', 'status'],
           relationship_entries: ['scene_id', 'source_actor_id', 'target_actor_id', 'before', 'after', 'reason'],
-          task_entries: ['task_id', 'chapter_id', 'scene_id', 'status', 'goal_text', 'gm_notes', 'open_resolution'],
+          task_entries: ['task_id', 'chapter_id', 'scene_id', 'status', 'goal_text', 'gm_notes', 'open_resolution', 'unlocks_to', 'prerequisite_mode'],
           branch_choice_entries: ['decision_id', 'source_task_id', 'choice_id', 'label', 'trigger_type', 'trigger_interaction', 'trigger_condition', 'trigger_source_id', 'trigger_when', 'effect_summary', 'target_task_id', 'target_scene_id', 'terminal', 'approach_visibility', 'approach_outcome_label', 'approach_reveal', 'approach_objective_ids', 'approach_reward_xp', 'approach_reward_gold'],
           branch_actor_effect_entries: ['choice_id', 'actor_id', 'interaction', 'reaction', 'effect', 'state_changes'],
           branch_environment_effect_entries: ['choice_id', 'target_type', 'target_id', 'effect', 'state_changes'],
@@ -728,9 +728,12 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
           const taskDraftRows = listFromCollection('task_entries', collections.task_entries);
           const taskIdFor = createIdentifierAllocator(taskDraftRows.map((task) => task.task_id));
           const tasks = taskDraftRows.map((task, index) => {
-            const { goal_text: goalText, gm_notes: gmNotes, open_resolution: openResolution, ...rest } = task;
+            const { goal_text: goalText, gm_notes: gmNotes, open_resolution: openResolution, unlocks_to: leadsTo, prerequisite_mode: rejoin, ...rest } = task;
             return {
               ...rest,
+              // Written only when the author set them; otherwise the list order and "any" apply.
+              ...(String(leadsTo || '').trim() ? { unlocks_to: String(leadsTo).split(',').map((id) => id.trim()).filter(Boolean) } : {}),
+              ...(rejoin === 'all' ? { prerequisite_mode: 'all' } : {}),
               task_id: task.task_id || taskIdFor(task.status || task.scene_id || `task-${index + 1}`, `${storylineId}-task`),
               chapter_id: task.chapter_id || defaultChapterId,
               scene_id: task.scene_id || primarySceneId,
@@ -1195,6 +1198,8 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
               goal_text: task?.goal_text || '',
               gm_notes: task?.gm_notes || '',
               open_resolution: task?.open_resolution === true || task?.open_resolution === 'true' ? 'true' : 'false',
+              unlocks_to: Array.isArray(task?.unlocks_to) ? task.unlocks_to.join(', ') : (task?.unlocks_to || ''),
+              prerequisite_mode: task?.prerequisite_mode === 'all' ? 'all' : 'any',
             }))],
             ['branch_choice_entries', branchChoices.map((choice) => ({
               decision_id: choice?.decision_id || '',
@@ -2471,6 +2476,43 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
             card.append(questFields);
 
             const own = questId ? choiceRows.filter((row) => rowValue(row, 'source_task_id') === questId) : [];
+            // What this quest leads to, by the same rule the engine uses.
+            if (questId) {
+              const leadsTo = (id) => {
+                const choices = choiceRows.filter((row) => rowValue(row, 'source_task_id') === id);
+                if (choices.length) {
+                  return { how: 'by its choices', ids: [...new Set(choices.filter((row) => rowValue(row, 'terminal') !== 'true').map((row) => rowValue(row, 'target_task_id')).filter((target) => target && target !== id))] };
+                }
+                const row = questRows.find((candidate) => rowValue(candidate, 'task_id') === id);
+                const written = String(rowValue(row, 'unlocks_to') || '').split(',').map((part) => part.trim()).filter(Boolean);
+                if (written.length) {
+                  return { how: 'set on this quest', ids: written };
+                }
+                const next = questIds[questIds.indexOf(id) + 1];
+                return { how: 'next in the list', ids: next ? [next] : [] };
+              };
+              const next = leadsTo(questId);
+              const before = questIds.filter((id) => id !== questId && leadsTo(id).ids.includes(questId));
+              const anytime = choiceRows.filter((row) => rowValue(row, 'source_task_id') === '' && rowValue(row, 'target_task_id') === questId);
+              const flow = outlineEl('div', 'gm-storyline-wizard__card-fields');
+              flow.append(outlineEl('p', 'gm-storyline-wizard__outline-meta', [
+                questIndex === 0 ? 'Starts the story.' : (before.length ? `Comes after: ${before.join(', ')}.` : (anytime.length ? '' : 'Nothing leads here.')),
+                anytime.length ? `Opened at any time by: ${anytime.map((row) => rowValue(row, 'label') || rowValue(row, 'choice_id')).join(', ')}.` : '',
+                next.ids.length ? `Leads to: ${next.ids.join(', ')} (${next.how}).` : (next.how === 'by its choices' ? 'Its choices end the storyline.' : 'Leads nowhere further: finishing it ends the story.'),
+              ].filter(Boolean).join(' ')));
+              if (!own.length) {
+                flow.append(boundField('Leads to', questRow, 'unlocks_to', `q${questIndex}:unlocks_to`, {
+                  placeholder: 'blank: the next quest in the list',
+                  help: 'Quest IDs, comma separated. Only success opens what follows.',
+                }));
+              }
+              if (before.length > 1) {
+                flow.append(boundField('Several quests lead here', questRow, 'prerequisite_mode', `q${questIndex}:prerequisite_mode`, {
+                  choices: [['any', 'Opens after any one of them'], ['all', 'Opens only after all of them']],
+                }));
+              }
+              card.append(flow);
+            }
             const ways = own.filter((row) => rowValue(row, 'approach_visibility') !== '');
             const decisions = own.filter((row) => rowValue(row, 'approach_visibility') === '');
             const leadsToChoices = [
