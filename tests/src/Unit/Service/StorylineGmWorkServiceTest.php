@@ -50,6 +50,32 @@ class StorylineGmWorkServiceTest extends UnitTestCase {
   }
 
   /**
+   * Work the draft has moved past is closed, reported, and stops blocking.
+   */
+  public function testSavedWorkIsClosedOnceTheDraftChangesElsewhere(): void {
+    [$service, $state, $parser] = $this->fixture();
+    $parser->method('parse')->willReturnCallback(fn () => $this->intent(3));
+    $args = $service->plan('draft-original', 3, $this->steps())['proposed_execution']['arguments'];
+    $service->advance('draft-original', ...array_values($this->advanceArgs($args)));
+    $this->assertNull($service->closeSupersededWork('draft-original'));
+
+    // The author saves the draft some other way: the remaining unit is stale.
+    $state->draft['revision'] = 9;
+    $notice = $service->closeSupersededWork('draft-original');
+    $this->assertSame(4, $notice['job_revision']);
+    $this->assertSame(9, $notice['draft_revision']);
+    $this->assertCount(1, $notice['completed']);
+    $this->assertCount(1, $notice['not_done']);
+    $this->assertNull($service->activeWork('draft-original'));
+    // The notice stands until the draft changes again.
+    $this->assertSame($notice, $service->closeSupersededWork('draft-original'));
+    $state->draft['revision'] = 10;
+    $this->assertNull($service->closeSupersededWork('draft-original'));
+    // New work can be planned against the newer draft.
+    $this->assertNotSame($args['job_id'], $service->plan('draft-original', 10, $this->steps())['proposed_execution']['arguments']['job_id']);
+  }
+
+  /**
    * Truncated later output preserves earlier saved content and its cursor.
    */
   public function testTruncatedLaterBatchPreservesCompletedWork(): void {

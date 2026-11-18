@@ -500,6 +500,19 @@ class AgentHarnessManagementService {
       // fix route; the flat lists repeat them and are not sent twice.
       unset($validation_summary['errors'], $validation_summary['warnings']);
     }
+    // A finding carries its message; the same sentence is not also sent in
+    // the stage's plain error and warning lists.
+    foreach ((array) ($validation_summary['stages'] ?? []) as $index => $stage) {
+      $stated = array_flip(array_filter(array_column(array_filter((array) ($stage['findings'] ?? []), 'is_array'), 'message'), 'is_string'));
+      foreach (['errors', 'warnings'] as $list) {
+        if ($stated !== [] && is_array($stage[$list] ?? NULL)) {
+          $validation_summary['stages'][$index][$list] = array_values(array_filter(
+            $stage[$list],
+            static fn(mixed $message): bool => !is_string($message) || !isset($stated[$message]),
+          ));
+        }
+      }
+    }
     $grounding['validation_summary'] = $validation_summary;
     if (!empty($context_snapshot['publication'])) {
       $grounding['publication'] = $context_snapshot['publication'];
@@ -1108,9 +1121,6 @@ class AgentHarnessManagementService {
     $guidance = self::SURFACE_GUIDANCE[$surface_label]
       ?? throw new \LogicException('next_step_surface_unsupported:' . $surface_label);
     if (!empty($context_snapshot['authoring_workflow']['bounded_work']['active_work'])) {
-      if (!empty($context_snapshot['authoring_workflow']['bounded_work']['active_work']['revision_conflict'])) {
-        return ['Stop saved work before planning changes against the newer draft revision.'];
-      }
       return ['Resume the saved authoring work.'];
     }
     $state = is_array($context_snapshot['current_state'] ?? NULL) ? $context_snapshot['current_state'] : [];

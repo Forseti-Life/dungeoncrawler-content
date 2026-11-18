@@ -144,8 +144,73 @@ class StorylineGmWorkService {
     if (!is_array($job) || $job['draft_id'] !== $draft_id) {
       throw new \LogicException('storyline_work_checkpoint_invalid:' . $draft_id);
     }
-    $revision_conflict = $draft['revision'] !== $job['revision'];
-    return $this->progress($job, $revision_conflict) + ['revision_conflict' => $revision_conflict];
+    return $this->progress($job);
+  }
+
+  /**
+   * Closes saved work the draft has moved past, and reports what it was.
+   *
+   * Saved work is pinned to the draft revision it last saved. Once the
+   * draft is changed any other way, its remaining units were planned
+   * against content that no longer exists and can never run, so the work
+   * is closed here rather than left to block every later request. What was
+   * saved stays saved.
+   *
+   * @return array{job_revision: int, draft_revision: int, completed: string[], not_done: string[]}|null
+   *   NULL when there is no saved work, or it is still current.
+   */
+  public function closeSupersededWork(string $draft_id): ?array {
+    $draft = $this->drafts->getDraft($draft_id);
+    $id = $this->store->get('active:' . $draft_id);
+    if ($id === NULL) {
+      // The notice stands until the author changes the draft again.
+      $notice = $this->store->get('closed:' . $draft_id);
+      if (is_array($notice) && $notice['draft_revision'] !== $draft['revision']) {
+        $this->store->delete('closed:' . $draft_id);
+        return NULL;
+      }
+      return is_array($notice) ? $notice : NULL;
+    }
+    $lock_name = 'storyline_gm_work:' . $draft_id;
+    if (!$this->lock->acquire($lock_name, 30)) {
+      // A unit is being applied right now; its revision is about to move.
+      return NULL;
+    }
+    try {
+      $job = $this->store->get($id);
+      if (!is_array($job) || $job['draft_id'] !== $draft_id) {
+        throw new \LogicException('storyline_work_checkpoint_invalid:' . $draft_id);
+      }
+      if ($draft['revision'] === $job['revision']) {
+        return NULL;
+      }
+      $job['cancelled'] = TRUE;
+      $job['superseded_by_revision'] = $draft['revision'];
+      $notice = [
+        'job_revision' => (int) $job['revision'],
+        'draft_revision' => (int) $draft['revision'],
+        'completed' => array_values(array_map('strval', (array) ($job['completed_labels'] ?? []))),
+        'not_done' => array_values(array_map(
+          static fn(array $step): string => (string) ($step['label'] ?? ''),
+          array_slice((array) $job['steps'], (int) $job['cursor']),
+        )),
+      ];
+      $transaction = $this->database->startTransaction();
+      try {
+        $this->store->set($id, $job);
+        $this->store->delete('active:' . $draft_id);
+        $this->store->set('closed:' . $draft_id, $notice);
+        $transaction->commitOrRelease();
+      }
+      catch (\Throwable $exception) {
+        $transaction->rollBack();
+        throw $exception;
+      }
+      return $notice;
+    }
+    finally {
+      $this->lock->release($lock_name);
+    }
   }
 
   /**
@@ -564,7 +629,7 @@ class StorylineGmWorkService {
     return $operations;
   }
 
-  private function progress(array $job, bool $revision_conflict = FALSE): array {
+  private function progress(array $job): array {
     $status = !empty($job['cancelled'])
       ? 'cancelled'
       : ($job['cursor'] === count($job['steps'])
@@ -572,7 +637,6 @@ class StorylineGmWorkService {
         : (isset($job['last_failure']) && $job['pending_operations'] === NULL ? 'paused' : 'running'));
     $actions = match (TRUE) {
       in_array($status, ['cancelled', 'completed'], TRUE) => [],
-      $revision_conflict => ['cancel'],
       $status === 'paused' && ((int) ($job['step_failures'] ?? 0) >= self::MAX_STEP_FAILURES) => ['skip', 'cancel'],
       $status === 'paused' => ['resume', 'skip', 'cancel'],
       default => ['advance', 'cancel'],

@@ -1982,8 +1982,10 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
               stopWorkButton.hidden = true;
               skipWorkButton.hidden = true;
             }
-            if (activeWork?.revision_conflict) {
-              setAssistantStatus('Saved work is paused because the draft changed. Stop saved work to keep the newer draft and begin a revised request.');
+            const closedWork = payload?.data?.context_snapshot?.authoring_workflow?.bounded_work?.closed_work;
+            if (closedWork) {
+              const notDone = (closedWork.not_done || []).filter(Boolean);
+              setAssistantStatus(`Saved work from revision ${closedWork.job_revision} was closed: the draft has changed since (now revision ${closedWork.draft_revision}). What it saved is kept.${notDone.length ? ` Not done: ${notDone.join('; ')}.` : ''}`);
             } else if (activeWork?.status === 'paused') {
               setAssistantStatus(summarizeWorkFailure(activeWork));
             }

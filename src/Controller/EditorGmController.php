@@ -302,7 +302,7 @@ class EditorGmController extends ControllerBase {
     $code = $exception->getMessage() ?: 'editor_gm_error';
     $status = match (TRUE) {
       $exception instanceof CanonicalGenerationException => $exception->httpStatus(),
-      $code === 'editor_gm_intent_output_truncated' => 502,
+      in_array($code, ['editor_gm_intent_output_truncated', 'editor_gm_context_window_exhausted'], TRUE) => 502,
       $exception instanceof \InvalidArgumentException && $code === 'definition_exists' => 409,
       $exception instanceof \InvalidArgumentException && $exception->getCode() === 422 => 422,
       $exception instanceof \JsonException,
@@ -330,6 +330,9 @@ class EditorGmController extends ControllerBase {
       'code' => $code,
       'message' => str_replace('_', ' ', ucfirst($code)),
     ];
+    if ($code === 'editor_gm_context_window_exhausted') {
+      $error['message'] = 'This draft and its findings no longer fit in the GM model\'s context, so its reply was cut off and nothing was executed. Nothing was changed. This needs a fix to the GM, not a different request.';
+    }
     if ($code === 'editor_gm_intent_output_truncated') {
       $error['message'] = 'The GM response exceeded its output limit; that batch was not executed. Previously completed batches remain saved and can be resumed.';
     }

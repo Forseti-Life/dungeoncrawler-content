@@ -56,6 +56,8 @@ final class StorylineBuilderGmContextAssembler implements EditorGmContextAssembl
           'apply_tool' => 'apply_storyline_work',
           'max_operations_per_batch' => StorylineGmWorkService::MAX_OPERATIONS,
           'max_patch_bytes' => StorylineGmWorkService::MAX_PATCH_BYTES,
+          // Work the draft has moved past is closed first; what remains is current.
+          'closed_work' => $this->work->closeSupersededWork($context->draftId),
           'active_work' => $this->work->activeWork($context->draftId),
           'instructions' => 'Large or multi-scene edits start with short work-unit instructions, not a complete operation payload. The client automatically continues checkpointed batches. Resume active_work before planning the same edits again. If its revision conflicts, explicitly stop the saved work before planning against the newer draft; completed edits remain saved. Plan work units only for findings whose route is draft_operation; the route on a finding overrides the route on its stage. dungeon_editor findings need a room or site built: use route_to_editor to send the author to the Dungeon Editor on that site, never work units, remediation or new draft rows. Never ask the author to divide the technical workload.',
         ],
