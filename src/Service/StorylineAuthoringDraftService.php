@@ -242,6 +242,7 @@ class StorylineAuthoringDraftService {
         'Reuse grounded IDs for existing objects; look up named canonical objects before rebinding.',
         'To add a character the author names, use bind_library_characters; it looks the character up and saves the cast row. Before inventing a character, search the character library with find_library_characters. When a library character fits, bind it by its actor_id instead of inventing one, and offer the matches to the author when the choice is theirs. A quest giver or hook is a library character whenever one fits.',
         'A character new to the story is placed: its location_id names a room or site of this storyline.',
+        'Every cast member is tied to the cast when it is added or bound, in the same operations: affiliations for its clan, family or house, settlement, faction, culture and any other group it belongs to (cast members who share a domain and name are in the same group), and one /objects/actors/relationships row for each cast member it has a personal tie to, with the attitude and a bond such as spouse, parent, child, sibling, rival, mentor or serves. Ancestry and class are not affiliations; they come from the sheet. Infer the obvious ties from the roles and the story; do not ask the author for them.',
         'For new append rows, omit generated identity fields and let the authority allocate collision-free, draft-scoped IDs.',
         'Give related new rows internal batch keys and link them with $draft_ref values; never ask the author to supply keys or IDs.',
         'Keep existing IDs when renaming or editing content; only rebind references when the author requests that change.',
@@ -1062,7 +1063,7 @@ class StorylineAuthoringDraftService {
     $stages['actor_character_sheets'] = [
       'valid' => $sheet_findings === [],
       'errors' => array_column($sheet_findings, 'message'),
-      'warnings' => $this->questGiverWarnings($draft),
+      'warnings' => array_merge($this->questGiverWarnings($draft), self::actorTieWarnings($draft['payload'] ?? [])),
       'findings' => $sheet_findings,
     ];
     $stages['authored_questline_edges'] = [
@@ -1594,6 +1595,130 @@ class StorylineAuthoringDraftService {
       }
     }
     return $findings;
+  }
+
+  /**
+   * What ties one cast member to the rest of the cast in a storyline draft.
+   *
+   * Groups come from the actor's sheet (ancestry, class) and its authored
+   * affiliations; each lists the other cast members who share it. Personal
+   * ties are the authored actor relationships, in both directions.
+   *
+   * @return array{storyline: string, groups: array<int, array{kind: string, name: string, shared_with: string[]}>, ties: array<int, array<string, string>>}|null
+   *   NULL when the draft has no such cast member.
+   */
+  public function actorStoryTies(string $draft_id, string $actor_id): ?array {
+    $payload = $this->getDraftForViewing($draft_id)['payload'];
+    $cast = array_values(array_filter((array) ($payload['objects']['actors']['generation_specs'] ?? []), 'is_array'));
+    $names = [];
+    foreach ($cast as $member) {
+      $names[(string) ($member['actor_id'] ?? '')] = trim((string) ($member['display_name'] ?? '')) ?: (string) ($member['actor_id'] ?? '');
+    }
+    if (!isset($names[$actor_id])) {
+      return NULL;
+    }
+    $groups_of = static function (array $member): array {
+      $groups = [];
+      foreach (['ancestry' => 'Ancestry', 'class' => 'Class'] as $field => $kind) {
+        $value = trim((string) ($member[$field] ?? ''));
+        if ($value !== '') {
+          $groups[$kind . ':' . mb_strtolower($value)] = ['kind' => $kind, 'name' => ucwords(str_replace(['_', '-'], ' ', $value))];
+        }
+      }
+      foreach ((array) ($member['affiliations'] ?? []) as $affiliation) {
+        $name = trim((string) ($affiliation['name'] ?? ''));
+        if ($name !== '') {
+          $kind = ucfirst((string) ($affiliation['domain'] ?? ''));
+          $groups[$kind . ':' . mb_strtolower($name)] = ['kind' => $kind, 'name' => $name];
+        }
+      }
+      return $groups;
+    };
+    $groups = [];
+    foreach ($cast as $member) {
+      $member_id = (string) ($member['actor_id'] ?? '');
+      foreach ($groups_of($member) as $key => $group) {
+        $groups[$key] ??= $group + ['members' => []];
+        $groups[$key]['members'][$member_id] = $names[$member_id];
+      }
+    }
+    $mine = [];
+    foreach ($groups as $group) {
+      if (isset($group['members'][$actor_id])) {
+        $mine[] = [
+          'kind' => $group['kind'],
+          'name' => $group['name'],
+          'shared_with' => array_values(array_diff_key($group['members'], [$actor_id => TRUE])),
+        ];
+      }
+    }
+    $ties = [];
+    foreach ((array) ($payload['objects']['actors']['relationships'] ?? []) as $relationship) {
+      $source = (string) ($relationship['source_actor_id'] ?? '');
+      $target = (string) ($relationship['target_actor_id'] ?? '');
+      if ($source !== $actor_id && $target !== $actor_id) {
+        continue;
+      }
+      $outgoing = $source === $actor_id;
+      $other = $outgoing ? $target : $source;
+      $ties[] = [
+        'direction' => $outgoing ? 'toward' : 'from',
+        'other_actor_id' => $other,
+        'other_name' => $names[$other] ?? $other,
+        'attitude' => (string) ($relationship['attitude'] ?? ''),
+        'bond' => trim((string) ($relationship['bond'] ?? '')),
+        'notes' => trim((string) ($relationship['notes'] ?? '')),
+      ];
+    }
+    return ['storyline' => trim((string) ($payload['title'] ?? '')), 'groups' => $mine, 'ties' => $ties];
+  }
+
+  /**
+   * Warns when cast members have nothing that ties them to anyone.
+   *
+   * Ancestry and class come from the sheet. Clan, family, settlement and
+   * the like are authored as affiliations, and how one cast member regards
+   * another as a relationship; without them nothing is recorded when the
+   * story is played.
+   *
+   * @return string[]
+   */
+  private static function actorTieWarnings(array $payload): array {
+    $cast = array_values(array_filter((array) ($payload['objects']['actors']['generation_specs'] ?? []), 'is_array'));
+    if (count($cast) < 2) {
+      return [];
+    }
+    $related = [];
+    foreach ((array) ($payload['objects']['actors']['relationships'] ?? []) as $relationship) {
+      $related[(string) ($relationship['source_actor_id'] ?? '')] = TRUE;
+      $related[(string) ($relationship['target_actor_id'] ?? '')] = TRUE;
+    }
+    $no_affiliation = [];
+    $no_relationship = [];
+    foreach ($cast as $member) {
+      $name = trim((string) ($member['display_name'] ?? '')) ?: (string) ($member['actor_id'] ?? '');
+      if (array_filter((array) ($member['affiliations'] ?? []), 'is_array') === []) {
+        $no_affiliation[] = $name;
+      }
+      if (!isset($related[(string) ($member['actor_id'] ?? '')])) {
+        $no_relationship[] = $name;
+      }
+    }
+    $list = static fn(array $names): string => implode(', ', array_slice($names, 0, 8)) . (count($names) > 8 ? sprintf(' and %d more', count($names) - 8) : '');
+    $warnings = [];
+    if ($no_affiliation !== []) {
+      $warnings[] = sprintf(
+        '%d of %d cast members belong to no clan, family, settlement or other group: %s. Record each one\'s affiliations so shared membership ties them together.',
+        count($no_affiliation), count($cast), $list($no_affiliation),
+      );
+    }
+    if ($no_relationship !== []) {
+      $warnings[] = sprintf(
+        '%d of %d cast members have no relationship with any other cast member: %s. Record how each regards the cast members it is tied to (spouse, parent, rival, serves).',
+        count($no_relationship), count($cast), $list($no_relationship),
+      );
+    }
+    return $warnings;
   }
 
   /**

@@ -462,6 +462,7 @@ class CharacterViewController extends ControllerBase {
         'outgoing' => $relationships_outgoing,
         'incoming' => $relationships_incoming,
       ],
+      '#story_ties' => $this->storyTies($campaign_id),
       '#actor_identity' => [
         'type' => $type,
         'role' => (string) ($record->role ?? ''),
@@ -579,6 +580,23 @@ class CharacterViewController extends ControllerBase {
       'spec' => ['#type' => 'table', '#header' => [$this->t('Planned'), $this->t('Value')], '#rows' => $rows],
       'back' => ['#type' => 'link', '#title' => $this->t('Back to the storyline draft'), '#url' => $builder],
     ];
+  }
+
+  /**
+   * A cast member's ties in the storyline draft the page was opened from.
+   */
+  private function storyTies(int $campaign_id): ?array {
+    $draft_id = trim((string) \Drupal::request()->query->get('draft_id', ''));
+    $actor_id = (string) \Drupal::routeMatch()->getParameter('actor_id');
+    if ($campaign_id > 0 || $draft_id === '' || $actor_id === '') {
+      return NULL;
+    }
+    try {
+      return \Drupal::service('dungeoncrawler_content.storyline_authoring_drafts')->actorStoryTies($draft_id, $actor_id);
+    }
+    catch (\OutOfBoundsException) {
+      throw new NotFoundHttpException();
+    }
   }
 
   /**

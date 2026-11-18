@@ -358,6 +358,7 @@ function dungeoncrawler_content_theme(array $existing, string $type, string $the
         'personality' => [],
         'psychology_dimensions' => [],
         'psychology_profile' => [],
+        'story_ties' => NULL,
         'quest_payload' => [],
         'actor_meta' => [],
         'npc_data' => NULL,

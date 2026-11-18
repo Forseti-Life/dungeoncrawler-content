@@ -779,6 +779,28 @@
   {% set has_incoming_relationships = relationships is defined and relationships.incoming is defined and relationships.incoming|length > 0 %}
   <div class="dc-sheet__section">
     <h2 class="dc-sheet__section-title">Relationships</h2>
+    {% if story_ties %}
+      <h3 class="dc-sheet__subsection-title">In the storyline {{ story_ties.storyline }}</h3>
+      {% for group in story_ties.groups %}
+        <div class="dc-sheet__detail">
+          <strong>{{ group.kind }}:</strong> {{ group.name }}
+          {% if group.shared_with|length > 0 %}
+            <div class="dc-sheet__detail">Shared with {{ group.shared_with|length }}: {{ group.shared_with|slice(0, 12)|join(', ') }}{% if group.shared_with|length > 12 %} and {{ group.shared_with|length - 12 }} more{% endif %}</div>
+          {% endif %}
+        </div>
+      {% endfor %}
+      {% for tie in story_ties.ties %}
+        <div class="dc-sheet__detail">
+          <strong>{{ tie.direction == 'toward' ? 'Regards' : 'Regarded by' }}</strong> {{ tie.other_name }}
+          {% if tie.bond %}<span class="dc-sheet__tag">{{ tie.bond }}</span>{% endif %}
+          {% if tie.attitude %}<span class="dc-sheet__tag">{{ tie.attitude }}</span>{% endif %}
+          {% if tie.notes %}<div class="dc-sheet__detail">{{ tie.notes }}</div>{% endif %}
+        </div>
+      {% endfor %}
+      {% if story_ties.ties|length == 0 %}
+        <p><em>No personal relationships with other cast members are recorded in this storyline yet. Ask the Storyline GM to record the cast's affiliations and relationships.</em></p>
+      {% endif %}
+    {% endif %}
     {% if has_outgoing_relationships %}
         <h3 class="dc-sheet__subsection-title">Outgoing</h3>
         {% for rel in relationships.outgoing %}
@@ -814,8 +836,8 @@
           </div>
         {% endfor %}
     {% endif %}
-    {% if not has_outgoing_relationships and not has_incoming_relationships %}
-      <p><em>No relationships have been recorded for this actor in this campaign.</em></p>
+    {% if not story_ties and not has_outgoing_relationships and not has_incoming_relationships %}
+      <p><em>No relationships have been recorded for this actor{{ actor_identity is defined and actor_identity.campaign_id > 0 ? ' in this campaign' : '' }}.</em></p>
     {% endif %}
   </div>
 
