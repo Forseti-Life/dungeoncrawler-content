@@ -172,6 +172,14 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
       ].filter((wizard) => wizard.dataset.gmStorylineInitialized !== 'true');
       roots.forEach((wizard) => {
         wizard.dataset.gmStorylineInitialized = 'true';
+        // The page heading is the name of the storyline being edited.
+        const showStorylineName = () => {
+          const heading = document.querySelector('[data-storyline-heading]');
+          if (heading) {
+            heading.textContent = (wizard.querySelector('[data-field="storyline_title"]')?.value || '').trim() || 'New storyline';
+          }
+        };
+        wizard.querySelector('[data-field="storyline_title"]')?.addEventListener('input', showStorylineName);
         const stepTabs = Array.from(document.querySelectorAll('[data-step-tab]'));
         const stepPanels = Array.from(wizard.querySelectorAll('[data-step-panel]'));
         const titleEl = document.querySelector('[data-gm-storyline-active-step-title]');
@@ -1122,6 +1130,7 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
           };
           setField('storyline_id', payload.storyline_id || '');
           setField('storyline_title', payload.title || '');
+          showStorylineName();
           setField('storyline_description', payload.description || '');
           setField('storyline_premise', payload.premise || '');
           setField('storyline_level_range', payload.level_range || '');

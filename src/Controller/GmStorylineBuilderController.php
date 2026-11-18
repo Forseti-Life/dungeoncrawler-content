@@ -615,7 +615,7 @@ TWIG,
     ];
     $build['layout']['workspace']['panel_header']['copy'] = [
       '#markup' => '<p class="character-setup-page__panel-label">' . $this->t('Primary authoring interface') . '</p>'
-        . '<h2 class="character-setup-page__panel-title">' . $this->t('Game Master Storyline Agent') . '</h2>',
+        . '<h2 class="character-setup-page__panel-title" data-storyline-heading>' . $this->t('New storyline') . '</h2>',
     ];
     $build['layout']['workspace']['panel_header']['meta'] = [
       '#markup' => '<p class="character-setup-page__panel-meta">' . $this->t('Guided creation with structured data controls below') . '</p>',
