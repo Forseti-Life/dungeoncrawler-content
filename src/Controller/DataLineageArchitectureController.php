@@ -66,7 +66,7 @@ class DataLineageArchitectureController extends ControllerBase {
         'domain' => 'Quest and Rewards',
         'parent_surface' => '/api/campaign/{campaign_id}/quests/*',
         'child_surface' => 'start/progress/complete/claim flows + journal retrieval',
-        'controllers_services' => 'QuestGeneratorController + QuestTrackerController + QuestRewardService + QuestValidatorService',
+        'controllers_services' => 'QuestGeneratorController + QuestTrackerController + QuestValidatorService',
         'tables' => 'dc_campaign_quests, dc_campaign_quest_progress, dc_campaign_quest_rewards_claimed, dc_campaign_quest_log',
         'lineage' => 'Quest generation feeds campaign quest records; progress and rewards persist independently for audit-safe reward claims.',
       ],

@@ -203,6 +203,11 @@ services:
     class: Drupal\dungeoncrawler_content\Service\QuestInstitutionDispositionMutationService
     arguments:
       - '@dungeoncrawler_content.institution_disposition_matrix'
+      - '@database'
+      - '@dungeoncrawler_content.relationship_attitude_service'
+      - '@dungeoncrawler_content.institution_membership'
+      - '@dungeoncrawler_content.campaign_subject_registry'
+      - '@dungeoncrawler_content.institution_library'
 
   dungeoncrawler_content.faction_generation:
     class: Drupal\dungeoncrawler_content\Service\FactionGenerationService
@@ -2064,6 +2069,7 @@ services:
       - '@dungeoncrawler_content.inventory_management'
       - '@dungeoncrawler_content.quest_validator'
       - '@dungeoncrawler_content.room_state_service'
+      - '@dungeoncrawler_content.quest_institution_disposition_mutation'
 
   dungeoncrawler_content.storyline_quest_lifecycle:
     class: Drupal\dungeoncrawler_content\Service\StorylineQuestLifecycleService
@@ -2073,17 +2079,13 @@ services:
       - '@dungeoncrawler_content.quest_tracker'
       - '@logger.factory'
 
-  dungeoncrawler_content.quest_reward:
-    class: Drupal\dungeoncrawler_content\Service\QuestRewardService
-    arguments:
-      - '@database'
-      - '@logger.factory'
-
   dungeoncrawler_content.quest_validator:
     class: Drupal\dungeoncrawler_content\Service\QuestValidatorService
     arguments:
       - '@database'
       - '@logger.factory'
+      - '@dungeoncrawler_content.institution_membership'
+      - '@dungeoncrawler_content.institution_library'
 
   dungeoncrawler_content.quest_confirmation:
     class: Drupal\dungeoncrawler_content\Service\QuestConfirmationService

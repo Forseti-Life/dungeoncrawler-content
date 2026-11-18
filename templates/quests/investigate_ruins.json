@@ -93,10 +93,6 @@
     "items": {
       "loot_table": "gmg_story_treasures",
       "count": 1
-    },
-    "reputation": {
-      "faction": "scholars_guild",
-      "amount": 50
     }
   },
   "prerequisites": {

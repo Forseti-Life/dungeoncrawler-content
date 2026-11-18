@@ -963,6 +963,28 @@ So an exile's -50 toward a clan lowers the exile's view of its members and
 the members' view of the exile by the same slight amount (about -14, -3
 after the resolver's share); an ally's +50 raises both.
 
+### Quests and standing
+
+Finishing a quest changes standing through the stores above; there is no
+separate reputation store. `QuestTrackerService::completeQuest` calls
+`QuestInstitutionDispositionMutationService::applyQuestCompletionStanding`
+once per party character and quest (inside the reward claim record):
+
+| Outcome | Giver toward character | Character toward each authored institution of the giver |
+| --- | --- | --- |
+| success | +20 (`RelationshipAttitudeService::applyRelationshipDispositionDelta`) | +10 (`InstitutionMembershipService::adjustInstitutionSentiment`) |
+| failure | -5 | -5 |
+
+- A successful quest also pays `rewards.reputation`, a list of
+  `{institution, amount}`: the character's sentiment toward that library
+  institution moves by the amount. An institution not in the library fails
+  the completion.
+- A failed quest pays no xp, gold, items or reputation.
+- Ancestry, class and alignment institutions of the giver are not touched.
+- A quest prerequisite `reputation: [{institution, minimum}]` reads the same
+  actor-held sentiment (`QuestValidatorService`).
+- `adjustInstitutionSentiment` is the one delta writer; combat uses it too.
+
 ---
 
 ## Migration and Backfill Rules

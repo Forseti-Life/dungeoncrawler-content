@@ -107,10 +107,6 @@
     "items": {
       "loot_table": "gmg_balanced_party_cache",
       "count": 1
-    },
-    "reputation": {
-      "faction": "{npc_faction}",
-      "amount": 25
     }
   },
   "prerequisites": {

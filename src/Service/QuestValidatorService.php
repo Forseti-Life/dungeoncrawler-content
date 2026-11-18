@@ -42,7 +42,9 @@ class QuestValidatorService {
    */
   public function __construct(
     Connection $database,
-    LoggerChannelFactoryInterface $logger_factory
+    LoggerChannelFactoryInterface $logger_factory,
+    protected ?InstitutionMembershipService $institutionMembership = NULL,
+    protected ?InstitutionLibraryService $institutionLibrary = NULL
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler_content');
@@ -237,32 +239,35 @@ class QuestValidatorService {
     int $character_id,
     array $reputation_requirements
   ): array {
-    $requirements = $this->normalizeReputationRequirements($reputation_requirements);
-    if ($requirements === []) {
+    // Reputation is the character's standing with an institution: the
+    // actor-held institution sentiment the institution framework stores.
+    if ($this->institutionMembership === NULL || $this->institutionLibrary === NULL) {
+      throw new \RuntimeException('Quest reputation prerequisites require the institution membership and library services.');
+    }
+    if (!array_is_list($reputation_requirements) || $reputation_requirements === []) {
       return ['invalid_reputation_prerequisite'];
     }
-
-    $reputation_state = $this->loadCharacterReputationState($campaign_id, $character_id);
+    $character = $this->loadCharacter($campaign_id, $character_id);
+    $instance_id = trim((string) ($character['instance_id'] ?? ''));
+    if ($instance_id === '') {
+      return [sprintf('Character %d is not an actor of campaign %d.', $character_id, $campaign_id)];
+    }
+    $standing = [];
+    foreach ($this->institutionMembership->listActorInstitutionSentiments($campaign_id, 'campaign_character', $instance_id) as $sentiment) {
+      $standing[(string) $sentiment['target_id']] = (int) $sentiment['score'];
+    }
     $missing = [];
-    foreach ($requirements as $requirement) {
-      $faction = $requirement['faction'];
-      $required_amount = $requirement['required'];
-      $current_amount = (float) ($reputation_state[$faction] ?? 0);
-
-      $this->logger->debug('Checking reputation with @faction for character @char (required @required, current @current)', [
-        '@faction' => $faction,
-        '@char' => $character_id,
-        '@required' => $required_amount,
-        '@current' => $current_amount,
-      ]);
-
-      if ($current_amount < $required_amount) {
-        $missing[] = sprintf(
-          'Reputation with %s requires %.2f (current %.2f)',
-          $faction,
-          $required_amount,
-          $current_amount
-        );
+    foreach ($reputation_requirements as $requirement) {
+      if (!is_array($requirement) || !is_string($requirement['institution'] ?? NULL) || !is_int($requirement['minimum'] ?? NULL)) {
+        return ['invalid_reputation_prerequisite'];
+      }
+      $record = $this->institutionLibrary->loadByReference($requirement['institution']);
+      if ($record === NULL) {
+        return [sprintf('Reputation prerequisite names "%s", which is not in the institution library.', $requirement['institution'])];
+      }
+      $current = $standing[(string) $record['librarySubjectId']] ?? 0;
+      if ($current < $requirement['minimum']) {
+        $missing[] = sprintf('Standing with %s requires %d (current %d)', (string) $record['canonicalLabel'], $requirement['minimum'], $current);
       }
     }
 
@@ -387,7 +392,7 @@ class QuestValidatorService {
    */
   protected function loadCharacter(int $campaign_id, int $character_id): ?array {
     $result = $this->database->select('dc_campaign_characters', 'c')
-      ->fields('c', ['id', 'level', 'character_data'])
+      ->fields('c', ['id', 'instance_id', 'level', 'character_data'])
       ->condition('campaign_id', $campaign_id)
       ->condition('id', $character_id)
       ->execute()
@@ -468,95 +473,6 @@ class QuestValidatorService {
     }
 
     return $requirements;
-  }
-
-  /**
-   * Normalize quest reputation prerequisites into canonical requirement rows.
-   *
-   * @return array<int, array{faction: string, required: float}>
-   *   Canonical reputation requirements.
-   */
-  protected function normalizeReputationRequirements(array $reputation_requirements): array {
-    $requirements = [];
-    $is_associative = array_keys($reputation_requirements) !== range(0, count($reputation_requirements) - 1);
-
-    if ($is_associative && isset($reputation_requirements['faction'])) {
-      $faction = trim((string) ($reputation_requirements['faction'] ?? ''));
-      $required = (float) ($reputation_requirements['amount'] ?? $reputation_requirements['required'] ?? $reputation_requirements['min'] ?? 0);
-      if ($faction !== '') {
-        $requirements[] = ['faction' => $faction, 'required' => $required];
-      }
-      return $requirements;
-    }
-
-    if ($is_associative) {
-      foreach ($reputation_requirements as $faction => $required) {
-        $normalized_faction = trim((string) $faction);
-        if ($normalized_faction === '') {
-          continue;
-        }
-        $requirements[] = ['faction' => $normalized_faction, 'required' => (float) $required];
-      }
-      return $requirements;
-    }
-
-    foreach ($reputation_requirements as $entry) {
-      if (!is_array($entry)) {
-        continue;
-      }
-      $faction = trim((string) ($entry['faction'] ?? $entry['id'] ?? ''));
-      $required = (float) ($entry['amount'] ?? $entry['required'] ?? $entry['min'] ?? 0);
-      if ($faction !== '') {
-        $requirements[] = ['faction' => $faction, 'required' => $required];
-      }
-    }
-
-    return $requirements;
-  }
-
-  /**
-   * Load campaign character reputation state from character_data.
-   *
-   * @return array<string, float>
-   *   Faction reputation map.
-   */
-  protected function loadCharacterReputationState(int $campaign_id, int $character_id): array {
-    $character = $this->loadCharacter($campaign_id, $character_id);
-    if ($character === NULL) {
-      return [];
-    }
-
-    $character_data = json_decode((string) ($character['character_data'] ?? ''), TRUE);
-    if (!is_array($character_data)) {
-      return [];
-    }
-
-    $reputation = [];
-
-    if (is_array($character_data['reputation'] ?? NULL)) {
-      foreach ($character_data['reputation'] as $faction => $value) {
-        $normalized_faction = trim((string) $faction);
-        if ($normalized_faction === '' || !is_numeric($value)) {
-          continue;
-        }
-        $reputation[$normalized_faction] = (float) $value;
-      }
-    }
-
-    if (is_array($character_data['factions'] ?? NULL)) {
-      foreach ($character_data['factions'] as $faction => $faction_data) {
-        $normalized_faction = trim((string) $faction);
-        if ($normalized_faction === '' || !is_array($faction_data)) {
-          continue;
-        }
-        if (!is_numeric($faction_data['reputation'] ?? NULL)) {
-          continue;
-        }
-        $reputation[$normalized_faction] = (float) $faction_data['reputation'];
-      }
-    }
-
-    return $reputation;
   }
 
 }

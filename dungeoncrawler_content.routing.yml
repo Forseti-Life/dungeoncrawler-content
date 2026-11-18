@@ -3310,21 +3310,6 @@ dungeoncrawler_content.api.quest_touchpoint_confirmations_resolve:
   options:
     _format: json
 
-# Claim quest rewards
-dungeoncrawler_content.api.quest_claim_rewards:
-  path: '/api/campaign/{campaign_id}/quests/{quest_id}/rewards/claim'
-  defaults:
-    _controller: '\Drupal\dungeoncrawler_content\Controller\QuestRewardController::claimRewards'
-  methods: [POST]
-  requirements:
-    _csrf_request_header_mode: TRUE
-    _permission: 'access dungeoncrawler characters'
-    _campaign_quest_manage_access: 'TRUE'
-    campaign_id: '\d+'
-    quest_id: '[a-z0-9_-]+'
-  options:
-    _format: json
-
 # Get reward summary for quest
 dungeoncrawler_content.api.quest_get_rewards:
   path: '/api/campaign/{campaign_id}/quests/{quest_id}/rewards'

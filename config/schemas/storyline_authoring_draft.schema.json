@@ -565,7 +565,7 @@
             },
             "rewards": {
               "type": "object",
-              "description": "Replaces the quest reward when the goal is achieved this way: {xp, gold, items}."
+              "description": "Replaces the quest reward when the goal is achieved this way: {xp, gold, items}, and optionally reputation: [{institution, amount}] naming an institution of the library by slug or institution ID."
             }
           }
         },

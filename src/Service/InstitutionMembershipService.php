@@ -419,6 +419,34 @@ class InstitutionMembershipService {
   }
 
   /**
+   * Moves an actor's standing with an institution by a delta.
+   *
+   * The one way play raises or lowers actor-held institution sentiment:
+   * the current score plus the delta, clamped, written as a mutation.
+   *
+   * @return int
+   *   The score after the change.
+   */
+  public function adjustInstitutionSentiment(
+    int $campaign_id,
+    string $source_type,
+    string $source_id,
+    string $target_subject_id,
+    int $delta,
+    array $context = []
+  ): int {
+    $current = 0;
+    foreach ($this->listActorInstitutionSentiments($campaign_id, $source_type, $source_id) as $sentiment) {
+      if ((string) ($sentiment['target_id'] ?? '') === trim($target_subject_id)) {
+        $current = (int) ($sentiment['score'] ?? 0);
+      }
+    }
+    $score = DispositionAuthorityContract::clampScore($current + $delta);
+    $this->mutateInstitutionSentiment($campaign_id, $source_type, $source_id, $target_subject_id, $score, 'known', $context);
+    return $score;
+  }
+
+  /**
    * Seeds one authored actor-held institution sentiment.
    *
    * The edge stays `seeded` under its own seed source, so re-seeding

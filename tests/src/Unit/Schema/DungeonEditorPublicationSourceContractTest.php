@@ -143,7 +143,6 @@ class DungeonEditorPublicationSourceContractTest extends TestCase {
       'src/Service/CharacterManager.php',
       'src/Service/ActorRuntimeStateStore.php',
       'src/Service/QuestTrackerService.php',
-      'src/Service/QuestRewardService.php',
       'src/Service/DowntimePhaseHandler.php',
       'src/Service/NpcService.php',
       'src/Service/CraftingService.php',

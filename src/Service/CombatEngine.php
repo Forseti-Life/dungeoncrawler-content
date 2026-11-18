@@ -612,14 +612,6 @@ class CombatEngine {
       }
 
       $memberships = $this->institutionMembershipService->listActorInstitutionMemberships($campaign_id, $source_type, $source_id);
-      $sentiments = $this->institutionMembershipService->listActorInstitutionSentiments($campaign_id, $source_type, $source_id);
-      $sentiment_by_target = [];
-      foreach ($sentiments as $sentiment) {
-        if (!is_array($sentiment)) {
-          continue;
-        }
-        $sentiment_by_target[(string) ($sentiment['target_id'] ?? '')] = (int) ($sentiment['score'] ?? 0);
-      }
 
       foreach ($memberships as $membership) {
         if (!is_array($membership) || !$this->isPartyInstitutionMembership($membership)) {
@@ -629,15 +621,12 @@ class CombatEngine {
         if ($target_subject_id === '') {
           continue;
         }
-        $current_score = (int) ($sentiment_by_target[$target_subject_id] ?? 0);
-        $updated_score = DispositionAuthorityContract::clampScore($current_score + self::ENCOUNTER_INSTITUTION_DELTA);
-        $this->institutionMembershipService->mutateInstitutionSentiment(
+        $this->institutionMembershipService->adjustInstitutionSentiment(
           $campaign_id,
           $source_type,
           $source_id,
           $target_subject_id,
-          $updated_score,
-          'known',
+          self::ENCOUNTER_INSTITUTION_DELTA,
           [
             'reason' => 'Large-encounter survivor institution cohesion adjustment.',
             'mutation_source' => 'encounter_survivor_resolution',

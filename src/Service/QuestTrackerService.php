@@ -103,7 +103,8 @@ class QuestTrackerService {
     ?CharacterStateService $character_state_service = NULL,
     ?InventoryManagementService $inventory_management_service = NULL,
     ?QuestValidatorService $quest_validator_service = NULL,
-    ?RoomStateService $room_state_service = NULL
+    ?RoomStateService $room_state_service = NULL,
+    protected ?QuestInstitutionDispositionMutationService $questStanding = NULL
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler_content');
@@ -1229,22 +1230,34 @@ class QuestTrackerService {
 
     $rewards_applied = [];
     $narrator_notes = [];
+    // A failed quest pays nothing; it only costs standing.
+    $succeeded = strtolower(trim($outcome)) === 'success';
+    if ($this->questStanding === NULL) {
+      throw new \RuntimeException('QuestInstitutionDispositionMutationService is required to apply quest standing.');
+    }
     $reward_transaction = $this->database->startTransaction();
     $reward_claim_started = $this->beginQuestRewardGrant($campaign_id, $quest_id, $reward_claim_character_id);
     if ($reward_claim_started) {
-      $rewards_applied = $this->applyQuestRewardsToTarget($reward_target, $rewards);
+      $rewards_applied = $succeeded ? $this->applyQuestRewardsToTarget($reward_target, $rewards) : [];
+      $rewards_applied['standing'] = $this->questStanding->applyQuestCompletionStanding($campaign_id, $quest, (string) $reward_target['instance_id'], $succeeded, $rewards['reputation']);
       $this->finalizeQuestRewardGrant($campaign_id, $quest_id, $reward_claim_character_id, $rewards_applied);
     }
-    // Quests belong to the party: every other member earns the experience.
-    // Gold and items go once, to the character who completed the quest.
+    // Quests belong to the party: every other member earns the experience
+    // and the standing. Gold and items go once, to the character who
+    // completed the quest.
     foreach ($this->partyCharacterRowIds($campaign_id) as $member_row_id) {
-      if ($member_row_id === $reward_claim_character_id || $rewards['xp'] <= 0) {
+      if ($member_row_id === $reward_claim_character_id) {
         continue;
       }
       if ($this->beginQuestRewardGrant($campaign_id, $quest_id, $member_row_id)) {
         $member_target = $this->resolveQuestRewardCharacterTarget($campaign_id, $member_row_id);
-        $this->applyQuestXpReward($member_target, $rewards['xp']);
-        $this->finalizeQuestRewardGrant($campaign_id, $quest_id, $member_row_id, ['xp' => $rewards['xp']]);
+        $member_applied = [];
+        if ($succeeded && $rewards['xp'] > 0) {
+          $this->applyQuestXpReward($member_target, $rewards['xp']);
+          $member_applied['xp'] = $rewards['xp'];
+        }
+        $member_applied['standing'] = $this->questStanding->applyQuestCompletionStanding($campaign_id, $quest, (string) $member_target['instance_id'], $succeeded, $rewards['reputation']);
+        $this->finalizeQuestRewardGrant($campaign_id, $quest_id, $member_row_id, $member_applied);
       }
     }
     unset($reward_transaction);
@@ -1911,10 +1924,24 @@ class QuestTrackerService {
 
     $items = $this->normalizeQuestRewardItems($decoded_rewards['items']);
 
+    // Optional: standing with named institutions, [{institution, amount}].
+    $reputation = $decoded_rewards['reputation'] ?? [];
+    if (!is_array($reputation) || !array_is_list($reputation)) {
+      throw new \RuntimeException(sprintf('Quest reward contract violation for %s: reputation must be a list of {institution, amount}.', $quest_id));
+    }
+    foreach ($reputation as $row) {
+      if (!is_array($row) || array_diff(array_keys($row), ['institution', 'amount']) !== []
+        || !is_string($row['institution'] ?? NULL) || trim($row['institution']) === ''
+        || !is_int($row['amount'] ?? NULL) || $row['amount'] === 0) {
+        throw new \RuntimeException(sprintf('Quest reward contract violation for %s: each reputation row is {institution: library institution, amount: non-zero integer}.', $quest_id));
+      }
+    }
+
     return [
       'xp' => $xp,
       'gold' => $gold,
       'items' => $items,
+      'reputation' => $reputation,
     ];
   }
 
