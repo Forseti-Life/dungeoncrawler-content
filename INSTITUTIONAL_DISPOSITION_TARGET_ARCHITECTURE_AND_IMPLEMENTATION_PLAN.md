@@ -912,13 +912,20 @@ institution`, keyed by slug (the normalized name). It is the one place an
 institution is registered and the one place one is looked up.
 
 - **Writers:** storyline authoring (every draft save registers the draft's
-  institutions), runtime faction generation
-  (`FactionGenerationService`), and the five alignment institutions
-  (`registerAlignmentInstitutions`, update 10230).
-- **Readers:** the Storyline GM's `find_existing_institutions` tool, and
-  storyline realization, which refuses an institution with no library record.
-- A campaign subject created from a record carries `source_asset_type =
-  library_faction` and the record's slug.
+  institutions), runtime faction generation (`FactionGenerationService`),
+  the rules' own institutions (`registerSystemInstitutions`: alignments,
+  ancestries, classes), and `CampaignSubjectRegistryService`, which records
+  any institution a campaign creates that the library does not yet hold.
+- **Readers:** the Storyline GM's `find_existing_institutions` tool,
+  storyline realization (refuses an institution with no library record) and
+  storyline validation of `faction` / `institution` references.
+- **Every campaign institution subject is an instance of a library record**
+  and carries `source_asset_type = library_faction` with the record's slug,
+  unless it was created from another named asset (a character template).
+- A library record holds identity and description only. Purpose, seat,
+  leader and stances are the storyline's; memberships, sentiments and matrix
+  edges are the campaign's.
+- The content registry no longer holds factions (update 10231 moved them).
 - A record belongs to the storyline that first defined it; that storyline's
   saves update it. Renaming or removing the institution there, or deleting
   the draft, removes the record unless another storyline names it.

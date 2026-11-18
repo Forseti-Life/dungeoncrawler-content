@@ -84,6 +84,7 @@ class InstitutionLibraryService {
     ];
     $existing = $this->loadRow((string) $record['canonicalSlug']);
     if ($existing !== NULL) {
+      $this->assertSameInstitution($existing, (string) $record['librarySubjectId'], (string) $record['canonicalLabel'], (string) $record['domain']);
       $this->database->update(self::TABLE)->fields($fields)->condition('id', (int) $existing['id'])->execute();
       return (int) $existing['id'];
     }
@@ -116,14 +117,8 @@ class InstitutionLibraryService {
       $kept[$slug] = TRUE;
       $existing = $this->loadRow($slug);
       $payload = $existing === NULL ? [] : json_decode((string) $existing['normalized_payload_json'], TRUE, 512, JSON_THROW_ON_ERROR);
-      if ($existing !== NULL && (string) ($payload['librarySubjectId'] ?? '') !== (string) $normalized['subject_id']) {
-        throw new \InvalidArgumentException(sprintf(
-          'institution_library_name_taken: the library already holds "%s" as a %s institution; "%s" cannot also be a %s institution. Reuse the existing one or choose another name.',
-          (string) ($payload['canonicalLabel'] ?? $slug),
-          (string) ($payload['domain'] ?? ''),
-          (string) $normalized['display_name'],
-          (string) $normalized['domain'],
-        ));
+      if ($existing !== NULL) {
+        $this->assertSameInstitution($existing, (string) $normalized['subject_id'], (string) $normalized['display_name'], (string) $normalized['domain']);
       }
       if ($existing !== NULL && (string) ($payload['requestContext']['defined_by_draft_id'] ?? '') !== $draft_id) {
         continue;
@@ -134,9 +129,9 @@ class InstitutionLibraryService {
         'domain' => (string) $normalized['domain'],
         'librarySubjectId' => (string) $normalized['subject_id'],
         'parentSubjectId' => trim((string) ($institution['parent_institution_id'] ?? '')),
+        // Purpose, seat, leader and stances belong to the story, not the
+        // library record.
         'summary' => trim((string) ($institution['description'] ?? '')),
-        'purpose' => trim((string) ($institution['purpose'] ?? '')),
-        'stances' => array_values(array_filter((array) ($institution['stances'] ?? []), 'is_array')),
         'requestContext' => [
           'request_source' => 'storyline_authoring',
           'defined_by_draft_id' => $draft_id,
@@ -163,21 +158,84 @@ class InstitutionLibraryService {
   }
 
   /**
-   * Registers the five alignment institutions.
+   * Registers the institutions the rules define: alignments, ancestries, classes.
    */
-  public function registerAlignmentInstitutions(): void {
-    $normalizer = new InstitutionNormalizationService();
-    foreach (array_keys(InstitutionNormalizationService::ALIGNMENT_INSTITUTIONS) as $name) {
-      $normalized = $normalizer->normalizeInstitutionInput(['domain' => 'alignment', 'display_name' => $name]);
-      $this->upsert([
-        'canonicalLabel' => (string) $normalized['display_name'],
-        'canonicalSlug' => (string) $normalized['normalized_label'],
-        'domain' => 'alignment',
-        'librarySubjectId' => (string) $normalized['subject_id'],
-        'parentSubjectId' => '',
-        'summary' => sprintf('Everyone whose alignment is %s. Membership follows from the actor\'s own alignment and is never authored.', $name),
-        'requestContext' => ['request_source' => 'system_alignment'],
-      ]);
+  public function registerSystemInstitutions(): void {
+    $names = [
+      'alignment' => array_keys(InstitutionNormalizationService::ALIGNMENT_INSTITUTIONS),
+      'ancestry' => [...array_keys(CharacterRulesCatalog::ANCESTRIES), 'Undead'],
+      'profession' => array_column(CharacterRulesCatalog::CLASSES, 'name'),
+    ];
+    $summaries = [
+      'alignment' => 'Everyone whose alignment is %s. Membership follows from the actor\'s own alignment and is never authored.',
+      'ancestry' => 'Everyone of the %s ancestry. Membership follows from the actor\'s own sheet and is never authored.',
+      'profession' => 'Everyone whose class or calling is %s. Membership follows from the actor\'s own sheet and is never authored.',
+    ];
+    foreach ($names as $domain => $domain_names) {
+      foreach ($domain_names as $name) {
+        $this->ensureRecord($domain, (string) $name, 'system_' . $domain, sprintf($summaries[$domain], $name));
+      }
+    }
+  }
+
+  /**
+   * Makes sure an institution has a library record; an existing one is kept.
+   *
+   * @return string
+   *   The record's slug.
+   */
+  public function ensureRecord(string $domain, string $display_name, string $request_source, string $summary = ''): string {
+    $normalized = (new InstitutionNormalizationService())->normalizeInstitutionInput(['domain' => $domain, 'display_name' => $display_name]);
+    $slug = (string) $normalized['normalized_label'];
+    $existing = $this->loadRow($slug);
+    if ($existing !== NULL) {
+      $this->assertSameInstitution($existing, (string) $normalized['subject_id'], (string) $normalized['display_name'], (string) $normalized['domain']);
+      return $slug;
+    }
+    $this->upsert([
+      'canonicalLabel' => (string) $normalized['display_name'],
+      'canonicalSlug' => $slug,
+      'domain' => (string) $normalized['domain'],
+      'librarySubjectId' => (string) $normalized['subject_id'],
+      'parentSubjectId' => '',
+      'summary' => $summary,
+      'requestContext' => ['request_source' => $request_source],
+    ]);
+    return $slug;
+  }
+
+  /**
+   * The record a storyline reference names, by slug or by institution ID.
+   *
+   * @return array<string, mixed>|null
+   *   The record payload.
+   */
+  public function loadByReference(string $reference): ?array {
+    $reference = trim($reference);
+    $row = $this->loadRow($reference);
+    if ($row === NULL && preg_match('/^institution_[a-z]+_(.+)$/', $reference, $matches) === 1) {
+      $row = $this->loadRow($matches[1]);
+    }
+    if ($row === NULL) {
+      return NULL;
+    }
+    $payload = json_decode((string) $row['normalized_payload_json'], TRUE, 512, JSON_THROW_ON_ERROR);
+    return $reference === (string) $row['source_asset_id'] || $reference === (string) $payload['librarySubjectId'] ? $payload : NULL;
+  }
+
+  /**
+   * One name is one institution: refuses the same name in a second domain.
+   */
+  protected function assertSameInstitution(array $existing, string $subject_id, string $display_name, string $domain): void {
+    $payload = json_decode((string) $existing['normalized_payload_json'], TRUE, 512, JSON_THROW_ON_ERROR);
+    if ((string) ($payload['librarySubjectId'] ?? '') !== $subject_id) {
+      throw new \InvalidArgumentException(sprintf(
+        'institution_library_name_taken: the library already holds "%s" as a %s institution; "%s" cannot also be a %s institution. Reuse the existing one or choose another name.',
+        (string) ($payload['canonicalLabel'] ?? $existing['source_asset_id']),
+        (string) ($payload['domain'] ?? ''),
+        $display_name,
+        $domain,
+      ));
     }
   }
 
@@ -236,7 +294,8 @@ class InstitutionLibraryService {
         'membership' => $derived ? 'follows the actor\'s ' . $row_domain : 'authored',
       ];
     }
-    usort($matches, static fn(array $a, array $b): int => [$a['name'], $a['domain']] <=> [$b['name'], $b['domain']]);
+    // Institutions a storyline can use come before the ones a sheet implies.
+    usort($matches, static fn(array $a, array $b): int => [$a['membership'] !== 'authored', $a['name'], $a['domain']] <=> [$b['membership'] !== 'authored', $b['name'], $b['domain']]);
     return ['total' => count($matches), 'institutions' => array_slice($matches, 0, $limit)];
   }
 

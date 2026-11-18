@@ -4,6 +4,7 @@ namespace Drupal\Tests\dungeoncrawler_content\Unit\Service;
 
 use Drupal\Core\Database\Connection;
 use Drupal\dungeoncrawler_content\Service\CampaignSubjectRegistryService;
+use Drupal\dungeoncrawler_content\Service\InstitutionLibraryService;
 use Drupal\dungeoncrawler_content\Service\InstitutionNormalizationService;
 use Drupal\dungeoncrawler_content\Service\RelationshipManagerService;
 use Drupal\Tests\UnitTestCase;
@@ -39,10 +40,17 @@ class CampaignSubjectRegistryServiceTest extends UnitTestCase {
     $relationships->expects($this->never())
       ->method('upsertRuntimeRelationship');
 
+    // A new campaign subject is recorded in the institution library.
+    $library = $this->createMock(InstitutionLibraryService::class);
+    $library->expects($this->once())
+      ->method('ensureRecord')
+      ->with('ancestry', 'Elf', 'campaign_runtime')
+      ->willReturn('elf');
     $service = new CampaignSubjectRegistryService(
       $database,
       new InstitutionNormalizationService(),
-      $relationships
+      $relationships,
+      $library
     );
 
     $result = $service->resolveOrCreateInstitutionSubject(42, [

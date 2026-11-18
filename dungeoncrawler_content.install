@@ -6770,7 +6770,7 @@ function dungeoncrawler_content_update_10229(): string {
 function dungeoncrawler_content_update_10230(): string {
   $database = \Drupal::database();
   $library = new \Drupal\dungeoncrawler_content\Service\InstitutionLibraryService($database);
-  $library->registerAlignmentInstitutions();
+  $library->registerSystemInstitutions();
   $registered = 0;
   $drafts = $database->query('SELECT draft_id, draft_payload FROM {dungeoncrawler_content_storyline_authoring_drafts} ORDER BY created_at, draft_id')->fetchAll(\PDO::FETCH_ASSOC);
   foreach ($drafts as $draft) {
@@ -6782,4 +6782,51 @@ function dungeoncrawler_content_update_10230(): string {
     }
   }
   return sprintf('Registered the five alignment institutions and %d storyline institution(s) in the canonical institution library.', $registered);
+}
+
+/**
+ * Bring every institution in play into the canonical institution library.
+ */
+function dungeoncrawler_content_update_10231(): string {
+  $database = \Drupal::database();
+  $library = new \Drupal\dungeoncrawler_content\Service\InstitutionLibraryService($database);
+  $normalizer = new \Drupal\dungeoncrawler_content\Service\InstitutionNormalizationService();
+  $before = (int) $database->query("SELECT COUNT(*) FROM {dc_library_institution_manifest} WHERE row_type = 'institution'")->fetchField();
+
+  // The institutions the rules define.
+  $library->registerSystemInstitutions();
+
+  // Factions that module content put in the content registry.
+  $factions = $database->query("SELECT id, name, schema_data FROM {dungeoncrawler_content_registry} WHERE content_type IN ('faction', 'institution')")->fetchAll(\PDO::FETCH_ASSOC);
+  foreach ($factions as $faction) {
+    $data = json_decode((string) $faction['schema_data'], TRUE, 512, JSON_THROW_ON_ERROR);
+    $domain = $normalizer->normalizeDomain((string) ($data['faction_type'] ?? '')) ?: 'allegiance';
+    $library->ensureRecord($domain, (string) $faction['name'], 'module_content', trim((string) ($data['description'] ?? '')));
+    $database->delete('dungeoncrawler_content_registry')->condition('id', (int) $faction['id'])->execute();
+  }
+
+  // Every institution a campaign already instantiated.
+  $subjects = $database->query("SELECT subject_domain, display_name FROM {dc_campaign_subject_registry} WHERE subject_kind = 'institution' GROUP BY subject_domain, display_name")->fetchAll(\PDO::FETCH_ASSOC);
+  foreach ($subjects as $subject) {
+    $library->ensureRecord((string) $subject['subject_domain'], (string) $subject['display_name'], 'campaign_runtime');
+  }
+  $database->update('dc_campaign_subject_registry')
+    ->expression('source_asset_id', 'normalized_label')
+    ->fields(['source_asset_type' => 'library_faction'])
+    ->condition('subject_kind', 'institution')
+    ->isNull('source_asset_type')
+    ->execute();
+
+  // Storyline records keep identity and description only.
+  $drafts = $database->query('SELECT draft_id, draft_payload FROM {dungeoncrawler_content_storyline_authoring_drafts} ORDER BY created_at, draft_id')->fetchAll(\PDO::FETCH_ASSOC);
+  foreach ($drafts as $draft) {
+    $payload = json_decode((string) $draft['draft_payload'], TRUE, 512, JSON_THROW_ON_ERROR);
+    $institutions = array_values(array_filter((array) ($payload['objects']['institutions'] ?? []), 'is_array'));
+    if ($institutions !== []) {
+      $library->registerStorylineInstitutions((string) $draft['draft_id'], trim((string) ($payload['title'] ?? '')), $institutions, []);
+    }
+  }
+
+  $after = (int) $database->query("SELECT COUNT(*) FROM {dc_library_institution_manifest} WHERE row_type = 'institution'")->fetchField();
+  return sprintf('Institution library: %d records (was %d). %d module faction(s) moved in.', $after, $before, count($factions));
 }

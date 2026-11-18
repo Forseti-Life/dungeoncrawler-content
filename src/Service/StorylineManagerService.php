@@ -2613,19 +2613,9 @@ class StorylineManagerService {
      *   Validation errors.
      */
     protected function validateReferencedFactionEntityContractStub(string $entity_type, string $entity_id, array $context): array {
-      $registry_type = $entity_type === 'institution' ? 'institution' : 'faction';
-      $row = $this->loadCanonicalRegistryEntity($registry_type, $entity_id);
-      if ($row === NULL && $registry_type === 'institution') {
-        $row = $this->loadCanonicalRegistryEntity('faction', $entity_id);
-      }
-      if ($row === NULL) {
-        return [$this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'referenced faction/institution is missing from canonical registry.')];
-      }
-
-      $schema_data = $this->decodeJsonArrayValue($row['schema_data'] ?? NULL);
-      $name = trim((string) ($schema_data['name'] ?? $row['name'] ?? ''));
-      if ($name === '') {
-        return [$this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'faction/institution contract requires name.')];
+      // A faction is an institution; both live in the institution library.
+      if ((new InstitutionLibraryService($this->database))->loadByReference($entity_id) === NULL) {
+        return [$this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'referenced faction/institution is missing from the canonical institution library.')];
       }
       return [];
     }

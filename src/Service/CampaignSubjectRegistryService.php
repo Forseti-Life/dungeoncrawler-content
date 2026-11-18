@@ -12,7 +12,10 @@ class CampaignSubjectRegistryService {
     protected Connection $database,
     protected InstitutionNormalizationService $institutionNormalization,
     protected RelationshipManagerService $relationshipManager,
-  ) {}
+    protected ?InstitutionLibraryService $institutionLibrary = NULL,
+  ) {
+    $this->institutionLibrary ??= new InstitutionLibraryService($database);
+  }
 
   /**
    * Returns whether campaign subject-registry storage is installed.
@@ -96,6 +99,17 @@ class CampaignSubjectRegistryService {
       $fields['created'] = (int) ($existing['created'] ?? $now);
     }
     else {
+      // Every institution in play is an instance of a record in the
+      // canonical institution library.
+      $slug = $this->institutionLibrary->ensureRecord(
+        (string) $normalized['domain'],
+        (string) $normalized['display_name'],
+        'campaign_runtime',
+      );
+      if ($fields['source_asset_type'] === NULL || $fields['source_asset_id'] === NULL) {
+        $fields['source_asset_type'] = InstitutionLibraryService::CAMPAIGN_SOURCE_ASSET_TYPE;
+        $fields['source_asset_id'] = $slug;
+      }
       $fields['created'] = $now;
       $fields['id'] = (int) $this->database->insert('dc_campaign_subject_registry')
         ->fields($fields)

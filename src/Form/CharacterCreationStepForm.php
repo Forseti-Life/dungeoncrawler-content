@@ -2238,10 +2238,11 @@ class CharacterCreationStepForm extends FormBase {
             'domain' => $definition['domain'],
             'display_name' => $label,
             'parent_subject_id' => $parent_subject_id,
-            'source_asset_type' => 'campaign_character_wizard',
-            'source_asset_id' => $character_id > 0 ? (string) $character_id : NULL,
+            // The registry records it in the institution library and links
+            // the campaign subject to that record.
             'metadata' => [
               'created_via' => 'character_creation_step6',
+              'created_by_character_id' => $character_id > 0 ? $character_id : NULL,
               'affiliation_field' => $field,
               'provenance_note' => $provenance_note,
             ],
