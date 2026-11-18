@@ -56,17 +56,18 @@ class StorylineInstitutionRealizationServiceTest extends UnitTestCase {
     $service = new StorylineInstitutionRealizationService($registry, new InstitutionNormalizationService(), $membership, $matrix, $this->institutionLibrary());
     $summary = $service->realizeStorylineInstitutions(42, $storyline);
 
-    $this->assertSame(['subjects' => 3, 'memberships_synced' => 3, 'stances' => 2, 'ties' => 2], $summary);
+    $this->assertSame(['subjects' => 4, 'memberships_synced' => 3, 'stances' => 4, 'ties' => 2], $summary);
 
-    // The Old Kingdom has no contact tied to it: no subject, parent or stance.
+    // No contact is tied to the Old Kingdom, but Blackroot Clan sits inside
+    // it and membership is inherited: it is realized, parents first.
     $this->assertSame(
-      ['institution_family_blackroot-clan', 'institution_family_blackblack-clan', 'institution_security_ford-watch'],
+      ['institution_state_ford-watch', 'institution_state_old-kingdom', 'institution_kin_blackroot-clan', 'institution_kin_blackblack-clan'],
       array_keys($subject_inputs)
     );
-    $blackroot = $subject_inputs['institution_family_blackroot-clan'];
+    $blackroot = $subject_inputs['institution_kin_blackroot-clan'];
     $this->assertSame('library_faction', $blackroot['source_asset_type']);
     $this->assertSame('blackroot-clan', $blackroot['source_asset_id']);
-    $this->assertSame('', $blackroot['parent_subject_id']);
+    $this->assertSame('institution_state_old-kingdom', $blackroot['parent_subject_id']);
     $this->assertSame([
       'source_storyline_id' => 'clans-blight-c42',
       'description' => 'Root-farmers of the vale.',
@@ -74,17 +75,19 @@ class StorylineInstitutionRealizationServiceTest extends UnitTestCase {
       'seat_id' => 'room-longhouse',
       'leader' => ['entity_id' => 'actor-elder', 'runtime_entity_id' => 'campaign_42_npc_elder'],
     ], $blackroot['metadata']);
-    $this->assertSame('institution_family_blackroot-clan', $subject_inputs['institution_family_blackblack-clan']['parent_subject_id']);
-    $this->assertNull($subject_inputs['institution_family_blackblack-clan']['metadata']['leader']);
+    $this->assertSame('institution_kin_blackroot-clan', $subject_inputs['institution_kin_blackblack-clan']['parent_subject_id']);
+    $this->assertNull($subject_inputs['institution_kin_blackblack-clan']['metadata']['leader']);
 
     $this->assertSame([
-      [42, 'institution_family_blackblack-clan', 'institution_family_blackroot-clan', -100, 'storyline_authored', 'storyline-authored-stance', 'Blood-debt.'],
-      [42, 'institution_security_ford-watch', 'institution_family_blackroot-clan', -50, 'storyline_authored', 'storyline-authored-stance', ''],
+      [42, 'institution_state_ford-watch', 'institution_kin_blackroot-clan', -50, 'storyline_authored', 'storyline-authored-stance', ''],
+      [42, 'institution_state_old-kingdom', 'institution_kin_blackroot-clan', 100, 'storyline_authored', 'storyline-authored-stance', 'Fealty.'],
+      [42, 'institution_kin_blackblack-clan', 'institution_kin_blackroot-clan', -100, 'storyline_authored', 'storyline-authored-stance', 'Blood-debt.'],
+      [42, 'institution_kin_blackblack-clan', 'institution_state_old-kingdom', 50, 'storyline_authored', 'storyline-authored-stance', 'Old oaths.'],
     ], $edges);
 
     $this->assertSame([
-      [42, 'campaign_npc', 'campaign_42_npc_outcast', 'institution_family_blackroot-clan', -50, 'storyline_authored', 'storyline-authored-exile', 'Authored as exile of the institution in storyline clans-blight-c42.'],
-      [42, 'campaign_npc', 'campaign_42_npc_friend', 'institution_family_blackblack-clan', 50, 'storyline_authored', 'storyline-authored-ally', 'Authored as ally of the institution in storyline clans-blight-c42.'],
+      [42, 'campaign_npc', 'campaign_42_npc_outcast', 'institution_kin_blackroot-clan', -50, 'storyline_authored', 'storyline-authored-exile', 'Authored as exile of the institution in storyline clans-blight-c42.'],
+      [42, 'campaign_npc', 'campaign_42_npc_friend', 'institution_kin_blackblack-clan', 50, 'storyline_authored', 'storyline-authored-ally', 'Authored as ally of the institution in storyline clans-blight-c42.'],
     ], $sentiments);
   }
 
@@ -112,7 +115,7 @@ class StorylineInstitutionRealizationServiceTest extends UnitTestCase {
     );
 
     $this->expectException(\RuntimeException::class);
-    $this->expectExceptionMessage('Storyline contact "actor-outcast" is tied to institution "institution_family_blackroot-clan" but has no runtime_entity_id');
+    $this->expectExceptionMessage('Storyline contact "actor-outcast" is tied to institution "institution_kin_blackroot-clan" but has no runtime_entity_id');
     $service->realizeStorylineInstitutions(42, $storyline);
   }
 
@@ -161,52 +164,52 @@ class StorylineInstitutionRealizationServiceTest extends UnitTestCase {
           'storyline_builder' => [
             'institutions' => [
               [
-                'institution_id' => 'institution_family_blackroot-clan',
+                'institution_id' => 'institution_kin_blackroot-clan',
                 'domain' => 'family',
                 'name' => 'Blackroot Clan',
                 'description' => 'Root-farmers of the vale.',
                 'purpose' => 'Hold the vale.',
                 'seat_id' => 'room-longhouse',
                 'leader_actor_id' => 'actor-elder',
-                'parent_institution_id' => 'institution_government_old-kingdom',
+                'parent_institution_id' => 'institution_state_old-kingdom',
                 'stances' => [],
               ],
               [
-                'institution_id' => 'institution_family_blackblack-clan',
+                'institution_id' => 'institution_kin_blackblack-clan',
                 'domain' => 'family',
                 'name' => 'Blackblack Clan',
-                'parent_institution_id' => 'institution_family_blackroot-clan',
+                'parent_institution_id' => 'institution_kin_blackroot-clan',
                 'stances' => [
-                  ['toward_institution_id' => 'institution_family_blackroot-clan', 'attitude' => 'hostile', 'reason' => 'Blood-debt.'],
-                  ['toward_institution_id' => 'institution_government_old-kingdom', 'attitude' => 'friendly', 'reason' => 'Old oaths.'],
+                  ['toward_institution_id' => 'institution_kin_blackroot-clan', 'attitude' => 'hostile', 'reason' => 'Blood-debt.'],
+                  ['toward_institution_id' => 'institution_state_old-kingdom', 'attitude' => 'friendly', 'reason' => 'Old oaths.'],
                 ],
               ],
               [
-                'institution_id' => 'institution_security_ford-watch',
+                'institution_id' => 'institution_state_ford-watch',
                 'domain' => 'security',
                 'name' => 'Ford Watch',
                 'stances' => [
-                  ['toward_institution_id' => 'institution_family_blackroot-clan', 'attitude' => 'unfriendly'],
+                  ['toward_institution_id' => 'institution_kin_blackroot-clan', 'attitude' => 'unfriendly'],
                 ],
               ],
               [
-                'institution_id' => 'institution_government_old-kingdom',
+                'institution_id' => 'institution_state_old-kingdom',
                 'domain' => 'government',
                 'name' => 'Old Kingdom',
                 'stances' => [
-                  ['toward_institution_id' => 'institution_family_blackroot-clan', 'attitude' => 'helpful', 'reason' => 'Fealty.'],
+                  ['toward_institution_id' => 'institution_kin_blackroot-clan', 'attitude' => 'helpful', 'reason' => 'Fealty.'],
                 ],
               ],
             ],
           ],
         ],
         'contacts' => [
-          $contact('elder', [['institution_id' => 'institution_family_blackroot-clan', 'standing' => 'leader']]),
-          $contact('rival', [['institution_id' => 'institution_family_blackblack-clan']]),
-          $contact('outcast', [['institution_id' => 'institution_family_blackroot-clan', 'standing' => 'exile']]),
+          $contact('elder', [['institution_id' => 'institution_kin_blackroot-clan', 'standing' => 'leader']]),
+          $contact('rival', [['institution_id' => 'institution_kin_blackblack-clan']]),
+          $contact('outcast', [['institution_id' => 'institution_kin_blackroot-clan', 'standing' => 'exile']]),
           $contact('friend', [
-            ['institution_id' => 'institution_security_ford-watch', 'standing' => 'member'],
-            ['institution_id' => 'institution_family_blackblack-clan', 'standing' => 'ally'],
+            ['institution_id' => 'institution_state_ford-watch', 'standing' => 'member'],
+            ['institution_id' => 'institution_kin_blackblack-clan', 'standing' => 'ally'],
           ]),
         ],
       ],

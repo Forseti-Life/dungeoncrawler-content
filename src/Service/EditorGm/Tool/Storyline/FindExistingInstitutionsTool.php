@@ -20,12 +20,12 @@ final class FindExistingInstitutionsTool implements EditorGmToolInterface {
     return new EditorGmToolDefinition(
       'find_existing_institutions',
       EditorGmToolDefinition::FAMILY_CONTEXT,
-      'Search the canonical institution library: every clan, family, settlement, faction, guard, guild, religion and the like that any storyline or the game has defined, and the ancestry, class and alignment institutions. Use it before defining an institution; to reuse one, define it in this storyline with the same domain and name, which gives it the same institution_id. An institution whose membership follows the actor\'s ancestry, profession or alignment is never added to a storyline; it comes from the actor\'s sheet and alignment. They are listed after the authored ones.',
+      'Search the canonical institution library: every state, place, kin group (culture, tribe, clan, household), organisation (faction, guild, order, company) and faith that any storyline or the game has defined, and the ancestry, class and alignment institutions. Use it before defining an institution; to reuse one, define it in this storyline with the same domain and name, which gives it the same institution_id. An institution whose membership follows the actor\'s ancestry, profession or alignment is never added to a storyline; it comes from the actor\'s sheet and alignment. They are listed after the authored ones.',
       FALSE,
       'InstitutionLibraryService::find()',
       [
         EditorGmToolDefinition::argument('search', 'string', FALSE, 'Words that must all appear in the name, kind or description. Omit to list.'),
-        EditorGmToolDefinition::argument('domain', 'string', FALSE, 'One domain: family, government, allegiance, settlement, religion, employer, education, noble, security, criminal, culture, ancestry, profession or alignment.'),
+        EditorGmToolDefinition::argument('domain', 'string', FALSE, 'One type: state, place, kin, organization, faith, or a sheet-derived one: ancestry, profession, alignment.'),
         EditorGmToolDefinition::argument('limit', 'integer', FALSE, 'Maximum institutions returned, 1-50. Default 25.'),
       ],
     );

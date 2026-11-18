@@ -94,6 +94,30 @@ class StorylineInstitutionRealizationService {
       }
     }
 
+    // An institution a contact is tied to brings the institutions it sits
+    // inside with it: membership is inherited up the hierarchy.
+    foreach (array_keys($tied) as $institution_id) {
+      $parent_id = trim((string) ($institutions[$institution_id]['parent_institution_id'] ?? ''));
+      while ($parent_id !== '' && !isset($tied[$parent_id])) {
+        if (!isset($institutions[$parent_id])) {
+          throw new \InvalidArgumentException(sprintf('Storyline "%s" institution "%s" sits inside "%s", which the storyline does not define.', $storyline_id, $institution_id, $parent_id));
+        }
+        $tied[$parent_id] = TRUE;
+        $parent_id = trim((string) ($institutions[$parent_id]['parent_institution_id'] ?? ''));
+      }
+    }
+    // Parents first, so a member's inherited memberships resolve.
+    $depth = static function (string $id) use ($institutions): int {
+      $steps = 0;
+      $seen = [];
+      while (($id = trim((string) ($institutions[$id]['parent_institution_id'] ?? ''))) !== '' && isset($institutions[$id]) && !isset($seen[$id])) {
+        $seen[$id] = TRUE;
+        $steps++;
+      }
+      return $steps;
+    };
+    uksort($tied, static fn(string $a, string $b): int => $depth($a) <=> $depth($b));
+
     $summary = ['subjects' => 0, 'memberships_synced' => 0, 'stances' => 0, 'ties' => 0];
 
     foreach (array_keys($tied) as $institution_id) {

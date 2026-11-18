@@ -34,35 +34,28 @@ class InstitutionMembershipService {
    * Structured campaign-character affiliation refs keyed by stored field.
    */
   protected const STRUCTURED_AFFILIATION_REF_FIELDS = [
-    'home_settlement_ref' => ['domain' => 'settlement', 'multiple' => FALSE],
-    'government_ref' => ['domain' => 'government', 'multiple' => FALSE],
-    'faction_refs' => ['domain' => 'allegiance', 'multiple' => TRUE],
-    'security_affiliation_refs' => ['domain' => 'security', 'multiple' => TRUE],
-    'family_refs' => ['domain' => 'family', 'multiple' => TRUE],
-    'religion_refs' => ['domain' => 'religion', 'multiple' => TRUE],
-    'employer_refs' => ['domain' => 'employer', 'multiple' => TRUE],
-    'order_refs' => ['domain' => 'education', 'multiple' => TRUE],
-    'noble_refs' => ['domain' => 'noble', 'multiple' => TRUE],
-    'criminal_refs' => ['domain' => 'criminal', 'multiple' => TRUE],
-    'culture_refs' => ['domain' => 'culture', 'multiple' => TRUE],
+    'home_settlement_ref' => ['domain' => 'place', 'multiple' => FALSE],
+    'government_ref' => ['domain' => 'state', 'multiple' => FALSE],
+    'faction_refs' => ['domain' => 'organization', 'multiple' => TRUE],
+    'security_affiliation_refs' => ['domain' => 'state', 'multiple' => TRUE],
+    'family_refs' => ['domain' => 'kin', 'multiple' => TRUE],
+    'religion_refs' => ['domain' => 'faith', 'multiple' => TRUE],
+    'employer_refs' => ['domain' => 'organization', 'multiple' => TRUE],
+    'order_refs' => ['domain' => 'organization', 'multiple' => TRUE],
+    'noble_refs' => ['domain' => 'kin', 'multiple' => TRUE],
+    'criminal_refs' => ['domain' => 'organization', 'multiple' => TRUE],
+    'culture_refs' => ['domain' => 'kin', 'multiple' => TRUE],
+    // Institutions of any type; each selection states its own.
+    self::INSTITUTION_REFS_FIELD => ['domain' => '', 'multiple' => TRUE],
   ];
+
+  /** The field that holds memberships of any institution type. */
+  public const INSTITUTION_REFS_FIELD = 'institution_refs';
 
   /**
    * Institution domains that seed political/social sentiment.
    */
-  protected const POLITICAL_SENTIMENT_INSTITUTION_DOMAINS = [
-    'allegiance',
-    'government',
-    'settlement',
-    'family',
-    'security',
-    'religion',
-    'employer',
-    'education',
-    'noble',
-    'criminal',
-    'culture',
-  ];
+  protected const POLITICAL_SENTIMENT_INSTITUTION_DOMAINS = ['state', 'place', 'kin', 'organization', 'faith'];
 
   public function __construct(
     protected Connection $database,
@@ -106,18 +99,6 @@ class InstitutionMembershipService {
   }
 
   /**
-   * Domains in which an actor can hold only one membership.
-   *
-   * @return string[]
-   */
-  public static function singleMembershipDomains(): array {
-    return array_values(array_map(
-      static fn(array $definition): string => $definition['domain'],
-      array_filter(self::STRUCTURED_AFFILIATION_REF_FIELDS, static fn(array $definition): bool => !$definition['multiple'])
-    ));
-  }
-
-  /**
    * Gives a storyline's realized NPCs the institution memberships their
    * contacts were authored with.
    *
@@ -129,11 +110,6 @@ class InstitutionMembershipService {
    *   Number of NPCs synchronized.
    */
   public function syncStorylineContactMemberships(int $campaign_id, array $storyline): int {
-    $fields_by_domain = [];
-    foreach (self::STRUCTURED_AFFILIATION_REF_FIELDS as $field => $definition) {
-      $fields_by_domain[$definition['domain']] = ['field' => $field, 'multiple' => $definition['multiple']];
-    }
-
     $synced = 0;
     foreach ((array) ($storyline['storyline_data']['contacts'] ?? []) as $contact) {
       $selections = is_array($contact) ? (array) ($contact['relationship_state']['affiliations'] ?? []) : [];
@@ -159,19 +135,7 @@ class InstitutionMembershipService {
       $npc_data = $this->decodeJsonColumn($row['character_data']);
       $npc_data['ancestry'] = trim((string) ($npc_data['ancestry'] ?? '')) ?: (string) $row['ancestry'];
       $npc_data['class'] = trim((string) ($npc_data['class'] ?? '')) ?: (string) $row['class'];
-      foreach ($selections as $selection) {
-        $domain = (string) ($selection['domain'] ?? '');
-        if (!isset($fields_by_domain[$domain])) {
-          throw new \InvalidArgumentException(sprintf('Storyline contact "%s" affiliation domain "%s" is not an institution membership domain.', $entity_id, $domain));
-        }
-        $field = $fields_by_domain[$domain]['field'];
-        if ($fields_by_domain[$domain]['multiple']) {
-          $npc_data[$field] = array_merge(array_values((array) ($npc_data[$field] ?? [])), [$selection]);
-        }
-        else {
-          $npc_data[$field] = $selection;
-        }
-      }
+      $npc_data[self::INSTITUTION_REFS_FIELD] = array_merge(array_values((array) ($npc_data[self::INSTITUTION_REFS_FIELD] ?? [])), array_values($selections));
 
       $this->syncCampaignNpcMemberships($campaign_id, $instance_id, $npc_data);
       $synced++;
@@ -250,7 +214,10 @@ class InstitutionMembershipService {
       throw new \RuntimeException('Campaign relationship storage is not installed.');
     }
 
-    $prepared_memberships = $this->prepareMembershipSyncInputs($campaign_id, $institution_inputs);
+    $prepared_memberships = $this->withInheritedMemberships(
+      $campaign_id,
+      $this->prepareMembershipSyncInputs($campaign_id, $institution_inputs)
+    );
     $this->database->startTransaction();
 
     $active_subject_ids = [];
@@ -802,6 +769,40 @@ class InstitutionMembershipService {
     }
 
     return $prepared;
+  }
+
+  /**
+   * Adds the institutions each membership sits inside.
+   *
+   * Membership is inherited up the hierarchy: a member of a household is a
+   * member of its clan, and of whatever the clan is part of.
+   *
+   * @param array<int, array<string, mixed>> $prepared
+   *   Output of prepareMembershipSyncInputs().
+   *
+   * @return array<int, array<string, mixed>>
+   *   The same rows followed by one row per inherited institution.
+   */
+  protected function withInheritedMemberships(int $campaign_id, array $prepared): array {
+    $held = [];
+    foreach ($prepared as $row) {
+      $held[(string) (($row['subject']['subject_id'] ?? '') ?: ($row['normalized']['subject_id'] ?? ''))] = TRUE;
+    }
+    $inherited = [];
+    foreach ($prepared as $row) {
+      $subject_id = (string) (($row['subject']['subject_id'] ?? '') ?: ($row['normalized']['subject_id'] ?? ''));
+      foreach ($this->campaignSubjectRegistry->loadInstitutionAncestorIds($campaign_id, $subject_id) as $ancestor_id) {
+        if (isset($held[$ancestor_id])) {
+          continue;
+        }
+        $held[$ancestor_id] = TRUE;
+        $inherited[] = [
+          'subject_id' => $ancestor_id,
+          'metadata' => ['seed_source' => (string) $row['source_scope'], 'source_field' => 'inherited:' . $subject_id],
+        ];
+      }
+    }
+    return $inherited === [] ? $prepared : array_merge($prepared, $this->prepareMembershipSyncInputs($campaign_id, $inherited));
   }
 
   /**

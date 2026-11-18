@@ -27,8 +27,8 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
       ->willReturnCallback($this->buildSelectCallback(
         relationshipRows: [[
           'id' => 91,
-          'relationship_id' => 'campaign_character--pc-campaign-wizard--institution_sentiment--institution--institution_allegiance_wharf-consortium',
-          'target_id' => 'institution_allegiance_wharf-consortium',
+          'relationship_id' => 'campaign_character--pc-campaign-wizard--institution_sentiment--institution--institution_organization_wharf-consortium',
+          'target_id' => 'institution_organization_wharf-consortium',
           'relationship_state' => json_encode([
             'edge_kind' => 'institution_sentiment',
             'sentiment_domain' => 'political',
@@ -46,10 +46,10 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
     $registry->method('isSubjectRegistryReady')->willReturn(TRUE);
     $registry->expects($this->once())
       ->method('loadInstitutionSubject')
-      ->with(42, 'institution_allegiance_wharf-consortium')
+      ->with(42, 'institution_organization_wharf-consortium')
       ->willReturn([
-        'subject_id' => 'institution_allegiance_wharf-consortium',
-        'subject_domain' => 'allegiance',
+        'subject_id' => 'institution_organization_wharf-consortium',
+        'subject_domain' => 'organization',
         'display_name' => 'The Wharf Consortium',
       ]);
 
@@ -74,7 +74,7 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
       42,
       'campaign_character',
       'pc-campaign-wizard',
-      'institution_allegiance_wharf-consortium',
+      'institution_organization_wharf-consortium',
       -20,
       'known',
       [
@@ -104,8 +104,8 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
       ->willReturnCallback($this->buildSelectCallback(
         relationshipRows: [[
           'id' => 93,
-          'relationship_id' => 'campaign_npc--campaign_42_npc_outcast--institution_sentiment--institution--institution_family_blackroot-clan',
-          'target_id' => 'institution_family_blackroot-clan',
+          'relationship_id' => 'campaign_npc--campaign_42_npc_outcast--institution_sentiment--institution--institution_kin_blackroot-clan',
+          'target_id' => 'institution_kin_blackroot-clan',
           'relationship_state' => json_encode([
             'edge_kind' => 'institution_sentiment',
             'sentiment_domain' => 'political',
@@ -122,10 +122,10 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
     $registry = $this->createMock(CampaignSubjectRegistryService::class);
     $registry->method('isSubjectRegistryReady')->willReturn(TRUE);
     $registry->method('loadInstitutionSubject')
-      ->with(42, 'institution_family_blackroot-clan')
+      ->with(42, 'institution_kin_blackroot-clan')
       ->willReturn([
-        'subject_id' => 'institution_family_blackroot-clan',
-        'subject_domain' => 'family',
+        'subject_id' => 'institution_kin_blackroot-clan',
+        'subject_domain' => 'kin',
         'display_name' => 'Blackroot Clan',
       ]);
 
@@ -144,7 +144,7 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
       42,
       'campaign_npc',
       'campaign_42_npc_outcast',
-      'institution_family_blackroot-clan',
+      'institution_kin_blackroot-clan',
       -50,
       'storyline_authored',
       'storyline-authored-exile',
@@ -178,8 +178,8 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
       ->willReturnCallback($this->buildSelectCallback(
         relationshipRows: [[
           'id' => 94,
-          'relationship_id' => 'campaign_npc--campaign_42_npc_outcast--institution_sentiment--institution--institution_family_blackroot-clan',
-          'target_id' => 'institution_family_blackroot-clan',
+          'relationship_id' => 'campaign_npc--campaign_42_npc_outcast--institution_sentiment--institution--institution_kin_blackroot-clan',
+          'target_id' => 'institution_kin_blackroot-clan',
           'relationship_state' => json_encode([
             'edge_kind' => 'institution_sentiment',
             'sentiment_domain' => 'political',
@@ -197,8 +197,8 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
     $registry = $this->createMock(CampaignSubjectRegistryService::class);
     $registry->method('isSubjectRegistryReady')->willReturn(TRUE);
     $registry->method('loadInstitutionSubject')->willReturn([
-      'subject_id' => 'institution_family_blackroot-clan',
-      'subject_domain' => 'family',
+      'subject_id' => 'institution_kin_blackroot-clan',
+      'subject_domain' => 'kin',
       'display_name' => 'Blackroot Clan',
     ]);
     $relationships = $this->createMock(RelationshipManagerService::class);
@@ -211,7 +211,7 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
       42,
       'campaign_npc',
       'campaign_42_npc_outcast',
-      'institution_family_blackroot-clan',
+      'institution_kin_blackroot-clan',
       -50,
       'storyline_authored',
       'storyline-authored-exile',
@@ -228,14 +228,14 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
       ->willReturnCallback($this->buildSelectCallback(
         relationshipRows: [[
           'id' => 92,
-          'relationship_id' => 'campaign_npc--campaign_11_npc_mara--institution_member--institution--institution_allegiance_wharf-consortium',
-          'target_id' => 'institution_allegiance_wharf-consortium',
+          'relationship_id' => 'campaign_npc--campaign_11_npc_mara--institution_member--institution--institution_organization_wharf-consortium',
+          'target_id' => 'institution_organization_wharf-consortium',
           'status' => 'active',
           'relationship_state' => json_encode([
             'edge_kind' => 'institution_membership',
-            'institution_domain' => 'allegiance',
+            'institution_domain' => 'organization',
             'institution_display_name' => 'The Wharf Consortium',
-            'membership_domain' => 'allegiance',
+            'membership_domain' => 'organization',
             'membership_mutability' => 'mutable',
             'membership_status' => 'active',
             'mutation_state' => 'seeded',
@@ -268,7 +268,7 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
       11,
       'campaign_npc',
       'campaign_11_npc_mara',
-      'institution_allegiance_wharf-consortium',
+      'institution_organization_wharf-consortium',
       'abandoned',
       [
         'mutation_source' => 'quest_outcome',
@@ -347,8 +347,8 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
         relationshipRows: [
           [
             'id' => 101,
-            'relationship_id' => 'campaign_character--pc-campaign-wizard--institution_sentiment--institution--institution_allegiance_wharf-consortium',
-            'target_id' => 'institution_allegiance_wharf-consortium',
+            'relationship_id' => 'campaign_character--pc-campaign-wizard--institution_sentiment--institution--institution_organization_wharf-consortium',
+            'target_id' => 'institution_organization_wharf-consortium',
             'relationship_state' => json_encode([
               'edge_kind' => 'institution_sentiment',
               'sentiment_domain' => 'political',
@@ -361,8 +361,8 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
           ],
           [
             'id' => 102,
-            'relationship_id' => 'campaign_character--pc-campaign-wizard--institution_sentiment--institution--institution_security_city-watch',
-            'target_id' => 'institution_security_city-watch',
+            'relationship_id' => 'campaign_character--pc-campaign-wizard--institution_sentiment--institution--institution_state_city-watch',
+            'target_id' => 'institution_state_city-watch',
             'relationship_state' => json_encode([
               'edge_kind' => 'institution_sentiment',
               'sentiment_domain' => 'political',
@@ -648,9 +648,9 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
 
     $count = $service->syncCampaignNpcMemberships(9, 'campaign_9_npc_elira', [
       'occupation' => 'scholar',
-      'home_settlement_ref' => 'institution_settlement_fordwatch',
-      'religion_refs' => ['institution_religion_sun-oath'],
-      'security_affiliation_refs' => ['institution_security_city-watch'],
+      'home_settlement_ref' => 'institution_place_fordwatch',
+      'religion_refs' => ['institution_faith_sun-oath'],
+      'security_affiliation_refs' => ['institution_state_city-watch'],
     ]);
 
     $this->assertSame(4, $count);
@@ -669,14 +669,14 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
     }
     foreach ([
       'institution_profession_scholar',
-      'institution_settlement_fordwatch',
-      'institution_religion_sun-oath',
-      'institution_security_city-watch',
+      'institution_place_fordwatch',
+      'institution_faith_sun-oath',
+      'institution_state_city-watch',
     ] as $target_id) {
       $this->assertArrayHasKey($target_id, $membership_targets);
     }
     $this->assertSame('vocation', $membership_targets['institution_profession_scholar']['membership_domain'] ?? '');
-    $this->assertSame('mutable', $membership_targets['institution_religion_sun-oath']['membership_mutability'] ?? '');
+    $this->assertSame('mutable', $membership_targets['institution_faith_sun-oath']['membership_mutability'] ?? '');
     $this->assertArrayHasKey('institution_profession_scholar', $sentiment_targets);
   }
 
@@ -699,7 +699,7 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
       ->with(
         11,
         $this->callback(static function (array $input): bool {
-          return ($input['domain'] ?? '') === 'allegiance'
+          return ($input['domain'] ?? '') === 'organization'
             && ($input['display_name'] ?? '') === 'The Wharf Consortium'
             && ($input['source_asset_type'] ?? '') === 'library_faction'
             && ($input['source_asset_id'] ?? '') === 'wharf_consortium'
@@ -708,8 +708,8 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
         })
       )
       ->willReturn([
-        'subject_id' => 'institution_allegiance_wharf-consortium',
-        'subject_domain' => 'allegiance',
+        'subject_id' => 'institution_organization_wharf-consortium',
+        'subject_domain' => 'organization',
         'display_name' => 'The Wharf Consortium',
         'source_asset_type' => 'library_faction',
         'source_asset_id' => 'wharf_consortium',
@@ -750,7 +750,7 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
         $sentiment_state = $call['relationship']['relationship_state'];
       }
     }
-    $this->assertSame('allegiance', $membership_state['institution_domain'] ?? '');
+    $this->assertSame('organization', $membership_state['institution_domain'] ?? '');
     $this->assertSame('library_faction', $membership_state['source_asset_type'] ?? '');
     $this->assertSame('wharf_consortium', $membership_state['source_asset_id'] ?? '');
     $this->assertSame('political', $sentiment_state['sentiment_domain'] ?? '');
@@ -794,7 +794,7 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
 
     $service->syncCampaignNpcMemberships(11, 'campaign_11_npc_mara', [
       'home_settlement_ref' => [
-        'domain' => 'government',
+        'domain' => 'state',
         'source_asset_type' => 'library_faction',
         'source_asset_id' => 'fordwatch_crown',
         'display_name' => 'Fordwatch Crown',
@@ -823,15 +823,15 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
       ->willReturnCallback(static function (int $campaign_id, array $input): array {
         return match ((string) ($input['display_name'] ?? '')) {
           'The Wharf Consortium' => [
-            'subject_id' => 'institution_allegiance_wharf-consortium',
-            'subject_domain' => 'allegiance',
+            'subject_id' => 'institution_organization_wharf-consortium',
+            'subject_domain' => 'organization',
             'display_name' => 'The Wharf Consortium',
             'source_asset_type' => 'campaign_character_wizard',
             'source_asset_id' => 'pc-97-324',
           ],
           'The Dock Ward' => [
-            'subject_id' => 'institution_culture_dock-ward',
-            'subject_domain' => 'culture',
+            'subject_id' => 'institution_kin_dock-ward',
+            'subject_domain' => 'kin',
             'display_name' => 'The Dock Ward',
             'source_asset_type' => 'campaign_character_wizard',
             'source_asset_id' => 'pc-97-324',
@@ -865,7 +865,7 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
         'metadata' => ['seed_source' => 'character_creation'],
       ],
       [
-        'domain' => 'culture',
+        'domain' => 'kin',
         'display_name' => 'The Dock Ward',
         'source_asset_type' => 'campaign_character_wizard',
         'source_asset_id' => 'pc-97-324',
@@ -880,8 +880,8 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
         $membership_targets[] = $relationship['target_id'] ?? '';
       }
     }
-    $this->assertContains('institution_allegiance_wharf-consortium', $membership_targets);
-    $this->assertContains('institution_culture_dock-ward', $membership_targets);
+    $this->assertContains('institution_organization_wharf-consortium', $membership_targets);
+    $this->assertContains('institution_kin_dock-ward', $membership_targets);
   }
 
   /**
@@ -908,8 +908,8 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
       ->willReturnCallback($this->buildSelectCallback(
         relationshipRows: [[
           'id' => 71,
-          'relationship_id' => 'campaign_npc--campaign_11_npc_mara--institution_sentiment--institution--institution_allegiance_wharf-consortium',
-          'target_id' => 'institution_allegiance_wharf-consortium',
+          'relationship_id' => 'campaign_npc--campaign_11_npc_mara--institution_sentiment--institution--institution_organization_wharf-consortium',
+          'target_id' => 'institution_organization_wharf-consortium',
           'relationship_state' => json_encode([
             'edge_kind' => 'institution_sentiment',
             'sentiment_domain' => 'political',
@@ -922,7 +922,7 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
           ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
         ]],
         subjectRows: [[
-          'subject_id' => 'institution_allegiance_wharf-consortium',
+          'subject_id' => 'institution_organization_wharf-consortium',
           'display_name' => 'The Wharf Consortium',
         ]]
       ));
@@ -932,8 +932,8 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
     $registry->expects($this->once())
       ->method('resolveOrCreateInstitutionSubject')
       ->willReturn([
-        'subject_id' => 'institution_allegiance_wharf-consortium',
-        'subject_domain' => 'allegiance',
+        'subject_id' => 'institution_organization_wharf-consortium',
+        'subject_domain' => 'organization',
         'display_name' => 'The Wharf Consortium',
         'source_asset_type' => 'library_faction',
         'source_asset_id' => 'wharf_consortium',
@@ -992,8 +992,8 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
       ->willReturnCallback($this->buildSelectCallback(
         relationshipRows: [[
           'id' => 72,
-          'relationship_id' => 'campaign_npc--campaign_11_npc_mara--institution_sentiment--institution--institution_allegiance_wharf-consortium',
-          'target_id' => 'institution_allegiance_wharf-consortium',
+          'relationship_id' => 'campaign_npc--campaign_11_npc_mara--institution_sentiment--institution--institution_organization_wharf-consortium',
+          'target_id' => 'institution_organization_wharf-consortium',
           'relationship_state' => json_encode([
             'edge_kind' => 'institution_sentiment',
             'sentiment_domain' => 'political',
@@ -1007,7 +1007,7 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
           ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
         ]],
         subjectRows: [[
-          'subject_id' => 'institution_allegiance_wharf-consortium',
+          'subject_id' => 'institution_organization_wharf-consortium',
           'display_name' => 'The Wharf Consortium',
         ]]
       ));
@@ -1017,8 +1017,8 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
     $registry->expects($this->once())
       ->method('resolveOrCreateInstitutionSubject')
       ->willReturn([
-        'subject_id' => 'institution_allegiance_wharf-consortium',
-        'subject_domain' => 'allegiance',
+        'subject_id' => 'institution_organization_wharf-consortium',
+        'subject_domain' => 'organization',
         'display_name' => 'The Wharf Consortium',
         'source_asset_type' => 'library_faction',
         'source_asset_id' => 'wharf_consortium',
@@ -1072,15 +1072,15 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
       ->willReturnCallback($this->buildSelectCallback(
         relationshipRows: [[
           'id' => 73,
-          'relationship_id' => 'campaign_npc--campaign_11_npc_mara--institution_member--institution--institution_allegiance_wharf-consortium',
-          'target_id' => 'institution_allegiance_wharf-consortium',
+          'relationship_id' => 'campaign_npc--campaign_11_npc_mara--institution_member--institution--institution_organization_wharf-consortium',
+          'target_id' => 'institution_organization_wharf-consortium',
           'status' => 'inactive',
           'relationship_state' => json_encode([
             'edge_kind' => 'institution_membership',
-            'institution_domain' => 'allegiance',
+            'institution_domain' => 'organization',
             'institution_display_name' => 'The Wharf Consortium',
             'source_scope' => 'npc_creation',
-            'membership_domain' => 'allegiance',
+            'membership_domain' => 'organization',
             'membership_mutability' => 'mutable',
             'membership_status' => 'abandoned',
             'mutation_state' => 'mutated',
@@ -1098,8 +1098,8 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
     $registry->expects($this->once())
       ->method('resolveOrCreateInstitutionSubject')
       ->willReturn([
-        'subject_id' => 'institution_allegiance_wharf-consortium',
-        'subject_domain' => 'allegiance',
+        'subject_id' => 'institution_organization_wharf-consortium',
+        'subject_domain' => 'organization',
         'display_name' => 'The Wharf Consortium',
         'source_asset_type' => 'library_faction',
         'source_asset_id' => 'wharf_consortium',
@@ -1169,19 +1169,19 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
     $registry->expects($this->exactly(3))
       ->method('loadInstitutionSubject')
       ->willReturnMap([
-        [42, 'institution_settlement_fordwatch', [
-          'subject_id' => 'institution_settlement_fordwatch',
-          'subject_domain' => 'settlement',
+        [42, 'institution_place_fordwatch', [
+          'subject_id' => 'institution_place_fordwatch',
+          'subject_domain' => 'place',
           'display_name' => 'Fordwatch',
         ]],
-        [42, 'institution_security_city-watch', [
-          'subject_id' => 'institution_security_city-watch',
-          'subject_domain' => 'security',
+        [42, 'institution_state_city-watch', [
+          'subject_id' => 'institution_state_city-watch',
+          'subject_domain' => 'state',
           'display_name' => 'City Watch',
         ]],
-        [42, 'institution_family_house-briar', [
-          'subject_id' => 'institution_family_house-briar',
-          'subject_domain' => 'family',
+        [42, 'institution_kin_house-briar', [
+          'subject_id' => 'institution_kin_house-briar',
+          'subject_domain' => 'kin',
           'display_name' => 'House Briar',
         ]],
       ]);
@@ -1204,9 +1204,9 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
 
     $count = $service->syncCampaignCharacterMemberships(42, 'pc-campaign-wizard', [
       'class' => 'wizard',
-      'home_settlement_ref' => 'institution_settlement_fordwatch',
-      'security_affiliation_refs' => ['institution_security_city-watch'],
-      'family_refs' => ['institution_family_house-briar'],
+      'home_settlement_ref' => 'institution_place_fordwatch',
+      'security_affiliation_refs' => ['institution_state_city-watch'],
+      'family_refs' => ['institution_kin_house-briar'],
     ]);
 
     $this->assertSame(4, $count);
@@ -1222,14 +1222,14 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
     }
     foreach ([
       'institution_profession_wizard',
-      'institution_settlement_fordwatch',
-      'institution_security_city-watch',
-      'institution_family_house-briar',
+      'institution_place_fordwatch',
+      'institution_state_city-watch',
+      'institution_kin_house-briar',
     ] as $target_id) {
       $this->assertArrayHasKey($target_id, $membership_targets);
     }
     $this->assertSame('sticky', $membership_targets['institution_profession_wizard']['membership_mutability'] ?? '');
-    $this->assertSame('mutable', $membership_targets['institution_family_house-briar']['membership_mutability'] ?? '');
+    $this->assertSame('mutable', $membership_targets['institution_kin_house-briar']['membership_mutability'] ?? '');
   }
 
   /**

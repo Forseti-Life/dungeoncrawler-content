@@ -66,7 +66,7 @@ class FactionGenerationServiceTest extends UnitTestCase {
 
     $this->assertSame('Wharf Consortium', $draft['canonicalLabel']);
     $this->assertSame('wharf-consortium', $draft['canonicalSlug']);
-    $this->assertSame('institution_allegiance_wharf-consortium', $draft['librarySubjectId']);
+    $this->assertSame('institution_organization_wharf-consortium', $draft['librarySubjectId']);
     $this->assertSame('generated-wharf-consortium-seed', $draft['seedProfile']['profile_key']);
     $this->assertSame('mutable', $draft['membershipModel']['default_mutability']);
     $this->assertSame(['solidarity', 'mercantile leverage'], $draft['requestedCharacteristics']['ideology_tags']);
@@ -102,7 +102,7 @@ class FactionGenerationServiceTest extends UnitTestCase {
 
       protected function instantiateCampaignFactionSubject(int $campaign_id, array $draft): array {
         $this->instantiatedDrafts[] = ['campaign_id' => $campaign_id, 'draft' => $draft];
-        return ['subject_id' => 'institution_allegiance_wharf-consortium'];
+        return ['subject_id' => 'institution_organization_wharf-consortium'];
       }
     };
 
@@ -115,7 +115,7 @@ class FactionGenerationServiceTest extends UnitTestCase {
     $this->assertFalse($result['created']);
     $this->assertSame('reused', $result['status']);
     $this->assertSame(77, $result['manifestId']);
-    $this->assertSame('institution_allegiance_wharf-consortium', $result['campaignSubjectId']);
+    $this->assertSame('institution_organization_wharf-consortium', $result['campaignSubjectId']);
     $this->assertCount(1, $service->instantiatedDrafts);
   }
 
@@ -149,7 +149,7 @@ class FactionGenerationServiceTest extends UnitTestCase {
       }
 
       protected function instantiateCampaignFactionSubject(int $campaign_id, array $draft): array {
-        return ['subject_id' => 'institution_allegiance_keepers-of-the-third-bell'];
+        return ['subject_id' => 'institution_organization_keepers-of-the-third-bell'];
       }
     };
 
@@ -163,7 +163,7 @@ class FactionGenerationServiceTest extends UnitTestCase {
     $this->assertTrue($result['created']);
     $this->assertSame('created', $result['status']);
     $this->assertSame(81, $result['manifestId']);
-    $this->assertSame('institution_allegiance_keepers-of-the-third-bell', $result['campaignSubjectId']);
+    $this->assertSame('institution_organization_keepers-of-the-third-bell', $result['campaignSubjectId']);
     $this->assertCount(1, $service->capturedDrafts);
     $this->assertSame('keepers-of-the-third-bell', $service->capturedDrafts[0]['canonicalSlug']);
   }
@@ -209,7 +209,7 @@ class FactionGenerationServiceTest extends UnitTestCase {
       }
 
       protected function instantiateCampaignFactionSubject(int $campaign_id, array $draft): array {
-        return ['subject_id' => 'institution_allegiance_iron-circle'];
+        return ['subject_id' => 'institution_organization_iron-circle'];
       }
     };
 
@@ -265,7 +265,7 @@ class FactionGenerationServiceTest extends UnitTestCase {
       }
 
       protected function instantiateCampaignFactionSubject(int $campaign_id, array $draft): array {
-        return ['subject_id' => 'institution_allegiance_silver-pact'];
+        return ['subject_id' => 'institution_organization_silver-pact'];
       }
     };
 
@@ -296,7 +296,7 @@ class FactionGenerationServiceTest extends UnitTestCase {
     $service->generateFactionDraft([
       'canonical_slug' => 'missing-core',
       'canonical_label' => 'Missing Core',
-      'library_subject_id' => 'institution_allegiance_missing-core',
+      'library_subject_id' => 'institution_organization_missing-core',
     ]);
   }
 

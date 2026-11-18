@@ -16,8 +16,8 @@ use Drupal\Tests\UnitTestCase;
  */
 class InstitutionDispositionMatrixServiceTest extends UnitTestCase {
 
-  private const SOURCE = 'institution_family_blackblack-clan';
-  private const TARGET = 'institution_family_blackroot-clan';
+  private const SOURCE = 'institution_kin_blackblack-clan';
+  private const TARGET = 'institution_kin_blackroot-clan';
 
   /**
    * @covers ::seedAuthoredInstitutionDispositionEdge

@@ -22,7 +22,7 @@ class InstitutionDispositionScoreAssemblerServiceTest extends UnitTestCase {
    */
   public function testExplicitEdgeBetweenClansShapesHowTheirMembersRegardEachOther(): void {
     $adjustment = $this->buildAssembler([
-      'institution_family_blackblack-clan>institution_family_blackroot-clan' => -100,
+      'institution_kin_blackblack-clan>institution_kin_blackroot-clan' => -100,
     ])->buildActorTargetInstitutionAdjustment(42, 'npc-rival', 'npc-elder');
 
     // Human fighter of one clan toward a human fighter of the other: the
@@ -30,9 +30,9 @@ class InstitutionDispositionScoreAssemblerServiceTest extends UnitTestCase {
     // authored clan stance counts at full weight: -100 / 1.5.
     $this->assertSame(-67, $adjustment['components']['institution_matrix_component']);
     $pairs = array_column($adjustment['breakdown']['institution_matrix'], NULL, 'source_subject_id');
-    $this->assertSame(-100, $pairs['institution_family_blackblack-clan']['raw_score']);
-    $this->assertSame('institution_family_blackroot-clan', $pairs['institution_family_blackblack-clan']['target_subject_id']);
-    $this->assertSame('institution_matrix_edge', $pairs['institution_family_blackblack-clan']['source']);
+    $this->assertSame(-100, $pairs['institution_kin_blackblack-clan']['raw_score']);
+    $this->assertSame('institution_kin_blackroot-clan', $pairs['institution_kin_blackblack-clan']['target_subject_id']);
+    $this->assertSame('institution_matrix_edge', $pairs['institution_kin_blackblack-clan']['source']);
   }
 
   /**
@@ -62,7 +62,7 @@ class InstitutionDispositionScoreAssemblerServiceTest extends UnitTestCase {
     $membership->method('listActorInstitutionSentiments')->willReturn([]);
     $membership->method('listActorInstitutionMemberships')
       ->willReturnCallback(static fn (int $campaign_id, string $source_type, string $source_id): array => $memberships(
-        $source_id === 'npc-rival' ? 'institution_family_blackblack-clan' : 'institution_family_blackroot-clan'
+        $source_id === 'npc-rival' ? 'institution_kin_blackblack-clan' : 'institution_kin_blackroot-clan'
       ));
 
     $matrix = $this->createMock(InstitutionDispositionMatrixService::class);

@@ -904,6 +904,46 @@ Rules:
   domain `political`), so an exile from a clan can be expressed and later
   mutated in play.
 
+### Institution types and hierarchy
+
+There are five authored types and three that follow from the sheet
+(`InstitutionNormalizationService::AUTHORABLE_DOMAINS`, `DERIVED_DOMAINS`):
+
+| Type | Holds | Older names accepted as aliases |
+| --- | --- | --- |
+| `state` | a nation or realm, with its law and military | government, nation, security, law, military, watch |
+| `place` | a settlement, district or region | settlement, community, hometown |
+| `kin` | a culture, tribe, clan, house or family | family, clan, house, noble, culture, tribe |
+| `organization` | a faction, guild, order, school, company or covert group | allegiance, faction, employer, guild, education, order, criminal |
+| `faith` | a religion, church or cult | religion, church, cult |
+| `ancestry`, `profession`, `alignment` | derived from the actor's sheet | |
+
+All five authored types are scored the same way; the type decides only
+where an institution may sit.
+
+- **Granularity is nesting, not more types.** An institution names the one
+  it sits inside (`institution_parent` edge; `parent_institution_id` in a
+  storyline), to any depth: household in clan in tribe in culture; team in
+  department in business unit in company; squad in company in army in
+  nation.
+- **Nesting order** (`PARENT_DOMAINS`): a state sits only inside a state; a
+  place inside a place or state; kin inside kin, a place or a state; an
+  organization or faith inside anything. A storyline save that breaks the
+  order is refused (`storyline_draft_institution_parent_type`).
+- **Relationships between institutions** are parent, child and peer (same
+  parent), all read from the parent link; attitudes between institutions
+  are the matrix stances, as before.
+- **Membership is inherited upward.** `InstitutionMembershipService`
+  adds a membership of every ancestor when it syncs an actor
+  (`withInheritedMemberships`, reading
+  `CampaignSubjectRegistryService::loadInstitutionAncestorIds`), so a
+  clan's stance reaches a member of any household in it. Storyline
+  realization creates the ancestors of every tied institution, parents
+  first. Exile and ally ties are not inherited.
+- An institution ID carries its type (`institution_kin_blackroot-clan`).
+  Update 10232 renamed existing IDs; `currentSubjectId()` maps an ID built
+  under an older type name.
+
 ### Canonical institution library
 
 `InstitutionLibraryService` owns the campaign-independent record of every

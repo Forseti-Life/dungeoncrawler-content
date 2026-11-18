@@ -18,17 +18,27 @@ class InstitutionNormalizationService {
    * from its ancestry and class, not authored.
    */
   public const AUTHORABLE_DOMAINS = [
-    'family' => 'Family, house or clan',
-    'government' => 'State or nation',
-    'allegiance' => 'Faction',
-    'settlement' => 'Home settlement',
-    'religion' => 'Religion',
-    'employer' => 'Guild or employer',
-    'education' => 'Order or school',
-    'noble' => 'Noble patronage',
-    'security' => 'Law or military',
-    'criminal' => 'Criminal or covert group',
-    'culture' => 'Culture or tribe',
+    'state' => 'State, with its law and military',
+    'place' => 'Settlement or place',
+    'kin' => 'Kin: culture, tribe, clan, house or family',
+    'organization' => 'Organisation: faction, guild, order, school or covert group',
+    'faith' => 'Faith',
+  ];
+
+  /**
+   * The nesting order: the types an institution of each type may sit inside.
+   *
+   * A state holds places, a place holds kin; each type also nests within
+   * itself to any depth (nation, army, company; culture, tribe, clan,
+   * household). Organisations and faiths cut across and may sit anywhere.
+   * Two institutions with the same parent are peers.
+   */
+  public const PARENT_DOMAINS = [
+    'state' => ['state'],
+    'place' => ['place', 'state'],
+    'kin' => ['kin', 'place', 'state'],
+    'organization' => ['organization', 'faith', 'kin', 'place', 'state'],
+    'faith' => ['faith', 'organization', 'kin', 'place', 'state'],
   ];
 
   /** Domains whose membership follows from the actor's own sheet. */
@@ -98,44 +108,60 @@ class InstitutionNormalizationService {
     'profession' => 'profession',
     'calling' => 'profession',
     'occupation' => 'profession',
-    'settlement' => 'settlement',
-    'community' => 'settlement',
-    'hometown' => 'settlement',
-    'government' => 'government',
-    'polity' => 'government',
-    'authority' => 'government',
-    'nation' => 'government',
-    'faction' => 'allegiance',
-    'allegiance' => 'allegiance',
-    'institution' => 'allegiance',
-    'law' => 'security',
-    'military' => 'security',
-    'security' => 'security',
-    'watch' => 'security',
-    'family' => 'family',
-    'house' => 'family',
-    'clan' => 'family',
-    'lineage' => 'family',
-    'religion' => 'religion',
-    'faith' => 'religion',
-    'church' => 'religion',
-    'cult' => 'religion',
-    'guild' => 'employer',
-    'employer' => 'employer',
-    'trade' => 'employer',
-    'order' => 'education',
-    'education' => 'education',
-    'training' => 'education',
-    'school' => 'education',
-    'academy' => 'education',
-    'noble' => 'noble',
-    'patron' => 'noble',
-    'criminal' => 'criminal',
-    'covert' => 'criminal',
-    'culture' => 'culture',
-    'ethnicity' => 'culture',
-    'tribe' => 'culture',
+    'state' => 'state',
+    'government' => 'state',
+    'polity' => 'state',
+    'authority' => 'state',
+    'nation' => 'state',
+    'law' => 'state',
+    'military' => 'state',
+    'security' => 'state',
+    'watch' => 'state',
+    'place' => 'place',
+    'settlement' => 'place',
+    'community' => 'place',
+    'hometown' => 'place',
+    'kin' => 'kin',
+    'family' => 'kin',
+    'house' => 'kin',
+    'clan' => 'kin',
+    'lineage' => 'kin',
+    'noble' => 'kin',
+    'patron' => 'kin',
+    'culture' => 'kin',
+    'ethnicity' => 'kin',
+    'tribe' => 'kin',
+    'organization' => 'organization',
+    'organisation' => 'organization',
+    'faction' => 'organization',
+    'allegiance' => 'organization',
+    'institution' => 'organization',
+    'guild' => 'organization',
+    'employer' => 'organization',
+    'trade' => 'organization',
+    'order' => 'organization',
+    'education' => 'organization',
+    'training' => 'organization',
+    'school' => 'organization',
+    'academy' => 'organization',
+    'criminal' => 'organization',
+    'covert' => 'organization',
+    'faith' => 'faith',
+    'religion' => 'faith',
+    'church' => 'faith',
+    'cult' => 'faith',
   ];
+
+  /**
+   * The current ID of an institution whose ID was built under an older type name.
+   */
+  public function currentSubjectId(string $subject_id): string {
+    if (preg_match('/^institution_([a-z]+)_(.+)$/', trim($subject_id), $matches) !== 1) {
+      return trim($subject_id);
+    }
+    $domain = $this->normalizeDomain($matches[1]);
+    return $domain === '' ? trim($subject_id) : $this->buildInstitutionSubjectId($domain, $matches[2]);
+  }
 
   /**
    * Normalize a domain name into the canonical first-slice domain.

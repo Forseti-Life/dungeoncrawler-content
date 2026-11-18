@@ -247,8 +247,8 @@ class StorylineAuthoringDraftService {
         'Reuse grounded IDs for existing objects; look up named canonical objects before rebinding.',
         'To add a character the author names, use bind_library_characters; it looks the character up and saves the cast row. Before inventing a character, search the character library with find_library_characters. When a library character fits, bind it by its actor_id instead of inventing one, and offer the matches to the author when the choice is theirs. A quest giver or hook is a library character whenever one fits.',
         'A character new to the story is placed: its location_id names a room or site of this storyline.',
-        'Institutions come before the cast. A clan, family or house, settlement, faction, guard, guild, cult or other group the story is about is a row in /objects/institutions with its domain, name, description, purpose in this story, seat (a room or site of this storyline), leader (a cast member), parent (the institution it is part of) and stances toward the other institutions. Before defining one, look for it with find_existing_institutions and reuse its exact domain and name when it exists: the same domain and name is the same institution everywhere. Its institution_id is derived from the domain and name; never write one by hand, reference a new row with $draft_ref.',
-        'Every cast member is tied to the cast when it is added or bound, in the same operations: an affiliation to each institution of this storyline it is tied to, by institution_id, with standing leader, exile or ally where it is not a plain member (define the institution in /objects/institutions first when the story has none that fits: clan, family or house, settlement, faction, guard, culture), and one /objects/actors/relationships row for each cast member it has a personal tie to, with the attitude and a bond such as spouse, parent, child, sibling, rival, mentor or serves. Every cast member also gets its alignment (LG, NG, CG, LN, N, CN, LE, NE or CE) in the same row; it makes the actor a member of the alignment institutions Lawful or Chaotic, Good or Evil, and Neutral, which are never added to /objects/institutions. Ancestry and class are not affiliations; they come from the sheet. Infer the obvious ties from the roles and the story; do not ask the author for them.',
+        'Institutions come before the cast. A group the story is about is a row in /objects/institutions with its domain, name, description, purpose in this story, seat (a room or site of this storyline), leader (a cast member), parent and stances toward the other institutions. There are five domains: state (a nation or realm, with its law and military), place (a settlement, district or region), kin (a culture, tribe, clan, house or family), organization (a faction, guild, order, school, company or covert group) and faith. Finer grain is nesting, not more domains: give an institution the parent_institution_id of the one it is part of, to any depth (household in clan in tribe in culture; team in department in company; squad in company in army in nation). The order is fixed: a state may sit only inside a state; a place inside a place or state; kin inside kin, a place or a state; an organization or faith inside anything. Institutions with the same parent are peers. Before defining one, look for it with find_existing_institutions and reuse its exact domain and name when it exists: the same domain and name is the same institution everywhere. Its institution_id is derived from the domain and name; never write one by hand, reference a new row with $draft_ref.',
+        'Every cast member is tied to the cast when it is added or bound, in the same operations: an affiliation to each institution of this storyline it is tied to, by institution_id, with standing leader, exile or ally where it is not a plain member (define the institution in /objects/institutions first when the story has none that fits). Tie a cast member to its innermost institution only: membership is inherited upward, so a member of a household is already a member of its clan, and one /objects/actors/relationships row for each cast member it has a personal tie to, with the attitude and a bond such as spouse, parent, child, sibling, rival, mentor or serves. Every cast member also gets its alignment (LG, NG, CG, LN, N, CN, LE, NE or CE) in the same row; it makes the actor a member of the alignment institutions Lawful or Chaotic, Good or Evil, and Neutral, which are never added to /objects/institutions. Ancestry and class are not affiliations; they come from the sheet. Infer the obvious ties from the roles and the story; do not ask the author for them.',
         'For new append rows, omit generated identity fields and let the authority allocate collision-free, draft-scoped IDs.',
         'Give related new rows internal batch keys and link them with $draft_ref values; never ask the author to supply keys or IDs.',
         'Keep existing IDs when renaming or editing content; only rebind references when the author requests that change.',
@@ -1648,14 +1648,12 @@ class StorylineAuthoringDraftService {
           $groups['Alignment:' . $name] = ['kind' => 'Alignment', 'name' => $name];
         }
       }
-      foreach ((array) ($member['affiliations'] ?? []) as $affiliation) {
-        $institution = $institutions[(string) ($affiliation['institution_id'] ?? '')] ?? NULL;
-        if ($institution !== NULL) {
-          $groups['institution:' . $institution['institution_id']] = [
-            'kind' => InstitutionNormalizationService::AUTHORABLE_DOMAINS[(string) $institution['domain']] ?? ucfirst((string) $institution['domain']),
-            'name' => trim((string) $institution['name']),
-          ];
-        }
+      foreach (self::institutionsBelongedTo($member, $institutions) as $institution_id) {
+        $institution = $institutions[$institution_id];
+        $groups['institution:' . $institution_id] = [
+          'kind' => InstitutionNormalizationService::AUTHORABLE_DOMAINS[(string) $institution['domain']],
+          'name' => trim((string) $institution['name']),
+        ];
       }
       return $groups;
     };
@@ -1794,10 +1792,15 @@ class StorylineAuthoringDraftService {
         count($no_affiliation), count($cast), $list($no_affiliation),
       );
     }
+    $by_id = array_column(array_filter((array) ($payload['objects']['institutions'] ?? []), 'is_array'), NULL, 'institution_id');
     $with_members = [];
     foreach ($cast as $member) {
       foreach (array_filter((array) ($member['affiliations'] ?? []), 'is_array') as $affiliation) {
         $with_members[(string) ($affiliation['institution_id'] ?? '')] = TRUE;
+      }
+      // A member of a part is a member of the whole.
+      foreach (self::institutionsBelongedTo($member, $by_id) as $institution_id) {
+        $with_members[$institution_id] = TRUE;
       }
     }
     $empty = [];
@@ -2684,8 +2687,8 @@ class StorylineAuthoringDraftService {
    *   `storyline_draft_institution_stance_unknown:<id>:<toward>`,
    *   `storyline_draft_institution_stance_self:<id>`,
    *   `storyline_draft_actor_affiliation_institution_unknown:<actor>:<id>`,
-   *   `storyline_draft_actor_affiliation_duplicate:<actor>:<id>` or
-   *   `storyline_draft_actor_affiliation_single:<actor>:<domain>`.
+   *   `storyline_draft_institution_parent_type:<id>: ...` or
+   *   `storyline_draft_actor_affiliation_duplicate:<actor>:<id>`.
    */
   private function assertInstitutionsValid(array $payload): void {
     $normalizer = new InstitutionNormalizationService();
@@ -2720,6 +2723,18 @@ class StorylineAuthoringDraftService {
           throw new \InvalidArgumentException('storyline_draft_institution_parent_cycle:' . $id);
         }
         $visited[$ancestor] = TRUE;
+        if (count($visited) === 2) {
+          // The nesting order: a state holds places, a place holds kin;
+          // organisations and faiths may sit anywhere.
+          $parent_domain = (string) $institutions[$ancestor]['domain'];
+          if (!in_array($parent_domain, InstitutionNormalizationService::PARENT_DOMAINS[(string) $institution['domain']], TRUE)) {
+            throw new \InvalidArgumentException(sprintf(
+              'storyline_draft_institution_parent_type:%s: a %s institution cannot sit inside a %s institution ("%s" inside "%s"). It may sit inside: %s.',
+              $id, (string) $institution['domain'], $parent_domain, trim((string) $institution['name']), trim((string) $institutions[$ancestor]['name']),
+              implode(', ', InstitutionNormalizationService::PARENT_DOMAINS[(string) $institution['domain']]),
+            ));
+          }
+        }
         $ancestor = trim((string) ($institutions[$ancestor]['parent_institution_id'] ?? ''));
       }
       foreach ((array) ($institution['stances'] ?? []) as $stance) {
@@ -2732,8 +2747,6 @@ class StorylineAuthoringDraftService {
         }
       }
     }
-    // An actor has one home settlement and one state.
-    $single = InstitutionMembershipService::singleMembershipDomains();
     foreach ((array) ($payload['objects']['actors']['generation_specs'] ?? []) as $actor) {
       $seen = [];
       foreach ((array) ($actor['affiliations'] ?? []) as $affiliation) {
@@ -2745,15 +2758,36 @@ class StorylineAuthoringDraftService {
           throw new \InvalidArgumentException('storyline_draft_actor_affiliation_duplicate:' . $actor['actor_id'] . ':' . $id);
         }
         $seen[$id] = TRUE;
-        $domain = (string) $institutions[$id]['domain'];
-        if (self::belongs($affiliation) && in_array($domain, $single, TRUE)) {
-          if (isset($seen['domain:' . $domain])) {
-            throw new \InvalidArgumentException('storyline_draft_actor_affiliation_single:' . $actor['actor_id'] . ':' . $domain);
-          }
-          $seen['domain:' . $domain] = TRUE;
-        }
       }
     }
+  }
+
+  /**
+   * The institutions a cast member belongs to, inherited ones included.
+   *
+   * Membership is inherited up the hierarchy: a member or leader of a
+   * household belongs to its clan and to whatever the clan is part of. An
+   * exile or ally belongs to nothing through that tie.
+   *
+   * @param array<string, array<string, mixed>> $institutions
+   *   The draft's institutions by institution_id.
+   *
+   * @return string[]
+   *   Institution IDs, each once.
+   */
+  public static function institutionsBelongedTo(array $actor, array $institutions): array {
+    $belongs = [];
+    foreach (array_filter((array) ($actor['affiliations'] ?? []), 'is_array') as $affiliation) {
+      $id = (string) ($affiliation['institution_id'] ?? '');
+      if (!self::belongs($affiliation)) {
+        continue;
+      }
+      while ($id !== '' && isset($institutions[$id]) && !isset($belongs[$id])) {
+        $belongs[$id] = TRUE;
+        $id = trim((string) ($institutions[$id]['parent_institution_id'] ?? ''));
+      }
+    }
+    return array_map('strval', array_keys($belongs));
   }
 
   /**

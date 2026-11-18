@@ -880,8 +880,15 @@ question is refused (`editor_gm_intent_parallel_call_not_a_tool`).
 
 ### Institutions: identity, reuse and play
 
+- There are five institution types: state, place, kin, organization and
+  faith. Finer grain is nesting: an institution names its parent, to any
+  depth. A state sits only inside a state; a place inside a place or
+  state; kin inside kin, a place or a state; an organization or faith
+  inside anything. Institutions with the same parent are peers.
+- A cast member is tied to its innermost institution; it is a member of
+  every institution above by inheritance.
 - An institution's ID is the institution engine's subject ID for its
-  domain and name (`institution_family_blackroot-clan`). The same domain
+  domain and name (`institution_kin_blackroot-clan`). The same domain
   and name is the same institution in every storyline and campaign, so
   give story-specific groups story-specific names.
 - Every institution a draft defines is registered in the canonical

@@ -128,6 +128,35 @@ class CampaignSubjectRegistryService {
   }
 
   /**
+   * The institutions a campaign institution sits inside, nearest first.
+   *
+   * @return string[]
+   *   Subject IDs, following institution_parent edges to the top.
+   */
+  public function loadInstitutionAncestorIds(int $campaign_id, string $subject_id): array {
+    $ancestors = [];
+    $current = trim($subject_id);
+    while ($current !== '' && $this->relationshipManager->isRelationshipStorageReady()) {
+      $parent = (string) $this->database->select('dc_campaign_relationships', 'r')
+        ->fields('r', ['target_id'])
+        ->condition('campaign_id', $campaign_id)
+        ->condition('source_type', 'institution')
+        ->condition('source_id', $current)
+        ->condition('target_type', 'institution')
+        ->condition('relationship_type', 'institution_parent')
+        ->range(0, 1)
+        ->execute()
+        ->fetchField();
+      if ($parent === '' || $parent === $subject_id || in_array($parent, $ancestors, TRUE)) {
+        break;
+      }
+      $ancestors[] = $parent;
+      $current = $parent;
+    }
+    return $ancestors;
+  }
+
+  /**
    * Loads an existing campaign institution subject by stable subject id.
    *
    * @return array<string, mixed>

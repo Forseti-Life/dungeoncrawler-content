@@ -22,10 +22,14 @@ class InstitutionNormalizationServiceTest extends UnitTestCase {
 
     $this->assertSame('ancestry', $service->normalizeDomain('race'));
     $this->assertSame('profession', $service->normalizeDomain('occupation'));
-    $this->assertSame('settlement', $service->normalizeDomain('community'));
-    $this->assertSame('security', $service->normalizeDomain('watch'));
-    $this->assertSame('religion', $service->normalizeDomain('faith'));
-    $this->assertSame('allegiance', $service->normalizeDomain('faction'));
+    $this->assertSame('place', $service->normalizeDomain('community'));
+    $this->assertSame('state', $service->normalizeDomain('watch'));
+    $this->assertSame('faith', $service->normalizeDomain('religion'));
+    $this->assertSame('organization', $service->normalizeDomain('faction'));
+    $this->assertSame('kin', $service->normalizeDomain('clan'));
+    // An ID built under an older type name maps to the current one.
+    $this->assertSame('institution_kin_blackroot-clan', $service->currentSubjectId('institution_family_blackroot-clan'));
+    $this->assertSame('institution_ancestry_elf', $service->currentSubjectId('institution_ancestry_elf'));
   }
 
   /**
@@ -38,14 +42,14 @@ class InstitutionNormalizationServiceTest extends UnitTestCase {
     $normalized = $service->normalizeInstitutionInput([
       'domain' => 'class',
       'display_name' => '   City   Watch  ',
-      'parent_subject_id' => ' institution_government_fordwatch-crown ',
+      'parent_subject_id' => ' institution_state_fordwatch-crown ',
     ]);
 
     $this->assertSame('profession', $normalized['domain']);
     $this->assertSame('City Watch', $normalized['display_name']);
     $this->assertSame('city-watch', $normalized['normalized_label']);
     $this->assertSame('institution_profession_city-watch', $normalized['subject_id']);
-    $this->assertSame('institution_government_fordwatch-crown', $normalized['parent_subject_id']);
+    $this->assertSame('institution_state_fordwatch-crown', $normalized['parent_subject_id']);
   }
 
   /**

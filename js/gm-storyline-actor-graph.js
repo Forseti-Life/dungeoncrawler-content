@@ -45,7 +45,7 @@
         // Every domain the graph can group by: authored ones, then the two
         // that follow from the actor's sheet.
         const domainLabels = { ...settings.domains, ...settings.derivedDomains };
-        let groupDomain = 'family';
+        let groupDomain = 'kin';
         const groupSelect = el('select', { id: 'actor-graph-group', class: 'form-select' });
         root.querySelector('[data-actor-graph-group]').append(el('label', { for: 'actor-graph-group' }, 'Group by'), groupSelect);
         Object.entries(domainLabels).forEach(([domain, label]) => groupSelect.appendChild(el('option', { value: domain }, label)));

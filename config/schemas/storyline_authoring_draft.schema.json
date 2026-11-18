@@ -1165,19 +1165,13 @@
           "description": "Allocated by the draft authority for a new institution. An institution taken from the library keeps its library ID."
         },
         "domain": {
-          "description": "family (family, house or clan), government (state or nation), allegiance (faction), settlement, religion, employer (guild), education (order or school), noble, security (law or military), criminal, culture (culture or tribe).",
+          "description": "state (a nation or realm, with its law and military), place (a settlement, district or region), kin (a culture, tribe, clan, house or family), organization (a faction, guild, order, school, company or covert group), faith (a religion, church or cult). Granularity comes from nesting with parent_institution_id, not from more types.",
           "enum": [
-            "family",
-            "government",
-            "allegiance",
-            "settlement",
-            "religion",
-            "employer",
-            "education",
-            "noble",
-            "security",
-            "criminal",
-            "culture"
+            "state",
+            "place",
+            "kin",
+            "organization",
+            "faith"
           ]
         },
         "name": {
@@ -1232,7 +1226,7 @@
         },
         "parent_institution_id": {
           "type": "string",
-          "description": "The institution of this storyline it is part of, such as a household within a clan."
+          "description": "The institution of this storyline it sits inside, to any depth: a household within a clan, a team within a department within a company. A state sits only inside a state; a place inside a place or state; kin inside kin, a place or a state; an organization or faith inside anything. Members inherit membership of every institution above. Institutions with the same parent are peers."
         }
       }
     }

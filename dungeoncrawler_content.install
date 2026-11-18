@@ -6830,3 +6830,94 @@ function dungeoncrawler_content_update_10231(): string {
   $after = (int) $database->query("SELECT COUNT(*) FROM {dc_library_institution_manifest} WHERE row_type = 'institution'")->fetchField();
   return sprintf('Institution library: %d records (was %d). %d module faction(s) moved in.', $after, $before, count($factions));
 }
+
+/**
+ * Merge the institution types into state, place, kin, organization, faith.
+ */
+function dungeoncrawler_content_update_10232(): string {
+  $database = \Drupal::database();
+  $normalizer = new \Drupal\dungeoncrawler_content\Service\InstitutionNormalizationService();
+  $renamed = [];
+
+  // The library records.
+  $rows = $database->query("SELECT id, normalized_payload_json FROM {dc_library_institution_manifest} WHERE row_type = 'institution'")->fetchAll(\PDO::FETCH_ASSOC);
+  foreach ($rows as $row) {
+    $payload = json_decode((string) $row['normalized_payload_json'], TRUE, 512, JSON_THROW_ON_ERROR);
+    $domain = $normalizer->normalizeDomain((string) $payload['domain']);
+    if ($domain === '') {
+      throw new \RuntimeException(sprintf('Library institution "%s" has the unknown type "%s".', (string) $payload['canonicalLabel'], (string) $payload['domain']));
+    }
+    $old_id = (string) $payload['librarySubjectId'];
+    $payload['domain'] = $domain;
+    $payload['librarySubjectId'] = $normalizer->currentSubjectId($old_id);
+    $payload['parentSubjectId'] = $normalizer->currentSubjectId((string) ($payload['parentSubjectId'] ?? ''));
+    if ($payload['librarySubjectId'] !== $old_id) {
+      $renamed[$old_id] = $payload['librarySubjectId'];
+    }
+    $database->update('dc_library_institution_manifest')
+      ->fields(['normalized_payload_json' => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR), 'changed' => time()])
+      ->condition('id', (int) $row['id'])
+      ->execute();
+  }
+
+  // Campaign subjects and the edges that name them.
+  $subjects = $database->query("SELECT DISTINCT subject_id, subject_domain, normalized_label FROM {dc_campaign_subject_registry} WHERE subject_kind = 'institution'")->fetchAll(\PDO::FETCH_ASSOC);
+  $campaign_subjects = 0;
+  foreach ($subjects as $subject) {
+    $old_id = (string) $subject['subject_id'];
+    $new_id = $normalizer->currentSubjectId($old_id);
+    $domain = $normalizer->normalizeDomain((string) $subject['subject_domain']);
+    if ($new_id === $old_id || $domain === '') {
+      continue;
+    }
+    $campaign_subjects += (int) $database->update('dc_campaign_subject_registry')
+      ->fields(['subject_id' => $new_id, 'subject_domain' => $domain, 'subject_key' => $domain . ':' . $subject['normalized_label']])
+      ->condition('subject_kind', 'institution')
+      ->condition('subject_id', $old_id)
+      ->execute();
+    foreach (['source', 'target'] as $end) {
+      $database->update('dc_campaign_relationships')
+        ->fields([$end . '_id' => $new_id])
+        ->expression('relationship_id', 'REPLACE(relationship_id, :old_rel, :new_rel)', [':old_rel' => $old_id, ':new_rel' => $new_id])
+        ->expression('relationship_state', 'REPLACE(relationship_state, :old_state, :new_state)', [':old_state' => $old_id, ':new_state' => $new_id])
+        ->condition($end . '_type', 'institution')
+        ->condition($end . '_id', $old_id)
+        ->execute();
+    }
+  }
+
+  // Storyline drafts: types, and every reference to a renamed institution.
+  $account_switcher = \Drupal::service('account_switcher');
+  $account_switcher->switchTo(\Drupal\user\Entity\User::load(1));
+  $drafts_changed = 0;
+  try {
+    $drafts = \Drupal::service('dungeoncrawler_content.storyline_authoring_drafts');
+    $rows = $database->query('SELECT draft_id, revision, status, draft_payload FROM {dungeoncrawler_content_storyline_authoring_drafts}')->fetchAll(\PDO::FETCH_ASSOC);
+    foreach ($rows as $row) {
+      $payload = json_decode((string) $row['draft_payload'], TRUE, 512, JSON_THROW_ON_ERROR);
+      if (empty($payload['objects']['institutions'])) {
+        continue;
+      }
+      if ($row['status'] !== 'editing') {
+        throw new \RuntimeException(sprintf('Storyline draft "%s" has institutions but is not editable; its types cannot be merged.', $row['draft_id']));
+      }
+      $json = (string) $row['draft_payload'];
+      foreach ($payload['objects']['institutions'] as $institution) {
+        $old_id = (string) $institution['institution_id'];
+        $json = str_replace(json_encode($old_id), json_encode($normalizer->currentSubjectId($old_id)), $json);
+      }
+      $payload = json_decode($json, TRUE, 512, JSON_THROW_ON_ERROR);
+      foreach ($payload['objects']['institutions'] as &$institution) {
+        $institution['domain'] = $normalizer->normalizeDomain((string) $institution['domain']);
+      }
+      unset($institution);
+      $drafts->saveDraft((string) $row['draft_id'], (int) $row['revision'], $payload);
+      $drafts_changed++;
+    }
+  }
+  finally {
+    $account_switcher->switchBack();
+  }
+
+  return sprintf('Institution types merged: %d library record(s) renamed, %d campaign subject row(s), %d storyline draft(s).', count($renamed), $campaign_subjects, $drafts_changed);
+}

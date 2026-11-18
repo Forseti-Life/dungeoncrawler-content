@@ -699,8 +699,8 @@ class StorylineDraftPatchTest extends UnitTestCase {
       'actors' => ['generation_specs' => $actors],
     ] + ($institutions === NULL ? [] : ['institutions' => $institutions])]], []);
     $stage = static fn(array $state): array => array_column($state['stages'], NULL, 'stage')[3];
-    $clan = ['institution_id' => 'institution_family_blackroot-clan', 'domain' => 'family', 'name' => 'Blackroot Clan'];
-    $guard = ['institution_id' => 'institution_security_town-guard', 'domain' => 'security', 'name' => 'Town Guard', 'stances' => [
+    $clan = ['institution_id' => 'institution_kin_blackroot-clan', 'domain' => 'family', 'name' => 'Blackroot Clan'];
+    $guard = ['institution_id' => 'institution_state_town-guard', 'domain' => 'security', 'name' => 'Town Guard', 'stances' => [
       ['toward_institution_id' => $clan['institution_id'], 'attitude' => 'hostile'],
     ]];
 

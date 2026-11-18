@@ -103,8 +103,8 @@ class CampaignSubjectRegistryServiceTest extends UnitTestCase {
         42,
         $this->callback(static function (array $relationship): bool {
           return ($relationship['source_type'] ?? '') === 'institution'
-            && ($relationship['source_id'] ?? '') === 'institution_security_city-watch'
-            && ($relationship['target_id'] ?? '') === 'institution_government_fordwatch-crown'
+            && ($relationship['source_id'] ?? '') === 'institution_state_city-watch'
+            && ($relationship['target_id'] ?? '') === 'institution_state_fordwatch-crown'
             && ($relationship['relationship_type'] ?? '') === 'institution_parent';
         })
       )
@@ -119,14 +119,14 @@ class CampaignSubjectRegistryServiceTest extends UnitTestCase {
     $result = $service->resolveOrCreateInstitutionSubject(42, [
       'domain' => 'watch',
       'display_name' => 'City Watch',
-      'parent_subject_id' => 'institution_government_fordwatch-crown',
+      'parent_subject_id' => 'institution_state_fordwatch-crown',
     ]);
 
     $this->assertSame(14, $result['id']);
-    $this->assertSame('institution_security_city-watch', $result['subject_id']);
-    $this->assertSame('security', $captured_fields['subject_domain']);
+    $this->assertSame('institution_state_city-watch', $result['subject_id']);
+    $this->assertSame('state', $captured_fields['subject_domain']);
     $this->assertSame('City Watch', $captured_fields['display_name']);
-    $this->assertSame('security:city-watch', $captured_fields['subject_key']);
+    $this->assertSame('state:city-watch', $captured_fields['subject_key']);
   }
 
   /**
@@ -150,7 +150,7 @@ class CampaignSubjectRegistryServiceTest extends UnitTestCase {
       'display_name' => 'City Watch',
     ]);
 
-    $this->assertSame('institution_security_city-watch', $result['subject_id']);
+    $this->assertSame('institution_state_city-watch', $result['subject_id']);
   }
 
   /**
@@ -167,7 +167,7 @@ class CampaignSubjectRegistryServiceTest extends UnitTestCase {
       ->willReturn($this->buildConditionCapturingSelectQueryMock($captured_conditions, [
         'id' => 19,
         'created' => 90,
-        'subject_id' => 'institution_allegiance_wharf-consortium',
+        'subject_id' => 'institution_organization_wharf-consortium',
       ]));
     $database->expects($this->once())
       ->method('update')
@@ -194,14 +194,14 @@ class CampaignSubjectRegistryServiceTest extends UnitTestCase {
     ]);
 
     $this->assertSame(19, $result['id']);
-    $this->assertSame('institution_allegiance_wharf-consortium', $result['subject_id']);
-    $this->assertSame('institution_allegiance_wharf-consortium', $captured_fields['subject_id']);
-    $this->assertSame('allegiance', $captured_fields['subject_domain']);
+    $this->assertSame('institution_organization_wharf-consortium', $result['subject_id']);
+    $this->assertSame('institution_organization_wharf-consortium', $captured_fields['subject_id']);
+    $this->assertSame('organization', $captured_fields['subject_domain']);
     $this->assertSame('library_faction', $captured_fields['source_asset_type']);
     $this->assertSame('wharf_consortium', $captured_fields['source_asset_id']);
     $this->assertSame(42, $captured_conditions['campaign_id'] ?? NULL);
     $this->assertSame('institution', $captured_conditions['subject_kind'] ?? NULL);
-    $this->assertSame('allegiance', $captured_conditions['subject_domain'] ?? NULL);
+    $this->assertSame('organization', $captured_conditions['subject_domain'] ?? NULL);
     $this->assertSame('the-wharf-consortium', $captured_conditions['normalized_label'] ?? NULL);
     $this->assertArrayNotHasKey('source_asset_type', $captured_conditions);
     $this->assertArrayNotHasKey('source_asset_id', $captured_conditions);
@@ -220,14 +220,14 @@ class CampaignSubjectRegistryServiceTest extends UnitTestCase {
       ->willReturn($this->buildSelectQueryMock([
         'id' => 21,
         'created' => 91,
-        'subject_id' => 'institution_allegiance_wharf-consortium',
+        'subject_id' => 'institution_organization_wharf-consortium',
         'source_asset_type' => 'library_faction',
         'source_asset_id' => 'wharf_consortium',
         'entity_ref' => 'entity_wharf_consortium',
         'status' => 'retired',
         'metadata_json' => json_encode([
           'legacy_note' => 'keep-me',
-          'domain' => 'allegiance',
+          'domain' => 'organization',
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
       ]));
     $database->expects($this->once())
@@ -253,7 +253,7 @@ class CampaignSubjectRegistryServiceTest extends UnitTestCase {
     ]);
 
     $this->assertSame(21, $result['id']);
-    $this->assertSame('institution_allegiance_wharf-consortium', $result['subject_id']);
+    $this->assertSame('institution_organization_wharf-consortium', $result['subject_id']);
     $this->assertSame('library_faction', $captured_fields['source_asset_type']);
     $this->assertSame('wharf_consortium', $captured_fields['source_asset_id']);
     $this->assertSame('entity_wharf_consortium', $captured_fields['entity_ref']);
@@ -272,8 +272,8 @@ class CampaignSubjectRegistryServiceTest extends UnitTestCase {
       ->with('dc_campaign_subject_registry', 'r')
       ->willReturn($this->buildSelectQueryMock([
         'id' => 22,
-        'subject_id' => 'institution_settlement_fordwatch',
-        'subject_domain' => 'settlement',
+        'subject_id' => 'institution_place_fordwatch',
+        'subject_domain' => 'place',
         'display_name' => 'Fordwatch',
       ]));
 
@@ -283,10 +283,10 @@ class CampaignSubjectRegistryServiceTest extends UnitTestCase {
       $this->createMock(RelationshipManagerService::class)
     );
 
-    $record = $service->loadInstitutionSubject(42, 'institution_settlement_fordwatch');
+    $record = $service->loadInstitutionSubject(42, 'institution_place_fordwatch');
 
-    $this->assertSame('institution_settlement_fordwatch', $record['subject_id']);
-    $this->assertSame('settlement', $record['subject_domain']);
+    $this->assertSame('institution_place_fordwatch', $record['subject_id']);
+    $this->assertSame('place', $record['subject_domain']);
     $this->assertSame('Fordwatch', $record['display_name']);
   }
 
