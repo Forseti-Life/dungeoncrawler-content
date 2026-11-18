@@ -2533,12 +2533,10 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
       ->fields('c', ['name', 'role', 'instance_id'])
       ->condition('campaign_id', $campaign_id)
       ->condition('type', 'npc');
-    $room_match = $query->orConditionGroup();
-    $room_match->condition('location_ref', $location_candidates, 'IN');
-    $room_match->condition('last_room_id', $location_candidates, 'IN');
-
+    // An NPC is where its location says it is; the room it was last seen in
+    // does not make it present.
     return $query
-      ->condition($room_match)
+      ->condition('location_ref', $location_candidates, 'IN')
       ->execute()
       ->fetchAll();
   }

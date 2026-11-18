@@ -2,6 +2,7 @@
 
 namespace Drupal\dungeoncrawler_content\Service;
 
+use Drupal\dungeoncrawler_content\Service\RoomChat\ConversationReach;
 use Drupal\dungeoncrawler_content\Service\RoomChat\NpcPromptAssembler;
 
 trait RoomChatServiceChannelAndSessionTrait {
@@ -486,6 +487,11 @@ trait RoomChatServiceChannelAndSessionTrait {
       return ['success' => FALSE, 'channel' => NULL, 'error' => 'Room not found'];
     }
 
+    $refusal = $this->conversationReachRefusal($campaign_id, $room_id, $dungeon_data, $opened_by, $channel_key, $target_entity_ref, $target_name);
+    if ($refusal !== NULL) {
+      return ['success' => FALSE, 'channel' => NULL, 'error' => $refusal];
+    }
+
     $result = $this->channelManager->openChannel(
       $dungeon_data,
       $room_index,
@@ -517,6 +523,100 @@ trait RoomChatServiceChannelAndSessionTrait {
     }
 
     return $result;
+  }
+
+  /**
+   * Applies the conversation reach rule to one private channel.
+   *
+   * Gathers the facts ConversationReach decides on: where the speaker and
+   * the target are, and which speech-carrying spells or effects the speaker
+   * has. An actor is in a room when the map places it there or its campaign
+   * row's location is that room.
+   *
+   * @return string|null
+   *   The refusal for the player, or NULL when the target is in reach.
+   */
+  protected function conversationReachRefusal(
+    int $campaign_id,
+    string $room_id,
+    array $dungeon_data,
+    string $speaker_character_id,
+    string $channel_key,
+    string $target_ref,
+    string $target_name,
+  ): ?string {
+    $channel = $this->channelManager->parseChannelKey($channel_key);
+    if (!in_array($channel['type'], ['whisper', 'spell', 'unknown'], TRUE)) {
+      // Party, GM-private and system channels are not conversations with
+      // one actor.
+      return NULL;
+    }
+    $room_refs = array_values(array_unique(array_filter([
+      $room_id,
+      $this->resolveRoomSlugForQuery($campaign_id, $room_id, $dungeon_data),
+    ], static fn($value): bool => is_string($value) && $value !== '')));
+    $site_refs = $room_refs;
+    foreach ($dungeon_data['rooms'] ?? [] as $room) {
+      foreach (['room_id', 'source_room_id'] as $key) {
+        if (is_string($room[$key] ?? NULL) && $room[$key] !== '') {
+          $site_refs[] = $room[$key];
+        }
+      }
+    }
+
+    $speaker = ctype_digit($speaker_character_id) ? $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c', ['id', 'character_id', 'instance_id', 'location_ref', 'state_data'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('type', 'npc', '<>')
+      ->condition($this->database->condition('OR')
+        ->condition('id', (int) $speaker_character_id)
+        ->condition('character_id', (int) $speaker_character_id))
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc() : FALSE;
+    $speaker_spells = [];
+    $speaker_effects = [];
+    if (is_array($speaker)) {
+      $state = json_decode((string) $speaker['state_data'], TRUE);
+      $speaker_spells = ConversationReach::spellsOnSheet(is_array($state) ? ($state['spells'] ?? NULL) : NULL);
+      $effects = \Drupal::service('dungeoncrawler_content.active_effect_store')
+        ->listActiveEffects((string) $speaker['character_id'], $campaign_id, (string) $speaker['instance_id']);
+      $speaker_effects = array_map(static fn(array $effect): string => ConversationReach::token($effect['source_id']), $effects);
+    }
+
+    $is_target = static fn(string ...$identities): bool => in_array($target_ref, $identities, TRUE)
+      || ($target_name !== '' && in_array(ConversationReach::token($target_name), array_map([ConversationReach::class, 'token'], $identities), TRUE));
+    $target_rooms = [];
+    foreach ($dungeon_data['entities'] ?? [] as $entity) {
+      if ($is_target(
+        (string) ($entity['entity_ref']['content_id'] ?? ''),
+        (string) ($entity['entity_instance_id'] ?? ''),
+        (string) ($entity['state']['metadata']['display_name'] ?? $entity['name'] ?? ''),
+      )) {
+        $target_rooms[] = (string) ($entity['placement']['room_id'] ?? '');
+      }
+    }
+    $rows = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c', ['id', 'name', 'instance_id', 'location_ref'])
+      ->condition('campaign_id', $campaign_id)
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+    $target_found = $target_rooms !== [];
+    foreach ($rows as $row) {
+      if ($is_target((string) $row['instance_id'], (string) $row['id'], (string) $row['name'])) {
+        $target_found = TRUE;
+        $target_rooms[] = (string) $row['location_ref'];
+      }
+    }
+
+    return ConversationReach::refusal($channel, $target_name !== '' ? $target_name : $target_ref, [
+      'speaker_in_room' => is_array($speaker) && in_array((string) $speaker['location_ref'], $room_refs, TRUE),
+      'target_in_room' => array_intersect($target_rooms, $room_refs) !== [],
+      'target_in_site' => array_intersect($target_rooms, $site_refs) !== [],
+      'target_in_campaign' => $target_found,
+      'speaker_spells' => $speaker_spells,
+      'speaker_effects' => $speaker_effects,
+    ]);
   }
 
   /**

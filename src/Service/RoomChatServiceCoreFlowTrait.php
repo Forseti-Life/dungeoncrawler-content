@@ -584,6 +584,19 @@ trait RoomChatServiceCoreFlowTrait {
         if (!$access['valid']) {
           throw new \InvalidArgumentException($access['error']);
         }
+        // The target may have left since the channel was opened.
+        $refusal = $this->conversationReachRefusal(
+          $campaign_id,
+          $room_id,
+          $dungeon_data,
+          (string) $character_id,
+          $channel,
+          (string) ($channels[$channel]['target_entity'] ?? ''),
+          (string) ($channels[$channel]['target_name'] ?? ''),
+        );
+        if ($refusal !== NULL) {
+          throw new \InvalidArgumentException($refusal, 409);
+        }
       }
     }
     $this->recordDebugStage('validate_channel_access', $stage_started_at, [

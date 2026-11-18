@@ -63,48 +63,6 @@ final class RoomNpcProfileGatherer {
       // Non-critical; continue with entities already found.
     }
 
-    if (empty($result)) {
-      $room_meta = NULL;
-      foreach ($dungeon_data['rooms'] ?? [] as $r) {
-        if (($r['room_id'] ?? '') === $room_id) {
-          $room_meta = $r;
-          break;
-        }
-      }
-
-      if ($room_meta !== NULL) {
-        $haystack = strtolower(($room_meta['name'] ?? '') . ' ' . ($room_meta['description'] ?? ''));
-        foreach ($dungeon_data['entities'] ?? [] as $entity) {
-          if (($entity['entity_type'] ?? '') !== 'npc') {
-            continue;
-          }
-          $ref = $entity['entity_ref']['content_id'] ?? '';
-          if (!$ref || isset($seen_refs[$ref])) {
-            continue;
-          }
-          $display_name = $entity['state']['metadata']['display_name'] ?? $entity['name'] ?? '';
-          if ($display_name === '') {
-            continue;
-          }
-          $keyword = strtolower(strtok($display_name, ' '));
-          if ($keyword !== '' && str_contains($haystack, $keyword)) {
-            $profile = $load_profile($ref);
-            if ($profile) {
-              $register_npc($result, $seen_refs, $seen_names, $ref, $entity, $profile);
-              $log_info(
-                'NPC @name found via room description in room @room (placement mismatch — entity in @src_room)',
-                [
-                  '@name' => $display_name,
-                  '@room' => $room_id,
-                  '@src_room' => $entity['placement']['room_id'] ?? 'unknown',
-                ]
-              );
-            }
-          }
-        }
-      }
-    }
-
     return $result;
   }
 

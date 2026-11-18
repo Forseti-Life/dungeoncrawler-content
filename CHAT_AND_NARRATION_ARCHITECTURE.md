@@ -338,6 +338,22 @@ Room chat API responses also expose `turn_log_key`, which matches `dc_room_turn_
 
 **Max 4 non-room channels** can be active simultaneously.
 
+### Conversation reach (enforced)
+
+`RoomChat\ConversationReach` is the one rule, applied when a private
+channel is opened and again on every message posted to it:
+
+- A whisper needs the speaker and the target in the same room.
+- Anyone elsewhere needs a spell channel, and the speaker must have that
+  spell on the sheet or as an active effect.
+- `adjacent`/`room` ranges stay in the room; a range in feet reaches the
+  rooms of the speaker's site (feet are not measured between rooms);
+  `unlimited` reaches any actor in the campaign.
+- An actor is in a room when the map places it there or its campaign row's
+  `location_ref` is that room. `last_room_id` does not make it present.
+- Room dialogue offers only the NPCs in the room; an NPC named in a room's
+  description but standing elsewhere does not answer.
+
 ### PF2e Spell-to-Channel Mapping
 
 Certain spells create communication channels:
