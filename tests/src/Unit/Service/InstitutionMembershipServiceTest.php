@@ -96,6 +96,130 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::seedAuthoredInstitutionSentiment
+   */
+  public function testSeedAuthoredInstitutionSentimentWritesSeededEdgeOverActorCreationDefault(): void {
+    $database = $this->createMock(Connection::class);
+    $database->method('select')
+      ->willReturnCallback($this->buildSelectCallback(
+        relationshipRows: [[
+          'id' => 93,
+          'relationship_id' => 'campaign_npc--campaign_42_npc_outcast--institution_sentiment--institution--institution_family_blackroot-clan',
+          'target_id' => 'institution_family_blackroot-clan',
+          'relationship_state' => json_encode([
+            'edge_kind' => 'institution_sentiment',
+            'sentiment_domain' => 'political',
+            'knowledge_state' => 'unknown',
+            'score' => 0,
+            'seed_source' => 'actor_creation',
+            'seed_profile_key' => 'unknown-neutral-default',
+            'mutation_state' => 'seeded',
+            'mutation_count' => 0,
+          ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        ]]
+      ));
+
+    $registry = $this->createMock(CampaignSubjectRegistryService::class);
+    $registry->method('isSubjectRegistryReady')->willReturn(TRUE);
+    $registry->method('loadInstitutionSubject')
+      ->with(42, 'institution_family_blackroot-clan')
+      ->willReturn([
+        'subject_id' => 'institution_family_blackroot-clan',
+        'subject_domain' => 'family',
+        'display_name' => 'Blackroot Clan',
+      ]);
+
+    $captured_relationship = NULL;
+    $relationships = $this->createMock(RelationshipManagerService::class);
+    $relationships->method('isRelationshipStorageReady')->willReturn(TRUE);
+    $relationships->expects($this->once())
+      ->method('upsertRuntimeRelationship')
+      ->willReturnCallback(static function (int $campaign_id, array $relationship) use (&$captured_relationship): int {
+        $captured_relationship = $relationship;
+        return 7;
+      });
+
+    $service = new InstitutionMembershipService($database, $registry, new InstitutionNormalizationService(), $relationships);
+    $result = $service->seedAuthoredInstitutionSentiment(
+      42,
+      'campaign_npc',
+      'campaign_42_npc_outcast',
+      'institution_family_blackroot-clan',
+      -50,
+      'storyline_authored',
+      'storyline-authored-exile',
+      'Cast out.'
+    );
+
+    $this->assertSame(7, $result);
+    $this->assertSame('institution_sentiment', $captured_relationship['relationship_type'] ?? '');
+    $this->assertSame('unfriendly', $captured_relationship['attitude'] ?? '');
+    $this->assertSame('known', $captured_relationship['status'] ?? '');
+    $this->assertSame([
+      'edge_kind' => 'institution_sentiment',
+      'sentiment_domain' => 'political',
+      'knowledge_state' => 'known',
+      'score' => -50,
+      'seed_source' => 'storyline_authored',
+      'seed_profile_key' => 'storyline-authored-exile',
+      'seed_reason' => 'Cast out.',
+      'mutation_state' => 'seeded',
+      'mutation_count' => 0,
+      'target_display_name' => 'Blackroot Clan',
+    ], $captured_relationship['relationship_state'] ?? []);
+  }
+
+  /**
+   * @covers ::seedAuthoredInstitutionSentiment
+   */
+  public function testSeedAuthoredInstitutionSentimentLeavesMutatedEdgeUntouched(): void {
+    $database = $this->createMock(Connection::class);
+    $database->method('select')
+      ->willReturnCallback($this->buildSelectCallback(
+        relationshipRows: [[
+          'id' => 94,
+          'relationship_id' => 'campaign_npc--campaign_42_npc_outcast--institution_sentiment--institution--institution_family_blackroot-clan',
+          'target_id' => 'institution_family_blackroot-clan',
+          'relationship_state' => json_encode([
+            'edge_kind' => 'institution_sentiment',
+            'sentiment_domain' => 'political',
+            'knowledge_state' => 'known',
+            'score' => 60,
+            'seed_source' => 'storyline_authored',
+            'seed_profile_key' => 'storyline-authored-exile',
+            'mutation_state' => 'mutated',
+            'mutation_count' => 1,
+            'touched_at' => 1700000000,
+          ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        ]]
+      ));
+
+    $registry = $this->createMock(CampaignSubjectRegistryService::class);
+    $registry->method('isSubjectRegistryReady')->willReturn(TRUE);
+    $registry->method('loadInstitutionSubject')->willReturn([
+      'subject_id' => 'institution_family_blackroot-clan',
+      'subject_domain' => 'family',
+      'display_name' => 'Blackroot Clan',
+    ]);
+    $relationships = $this->createMock(RelationshipManagerService::class);
+    $relationships->method('isRelationshipStorageReady')->willReturn(TRUE);
+    $relationships->expects($this->never())->method('upsertRuntimeRelationship');
+
+    $service = new InstitutionMembershipService($database, $registry, new InstitutionNormalizationService(), $relationships);
+
+    $this->assertSame(0, $service->seedAuthoredInstitutionSentiment(
+      42,
+      'campaign_npc',
+      'campaign_42_npc_outcast',
+      'institution_family_blackroot-clan',
+      -50,
+      'storyline_authored',
+      'storyline-authored-exile',
+      'Cast out.'
+    ));
+  }
+
+  /**
    * @covers ::mutateInstitutionMembership
    */
   public function testMutateInstitutionMembershipAbandonsMutableEdge(): void {

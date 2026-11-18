@@ -22,6 +22,13 @@ class InstitutionDispositionScoreAssemblerService {
     'ancestry' => 0.50,
     'class' => 0.50,
   ];
+  /**
+   * Matrix weight of a membership outside ancestry/class (clan, faction, ...).
+   *
+   * Such a membership only pairs through an explicit edge, which is a more
+   * specific signal than the ancestry/class defaults.
+   */
+  protected const EXPLICIT_AFFILIATION_MEMBERSHIP_WEIGHT = 1.00;
   protected const UNDEAD_INSTITUTION_SUBJECT_ID = 'institution_ancestry_undead';
 
   public function __construct(
@@ -220,7 +227,7 @@ class InstitutionDispositionScoreAssemblerService {
       }
       $source_subject_id = trim((string) ($source_membership['target_id'] ?? ''));
       $source_domain = trim((string) ($source_membership['sentiment_domain'] ?? ''));
-      if ($source_subject_id === '' || !$this->isMatrixDomain($source_domain)) {
+      if ($source_subject_id === '') {
         continue;
       }
 
@@ -230,14 +237,18 @@ class InstitutionDispositionScoreAssemblerService {
         }
         $target_subject_id = trim((string) ($target_membership['target_id'] ?? ''));
         $target_domain = trim((string) ($target_membership['sentiment_domain'] ?? ''));
-        if ($target_subject_id === '' || !$this->isMatrixDomain($target_domain)) {
-          continue;
-        }
-        if ($source_subject_id === $target_subject_id) {
+        if ($target_subject_id === '' || $source_subject_id === $target_subject_id) {
           continue;
         }
 
         $edge = $this->loadMatrixEdgeCached($campaign_id, $source_subject_id, $target_subject_id);
+        // Only ancestry/class pairs have a seeded default matrix, so only
+        // they count when no edge exists. Any other pair (clan, faction,
+        // watch, ...) takes part only through an explicit edge; without one
+        // it stays out of the average instead of diluting it.
+        if ($edge === NULL && !($this->isMatrixDomain($source_domain) && $this->isMatrixDomain($target_domain))) {
+          continue;
+        }
         $state = is_array($edge['relationship_state'] ?? NULL) ? $edge['relationship_state'] : [];
         $raw_score = $edge !== NULL ? (int) ($state['score'] ?? 0) : 0;
         // NOTE: Membership weights are currently policy constants in code.
@@ -289,7 +300,7 @@ class InstitutionDispositionScoreAssemblerService {
   }
 
   /**
-   * Returns whether a sentiment domain participates in matrix pairing.
+   * Returns whether a sentiment domain has a seeded default matrix.
    */
   protected function isMatrixDomain(string $sentiment_domain): bool {
     return in_array($sentiment_domain, ['ancestry', 'class'], TRUE);
@@ -299,6 +310,9 @@ class InstitutionDispositionScoreAssemblerService {
    * Resolve matrix membership weight with undead ancestry override.
    */
   protected function resolveMembershipWeight(string $domain, string $subject_id): float {
+    if (!$this->isMatrixDomain($domain)) {
+      return self::EXPLICIT_AFFILIATION_MEMBERSHIP_WEIGHT;
+    }
     $membership_weights = $this->resolveMembershipWeights();
     $base_weight = (float) ($membership_weights[$domain] ?? 0.15);
     if ($domain === 'ancestry' && trim($subject_id) === self::UNDEAD_INSTITUTION_SUBJECT_ID) {

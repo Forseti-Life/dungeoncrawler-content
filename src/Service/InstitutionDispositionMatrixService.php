@@ -226,6 +226,52 @@ class InstitutionDispositionMatrixService {
   }
 
   /**
+   * Seed one authored (non-default) matrix edge without overriding mutations.
+   *
+   * The edge stays `seeded`/`defaulted`, so re-seeding normalizes it, but an
+   * edge play has mutated is left as it is.
+   *
+   * @return int
+   *   1 when the edge was created, 0 when it was updated or left untouched.
+   */
+  public function seedAuthoredInstitutionDispositionEdge(
+    int $campaign_id,
+    string $source_subject_id,
+    string $target_subject_id,
+    int $score,
+    string $seed_source,
+    string $seed_profile_key,
+    string $rationale
+  ): int {
+    if ($campaign_id <= 0) {
+      throw new \InvalidArgumentException('Campaign id must be greater than zero.');
+    }
+    if (trim($source_subject_id) === '' || trim($target_subject_id) === '' || trim($source_subject_id) === trim($target_subject_id)) {
+      throw new \InvalidArgumentException('An authored institution disposition edge requires two different institution subject ids.');
+    }
+    if (trim($seed_source) === '' || trim($seed_source) === self::DEFAULT_SEED_SOURCE || trim($seed_profile_key) === '') {
+      throw new \InvalidArgumentException('An authored institution disposition edge requires its own seed source and seed profile key.');
+    }
+    if (!$this->relationshipManager->isRelationshipStorageReady()) {
+      throw new \RuntimeException('Campaign relationship storage is not installed.');
+    }
+
+    $existing = $this->loadInstitutionDispositionEdge($campaign_id, $source_subject_id, $target_subject_id);
+    $state = is_array($existing['relationship_state'] ?? NULL) ? $existing['relationship_state'] : [];
+    if (($state['mutation_state'] ?? 'seeded') === 'mutated' || ($state['matrix_state'] ?? 'defaulted') === 'mutated') {
+      return 0;
+    }
+
+    return $this->upsertInstitutionDispositionEdge($campaign_id, $source_subject_id, $target_subject_id, $score, [
+      'mutated' => FALSE,
+      'seed_source' => $seed_source,
+      'seed_profile_key' => $seed_profile_key,
+      'knowledge_state' => self::DEFAULT_KNOWLEDGE_STATE,
+      'rationale' => $rationale,
+    ]);
+  }
+
+  /**
    * Load all existing institution disposition edges for a campaign in one query.
    *
    * @return array<string,array<string,mixed>>

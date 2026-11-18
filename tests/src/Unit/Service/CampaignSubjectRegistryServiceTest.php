@@ -124,6 +124,30 @@ class CampaignSubjectRegistryServiceTest extends UnitTestCase {
   /**
    * @covers ::resolveOrCreateInstitutionSubject
    */
+  public function testResolveOrCreateInstitutionSubjectKeepsHierarchyWhenInputStatesNoParent(): void {
+    $captured_fields = [];
+    $database = $this->createMock(Connection::class);
+    $database->method('schema')->willReturn($this->buildSchemaMock(TRUE));
+    $database->method('select')->willReturn($this->buildSelectQueryMock(['id' => 14, 'created' => 100]));
+    $database->method('update')->willReturn($this->buildUpdateQueryMock($captured_fields));
+    $database->expects($this->never())->method('delete');
+
+    $relationships = $this->createMock(RelationshipManagerService::class);
+    $relationships->method('isRelationshipStorageReady')->willReturn(TRUE);
+    $relationships->expects($this->never())->method('upsertRuntimeRelationship');
+
+    $service = new CampaignSubjectRegistryService($database, new InstitutionNormalizationService(), $relationships);
+    $result = $service->resolveOrCreateInstitutionSubject(42, [
+      'domain' => 'watch',
+      'display_name' => 'City Watch',
+    ]);
+
+    $this->assertSame('institution_security_city-watch', $result['subject_id']);
+  }
+
+  /**
+   * @covers ::resolveOrCreateInstitutionSubject
+   */
   public function testResolveOrCreateInstitutionSubjectMatchesCanonicalRowEvenWhenProvenanceIsProvided(): void {
     $captured_fields = [];
     $captured_conditions = [];

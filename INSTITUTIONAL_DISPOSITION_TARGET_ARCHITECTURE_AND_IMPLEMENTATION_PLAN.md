@@ -869,6 +869,41 @@ Defaults:
 - if there is **no actor->institution sentiment record**, sentiment defaults to neutral
 - if there is **no institution->institution matrix record**, matrix contribution defaults to neutral
 
+### Storyline-authored institutions (seed source)
+
+A storyline's authored institutions (`metadata.storyline_builder.institutions`
+plus each contact's `relationship_state.authored_affiliations`) are a **seed
+source**, not a new authority. When a storyline is attached to a campaign,
+`StorylineCampaignAttachmentService` calls
+`StorylineInstitutionRealizationService::realizeStorylineInstitutions()`, which
+writes nothing itself and hands each authored fact to its owner:
+
+| Authored fact | Written as | Authority |
+| --- | --- | --- |
+| Institution a contact is tied to (any standing) | institution subject with `source_storyline_id`, description, purpose, `seat_id`, leader (`entity_id`, `runtime_entity_id`) in metadata; `institution_parent` from `parent_institution_id` | `CampaignSubjectRegistryService::resolveOrCreateInstitutionSubject` |
+| Standing `member` / `leader` | `institution_member` | `InstitutionMembershipService::syncStorylineContactMemberships` |
+| Stance toward another institution | `institution_disposition`, score from `DispositionAuthorityContract::attitudeToScore`, `seed_source = storyline_authored`, `seed_profile_key = storyline-authored-stance`, reason as `rationale` | `InstitutionDispositionMatrixService::seedAuthoredInstitutionDispositionEdge` (wraps `upsertInstitutionDispositionEdge`) |
+| Standing `ally` / `exile` (tie without membership) | actor-held `institution_sentiment`, `friendly` (+50) / `unfriendly` (-50), `seed_source = storyline_authored`, `seed_profile_key = storyline-authored-ally` / `-exile` | `InstitutionMembershipService::seedAuthoredInstitutionSentiment` |
+
+Rules:
+
+- An institution no contact is tied to is not realized, and neither are
+  stances or parent links from or toward it.
+- **Idempotence:** authored edges are written `mutation_state = seeded`
+  (`matrix_state = defaulted` for stances). Realizing the same storyline again
+  normalizes seeded rows in place; a stance or sentiment that play has mutated
+  (`mutation_state = mutated`) is never overwritten. Actor-creation sentiment
+  reconciliation leaves `storyline_authored` sentiments alone.
+- A membership sync that resolves an existing subject does not touch its
+  `institution_parent`; only an input that states `parent_subject_id` does.
+- No neutral defaults are seeded for the deferred matrix domains. On the read
+  side the assembler pairs memberships outside ancestry/class **only when an
+  explicit edge exists** (membership weight `1.00`); a missing edge stays
+  neutral and stays out of the weighted average.
+- `family` and `settlement` institutions accept actor-held sentiment (sentiment
+  domain `political`), so an exile from a clan can be expressed and later
+  mutated in play.
+
 ---
 
 ## Migration and Backfill Rules

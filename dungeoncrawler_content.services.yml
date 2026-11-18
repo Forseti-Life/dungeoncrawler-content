@@ -189,6 +189,14 @@ services:
       - '@database'
       - '@dungeoncrawler_content.relationship_manager'
 
+  dungeoncrawler_content.storyline_institution_realization:
+    class: Drupal\dungeoncrawler_content\Service\StorylineInstitutionRealizationService
+    arguments:
+      - '@dungeoncrawler_content.campaign_subject_registry'
+      - '@dungeoncrawler_content.institution_normalization'
+      - '@dungeoncrawler_content.institution_membership'
+      - '@dungeoncrawler_content.institution_disposition_matrix'
+
   dungeoncrawler_content.quest_institution_disposition_mutation:
     class: Drupal\dungeoncrawler_content\Service\QuestInstitutionDispositionMutationService
     arguments:
@@ -1455,7 +1463,7 @@ services:
       - '@dungeoncrawler_content.campaign_initialization'
       - '@dungeoncrawler_content.relationship_manager'
       - '@dungeoncrawler_content.exit_connector_authority'
-      - '@dungeoncrawler_content.institution_membership'
+      - '@dungeoncrawler_content.storyline_institution_realization'
 
   dungeoncrawler_content.storyline_generation_service:
     class: Drupal\dungeoncrawler_content\Service\StorylineGenerationService

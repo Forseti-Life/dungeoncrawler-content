@@ -102,7 +102,11 @@ class CampaignSubjectRegistryService {
         ->execute();
     }
 
-    $this->syncInstitutionParentRelationship($campaign_id, (string) $fields['subject_id'], $normalized['parent_subject_id']);
+    // Only an input that states the parent (an empty one clears it) owns the
+    // hierarchy; a membership sync resolving the subject must not erase it.
+    if (array_key_exists('parent_subject_id', $input)) {
+      $this->syncInstitutionParentRelationship($campaign_id, (string) $fields['subject_id'], $normalized['parent_subject_id']);
+    }
 
     return $fields + [
       'parent_subject_id' => $normalized['parent_subject_id'],

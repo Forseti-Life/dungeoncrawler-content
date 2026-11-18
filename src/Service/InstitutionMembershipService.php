@@ -53,6 +53,8 @@ class InstitutionMembershipService {
   protected const POLITICAL_SENTIMENT_INSTITUTION_DOMAINS = [
     'allegiance',
     'government',
+    'settlement',
+    'family',
     'security',
     'religion',
     'employer',
@@ -92,6 +94,15 @@ class InstitutionMembershipService {
       $npc_entity_ref,
       $this->buildNpcInstitutionInputs($npc_data, 'npc_creation')
     );
+  }
+
+  /**
+   * The character fields that hold structured affiliations, by field.
+   *
+   * @return array<string, array{domain: string, multiple: bool}>
+   */
+  public static function structuredAffiliationFields(): array {
+    return self::STRUCTURED_AFFILIATION_REF_FIELDS;
   }
 
   /**
@@ -397,6 +408,84 @@ class InstitutionMembershipService {
         'touched_at' => time(),
         'last_mutation_source' => $mutation_source,
         'last_mutation_reason' => $mutation_reason,
+      ],
+    ]);
+  }
+
+  /**
+   * Seeds one authored actor-held institution sentiment.
+   *
+   * The edge stays `seeded` under its own seed source, so re-seeding
+   * normalizes it and actor-creation reconciliation leaves it alone. A
+   * sentiment play has mutated is left as it is. No membership is written.
+   *
+   * @return int
+   *   1 when the edge was created, 0 when it was updated or left untouched.
+   */
+  public function seedAuthoredInstitutionSentiment(
+    int $campaign_id,
+    string $source_type,
+    string $source_id,
+    string $target_subject_id,
+    int $score,
+    string $seed_source,
+    string $seed_profile_key,
+    string $reason
+  ): int {
+    if ($campaign_id <= 0) {
+      throw new \InvalidArgumentException('Campaign id must be greater than zero.');
+    }
+    $source_type = trim($source_type);
+    $source_id = trim($source_id);
+    $target_subject_id = trim($target_subject_id);
+    $seed_source = trim($seed_source);
+    $seed_profile_key = trim($seed_profile_key);
+    if ($source_type === '' || $source_id === '' || $target_subject_id === '') {
+      throw new \InvalidArgumentException('Actor source type, source id, and institution target id are required.');
+    }
+    if ($seed_source === '' || $seed_source === 'actor_creation' || $seed_profile_key === '') {
+      throw new \InvalidArgumentException('An authored institution sentiment requires its own seed source and seed profile key.');
+    }
+    if (!$this->campaignSubjectRegistry->isSubjectRegistryReady()) {
+      throw new \RuntimeException('Campaign subject registry storage is not installed.');
+    }
+    if (!$this->relationshipManager->isRelationshipStorageReady()) {
+      throw new \RuntimeException('Campaign relationship storage is not installed.');
+    }
+
+    $target_subject = $this->campaignSubjectRegistry->loadInstitutionSubject($campaign_id, $target_subject_id);
+    $sentiment_domain = $this->resolveSentimentDomain(trim((string) ($target_subject['subject_domain'] ?? '')));
+    if ($sentiment_domain === '') {
+      throw new \InvalidArgumentException(sprintf('Institution subject "%s" does not support actor-held sentiment.', $target_subject_id));
+    }
+
+    $relationship_id = $this->composeRelationshipId($source_type, $source_id, 'institution_sentiment', 'institution', $target_subject_id);
+    $existing_edge = $this->loadExistingInstitutionSentimentEdges($campaign_id, $source_type, $source_id)[$relationship_id] ?? NULL;
+    $existing_state = is_array($existing_edge['relationship_state_decoded'] ?? NULL) ? $existing_edge['relationship_state_decoded'] : [];
+    if (($existing_state['mutation_state'] ?? 'seeded') === 'mutated' || !empty($existing_state['touched_at'])) {
+      return 0;
+    }
+
+    return $this->relationshipManager->upsertRuntimeRelationship($campaign_id, [
+      'relationship_id' => $relationship_id,
+      'source_type' => $source_type,
+      'source_id' => $source_id,
+      'target_type' => 'institution',
+      'target_id' => $target_subject_id,
+      'relationship_type' => 'institution_sentiment',
+      'attitude' => $this->scoreToAttitude($score),
+      'status' => 'known',
+      'relationship_state' => [
+        'edge_kind' => 'institution_sentiment',
+        'sentiment_domain' => $sentiment_domain,
+        'knowledge_state' => 'known',
+        'score' => $score,
+        'seed_source' => $seed_source,
+        'seed_profile_key' => $seed_profile_key,
+        'seed_reason' => trim($reason),
+        'mutation_state' => 'seeded',
+        'mutation_count' => 0,
+        'target_display_name' => trim((string) ($target_subject['display_name'] ?? '')),
       ],
     ]);
   }
