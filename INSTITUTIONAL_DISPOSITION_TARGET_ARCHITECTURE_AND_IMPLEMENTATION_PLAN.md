@@ -904,6 +904,58 @@ Rules:
   domain `political`), so an exile from a clan can be expressed and later
   mutated in play.
 
+### Canonical institution library
+
+`InstitutionLibraryService` owns the campaign-independent record of every
+institution: rows of `dc_library_institution_manifest` with `row_type =
+institution`, keyed by slug (the normalized name). It is the one place an
+institution is registered and the one place one is looked up.
+
+- **Writers:** storyline authoring (every draft save registers the draft's
+  institutions), runtime faction generation
+  (`FactionGenerationService`), and the five alignment institutions
+  (`registerAlignmentInstitutions`, update 10230).
+- **Readers:** the Storyline GM's `find_existing_institutions` tool, and
+  storyline realization, which refuses an institution with no library record.
+- A campaign subject created from a record carries `source_asset_type =
+  library_faction` and the record's slug.
+- A record belongs to the storyline that first defined it; that storyline's
+  saves update it. Renaming or removing the institution there, or deleting
+  the draft, removes the record unless another storyline names it.
+- One name is one institution: the same name in a second domain is refused
+  (`institution_library_name_taken`).
+
+### Alignment institutions
+
+Lawful, Chaotic, Good, Evil and Neutral are institutions of the derived
+domain `alignment`. Membership follows from the actor's sheet, as ancestry
+and class do: `LG` is a member of Lawful and of Good, `N` of Neutral, and a
+sheet with no alignment is Neutral
+(`InstitutionNormalizationService::alignmentInstitutionNames`). A value that
+is not one of the nine alignments is rejected.
+
+- Matrix defaults (`seedNeutralDefaultsForCampaign`): Good and Evil regard
+  each other as hostile (-100), Lawful and Chaotic as unfriendly (-50), in
+  both directions. No other alignment pair has an edge.
+- Membership weight `0.50`, the same as ancestry and class
+  (`institution_disposition.membership_weight_alignment`).
+- No actor-held sentiment is seeded toward alignment institutions.
+- Measured: Lawful Good toward Chaotic Evil scores about -30 (-6 after the
+  resolver's 0.20 share); toward Lawful Evil about -22.
+
+### Actor-held sentiment weight and returned regard
+
+`institution_disposition.actor_component_weight` is `0.50` (it was `0`, which
+left authored exile and ally ties without effect). The actor component now
+has two halves, added together:
+
+- what the source feels about the target's institutions, and
+- what the target feels about the source's institutions (returned regard).
+
+So an exile's -50 toward a clan lowers the exile's view of its members and
+the members' view of the exile by the same slight amount (about -14, -3
+after the resolver's share); an ally's +50 raises both.
+
 ---
 
 ## Migration and Backfill Rules

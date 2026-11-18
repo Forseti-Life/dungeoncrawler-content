@@ -257,7 +257,7 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
           branch_storyline_effect_entries: ['choice_id', 'target_type', 'target_id', 'source_actor_id', 'operation', 'effect', 'follow_up_required', 'state_changes'],
           objective_entries: ['objective_id', 'task_id', 'type', 'next_step', 'target', 'requires_check', 'item', 'location', 'destination', 'kind', 'metric', 'description', 'required'],
           institution_entries: ['domain', 'name', 'description', 'purpose', 'seat_id', 'leader_actor_id', 'parent_institution_id'],
-          actor_entries: ['contact_id', 'actor_id', 'role', 'display_name', 'motivation', 'dialogue', 'knowledge', 'attitude', 'availability', 'chapter_id', 'scene_id', 'location_id'],
+          actor_entries: ['contact_id', 'actor_id', 'role', 'display_name', 'motivation', 'dialogue', 'knowledge', 'attitude', 'alignment', 'availability', 'chapter_id', 'scene_id', 'location_id'],
           dungeon_entries: ['dungeon_id', 'chapter_id', 'purpose', 'entrance_room'],
           room_entries: ['dungeon_id', 'chapter_id', 'scene_id', 'room_id', 'narrative'],
           item_entries: ['item_id', 'purpose', 'acquisition', 'chapter_id', 'scene_id', 'quest_id', 'actor_id', 'prerequisite_ids', 'reward'],
@@ -932,6 +932,11 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
                 generation_specs: actors.map((actor, index) => {
                   const { affiliations: saved, ...source } = rowSource.get(actorEntries[index].row);
                   const affiliations = affiliationsFromRow(actorEntries[index].row);
+                  // No alignment chosen is no alignment field.
+                  if (!actor.alignment) {
+                    delete actor.alignment;
+                    delete source.alignment;
+                  }
                   return affiliations.length > 0 || saved !== undefined
                     ? { ...source, ...actor, affiliations }
                     : { ...source, ...actor };

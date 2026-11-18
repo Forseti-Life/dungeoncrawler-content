@@ -884,9 +884,16 @@ question is refused (`editor_gm_intent_parallel_call_not_a_tool`).
   domain and name (`institution_family_blackroot-clan`). The same domain
   and name is the same institution in every storyline and campaign, so
   give story-specific groups story-specific names.
-- `find_existing_institutions` lists the institutions other storylines,
-  campaigns and library characters already name. To reuse one, define it
-  with the same domain and name.
+- Every institution a draft defines is registered in the canonical
+  institution library (`InstitutionLibraryService`) when the draft is saved.
+  `find_existing_institutions` searches that library. To reuse one, define
+  it with the same domain and name. One name is one institution: the same
+  name under a second domain is refused.
+- Each cast member has an `alignment` (LG to CE). It is carried onto the
+  character sheet and makes the actor a member of the alignment
+  institutions (Lawful or Chaotic, Good or Evil, Neutral), which are never
+  added to a storyline. A cast member without one counts as Neutral and is
+  listed in a warning.
 - When a storyline is attached to a campaign,
   `StorylineInstitutionRealizationService` creates the institutions that
   have a tied cast member, their hierarchy, members' memberships, stances

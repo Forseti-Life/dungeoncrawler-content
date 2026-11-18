@@ -196,6 +196,7 @@ services:
       - '@dungeoncrawler_content.institution_normalization'
       - '@dungeoncrawler_content.institution_membership'
       - '@dungeoncrawler_content.institution_disposition_matrix'
+      - '@dungeoncrawler_content.institution_library'
 
   dungeoncrawler_content.quest_institution_disposition_mutation:
     class: Drupal\dungeoncrawler_content\Service\QuestInstitutionDispositionMutationService
@@ -1496,6 +1497,12 @@ services:
       - '@dungeoncrawler_content.canonical_quest_template'
       - '@dungeoncrawler_content.objective_type'
       - '@dungeoncrawler_content.canonical_definitions'
+      - '@dungeoncrawler_content.institution_library'
+
+  dungeoncrawler_content.institution_library:
+    class: Drupal\dungeoncrawler_content\Service\InstitutionLibraryService
+    arguments:
+      - '@database'
 
   dungeoncrawler_content.gameplay_action_processor:
     class: Drupal\dungeoncrawler_content\Service\GameplayActionProcessor

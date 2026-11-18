@@ -7,26 +7,25 @@ namespace Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolContext;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolDefinition;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolInterface;
-use Drupal\dungeoncrawler_content\Service\EditorGm\StorylineBuilderGmToolContext;
-use Drupal\dungeoncrawler_content\Service\StorylineInstitutionCatalog;
+use Drupal\dungeoncrawler_content\Service\InstitutionLibraryService;
 
 /** Finds institutions that already exist so a story reuses them. */
 final class FindExistingInstitutionsTool implements EditorGmToolInterface {
 
   public function __construct(
-    private readonly StorylineInstitutionCatalog $catalog,
+    private readonly InstitutionLibraryService $library,
   ) {}
 
   public function definition(): EditorGmToolDefinition {
     return new EditorGmToolDefinition(
       'find_existing_institutions',
       EditorGmToolDefinition::FAMILY_CONTEXT,
-      'Search the institutions that already exist in other storylines, in campaigns and on library characters: clans, families, settlements, factions, guards, guilds, religions and the like. Use it before defining an institution; to reuse one, define it in this storyline with exactly the same domain and name.',
+      'Search the canonical institution library: every clan, family, settlement, faction, guard, guild, religion and the like that any storyline or the game has defined, and the five alignment institutions. Use it before defining an institution; to reuse one, define it in this storyline with the same domain and name, which gives it the same institution_id. An institution whose membership "follows the actor\'s alignment" (Lawful, Chaotic, Good, Evil, Neutral) is never added to a storyline: set the actor\'s alignment instead.',
       FALSE,
-      'StorylineInstitutionCatalog::find()',
+      'InstitutionLibraryService::find()',
       [
         EditorGmToolDefinition::argument('search', 'string', FALSE, 'Words that must all appear in the name, kind or description. Omit to list.'),
-        EditorGmToolDefinition::argument('domain', 'string', FALSE, 'One domain: family, government, allegiance, settlement, religion, employer, education, noble, security, criminal or culture.'),
+        EditorGmToolDefinition::argument('domain', 'string', FALSE, 'One domain: family, government, allegiance, settlement, religion, employer, education, noble, security, criminal, culture, or alignment.'),
         EditorGmToolDefinition::argument('limit', 'integer', FALSE, 'Maximum institutions returned, 1-50. Default 25.'),
       ],
     );
@@ -38,10 +37,9 @@ final class FindExistingInstitutionsTool implements EditorGmToolInterface {
         throw new \InvalidArgumentException('argument_invalid:' . $name);
       }
     }
-    return $this->catalog->find(
+    return $this->library->find(
       $arguments['search'] ?? '',
       $arguments['domain'] ?? '',
-      StorylineBuilderGmToolContext::of($context)->draftId,
       $arguments['limit'] ?? 25,
     );
   }

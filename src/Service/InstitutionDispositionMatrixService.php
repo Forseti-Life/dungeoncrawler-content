@@ -9,7 +9,20 @@ use Drupal\Core\Database\Connection;
  */
 class InstitutionDispositionMatrixService {
 
-  protected const MATRIX_DOMAINS = ['ancestry', 'profession'];
+  protected const MATRIX_DOMAINS = ['ancestry', 'profession', 'alignment'];
+
+  /**
+   * How each alignment institution regards its opposite, in both directions.
+   *
+   * Good and Evil are hostile; Lawful and Chaotic are unfriendly. Every other
+   * pairing has no edge and so no effect.
+   */
+  protected const ALIGNMENT_OPPOSITION = [
+    'good' => ['evil' => DispositionAuthorityContract::LABEL_HOSTILE],
+    'evil' => ['good' => DispositionAuthorityContract::LABEL_HOSTILE],
+    'lawful' => ['chaotic' => DispositionAuthorityContract::LABEL_UNFRIENDLY],
+    'chaotic' => ['lawful' => DispositionAuthorityContract::LABEL_UNFRIENDLY],
+  ];
   protected const EDGE_KIND = 'institution_disposition_matrix';
   protected const RELATIONSHIP_TYPE = 'institution_disposition';
   protected const AUTHORITY_SCOPE = 'institution_matrix';
@@ -322,6 +335,7 @@ class InstitutionDispositionMatrixService {
     $rows = $this->loadInstitutionSubjectsByDomains($campaign_id, self::MATRIX_DOMAINS);
     $ancestries = [];
     $professions = [];
+    $alignments = [];
     foreach ($rows as $row) {
       $subject_id = trim((string) ($row['subject_id'] ?? ''));
       $subject_domain = trim((string) ($row['subject_domain'] ?? ''));
@@ -340,9 +354,27 @@ class InstitutionDispositionMatrixService {
       elseif ($subject_domain === 'profession') {
         $professions[$subject_id] = $subject;
       }
+      elseif ($subject_domain === 'alignment') {
+        $alignments[$subject['normalized_label']] = $subject;
+      }
     }
 
     $seeded = 0;
+    foreach (self::ALIGNMENT_OPPOSITION as $source_label => $targets) {
+      foreach ($targets as $target_label => $attitude) {
+        if (!isset($alignments[$source_label], $alignments[$target_label])) {
+          continue;
+        }
+        $seeded += $this->ensureSeededPolicyInstitutionDispositionEdge(
+          $campaign_id,
+          (string) $alignments[$source_label]['subject_id'],
+          (string) $alignments[$target_label]['subject_id'],
+          (int) DispositionAuthorityContract::attitudeToScore($attitude),
+          'alignment-opposition-default',
+          $existing_edges
+        );
+      }
+    }
     foreach ($ancestries as $ancestry) {
       foreach ($professions as $profession) {
         $seeded += $this->ensureSeededPolicyInstitutionDispositionEdge(

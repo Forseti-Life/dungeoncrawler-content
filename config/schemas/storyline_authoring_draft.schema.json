@@ -1008,7 +1008,11 @@
           "type": "string",
           "pattern": "^[a-f0-9]{64}$"
         },
-        "class": {
+"alignment": {
+          "description": "The actor's alignment. It makes the actor a member of the alignment institutions (Lawful or Chaotic, Good or Evil, Neutral) and is carried onto its character sheet.",
+          "enum": ["LG", "NG", "CG", "LN", "N", "CN", "LE", "NE", "CE"]
+        },
+                "class": {
           "type": "string",
           "minLength": 1
         },

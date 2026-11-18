@@ -6763,3 +6763,23 @@ function dungeoncrawler_content_update_10229(): string {
   }
   return 'Installed reversible canonical definition lifecycle state.';
 }
+
+/**
+ * Register alignment and storyline institutions in the institution library.
+ */
+function dungeoncrawler_content_update_10230(): string {
+  $database = \Drupal::database();
+  $library = new \Drupal\dungeoncrawler_content\Service\InstitutionLibraryService($database);
+  $library->registerAlignmentInstitutions();
+  $registered = 0;
+  $drafts = $database->query('SELECT draft_id, draft_payload FROM {dungeoncrawler_content_storyline_authoring_drafts} ORDER BY created_at, draft_id')->fetchAll(\PDO::FETCH_ASSOC);
+  foreach ($drafts as $draft) {
+    $payload = json_decode((string) $draft['draft_payload'], TRUE, 512, JSON_THROW_ON_ERROR);
+    $institutions = array_values(array_filter((array) ($payload['objects']['institutions'] ?? []), 'is_array'));
+    if ($institutions !== []) {
+      $library->registerStorylineInstitutions((string) $draft['draft_id'], trim((string) ($payload['title'] ?? '')), $institutions, []);
+      $registered += count($institutions);
+    }
+  }
+  return sprintf('Registered the five alignment institutions and %d storyline institution(s) in the canonical institution library.', $registered);
+}

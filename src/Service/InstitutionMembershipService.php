@@ -196,6 +196,9 @@ class InstitutionMembershipService {
       $this->extractNonEmptyString($character_data, ['class']) !== '' ? 'class' : 'profession_default'
     );
 
+    foreach ($this->buildAlignmentInstitutionInputs($character_data, $seed_source) as $input) {
+      $inputs[] = $input;
+    }
     foreach ($this->buildExplicitStructuredAffiliationInputs($character_data, $seed_source) as $input) {
       $inputs[] = $input;
     }
@@ -220,6 +223,9 @@ class InstitutionMembershipService {
       $this->extractNonEmptyString($npc_data, ['occupation']) !== '' ? 'occupation' : (($this->extractNonEmptyString($npc_data, ['class']) !== '') ? 'class' : 'profession_default')
     );
 
+    foreach ($this->buildAlignmentInstitutionInputs($npc_data, $seed_source) as $input) {
+      $inputs[] = $input;
+    }
     foreach ($this->buildExplicitStructuredAffiliationInputs($npc_data, $seed_source) as $input) {
       $inputs[] = $input;
     }
@@ -1371,6 +1377,9 @@ class InstitutionMembershipService {
     if ($institution_domain === 'profession') {
       return 'class';
     }
+    if ($institution_domain === 'alignment') {
+      return 'alignment';
+    }
 
     return in_array($institution_domain, self::POLITICAL_SENTIMENT_INSTITUTION_DOMAINS, TRUE)
       ? 'political'
@@ -1495,6 +1504,23 @@ class InstitutionMembershipService {
    *
    * @return array<string, mixed>
    */
+  /**
+   * The alignment institutions an actor's sheet makes it a member of.
+   *
+   * @return array<int, array<string, mixed>>
+   */
+  protected function buildAlignmentInstitutionInputs(array $actor_data, string $seed_source): array {
+    $alignment = $this->extractNonEmptyString($actor_data, ['alignment']);
+    if ($alignment === '' && is_array($actor_data['basicInfo'] ?? NULL)) {
+      $alignment = $this->extractNonEmptyString($actor_data['basicInfo'], ['alignment']);
+    }
+    $inputs = [];
+    foreach (InstitutionNormalizationService::alignmentInstitutionNames($alignment) as $name) {
+      $inputs[] = $this->buildSeededInstitutionInput('alignment', $name, $seed_source, $alignment !== '' ? 'alignment' : 'alignment_default');
+    }
+    return $inputs;
+  }
+
   protected function buildSeededInstitutionInput(string $domain, string $display_name, string $seed_source, string $source_field): array {
     return [
       'domain' => $domain,

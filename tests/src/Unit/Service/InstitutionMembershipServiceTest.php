@@ -419,7 +419,13 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
       'class' => 'fighter',
     ], 'seeded_character');
 
-    $this->assertCount(2, $inputs);
+    $this->assertCount(3, $inputs);
+    // No alignment on the sheet is Neutral.
+    $this->assertSame('alignment', $inputs[2]['domain'] ?? '');
+    $this->assertSame('Neutral', $inputs[2]['display_name'] ?? '');
+    $this->assertSame('alignment_default', $inputs[2]['metadata']['source_field'] ?? '');
+    $lawful_good = $service->buildCharacterInstitutionInputs(['ancestry' => 'elf', 'class' => 'fighter', 'alignment' => 'LG'], 'seeded_character');
+    $this->assertSame(['Lawful', 'Good'], array_column(array_slice($lawful_good, 2), 'display_name'));
     $this->assertSame('ancestry', $inputs[0]['domain'] ?? '');
     $this->assertSame('Elf', $inputs[0]['display_name'] ?? '');
     $this->assertSame('seeded_character', $inputs[0]['metadata']['seed_source'] ?? '');
@@ -501,7 +507,7 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
       'class' => 'fighter',
     ]);
 
-    $this->assertSame(2, $count);
+    $this->assertSame(3, $count);
     $this->assertGreaterThan(2, count($registry_calls));
     $this->assertContains([
       'domain' => 'ancestry',

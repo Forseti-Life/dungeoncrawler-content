@@ -101,6 +101,7 @@ class StorylineAuthoringDraftService {
     protected ?CanonicalQuestTemplateService $questTemplates = NULL,
     protected ?ObjectiveTypeService $objectiveTypes = NULL,
     protected ?CanonicalDefinitionService $definitions = NULL,
+    protected ?InstitutionLibraryService $institutionLibrary = NULL,
   ) {}
 
   /**
@@ -247,7 +248,7 @@ class StorylineAuthoringDraftService {
         'To add a character the author names, use bind_library_characters; it looks the character up and saves the cast row. Before inventing a character, search the character library with find_library_characters. When a library character fits, bind it by its actor_id instead of inventing one, and offer the matches to the author when the choice is theirs. A quest giver or hook is a library character whenever one fits.',
         'A character new to the story is placed: its location_id names a room or site of this storyline.',
         'Institutions come before the cast. A clan, family or house, settlement, faction, guard, guild, cult or other group the story is about is a row in /objects/institutions with its domain, name, description, purpose in this story, seat (a room or site of this storyline), leader (a cast member), parent (the institution it is part of) and stances toward the other institutions. Before defining one, look for it with find_existing_institutions and reuse its exact domain and name when it exists: the same domain and name is the same institution everywhere. Its institution_id is derived from the domain and name; never write one by hand, reference a new row with $draft_ref.',
-        'Every cast member is tied to the cast when it is added or bound, in the same operations: an affiliation to each institution of this storyline it is tied to, by institution_id, with standing leader, exile or ally where it is not a plain member (define the institution in /objects/institutions first when the story has none that fits: clan, family or house, settlement, faction, guard, culture), and one /objects/actors/relationships row for each cast member it has a personal tie to, with the attitude and a bond such as spouse, parent, child, sibling, rival, mentor or serves. Ancestry and class are not affiliations; they come from the sheet. Infer the obvious ties from the roles and the story; do not ask the author for them.',
+        'Every cast member is tied to the cast when it is added or bound, in the same operations: an affiliation to each institution of this storyline it is tied to, by institution_id, with standing leader, exile or ally where it is not a plain member (define the institution in /objects/institutions first when the story has none that fits: clan, family or house, settlement, faction, guard, culture), and one /objects/actors/relationships row for each cast member it has a personal tie to, with the attitude and a bond such as spouse, parent, child, sibling, rival, mentor or serves. Every cast member also gets its alignment (LG, NG, CG, LN, N, CN, LE, NE or CE) in the same row; it makes the actor a member of the alignment institutions Lawful or Chaotic, Good or Evil, and Neutral, which are never added to /objects/institutions. Ancestry and class are not affiliations; they come from the sheet. Infer the obvious ties from the roles and the story; do not ask the author for them.',
         'For new append rows, omit generated identity fields and let the authority allocate collision-free, draft-scoped IDs.',
         'Give related new rows internal batch keys and link them with $draft_ref values; never ask the author to supply keys or IDs.',
         'Keep existing IDs when renaming or editing content; only rebind references when the author requests that change.',
@@ -908,6 +909,7 @@ class StorylineAuthoringDraftService {
     if ($deleted !== 1) {
       throw new \DomainException('storyline_draft_delete_conflict');
     }
+    $this->syncInstitutionLibrary($draft_id, [], $draft['payload'] ?? []);
     return [
       'draft_id' => $draft_id,
       'deleted' => TRUE,
@@ -1252,7 +1254,7 @@ class StorylineAuthoringDraftService {
    * Where the actor stands, which scene it appears in and which institutions
    * it belongs to are the story's business, not the sheet's.
    */
-  public const ACTOR_SHEET_SOURCE_FIELDS = ['actor_id', 'display_name', 'role', 'motivation', 'attitude', 'knowledge', 'class', 'ancestry', 'level'];
+  public const ACTOR_SHEET_SOURCE_FIELDS = ['actor_id', 'display_name', 'role', 'motivation', 'attitude', 'knowledge', 'class', 'ancestry', 'level', 'alignment'];
 
   /**
    * The part of an actor row its character sheet is built from.
@@ -1641,6 +1643,11 @@ class StorylineAuthoringDraftService {
           $groups[$kind . ':' . mb_strtolower($value)] = ['kind' => $kind, 'name' => ucwords(str_replace(['_', '-'], ' ', $value))];
         }
       }
+      if (trim((string) ($member['alignment'] ?? '')) !== '') {
+        foreach (InstitutionNormalizationService::alignmentInstitutionNames((string) $member['alignment']) as $name) {
+          $groups['Alignment:' . $name] = ['kind' => 'Alignment', 'name' => $name];
+        }
+      }
       foreach ((array) ($member['affiliations'] ?? []) as $affiliation) {
         $institution = $institutions[(string) ($affiliation['institution_id'] ?? '')] ?? NULL;
         if ($institution !== NULL) {
@@ -1760,8 +1767,12 @@ class StorylineAuthoringDraftService {
     }
     $no_affiliation = [];
     $no_relationship = [];
+    $no_alignment = [];
     foreach ($cast as $member) {
       $name = trim((string) ($member['display_name'] ?? '')) ?: (string) ($member['actor_id'] ?? '');
+      if (trim((string) ($member['alignment'] ?? '')) === '') {
+        $no_alignment[] = $name;
+      }
       if (array_filter((array) ($member['affiliations'] ?? []), 'is_array') === []) {
         $no_affiliation[] = $name;
       }
@@ -1771,6 +1782,12 @@ class StorylineAuthoringDraftService {
     }
     $list = static fn(array $names): string => implode(', ', array_slice($names, 0, 8)) . (count($names) > 8 ? sprintf(' and %d more', count($names) - 8) : '');
     $warnings = [];
+    if ($no_alignment !== []) {
+      $warnings[] = sprintf(
+        '%d of %d cast members have no alignment and count as Neutral: %s. Give each one its alignment (LG, NG, CG, LN, N, CN, LE, NE or CE); it decides which alignment institutions the actor belongs to.',
+        count($no_alignment), count($cast), $list($no_alignment),
+      );
+    }
     if ($no_affiliation !== []) {
       $warnings[] = sprintf(
         '%d of %d cast members are tied to no institution: %s. Define the story\'s institutions (clan, family, settlement, faction and the like) and give each cast member its affiliations.',
@@ -2187,6 +2204,13 @@ class StorylineAuthoringDraftService {
     if ($affected !== 1) {
       throw new \DomainException('storyline_draft_revision_conflict');
     }
+    try {
+      $this->syncInstitutionLibrary($draft_id, $payload, $draft['payload'] ?? []);
+    }
+    catch (\Throwable $exception) {
+      $transaction->rollBack();
+      throw $exception;
+    }
     $this->insertRevisionSnapshot(
       $draft_id,
       $next_revision,
@@ -2196,6 +2220,25 @@ class StorylineAuthoringDraftService {
       $updated_at,
     );
     return $this->getDraft($draft_id);
+  }
+
+  /**
+   * Keeps the canonical institution library in step with a draft.
+   *
+   * An institution a storyline defines is a library record from the moment
+   * it is saved; one the defining draft drops, and no other storyline uses,
+   * leaves the library with it.
+   */
+  private function syncInstitutionLibrary(string $draft_id, array $payload, array $previous_payload): void {
+    $institutions = array_values(array_filter((array) ($payload['objects']['institutions'] ?? []), 'is_array'));
+    $previous = array_values(array_filter((array) ($previous_payload['objects']['institutions'] ?? []), 'is_array'));
+    if ($institutions === [] && $previous === []) {
+      return;
+    }
+    if ($this->institutionLibrary === NULL) {
+      throw new \LogicException('storyline_draft_institution_library_unavailable: a draft with institutions cannot be saved or deleted without the institution library service.');
+    }
+    $this->institutionLibrary->registerStorylineInstitutions($draft_id, trim((string) ($payload['title'] ?? '')), $institutions, $previous);
   }
 
   /**
@@ -2739,8 +2782,8 @@ class StorylineAuthoringDraftService {
       $selections[] = [
         'domain' => $normalized['domain'],
         'display_name' => $normalized['display_name'],
-        'source_asset_type' => 'storyline',
-        'source_asset_id' => $storyline_id . ':' . $normalized['domain'] . ':' . $normalized['normalized_label'],
+        'source_asset_type' => InstitutionLibraryService::CAMPAIGN_SOURCE_ASSET_TYPE,
+        'source_asset_id' => $normalized['normalized_label'],
       ];
     }
 

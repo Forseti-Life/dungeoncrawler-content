@@ -15,11 +15,9 @@ use Drupal\dungeoncrawler_content\Service\Generation\RuntimeGenerationException;
  */
 class FactionGenerationService {
 
-  public const MANIFEST_SOURCE_TABLE = 'generated_faction';
-  public const MANIFEST_SOURCE_FILE = '__generated__/factions';
-  protected const MANIFEST_ROW_TYPE = 'institution';
-  protected const MANIFEST_CLASSIFICATION = 'canonical_faction';
-  public const MANIFEST_STATUS = 'normalized';
+  public const MANIFEST_SOURCE_TABLE = InstitutionLibraryService::SOURCE_TABLE;
+  public const MANIFEST_SOURCE_FILE = InstitutionLibraryService::SOURCE_FILE;
+  public const MANIFEST_STATUS = InstitutionLibraryService::STATUS_NORMALIZED;
   public const MANIFEST_PENDING_STATUS = 'pending_review';
   public const NEAR_MATCH_REVIEW_REASON = 'near_match_detected';
 
@@ -275,50 +273,14 @@ class FactionGenerationService {
       return NULL;
     }
 
-    $row = $this->database->select('dc_library_institution_manifest', 'm')
-      ->fields('m')
-      ->condition('source_table', self::MANIFEST_SOURCE_TABLE)
-      ->condition('source_file', self::MANIFEST_SOURCE_FILE)
-      ->condition('source_asset_id', $canonical_slug)
-      ->range(0, 1)
-      ->execute()
-      ->fetchAssoc();
-
-    return is_array($row) ? $row : NULL;
+    return (new InstitutionLibraryService($this->database))->loadRow($canonical_slug);
   }
 
   /**
    * Writes or updates the canonical faction manifest row.
    */
   protected function upsertLibraryFactionManifest(array $draft, string $status = self::MANIFEST_STATUS): int {
-    $now = time();
-    $fields = [
-      'source_table' => self::MANIFEST_SOURCE_TABLE,
-      'source_file' => self::MANIFEST_SOURCE_FILE,
-      'source_asset_id' => (string) $draft['canonicalSlug'],
-      'library_character_id' => NULL,
-      'row_type' => self::MANIFEST_ROW_TYPE,
-      'classification' => self::MANIFEST_CLASSIFICATION,
-      'status' => $status,
-      'normalized_payload_json' => json_encode($draft, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-      'review_reasons_json' => json_encode([], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-      'provenance_json' => json_encode($draft['requestContext'] ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-      'changed' => $now,
-    ];
-
-    $existing = $this->findExistingLibraryFactionBySlug((string) $draft['canonicalSlug']);
-    if ($existing !== NULL) {
-      $this->database->update('dc_library_institution_manifest')
-        ->fields($fields)
-        ->condition('id', (int) $existing['id'])
-        ->execute();
-      return (int) $existing['id'];
-    }
-
-    $fields['created'] = $now;
-    return (int) $this->database->insert('dc_library_institution_manifest')
-      ->fields($fields)
-      ->execute();
+    return (new InstitutionLibraryService($this->database))->upsert($draft, $status);
   }
 
   /**
@@ -332,7 +294,7 @@ class FactionGenerationService {
       'domain' => (string) ($draft['domain'] ?? 'allegiance'),
       'display_name' => (string) ($draft['canonicalLabel'] ?? ''),
       'parent_subject_id' => (string) ($draft['parentSubjectId'] ?? ''),
-      'source_asset_type' => 'library_faction',
+      'source_asset_type' => InstitutionLibraryService::CAMPAIGN_SOURCE_ASSET_TYPE,
       'source_asset_id' => (string) ($draft['canonicalSlug'] ?? ''),
       'metadata' => [
         'created_via' => 'faction_generation_service',

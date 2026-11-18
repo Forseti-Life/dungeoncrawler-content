@@ -39,6 +39,7 @@ class StorylineInstitutionRealizationService {
     protected readonly InstitutionNormalizationService $institutionNormalization,
     protected readonly InstitutionMembershipService $institutionMembership,
     protected readonly InstitutionDispositionMatrixService $institutionDispositionMatrix,
+    protected readonly InstitutionLibraryService $institutionLibrary,
   ) {}
 
   /**
@@ -94,10 +95,6 @@ class StorylineInstitutionRealizationService {
     }
 
     $summary = ['subjects' => 0, 'memberships_synced' => 0, 'stances' => 0, 'ties' => 0];
-    $template_id = trim((string) ($metadata['template_id'] ?? ''));
-    if ($tied !== [] && $template_id === '') {
-      throw new \InvalidArgumentException(sprintf('Storyline "%s" has institutions but no metadata.template_id to record as their source.', $storyline_id));
-    }
 
     foreach (array_keys($tied) as $institution_id) {
       $institution = $institutions[$institution_id];
@@ -105,12 +102,15 @@ class StorylineInstitutionRealizationService {
         'domain' => (string) ($institution['domain'] ?? ''),
         'display_name' => (string) ($institution['name'] ?? ''),
       ]);
+      if ($this->institutionLibrary->loadRow($normalized['normalized_label']) === NULL) {
+        throw new \RuntimeException(sprintf('Storyline "%s" institution "%s" has no record in the canonical institution library; a campaign only instantiates library institutions.', $storyline_id, $institution_id));
+      }
       $parent_id = trim((string) ($institution['parent_institution_id'] ?? ''));
       $subject = $this->campaignSubjectRegistry->resolveOrCreateInstitutionSubject($campaign_id, [
         'domain' => $normalized['domain'],
         'display_name' => $normalized['display_name'],
-        'source_asset_type' => 'storyline',
-        'source_asset_id' => $template_id . ':' . $normalized['domain'] . ':' . $normalized['normalized_label'],
+        'source_asset_type' => InstitutionLibraryService::CAMPAIGN_SOURCE_ASSET_TYPE,
+        'source_asset_id' => $normalized['normalized_label'],
         'parent_subject_id' => isset($tied[$parent_id]) ? $parent_id : '',
         'metadata' => [
           'source_storyline_id' => $storyline_id,

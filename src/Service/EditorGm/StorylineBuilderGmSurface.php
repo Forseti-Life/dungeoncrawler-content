@@ -26,7 +26,7 @@ use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\GetStorylineDr
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\BindLibraryCharactersTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\FindExistingInstitutionsTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\FindLibraryCharactersTool;
-use Drupal\dungeoncrawler_content\Service\StorylineInstitutionCatalog;
+use Drupal\dungeoncrawler_content\Service\InstitutionLibraryService;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\LoadExistingQuestsTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\GetStorylineBranchingTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\GetStorylineSynopsisTool;
@@ -82,7 +82,7 @@ final class StorylineBuilderGmSurface implements EditorGmSurfaceInterface {
       new GetStorylineSynopsisTool(),
       new FindLibraryCharactersTool(),
       new BindLibraryCharactersTool(),
-      new FindExistingInstitutionsTool(new StorylineInstitutionCatalog(\Drupal::database())),
+      new FindExistingInstitutionsTool(new InstitutionLibraryService(\Drupal::database())),
       new LoadExistingQuestsTool($questTemplates),
       new StorylineActorSheetTool($actorSheets, FALSE),
       new StorylineActorSheetTool($actorSheets, TRUE),

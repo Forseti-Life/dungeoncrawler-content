@@ -1229,6 +1229,7 @@ TWIG,
               <input type="text" class="form-text" placeholder="Motivation" data-col-field="motivation">
               <input type="text" class="form-text" placeholder="Dialogue guidance" data-col-field="dialogue">
               <input type="text" class="form-text" placeholder="Knowledge" data-col-field="knowledge">
+              <select class="form-select" aria-label="Alignment" data-col-field="alignment"><option value="">Alignment not set (Neutral)</option><option value="LG">Lawful Good</option><option value="NG">Neutral Good</option><option value="CG">Chaotic Good</option><option value="LN">Lawful Neutral</option><option value="N">Neutral</option><option value="CN">Chaotic Neutral</option><option value="LE">Lawful Evil</option><option value="NE">Neutral Evil</option><option value="CE">Chaotic Evil</option></select>
               <select class="form-select" aria-label="Initial attitude" data-col-field="attitude"><option value="indifferent">Indifferent</option><option value="friendly">Friendly</option><option value="helpful">Helpful</option><option value="hostile">Hostile</option></select>
               <input type="text" class="form-text" placeholder="Availability" data-col-field="availability">
               <input type="text" class="form-text" placeholder="Chapter ID" data-col-field="chapter_id">

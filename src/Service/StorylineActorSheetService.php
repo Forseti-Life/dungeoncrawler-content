@@ -15,7 +15,7 @@ use Drupal\dungeoncrawler_content\Service\Generation\CanonicalGenerationExceptio
  */
 class StorylineActorSheetService {
 
-  private const PREFERENCE_FIELDS = ['class', 'ancestry', 'background'];
+  private const PREFERENCE_FIELDS = ['class', 'ancestry', 'background', 'alignment'];
 
   public function __construct(
     private readonly Connection $database,
@@ -89,7 +89,7 @@ class StorylineActorSheetService {
         $pending[$id] = [
           'actor' => $roster[$id],
           'fixed_preferences' => $fixed,
-          'existing_sheet' => $sheet === NULL ? NULL : array_intersect_key($sheet['payload'], array_flip(['class', 'ancestry', 'background', 'level'])),
+          'existing_sheet' => $sheet === NULL ? NULL : array_intersect_key($sheet['payload'], array_flip(['class', 'ancestry', 'background', 'level', 'alignment'])),
         ];
       }
     }
@@ -151,6 +151,10 @@ class StorylineActorSheetService {
         $spec['character_sheet_revision'] = $sheet['revision'];
         foreach (['class', 'ancestry', 'level'] as $field) {
           $spec[$field] = $sheet['payload'][$field];
+        }
+        // An older sheet may state no alignment; the actor then has none.
+        if (trim((string) ($sheet['payload']['alignment'] ?? '')) !== '') {
+          $spec['alignment'] = $sheet['payload']['alignment'];
         }
         $spec['character_sheet_spec_hash'] = $this->specHash($spec);
         $payload = $current['payload'];
@@ -248,6 +252,9 @@ class StorylineActorSheetService {
         throw new \InvalidArgumentException('storyline_actor_sheet_native_choice_invalid:' . $field . ':' . json_encode($preferences[$field]));
       }
     }
+    if (array_key_exists('alignment', $preferences) && !in_array($preferences['alignment'], $reference['alignments'], TRUE)) {
+      throw new \InvalidArgumentException('storyline_actor_sheet_native_choice_invalid:alignment:' . json_encode($preferences['alignment']));
+    }
   }
 
   private function planPreferences(array $draft, array $batch, array $reference): array {
@@ -271,16 +278,16 @@ class StorylineActorSheetService {
       $seed,
       4096,
       static fn(array $findings): string => 'Create original role-driven character build preferences, not statistics or sheets. '
-        . 'Return exactly one JSON object: {"actors":[{"actor_id":"grounded id","preferences":{"class":"native id","ancestry":"native id","background":"native id"}}]}. '
+        . 'Return exactly one JSON object: {"actors":[{"actor_id":"grounded id","preferences":{"class":"native id","ancestry":"native id","background":"native id","alignment":"alignment code"}}]}. '
         . 'Include each requested actor exactly once. Use only catalog IDs. Respect every fixed_preference; preserve usable existing choices. '
-        . 'Derive class and background from authored role, motivation, attitude and household; derive ancestry from authored clan/story context. '
+        . 'Derive class and background from authored role, motivation, attitude and household; derive ancestry from authored clan/story context; derive alignment (one of native_catalogs.alignments) from how the actor behaves and what it wants. '
         . 'Do not ask questions. The native wizard owns level and statistics; do not set them. Never invent game options. '
         . json_encode([
           'storyline' => array_intersect_key($draft['payload'], array_flip(['title', 'premise', 'description', 'level_range'])),
           'requested_actors' => array_values($batch),
           'actor_relationships' => $relationships,
           'related_actors' => array_values($neighbors),
-          'native_catalogs' => $catalogs,
+          'native_catalogs' => $catalogs + ['alignments' => $reference['alignments']],
           'prior_findings' => $findings,
         ], JSON_THROW_ON_ERROR),
       function (array $output, array $provenance) use ($batch, $reference): array {
@@ -300,8 +307,8 @@ class StorylineActorSheetService {
           try {
             $choices = $actor['preferences'];
             $this->validatePreferences($choices, $reference);
-            if (!isset($choices['class'], $choices['ancestry'], $choices['background'])) {
-              throw new \InvalidArgumentException('Provide class, ancestry and background, preserving every fixed preference.');
+            if (!isset($choices['class'], $choices['ancestry'], $choices['background'], $choices['alignment'])) {
+              throw new \InvalidArgumentException('Provide class, ancestry, background and alignment, preserving every fixed preference.');
             }
             foreach ($batch[$id]['fixed_preferences'] as $field => $value) {
               if ($choices[$field] !== $value) {

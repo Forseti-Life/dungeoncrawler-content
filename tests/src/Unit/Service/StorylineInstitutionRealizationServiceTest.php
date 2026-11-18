@@ -5,6 +5,7 @@ namespace Drupal\Tests\dungeoncrawler_content\Unit\Service;
 use Drupal\dungeoncrawler_content\Service\CampaignSubjectRegistryService;
 use Drupal\dungeoncrawler_content\Service\InstitutionDispositionMatrixService;
 use Drupal\dungeoncrawler_content\Service\InstitutionMembershipService;
+use Drupal\dungeoncrawler_content\Service\InstitutionLibraryService;
 use Drupal\dungeoncrawler_content\Service\InstitutionNormalizationService;
 use Drupal\dungeoncrawler_content\Service\StorylineInstitutionRealizationService;
 use Drupal\Tests\UnitTestCase;
@@ -52,7 +53,7 @@ class StorylineInstitutionRealizationServiceTest extends UnitTestCase {
         return 1;
       });
 
-    $service = new StorylineInstitutionRealizationService($registry, new InstitutionNormalizationService(), $membership, $matrix);
+    $service = new StorylineInstitutionRealizationService($registry, new InstitutionNormalizationService(), $membership, $matrix, $this->institutionLibrary());
     $summary = $service->realizeStorylineInstitutions(42, $storyline);
 
     $this->assertSame(['subjects' => 3, 'memberships_synced' => 3, 'stances' => 2, 'ties' => 2], $summary);
@@ -63,8 +64,8 @@ class StorylineInstitutionRealizationServiceTest extends UnitTestCase {
       array_keys($subject_inputs)
     );
     $blackroot = $subject_inputs['institution_family_blackroot-clan'];
-    $this->assertSame('storyline', $blackroot['source_asset_type']);
-    $this->assertSame('clans-blight:family:blackroot-clan', $blackroot['source_asset_id']);
+    $this->assertSame('library_faction', $blackroot['source_asset_type']);
+    $this->assertSame('blackroot-clan', $blackroot['source_asset_id']);
     $this->assertSame('', $blackroot['parent_subject_id']);
     $this->assertSame([
       'source_storyline_id' => 'clans-blight-c42',
@@ -106,7 +107,8 @@ class StorylineInstitutionRealizationServiceTest extends UnitTestCase {
       $registry,
       new InstitutionNormalizationService(),
       $membership,
-      $this->createMock(InstitutionDispositionMatrixService::class)
+      $this->createMock(InstitutionDispositionMatrixService::class),
+      $this->institutionLibrary()
     );
 
     $this->expectException(\RuntimeException::class);
@@ -131,7 +133,8 @@ class StorylineInstitutionRealizationServiceTest extends UnitTestCase {
       $registry,
       new InstitutionNormalizationService(),
       $membership,
-      $this->createMock(InstitutionDispositionMatrixService::class)
+      $this->createMock(InstitutionDispositionMatrixService::class),
+      $this->institutionLibrary()
     );
 
     $this->expectException(\InvalidArgumentException::class);
@@ -208,6 +211,15 @@ class StorylineInstitutionRealizationServiceTest extends UnitTestCase {
         ],
       ],
     ];
+  }
+
+  /**
+   * A library that holds every institution asked for.
+   */
+  private function institutionLibrary(): InstitutionLibraryService {
+    $library = $this->createMock(InstitutionLibraryService::class);
+    $library->method('loadRow')->willReturnCallback(static fn(string $slug): array => ['id' => 1, 'source_asset_id' => $slug]);
+    return $library;
   }
 
 }

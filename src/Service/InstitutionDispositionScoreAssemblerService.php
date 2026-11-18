@@ -7,7 +7,11 @@ namespace Drupal\dungeoncrawler_content\Service;
  */
 class InstitutionDispositionScoreAssemblerService {
 
-  protected const ACTOR_COMPONENT_WEIGHT = 0.00;
+  /**
+   * Share of actor-held institution sentiment in the score: a slight nudge
+   * beside the institution matrix (Board, 2026-11-18).
+   */
+  protected const ACTOR_COMPONENT_WEIGHT = 0.50;
   protected const MATRIX_COMPONENT_WEIGHT = 1.00;
   protected const INSTITUTION_SCORE_MIN = -2000;
   protected const INSTITUTION_SCORE_MAX = 2000;
@@ -21,6 +25,7 @@ class InstitutionDispositionScoreAssemblerService {
   protected const MEMBERSHIP_WEIGHTS = [
     'ancestry' => 0.50,
     'class' => 0.50,
+    'alignment' => 0.50,
   ];
   /**
    * Matrix weight of a membership outside ancestry/class (clan, faction, ...).
@@ -101,10 +106,15 @@ class InstitutionDispositionScoreAssemblerService {
     $target_memberships = $this->resolveActorMembershipsCached($campaign_id, (string) $target['source_type'], (string) $target['source_id'], $target_actor_ref);
 
     $actor_component_payload = $this->buildActorSentimentComponent($source_sentiments, $target_memberships);
+    // Regard is returned: what the target is known to feel about the
+    // source's institutions counts the same way. An exile's ill will toward
+    // a clan is why its members think less of the exile.
+    $target_sentiments = $this->resolveActorSentimentsCached($campaign_id, (string) $target['source_type'], (string) $target['source_id']);
+    $reciprocal_component_payload = $this->buildActorSentimentComponent($target_sentiments, $source_memberships);
     $matrix_component_payload = $this->buildInstitutionMatrixComponent($campaign_id, $source_memberships, $target_memberships);
     [$actor_component_weight, $matrix_component_weight] = $this->resolveComponentBlendWeights();
 
-    $actor_component = (int) ($actor_component_payload['score'] ?? 0);
+    $actor_component = (int) ($actor_component_payload['score'] ?? 0) + (int) ($reciprocal_component_payload['score'] ?? 0);
     $matrix_component = (int) ($matrix_component_payload['score'] ?? 0);
     $assembled_score = $this->clampInstitutionScore(
       (int) round(
@@ -118,6 +128,7 @@ class InstitutionDispositionScoreAssemblerService {
       'weighted_score' => (int) round($assembled_score * 0.20),
       'breakdown' => [
         'actor_sentiment' => is_array($actor_component_payload['breakdown'] ?? NULL) ? $actor_component_payload['breakdown'] : [],
+        'actor_sentiment_reciprocal' => is_array($reciprocal_component_payload['breakdown'] ?? NULL) ? $reciprocal_component_payload['breakdown'] : [],
         'institution_matrix' => is_array($matrix_component_payload['breakdown'] ?? NULL) ? $matrix_component_payload['breakdown'] : [],
       ],
       'components' => [
@@ -310,7 +321,7 @@ class InstitutionDispositionScoreAssemblerService {
    * Resolve matrix membership weight with undead ancestry override.
    */
   protected function resolveMembershipWeight(string $domain, string $subject_id): float {
-    if (!$this->isMatrixDomain($domain)) {
+    if (!array_key_exists($domain, self::MEMBERSHIP_WEIGHTS)) {
       return self::EXPLICIT_AFFILIATION_MEMBERSHIP_WEIGHT;
     }
     $membership_weights = $this->resolveMembershipWeights();
@@ -337,6 +348,7 @@ class InstitutionDispositionScoreAssemblerService {
       'weighted_score' => 0,
       'breakdown' => [
         'actor_sentiment' => [],
+        'actor_sentiment_reciprocal' => [],
         'institution_matrix' => [],
       ],
       'components' => [
@@ -391,6 +403,7 @@ class InstitutionDispositionScoreAssemblerService {
         $domain_class = $config->get('institution_disposition.domain_weight_class');
         $membership_ancestry = $config->get('institution_disposition.membership_weight_ancestry');
         $membership_class = $config->get('institution_disposition.membership_weight_class');
+        $membership_alignment = $config->get('institution_disposition.membership_weight_alignment');
         $undead_pair_weight = $config->get('institution_disposition.undead_ancestry_pair_weight');
         if (is_numeric($actor_weight)) {
           $policy['actor_component_weight'] = (float) $actor_weight;
@@ -412,6 +425,9 @@ class InstitutionDispositionScoreAssemblerService {
         }
         if (is_numeric($membership_class)) {
           $policy['membership_weights']['class'] = (float) $membership_class;
+        }
+        if (is_numeric($membership_alignment)) {
+          $policy['membership_weights']['alignment'] = (float) $membership_alignment;
         }
         if (is_numeric($undead_pair_weight)) {
           $policy['undead_ancestry_pair_weight'] = (float) $undead_pair_weight;
@@ -448,6 +464,7 @@ class InstitutionDispositionScoreAssemblerService {
     return [
       'ancestry' => (float) ($weights['ancestry'] ?? 0.50),
       'class' => (float) ($weights['class'] ?? 0.50),
+      'alignment' => (float) ($weights['alignment'] ?? 0.50),
     ];
   }
 

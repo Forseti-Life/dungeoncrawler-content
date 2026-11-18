@@ -47,6 +47,7 @@ class StorylineActorSheetServiceTest extends TestCase {
       'classes' => [['id' => 'guard-class', 'name' => 'Original Guardian'], ['id' => 'scout-class', 'name' => 'Original Trailkeeper']],
       'ancestries' => [['id' => 'fixture-folk', 'name' => 'Original Fixture Folk']],
       'backgrounds' => [['id' => 'watch-background', 'name' => 'Original Watcher']],
+      'alignments' => ['LG', 'N', 'CE'],
     ];
     $characters->method('getPathfinderCharacterCreationReference')->willReturn($reference);
     $characters->method('getDraft')->willReturnCallback(fn(int $id): array => $this->sheets[$id]);
@@ -85,7 +86,7 @@ class StorylineActorSheetServiceTest extends TestCase {
       foreach ($input['requested_actors'] as $row) {
         $actors[] = ['actor_id' => $row['actor']['actor_id'], 'preferences' => $row['fixed_preferences'] + [
           'class' => $this->invalidGeneratedClass ? 'invented-class' : ($row['actor']['role'] === 'scout' ? 'scout-class' : 'guard-class'),
-          'ancestry' => 'fixture-folk', 'background' => 'watch-background',
+          'ancestry' => 'fixture-folk', 'background' => 'watch-background', 'alignment' => 'LG',
         ]];
       }
       return $validate(['actors' => $actors], ['tool' => $tool]);

@@ -64,6 +64,11 @@
         const institutionsOf = (actor, domain) => {
           if (domain === 'ancestry') return actor.ancestry ? [actor.ancestry] : [];
           if (domain === 'profession') return actor.class ? [actor.class] : [];
+          // LG is Lawful and Good; the graph groups by the first.
+          if (domain === 'alignment') {
+            const names = { L: 'Lawful', C: 'Chaotic', G: 'Good', E: 'Evil', N: 'Neutral' };
+            return [...new Set((actor.alignment || '').split('').map((letter) => names[letter]))];
+          }
           // Members and leaders belong; exiles and allies are tied without belonging.
           return (actor.affiliations || [])
             .filter((affiliation) => ['member', 'leader'].includes(affiliation.standing || 'member'))
