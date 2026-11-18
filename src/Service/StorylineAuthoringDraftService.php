@@ -43,6 +43,9 @@ class StorylineAuthoringDraftService {
     'actor_placement_missing' => 'draft_operation',
     'actor_placement_unknown' => 'draft_operation',
     'room_scene_unknown' => 'draft_operation',
+    'institution_leader_unknown' => 'draft_operation',
+    'institution_leader_not_member' => 'draft_operation',
+    'institution_seat_unknown' => 'draft_operation',
   ];
   /**
    * Library roles whose characters hand out work to the party.
@@ -71,6 +74,7 @@ class StorylineAuthoringDraftService {
     '/objects/dungeons/generation_specs' => ['dungeon_id' => 'dungeon'],
     '/objects/rooms/generation_specs' => ['room_id' => 'room'],
     '/objects/items/generation_specs' => ['item_id' => 'item'],
+    '/objects/institutions' => ['institution_id' => 'institution'],
   ];
   private const NARRATIVE_BEATS = [
     'inciting_incident' => ['label' => 'Inciting incident', 'fields' => ['disruption', 'stakes']],
@@ -242,7 +246,7 @@ class StorylineAuthoringDraftService {
         'Reuse grounded IDs for existing objects; look up named canonical objects before rebinding.',
         'To add a character the author names, use bind_library_characters; it looks the character up and saves the cast row. Before inventing a character, search the character library with find_library_characters. When a library character fits, bind it by its actor_id instead of inventing one, and offer the matches to the author when the choice is theirs. A quest giver or hook is a library character whenever one fits.',
         'A character new to the story is placed: its location_id names a room or site of this storyline.',
-        'Every cast member is tied to the cast when it is added or bound, in the same operations: affiliations for its clan, family or house, settlement, faction, culture and any other group it belongs to (cast members who share a domain and name are in the same group), and one /objects/actors/relationships row for each cast member it has a personal tie to, with the attitude and a bond such as spouse, parent, child, sibling, rival, mentor or serves. Ancestry and class are not affiliations; they come from the sheet. Infer the obvious ties from the roles and the story; do not ask the author for them.',
+        'Every cast member is tied to the cast when it is added or bound, in the same operations: an affiliation to each institution of this storyline it is tied to, by institution_id, with standing leader, exile or ally where it is not a plain member (define the institution in /objects/institutions first when the story has none that fits: clan, family or house, settlement, faction, guard, culture), and one /objects/actors/relationships row for each cast member it has a personal tie to, with the attitude and a bond such as spouse, parent, child, sibling, rival, mentor or serves. Ancestry and class are not affiliations; they come from the sheet. Infer the obvious ties from the roles and the story; do not ask the author for them.',
         'For new append rows, omit generated identity fields and let the authority allocate collision-free, draft-scoped IDs.',
         'Give related new rows internal batch keys and link them with $draft_ref values; never ask the author to supply keys or IDs.',
         'Keep existing IDs when renaming or editing content; only rebind references when the author requests that change.',
@@ -290,6 +294,7 @@ class StorylineAuthoringDraftService {
       '/objects/dungeons/generation_specs' => 'dungeon',
       '/objects/rooms/generation_specs' => 'room',
       '/objects/items/generation_specs' => 'item',
+      '/objects/institutions' => 'institution',
     ];
     $contract = [];
     foreach ($collections as $path => $definition_name) {
@@ -1058,6 +1063,7 @@ class StorylineAuthoringDraftService {
     $sheet_findings = array_merge(
       $this->libraryActorDuplicateFindings($draft['payload'] ?? []),
       $this->actorPlacementFindings($draft),
+      self::institutionFindings($draft['payload'] ?? []),
       self::actorSheetFindings($draft['payload'] ?? []),
     );
     $stages['actor_character_sheets'] = [
@@ -1617,7 +1623,8 @@ class StorylineAuthoringDraftService {
     if (!isset($names[$actor_id])) {
       return NULL;
     }
-    $groups_of = static function (array $member): array {
+    $institutions = array_column(array_filter((array) ($payload['objects']['institutions'] ?? []), 'is_array'), NULL, 'institution_id');
+    $groups_of = static function (array $member) use ($institutions): array {
       $groups = [];
       foreach (['ancestry' => 'Ancestry', 'class' => 'Class'] as $field => $kind) {
         $value = trim((string) ($member[$field] ?? ''));
@@ -1626,10 +1633,12 @@ class StorylineAuthoringDraftService {
         }
       }
       foreach ((array) ($member['affiliations'] ?? []) as $affiliation) {
-        $name = trim((string) ($affiliation['name'] ?? ''));
-        if ($name !== '') {
-          $kind = ucfirst((string) ($affiliation['domain'] ?? ''));
-          $groups[$kind . ':' . mb_strtolower($name)] = ['kind' => $kind, 'name' => $name];
+        $institution = $institutions[(string) ($affiliation['institution_id'] ?? '')] ?? NULL;
+        if ($institution !== NULL) {
+          $groups['institution:' . $institution['institution_id']] = [
+            'kind' => InstitutionNormalizationService::AUTHORABLE_DOMAINS[(string) $institution['domain']] ?? ucfirst((string) $institution['domain']),
+            'name' => trim((string) $institution['name']),
+          ];
         }
       }
       return $groups;
@@ -1670,7 +1679,54 @@ class StorylineAuthoringDraftService {
         'notes' => trim((string) ($relationship['notes'] ?? '')),
       ];
     }
+    // The actor's own standing in each institution it is tied to.
+    foreach ($cast as $member) {
+      if ((string) ($member['actor_id'] ?? '') !== $actor_id) {
+        continue;
+      }
+      foreach (array_filter((array) ($member['affiliations'] ?? []), 'is_array') as $affiliation) {
+        $institution = $institutions[(string) ($affiliation['institution_id'] ?? '')] ?? NULL;
+        $standing = (string) ($affiliation['standing'] ?? 'member');
+        foreach ($mine as $position => $group) {
+          if ($institution !== NULL && $group['name'] === trim((string) $institution['name']) && $standing !== 'member') {
+            $mine[$position]['name'] .= ' (' . $standing . ')';
+          }
+        }
+      }
+    }
     return ['storyline' => trim((string) ($payload['title'] ?? '')), 'groups' => $mine, 'ties' => $ties];
+  }
+
+  /**
+   * Institutions whose leader or seat does not hold in this storyline.
+   */
+  private static function institutionFindings(array $payload): array {
+    $cast = array_column(array_filter((array) ($payload['objects']['actors']['generation_specs'] ?? []), 'is_array'), NULL, 'actor_id');
+    $places = array_fill_keys(array_merge(
+      array_column(array_filter((array) ($payload['objects']['rooms']['generation_specs'] ?? []), 'is_array'), 'room_id'),
+      array_column(array_filter((array) ($payload['objects']['dungeons']['generation_specs'] ?? []), 'is_array'), 'dungeon_id'),
+    ), TRUE);
+    $findings = [];
+    foreach (array_filter((array) ($payload['objects']['institutions'] ?? []), 'is_array') as $institution) {
+      $id = (string) $institution['institution_id'];
+      $name = trim((string) $institution['name']);
+      $finding = static fn(string $code, string $message): array => ['severity' => 'error', 'code' => $code, 'institution_id' => $id, 'display_name' => $name, 'message' => $message];
+      $leader = trim((string) ($institution['leader_actor_id'] ?? ''));
+      if ($leader !== '' && !isset($cast[$leader])) {
+        $findings[] = $finding('institution_leader_unknown', sprintf("Institution '%s' is led by '%s', who is not in this storyline's cast. Name a cast member or clear the leader.", $name, $leader));
+      }
+      elseif ($leader !== '') {
+        $ties = array_column(array_filter((array) ($cast[$leader]['affiliations'] ?? []), 'is_array'), NULL, 'institution_id');
+        if (!isset($ties[$id]) || !self::belongs($ties[$id])) {
+          $findings[] = $finding('institution_leader_not_member', sprintf("Institution '%s' is led by '%s', who does not belong to it. Give that cast member an affiliation to it with standing leader.", $name, trim((string) ($cast[$leader]['display_name'] ?? '')) ?: $leader));
+        }
+      }
+      $seat = trim((string) ($institution['seat_id'] ?? ''));
+      if ($seat !== '' && !isset($places[$seat])) {
+        $findings[] = $finding('institution_seat_unknown', sprintf("Institution '%s' is based at '%s', which is not a room or site of this storyline. Set its seat to one that is, or clear it.", $name, $seat));
+      }
+    }
+    return $findings;
   }
 
   /**
@@ -1708,9 +1764,24 @@ class StorylineAuthoringDraftService {
     $warnings = [];
     if ($no_affiliation !== []) {
       $warnings[] = sprintf(
-        '%d of %d cast members belong to no clan, family, settlement or other group: %s. Record each one\'s affiliations so shared membership ties them together.',
+        '%d of %d cast members are tied to no institution: %s. Define the story\'s institutions (clan, family, settlement, faction and the like) and give each cast member its affiliations.',
         count($no_affiliation), count($cast), $list($no_affiliation),
       );
+    }
+    $with_members = [];
+    foreach ($cast as $member) {
+      foreach (array_filter((array) ($member['affiliations'] ?? []), 'is_array') as $affiliation) {
+        $with_members[(string) ($affiliation['institution_id'] ?? '')] = TRUE;
+      }
+    }
+    $empty = [];
+    foreach (array_filter((array) ($payload['objects']['institutions'] ?? []), 'is_array') as $institution) {
+      if (!isset($with_members[(string) $institution['institution_id']])) {
+        $empty[] = trim((string) $institution['name']);
+      }
+    }
+    if ($empty !== []) {
+      $warnings[] = sprintf('%d institution(s) have no cast member tied to them: %s. An institution without members is not created in play.', count($empty), $list($empty));
     }
     if ($no_relationship !== []) {
       $warnings[] = sprintf(
@@ -2012,7 +2083,7 @@ class StorylineAuthoringDraftService {
       $payload['canonical_template'] = $draft['payload']['canonical_template'];
     }
     // Every save goes through here, the builder form included.
-    $payload = self::rebindChangedIdentities($draft['payload'] ?? [], $payload);
+    $payload = self::rebindChangedIdentities($draft['payload'] ?? [], self::withInstitutionSubjectIds($payload));
     self::assertRemovedPlacesAreUnreferenced($draft['payload'] ?? [], $payload);
     $this->assertDraftPayloadValid($payload);
     $updated_at = $this->time->getRequestTime();
@@ -2110,7 +2181,7 @@ class StorylineAuthoringDraftService {
     if (($after['canonical_template'] ?? NULL) !== ($before['canonical_template'] ?? NULL)) {
       throw new \InvalidArgumentException('storyline_draft_canonical_source_immutable');
     }
-    $after = self::rebindChangedIdentities($before, $after);
+    $after = self::rebindChangedIdentities($before, self::withInstitutionSubjectIds($after));
     self::assertRemovedPlacesAreUnreferenced($before, $after);
     $this->assertDraftPayloadValid($after);
 
@@ -2159,22 +2230,63 @@ class StorylineAuthoringDraftService {
     '/objects/actors/generation_specs' => ['actor_id', 'contact_id'],
     '/objects/rooms/generation_specs' => ['room_id'],
     '/objects/dungeons/generation_specs' => ['dungeon_id'],
+    '/objects/institutions' => ['institution_id'],
   ];
 
   /**
-   * Carries a changed actor, room or dungeon identity to every reference.
+   * Carries a changed actor, room, dungeon or institution identity to every
+   * reference.
    *
    * When a save changes the ID of a row, the row is the same thing under a
    * new identity: every scene, choice, objective, placement and binding that
    * named the old ID must name the new one in the same save. An identity is
    * never left half changed.
    */
+  /**
+   * The institution engine's subject ID for a draft institution row.
+   *
+   * The same domain and name is the same institution in every storyline and
+   * every campaign, so a draft uses the ID play will use.
+   */
+  private static function institutionSubjectId(array $institution): string {
+    $normalizer = new InstitutionNormalizationService();
+    $normalized = $normalizer->normalizeInstitutionInput([
+      'domain' => (string) ($institution['domain'] ?? ''),
+      'display_name' => (string) ($institution['name'] ?? ''),
+    ]);
+    return $normalizer->buildInstitutionSubjectId($normalized['domain'], $normalized['normalized_label']);
+  }
+
+  /**
+   * Keeps every institution's ID equal to its domain and name.
+   *
+   * Renaming an institution therefore changes its ID; the identity cascade
+   * carries the new ID to every affiliation, stance and parent.
+   */
+  private static function withInstitutionSubjectIds(array $payload): array {
+    if (!is_array($payload['objects']['institutions'] ?? NULL)) {
+      return $payload;
+    }
+    foreach ($payload['objects']['institutions'] as $index => $institution) {
+      if (is_array($institution) && trim((string) ($institution['domain'] ?? '')) !== '' && trim((string) ($institution['name'] ?? '')) !== '') {
+        $payload['objects']['institutions'][$index]['institution_id'] = self::institutionSubjectId($institution);
+      }
+    }
+    return $payload;
+  }
+
   private static function rebindChangedIdentities(array $before, array $after): array {
     $renamed = [];
     foreach (self::CASCADING_IDENTITIES as $path => $fields) {
-      [, $group, $collection, $key] = explode('/', $path);
-      $old_rows = array_values(array_filter((array) ($before[$group][$collection][$key] ?? []), 'is_array'));
-      $new_rows = array_values(array_filter((array) ($after[$group][$collection][$key] ?? []), 'is_array'));
+      $rows_at = static function (array $payload) use ($path): array {
+        $value = $payload;
+        foreach (array_slice(explode('/', $path), 1) as $segment) {
+          $value = is_array($value) ? ($value[$segment] ?? []) : [];
+        }
+        return array_values(array_filter((array) $value, 'is_array'));
+      };
+      $old_rows = $rows_at($before);
+      $new_rows = $rows_at($after);
       if (count($old_rows) !== count($new_rows)) {
         // Rows were added or removed; positions no longer pair up.
         continue;
@@ -2350,6 +2462,11 @@ class StorylineAuthoringDraftService {
       }
       $row =& $operation['value'];
       foreach (self::GENERATED_ID_FIELDS[$path] as $field => $kind) {
+        if ($path === '/objects/institutions') {
+          // An institution's identity is its domain and name, as in play.
+          $row[$field] = self::institutionSubjectId($row);
+          continue;
+        }
         if (array_key_exists($field, $row) && $row[$field] !== '') {
           continue;
         }
@@ -2426,54 +2543,117 @@ class StorylineAuthoringDraftService {
     if ($findings !== []) {
       throw new StorylineDraftValidationException('storyline_draft_schema_invalid', $findings);
     }
-    $this->assertActorAffiliationsValid($payload);
+    $this->assertInstitutionsValid($payload);
     $this->assertActorRelationshipsValid($payload);
   }
 
   /**
-   * Every affiliation names a domain the institution engine accepts for
-   * authoring, and an actor lists each institution once.
+   * The storyline's institutions and the cast's ties to them hold together.
    *
    * @throws \InvalidArgumentException
-   *   `storyline_draft_actor_affiliation_domain_unsupported:<actor>:<domain>`
-   *   `storyline_draft_actor_affiliation_duplicate:<actor>:<domain>:<name>` or
+   *   `storyline_draft_institution_duplicate:<id>`,
+   *   `storyline_draft_institution_name_duplicate:<domain>:<name>`,
+   *   `storyline_draft_institution_domain_unsupported:<id>:<domain>`,
+   *   `storyline_draft_institution_parent_unknown:<id>:<parent>`,
+   *   `storyline_draft_institution_parent_cycle:<id>`,
+   *   `storyline_draft_institution_stance_unknown:<id>:<toward>`,
+   *   `storyline_draft_institution_stance_self:<id>`,
+   *   `storyline_draft_actor_affiliation_institution_unknown:<actor>:<id>`,
+   *   `storyline_draft_actor_affiliation_duplicate:<actor>:<id>` or
    *   `storyline_draft_actor_affiliation_single:<actor>:<domain>`.
    */
-  private function assertActorAffiliationsValid(array $payload): void {
+  private function assertInstitutionsValid(array $payload): void {
     $normalizer = new InstitutionNormalizationService();
+    $institutions = [];
+    $names = [];
+    foreach ((array) ($payload['objects']['institutions'] ?? []) as $institution) {
+      $id = (string) $institution['institution_id'];
+      $domain = (string) $institution['domain'];
+      if (isset($institutions[$id])) {
+        throw new \InvalidArgumentException('storyline_draft_institution_duplicate:' . $id);
+      }
+      // The schema's list must stay the engine's list.
+      if (!isset(InstitutionNormalizationService::AUTHORABLE_DOMAINS[$domain]) || $normalizer->normalizeDomain($domain) !== $domain) {
+        throw new \InvalidArgumentException('storyline_draft_institution_domain_unsupported:' . $id . ':' . $domain);
+      }
+      $name_key = $domain . ':' . mb_strtolower(trim((string) $institution['name']));
+      if (isset($names[$name_key])) {
+        throw new \InvalidArgumentException('storyline_draft_institution_name_duplicate:' . $name_key);
+      }
+      $names[$name_key] = TRUE;
+      $institutions[$id] = $institution;
+    }
+    foreach ($institutions as $id => $institution) {
+      // A part belongs to one whole, and no institution contains itself.
+      $ancestor = trim((string) ($institution['parent_institution_id'] ?? ''));
+      $visited = [$id => TRUE];
+      while ($ancestor !== '') {
+        if (!isset($institutions[$ancestor])) {
+          throw new \InvalidArgumentException('storyline_draft_institution_parent_unknown:' . $id . ':' . $ancestor);
+        }
+        if (isset($visited[$ancestor])) {
+          throw new \InvalidArgumentException('storyline_draft_institution_parent_cycle:' . $id);
+        }
+        $visited[$ancestor] = TRUE;
+        $ancestor = trim((string) ($institutions[$ancestor]['parent_institution_id'] ?? ''));
+      }
+      foreach ((array) ($institution['stances'] ?? []) as $stance) {
+        $toward = (string) $stance['toward_institution_id'];
+        if ($toward === $id) {
+          throw new \InvalidArgumentException('storyline_draft_institution_stance_self:' . $id);
+        }
+        if (!isset($institutions[$toward])) {
+          throw new \InvalidArgumentException('storyline_draft_institution_stance_unknown:' . $id . ':' . $toward);
+        }
+      }
+    }
     // An actor has one home settlement and one state.
     $single = InstitutionMembershipService::singleMembershipDomains();
     foreach ((array) ($payload['objects']['actors']['generation_specs'] ?? []) as $actor) {
       $seen = [];
       foreach ((array) ($actor['affiliations'] ?? []) as $affiliation) {
-        $domain = (string) $affiliation['domain'];
-        // The schema's list must stay the engine's list.
-        if (!isset(InstitutionNormalizationService::AUTHORABLE_DOMAINS[$domain]) || $normalizer->normalizeDomain($domain) !== $domain) {
-          throw new \InvalidArgumentException('storyline_draft_actor_affiliation_domain_unsupported:' . $actor['actor_id'] . ':' . $domain);
+        $id = (string) $affiliation['institution_id'];
+        if (!isset($institutions[$id])) {
+          throw new \InvalidArgumentException('storyline_draft_actor_affiliation_institution_unknown:' . $actor['actor_id'] . ':' . $id);
         }
-        $key = $domain . ':' . mb_strtolower(trim((string) $affiliation['name']));
-        if (isset($seen[$key])) {
-          throw new \InvalidArgumentException('storyline_draft_actor_affiliation_duplicate:' . $actor['actor_id'] . ':' . $key);
+        if (isset($seen[$id])) {
+          throw new \InvalidArgumentException('storyline_draft_actor_affiliation_duplicate:' . $actor['actor_id'] . ':' . $id);
         }
-        $seen[$key] = TRUE;
-        if (in_array($domain, $single, TRUE) && isset($seen[$domain])) {
-          throw new \InvalidArgumentException('storyline_draft_actor_affiliation_single:' . $actor['actor_id'] . ':' . $domain);
+        $seen[$id] = TRUE;
+        $domain = (string) $institutions[$id]['domain'];
+        if (self::belongs($affiliation) && in_array($domain, $single, TRUE)) {
+          if (isset($seen['domain:' . $domain])) {
+            throw new \InvalidArgumentException('storyline_draft_actor_affiliation_single:' . $actor['actor_id'] . ':' . $domain);
+          }
+          $seen['domain:' . $domain] = TRUE;
         }
-        $seen[$domain] = TRUE;
       }
     }
   }
 
   /**
-   * An actor's affiliations as the institution engine's structured
-   * selections: one institution per storyline, domain and name.
+   * Whether an affiliation makes the actor a member of the institution.
    */
-  private function contactAffiliations(array $actor, string $storyline_id): array {
+  private static function belongs(array $affiliation): bool {
+    return in_array((string) ($affiliation['standing'] ?? 'member'), ['member', 'leader'], TRUE);
+  }
+
+  /**
+   * An actor's memberships as the institution engine's structured
+   * selections: one institution per storyline, domain and name. Exiles and
+   * allies are tied to an institution without belonging to it.
+   */
+  private function contactAffiliations(array $actor, array $payload): array {
+    $storyline_id = (string) ($payload['storyline_id'] ?? '');
+    $institutions = array_column((array) ($payload['objects']['institutions'] ?? []), NULL, 'institution_id');
     $normalizer = new InstitutionNormalizationService();
     $selections = [];
     foreach ((array) ($actor['affiliations'] ?? []) as $affiliation) {
-      $name = trim((string) $affiliation['name']);
-      $normalized = $normalizer->normalizeInstitutionInput(['domain' => $affiliation['domain'], 'display_name' => $name]);
+      $institution = $institutions[(string) $affiliation['institution_id']];
+      if (!self::belongs($affiliation)) {
+        continue;
+      }
+      $normalized = $normalizer->normalizeInstitutionInput(['domain' => $institution['domain'], 'display_name' => trim((string) $institution['name'])]);
       $selections[] = [
         'domain' => $normalized['domain'],
         'display_name' => $normalized['display_name'],
@@ -3208,7 +3388,8 @@ class StorylineAuthoringDraftService {
         'availability' => trim((string) ($actor['availability'] ?? 'available')) ?: 'available',
         'notes' => trim((string) ($actor['motivation'] ?? '')),
         'relationship_state' => [
-          'affiliations' => $this->contactAffiliations($actor, (string) ($payload['storyline_id'] ?? '')),
+          'affiliations' => $this->contactAffiliations($actor, $payload),
+          'authored_affiliations' => array_values(array_filter((array) ($actor['affiliations'] ?? []), 'is_array')),
           'chapter_id' => trim((string) ($actor['chapter_id'] ?? '')),
           'scene_id' => trim((string) ($actor['scene_id'] ?? '')),
           'location_id' => trim((string) ($actor['location_id'] ?? '')),
@@ -3328,6 +3509,7 @@ class StorylineAuthoringDraftService {
           ],
           'narrative_architecture' => $this->normalizeNarrativeArchitecture($process_flow['narrative_architecture'] ?? []),
           'objective_completion_criteria' => array_values(array_filter((array) ($process_flow['objective_completion_criteria'] ?? []), 'is_array')),
+          'institutions' => array_values(array_filter((array) ($objects['institutions'] ?? []), 'is_array')),
           'actor_validation_criteria' => array_values(array_filter((array) (($objects['actors']['validation_criteria'] ?? [])), static fn ($value): bool => is_scalar($value) || is_array($value))),
           'room_validation_criteria' => array_values(array_filter((array) (($objects['rooms']['validation_criteria'] ?? [])), static fn ($value): bool => is_scalar($value) || is_array($value))),
           'item_validation_criteria' => array_values(array_filter((array) (($objects['items']['validation_criteria'] ?? [])), static fn ($value): bool => is_scalar($value) || is_array($value))),
@@ -3454,10 +3636,7 @@ class StorylineAuthoringDraftService {
         }
       }
       $actors[] = [
-        'affiliations' => array_map(
-          static fn(array $selection): array => ['domain' => (string) $selection['domain'], 'name' => (string) $selection['display_name']],
-          array_values(array_filter((array) ($contact['relationship_state']['affiliations'] ?? []), 'is_array'))
-        ),
+        'affiliations' => array_values(array_filter((array) ($contact['relationship_state']['authored_affiliations'] ?? []), 'is_array')),
         'contact_id' => (string) ($contact['contact_id'] ?? ''),
         'actor_id' => (string) ($contact['entity_id'] ?? ''),
         'role' => (string) ($contact['role'] ?? 'contact'),
@@ -3541,6 +3720,7 @@ class StorylineAuthoringDraftService {
     $payload['process_flow']['narrative_architecture'] = $this->normalizeNarrativeArchitecture($builder['narrative_architecture'] ?? []);
     $payload['objects']['actors']['generation_specs'] = $actors;
     $payload['objects']['actors']['relationships'] = $actor_relationships;
+    $payload['objects']['institutions'] = array_values(array_filter((array) ($builder['institutions'] ?? []), 'is_array'));
     $payload['objects']['actors']['validation_criteria'] = array_values((array) ($builder['actor_validation_criteria'] ?? []));
     $payload['objects']['dungeons']['generation_specs'] = $dungeons;
     $payload['objects']['rooms']['generation_specs'] = $this->storylineManager
@@ -3603,6 +3783,7 @@ class StorylineAuthoringDraftService {
       ?? $template['metadata']['generated_outline']['entry_point']['primary_location_id']
       ?? ''
     ));
+    $template['metadata']['storyline_builder']['institutions'] = array_values(array_filter((array) ($payload['objects']['institutions'] ?? []), 'is_array'));
     $template['metadata']['storyline_builder']['objective_completion_criteria'] = array_values(array_filter((array) ($payload['process_flow']['objective_completion_criteria'] ?? []), 'is_array'));
     $template['metadata']['storyline_builder']['narrative_architecture'] = $this->normalizeNarrativeArchitecture(
       $payload['process_flow']['narrative_architecture'] ?? []
@@ -4084,7 +4265,8 @@ class StorylineAuthoringDraftService {
       if (!is_array($contact['relationship_state'] ?? NULL)) {
         $contact['relationship_state'] = [];
       }
-      $contact['relationship_state']['affiliations'] = $this->contactAffiliations($row, (string) ($payload['storyline_id'] ?? ''));
+      $contact['relationship_state']['affiliations'] = $this->contactAffiliations($row, $payload);
+      $contact['relationship_state']['authored_affiliations'] = array_values(array_filter((array) ($row['affiliations'] ?? []), 'is_array'));
       // Authored actor relationships replace the ones this draft authored
       // before; introductions from any other source are kept.
       $contact['introduces_to'] = array_values(array_merge(

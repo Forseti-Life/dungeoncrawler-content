@@ -178,6 +178,12 @@
               "type": "array"
             }
           }
+        },
+        "institutions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/institution"
+          }
         }
       }
     },
@@ -852,7 +858,10 @@
         },
         "requires_check": {
           "type": "string",
-          "enum": ["", "request"],
+          "enum": [
+            "",
+            "request"
+          ],
           "description": "interact only. request: the objective completes only when a player's Request (a Diplomacy check against the target, harder or easier by the target's attitude) succeeds. Talking alone does not complete it. The target must be an actor of this storyline."
         },
         "kind": {
@@ -961,35 +970,27 @@
         },
         "affiliations": {
           "type": "array",
-          "description": "Institutions this actor belongs to, by the institution engine's domains. Ancestry and class are not listed here: they come from the actor's sheet.",
+          "description": "Institutions of this storyline the actor is tied to. Ancestry and class are not listed here: they come from the actor's sheet.",
           "items": {
             "type": "object",
             "additionalProperties": false,
             "required": [
-              "domain",
-              "name"
+              "institution_id"
             ],
             "properties": {
-              "domain": {
-                "description": "family (family, house or clan), government (state or nation), allegiance (faction), settlement, religion, employer (guild), education (order or school), noble, security (law or military), criminal, culture (culture or tribe).",
-                "enum": [
-                  "family",
-                  "government",
-                  "allegiance",
-                  "settlement",
-                  "religion",
-                  "employer",
-                  "education",
-                  "noble",
-                  "security",
-                  "criminal",
-                  "culture"
-                ]
-              },
-              "name": {
+              "institution_id": {
                 "type": "string",
                 "minLength": 1,
-                "description": "The institution's name, for example Blackroot Clan. Actors that share a domain and name belong to the same institution."
+                "description": "An institution_id from objects.institutions."
+              },
+              "standing": {
+                "enum": [
+                  "member",
+                  "leader",
+                  "exile",
+                  "ally"
+                ],
+                "description": "member and leader belong to the institution; exile once belonged; ally stands with it from outside. Defaults to member."
               }
             }
           }
@@ -1141,6 +1142,93 @@
         },
         "notes": {
           "type": "string"
+        }
+      }
+    },
+    "institution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "institution_id",
+        "domain",
+        "name"
+      ],
+      "description": "A group the story is about: a clan, faction, guard, guild or the like. Cast members belong to it through their affiliations.",
+      "properties": {
+        "institution_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Allocated by the draft authority for a new institution. An institution taken from the library keeps its library ID."
+        },
+        "domain": {
+          "description": "family (family, house or clan), government (state or nation), allegiance (faction), settlement, religion, employer (guild), education (order or school), noble, security (law or military), criminal, culture (culture or tribe).",
+          "enum": [
+            "family",
+            "government",
+            "allegiance",
+            "settlement",
+            "religion",
+            "employer",
+            "education",
+            "noble",
+            "security",
+            "criminal",
+            "culture"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string",
+          "description": "What the institution is."
+        },
+        "purpose": {
+          "type": "string",
+          "description": "What it wants in this story."
+        },
+        "seat_id": {
+          "type": "string",
+          "description": "The room or site of this storyline it is based at."
+        },
+        "leader_actor_id": {
+          "type": "string",
+          "description": "The cast member who leads it."
+        },
+        "stances": {
+          "type": "array",
+          "description": "How it regards other institutions of this story.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "toward_institution_id",
+              "attitude"
+            ],
+            "properties": {
+              "toward_institution_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "attitude": {
+                "enum": [
+                  "hostile",
+                  "unfriendly",
+                  "indifferent",
+                  "friendly",
+                  "helpful"
+                ]
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "parent_institution_id": {
+          "type": "string",
+          "description": "The institution of this storyline it is part of, such as a household within a clan."
         }
       }
     }
