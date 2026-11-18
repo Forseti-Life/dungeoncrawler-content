@@ -5,7 +5,8 @@
  * Draws a draft's actors as nodes grouped by their institution in one domain
  * of the institution engine (family, state or nation, faction, class,
  * ancestry and so on), with the attitudes they hold toward each other as
- * links. Selecting an actor opens a panel to manage its affiliations and
+ * links. An institution is drawn inside its parent institution (a household
+ * inside its clan) and an actor inside its innermost one. Selecting an actor opens a panel to manage its affiliations and
  * relationships; every change saves a new draft revision. The domains and
  * attitudes come from the engines; the draft is the only store.
  */
@@ -76,7 +77,31 @@
             .filter((institution) => institution && institution.domain === domain)
             .map((institution) => institution.name);
         };
-        const groupOf = (actor) => institutionsOf(actor, groupDomain)[0] || UNAFFILIATED;
+        // An institution's parents, nearest first, as the draft records them.
+        const ancestorsOf = (institutionId) => {
+          const chain = [];
+          let current = institutionById(institutionId);
+          while (current && current.parent_institution_id && institutionById(current.parent_institution_id) && !chain.includes(current.parent_institution_id)) {
+            chain.push(current.parent_institution_id);
+            current = institutionById(current.parent_institution_id);
+          }
+          return chain;
+        };
+        // Where an actor is drawn. In an authored domain that is its
+        // innermost institution: a household inside a clan, not the clan.
+        const homeOf = (actor) => {
+          if (settings.derivedDomains[groupDomain]) {
+            const name = institutionsOf(actor, groupDomain)[0];
+            return name ? { key: `name:${name}`, name } : null;
+          }
+          const memberOf = (actor.affiliations || [])
+            .filter((affiliation) => ['member', 'leader'].includes(affiliation.standing || 'member'))
+            .map((affiliation) => institutionById(affiliation.institution_id))
+            .filter((institution) => institution && institution.domain === groupDomain);
+          const innermost = memberOf.find((institution) => !memberOf.some((other) => other !== institution && ancestorsOf(other.institution_id).includes(institution.institution_id)));
+          return innermost ? { key: innermost.institution_id, name: innermost.name, institutionId: innermost.institution_id } : null;
+        };
+        const groupOf = (actor) => (homeOf(actor) || { name: UNAFFILIATED }).name;
         const nameOf = (actorId) => (actors().find((actor) => actor.actor_id === actorId) || {}).display_name || actorId;
         const reviewUrl = (actorId) => settings.actorUrlTemplate.replace('{actor_id}', encodeURIComponent(actorId));
 
@@ -119,38 +144,90 @@
         }
 
         function layout() {
-          const groups = new Map();
+          // A tree of groups: an institution sits inside its parent, as the
+          // institution framework holds them.
+          const nodes = new Map();
+          const nodeFor = (key, name) => {
+            if (!nodes.has(key)) nodes.set(key, { key, name, members: [], children: [], parent: null });
+            return nodes.get(key);
+          };
+          const institutionNode = (institutionId) => {
+            if (nodes.has(institutionId)) return nodes.get(institutionId);
+            const node = nodeFor(institutionId, institutionById(institutionId).name);
+            const parentId = ancestorsOf(institutionId)[0];
+            if (parentId) {
+              node.parent = institutionNode(parentId);
+              node.parent.children.push(node);
+            }
+            return node;
+          };
           actors().forEach((actor) => {
-            const faction = groupOf(actor);
-            if (!groups.has(faction)) groups.set(faction, []);
-            groups.get(faction).push(actor);
+            const home = homeOf(actor);
+            const node = !home ? nodeFor(UNAFFILIATED, UNAFFILIATED)
+              : home.institutionId ? institutionNode(home.institutionId) : nodeFor(home.key, home.name);
+            node.members.push(actor);
           });
-          const ordered = [...groups.entries()].sort(([a], [b]) => (a === UNAFFILIATED) - (b === UNAFFILIATED) || a.localeCompare(b));
+
+          const gap = 22;
+          const maxWidth = Math.max(900, canvas.clientWidth || 900);
+          const measure = (node) => {
+            node.children.sort((a, b) => a.name.localeCompare(b.name)).forEach(measure);
+            const count = node.members.length;
+            const columns = Math.min(NODE.perRow, count);
+            const rows = Math.ceil(count / NODE.perRow);
+            const membersWidth = count ? columns * NODE.width + (columns - 1) * NODE.gapX : 0;
+            const membersHeight = count ? rows * NODE.height + (rows - 1) * NODE.gapY : 0;
+            // Child institutions flow in rows under the direct members.
+            const limit = Math.max(membersWidth, maxWidth - 120);
+            let x = 0;
+            let y = 0;
+            let rowHeight = 0;
+            let childrenWidth = 0;
+            node.children.forEach((child) => {
+              if (x > 0 && x + child.width > limit) {
+                x = 0;
+                y += rowHeight + gap;
+                rowHeight = 0;
+              }
+              child.offset = { x, y };
+              x += child.width + gap;
+              childrenWidth = Math.max(childrenWidth, x - gap);
+              rowHeight = Math.max(rowHeight, child.height);
+            });
+            const childrenHeight = node.children.length ? y + rowHeight : 0;
+            node.childrenTop = NODE.title + NODE.pad + membersHeight + (membersHeight && childrenHeight ? gap : 0);
+            node.width = NODE.pad * 2 + Math.max(membersWidth, childrenWidth, node.name.length * 9 + 50);
+            node.height = node.childrenTop + childrenHeight + NODE.pad;
+            node.count = count + node.children.reduce((total, child) => total + child.count, 0);
+          };
           const positions = new Map();
           const boxes = [];
-          let x = 20;
-          let y = 20;
-          let rowHeight = 0;
-          const maxWidth = Math.max(900, canvas.clientWidth || 900);
-          ordered.forEach(([faction, members]) => {
-            const columns = Math.min(NODE.perRow, members.length);
-            const rows = Math.ceil(members.length / NODE.perRow);
-            const width = NODE.pad * 2 + columns * NODE.width + (columns - 1) * NODE.gapX;
-            const height = NODE.title + NODE.pad + rows * NODE.height + (rows - 1) * NODE.gapY + NODE.pad;
-            if (x + width > maxWidth && x > 20) {
-              x = 20;
-              y += rowHeight + 28;
-              rowHeight = 0;
-            }
-            boxes.push({ faction, x, y, width, height, count: members.length });
-            members.forEach((actor, index) => {
+          const place = (node, x, y, depth) => {
+            boxes.push({ faction: node.name, x, y, width: node.width, height: node.height, count: node.count, depth });
+            node.members.forEach((actor, index) => {
               positions.set(actor.actor_id, {
                 x: x + NODE.pad + (index % NODE.perRow) * (NODE.width + NODE.gapX),
                 y: y + NODE.title + NODE.pad + Math.floor(index / NODE.perRow) * (NODE.height + NODE.gapY),
               });
             });
-            x += width + 28;
-            rowHeight = Math.max(rowHeight, height);
+            node.children.forEach((child) => place(child, x + NODE.pad + child.offset.x, y + node.childrenTop + child.offset.y, depth + 1));
+          };
+
+          const roots = [...nodes.values()].filter((node) => node.parent === null)
+            .sort((a, b) => (a.key === UNAFFILIATED) - (b.key === UNAFFILIATED) || a.name.localeCompare(b.name));
+          let x = 20;
+          let y = 20;
+          let rowHeight = 0;
+          roots.forEach((root) => {
+            measure(root);
+            if (x + root.width > maxWidth && x > 20) {
+              x = 20;
+              y += rowHeight + 28;
+              rowHeight = 0;
+            }
+            place(root, x, y, 0);
+            x += root.width + 28;
+            rowHeight = Math.max(rowHeight, root.height);
           });
           return { boxes, positions, width: Math.max(maxWidth, ...boxes.map((box) => box.x + box.width + 20)), height: y + rowHeight + 20 };
         }
@@ -165,8 +242,8 @@
           svg.appendChild(defs);
 
           boxes.forEach((box) => {
-            svg.appendChild(svgEl('rect', { x: box.x, y: box.y, width: box.width, height: box.height, rx: 14, class: `actor-graph__faction${box.faction === UNAFFILIATED ? ' actor-graph__faction--none' : ''}` }));
-            svg.appendChild(svgEl('text', { x: box.x + NODE.pad, y: box.y + 24, class: 'actor-graph__faction-title' }, `${box.faction === UNAFFILIATED ? `No ${domainLabels[groupDomain].toLowerCase()}` : box.faction} (${box.count})`));
+            svg.appendChild(svgEl('rect', { x: box.x, y: box.y, width: box.width, height: box.height, rx: 14, class: `actor-graph__faction${box.faction === UNAFFILIATED ? ' actor-graph__faction--none' : ''}${box.depth > 0 ? ` actor-graph__faction--nested actor-graph__faction--depth-${Math.min(box.depth, 3)}` : ''}` }));
+            svg.appendChild(svgEl('text', { x: box.x + NODE.pad, y: box.y + 24, class: `actor-graph__faction-title${box.depth > 0 ? ' actor-graph__faction-title--nested' : ''}` }, `${box.faction === UNAFFILIATED ? `No ${domainLabels[groupDomain].toLowerCase()}` : box.faction} (${box.count})`));
           });
 
           const center = (actorId) => {

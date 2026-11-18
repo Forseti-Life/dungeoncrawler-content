@@ -21,6 +21,11 @@
 .actor-graph__faction { fill: #172033; stroke: #475569; stroke-width: 1.5; }
 .actor-graph__faction--none { stroke-dasharray: 6 5; fill: #131b2b; }
 .actor-graph__faction-title { fill: #fbbf24; font-weight: 700; font-size: 15px; }
+/* An institution inside its parent: each level a shade lighter. */
+.actor-graph__faction--depth-1 { fill: #1e2a42; stroke: #5b6b85; }
+.actor-graph__faction--depth-2 { fill: #263451; stroke: #6b7c98; }
+.actor-graph__faction--depth-3 { fill: #2e3d5e; stroke: #7b8cab; }
+.actor-graph__faction-title--nested { fill: #fcd34d; font-size: 13px; }
 .actor-graph__node { cursor: pointer; }
 .actor-graph__node > rect:first-child { fill: #1e293b; stroke: #64748b; stroke-width: 1.5; }
 .actor-graph__node:hover > rect:first-child, .actor-graph__node:focus > rect:first-child { stroke: #fbbf24; }
