@@ -914,3 +914,22 @@ question is refused (`editor_gm_intent_parallel_call_not_a_tool`).
 - A character sheet is built from the actor's name, role, motivation,
   attitude, knowledge, class, ancestry and level. Placing an actor or
   tying it to an institution does not make its sheet out of date.
+
+## GM agents and their scopes
+
+Each editor page has its own GM agent, working on one draft at a time.
+
+- Storyline Builder owns the story: tasks, scenes, cast, institutions,
+  relationships, and publishing the storyline. It never changes a site or
+  a room, and it does not delegate to another agent.
+- Dungeon Editor owns a site: its rooms, how they connect, and publishing
+  it. Room Editor owns one room. Each reads what the story needs from the
+  story brief.
+- Definition Editor and Character Creation own object definitions and
+  character sheets. Some overlap is accepted: the Storyline, Room and
+  Dungeon agents may also create or update object definitions, and the
+  Storyline agent builds its cast's character sheets.
+- Handoff is always to the author. When the story needs a site or room
+  built or changed, the Storyline agent answers with a shortcut into that
+  editor. The same shortcuts are listed beside the draft under "In this
+  storyline": each site with its rooms beneath it.

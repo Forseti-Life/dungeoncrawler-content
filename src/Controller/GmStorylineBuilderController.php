@@ -687,7 +687,7 @@ TWIG,
       '#markup' => '<h3 class="character-setup-page__sidebar-title">' . $this->t('In this storyline') . '</h3>',
     ];
     $build['layout']['sidebar']['stack']['quick_links']['object_items'] = [
-      '#markup' => '<ul class="character-setup-page__quick-links" data-storyline-object-editor-links><li>Load a storyline to see its scenes, actors, and dungeons.</li></ul>',
+      '#markup' => '<ul class="character-setup-page__quick-links" data-storyline-object-editor-links><li>Load a storyline to see its scenes, actors, sites and rooms.</li></ul>',
     ];
 
     $build['layout']['workspace'] = [

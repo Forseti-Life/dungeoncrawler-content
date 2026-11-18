@@ -1007,12 +1007,18 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
           }
           const blueprint = buildBlueprint();
           refreshReferenceLists(blueprint);
+          // Sites and rooms are built in their own editors, by their own GM:
+          // each site is listed with its rooms beneath it.
+          const rooms = (blueprint.objects?.rooms?.generation_specs || [])
+            .map((room) => ({ id: String(room.room_id || '').trim(), site: String(room.dungeon_id || '').trim() }))
+            .filter((room) => room.id);
+          const roomEntry = (room) => ({ kind: 'room', id: room.id, label: room.id, nested: true });
           const objects = [
-            ...(blueprint.objects?.dungeons?.generation_specs || []).map((dungeon) => ({
-              kind: 'dungeon',
-              id: String(dungeon.dungeon_id || '').trim(),
-              label: String(dungeon.dungeon_id || '').trim(),
-            })),
+            ...(blueprint.objects?.dungeons?.generation_specs || []).flatMap((dungeon) => {
+              const id = String(dungeon.dungeon_id || '').trim();
+              return [{ kind: 'dungeon', id, label: id }, ...rooms.filter((room) => room.site === id).map(roomEntry)];
+            }),
+            ...rooms.filter((room) => !(blueprint.objects?.dungeons?.generation_specs || []).some((dungeon) => String(dungeon.dungeon_id || '').trim() === room.site)).map(roomEntry),
           ];
           const unique = new Map();
           objects.forEach((object) => {
@@ -1068,7 +1074,7 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
           }
           if (unique.size === 0) {
             const empty = document.createElement('li');
-            empty.textContent = 'Load a storyline to see its scenes, actors, and dungeons.';
+            empty.textContent = 'Load a storyline to see its scenes, actors, sites and rooms.';
             objectEditorLinks.appendChild(empty);
             return;
           }
@@ -1079,8 +1085,13 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
             link.href = href;
             link.target = '_blank';
             link.rel = 'noopener';
-            link.textContent = `${object.kind[0].toUpperCase()}${object.kind.slice(1)}: ${object.label}`;
-            link.title = `Open ${object.id} in the canonical ${object.kind} editor`;
+            const editorName = object.kind === 'dungeon' ? 'Dungeon Editor' : 'Room Editor';
+            link.textContent = `${object.kind === 'dungeon' ? 'Site' : 'Room'}: ${object.label}`;
+            link.title = `Open ${object.id} in the ${editorName}; its GM builds it from this story's brief`;
+            link.dataset.editorShortcut = `${object.kind}:${object.id}`;
+            if (object.nested) {
+              item.style.marginLeft = '14px';
+            }
             item.appendChild(link);
             objectEditorLinks.appendChild(item);
           });
@@ -1672,6 +1683,36 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
           assistantLog.scrollTop = assistantLog.scrollHeight;
         }
 
+        // The Storyline GM does not change sites or rooms: it hands the
+        // author the shortcut into the editor whose GM does.
+        function pushAssistantEditorShortcut(result) {
+          const route = String(result?.route || '').trim();
+          if (!assistantLog || !route || !['dungeon', 'room'].includes(result?.kind)) {
+            return;
+          }
+          const editorName = result.kind === 'dungeon' ? 'Dungeon Editor' : 'Room Editor';
+          const item = document.createElement('li');
+          item.className = 'gm-storyline-wizard__assistant-item gm-storyline-wizard__assistant-item--assistant';
+          const link = document.createElement('a');
+          link.href = route;
+          link.target = '_blank';
+          link.rel = 'noopener';
+          link.className = 'btn btn-secondary btn-sm';
+          link.textContent = result.id ? `Open ${result.id} in the ${editorName}` : `Open the ${editorName}`;
+          const note = document.createElement('span');
+          note.textContent = ` Its GM does this work. The same shortcut is under "In this storyline".`;
+          item.append(link, note);
+          assistantLog.appendChild(item);
+          assistantLog.scrollTop = assistantLog.scrollHeight;
+          const shortcut = result.id && objectEditorLinks
+            ? Array.from(objectEditorLinks.querySelectorAll('a')).find((candidate) => candidate.dataset.editorShortcut === `${result.kind}:${result.id}`)
+            : null;
+          if (shortcut) {
+            shortcut.style.fontWeight = '700';
+            shortcut.scrollIntoView({ block: 'nearest' });
+          }
+        }
+
         function pushAssistantToolCalls(toolCalls) {
           if (!assistantLog || !Array.isArray(toolCalls) || toolCalls.length === 0) {
             return;
@@ -2137,6 +2178,7 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
             }
             if (result?.intent !== 'clarification') {
               pushAssistantLog('assistant', summarizeAssistantResult(result));
+              pushAssistantEditorShortcut(result);
               pushAssistantNextSteps(result?.next_steps);
             }
             if (result?.intent !== 'clarification' && Array.isArray(notes)) {

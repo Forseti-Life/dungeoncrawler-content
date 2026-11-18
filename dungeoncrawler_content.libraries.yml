@@ -102,13 +102,13 @@ character-setup-tabs:
     - core/drupal.ajax
 
 editor-gm-chat-style:
-  version: 20261118-work-1
+  version: 20261118-shortcuts-1
   css:
     theme:
       css/gm-storyline-builder.css: {}
 
 gm-storyline-actor-graph:
-  version: 20261118-work-1
+  version: 20261118-mutual-1
   css:
     theme:
       css/gm-storyline-actor-graph.css: {}
@@ -126,7 +126,7 @@ gm-storyline-scene-review:
       css/gm-storyline-scene-review.css: {}
 
 gm-storyline-builder:
-  version: 20261118-work-1
+  version: 20261118-shortcuts-1
   js:
     js/gm-storyline-builder.js: { attributes: { type: module } }
   dependencies:

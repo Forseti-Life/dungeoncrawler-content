@@ -250,7 +250,20 @@
             const position = positions.get(actorId);
             return { x: position.x + NODE.width / 2, y: position.y + NODE.height / 2 };
           };
-          relationships().forEach((relationship, index) => {
+          // Two actors who hold the same attitude toward each other share one
+          // line with an arrow at each end. Differing attitudes stay separate,
+          // because a line has one colour.
+          const links = [];
+          relationships().forEach((relationship) => {
+            const paired = links.find((link) => !link.reverse
+              && link.relationship.source_actor_id === relationship.target_actor_id
+              && link.relationship.target_actor_id === relationship.source_actor_id
+              && link.relationship.attitude === relationship.attitude);
+            if (paired) paired.reverse = relationship;
+            else links.push({ relationship, reverse: null });
+          });
+          const describe = (relationship) => `${nameOf(relationship.source_actor_id)} is ${relationship.attitude} toward ${nameOf(relationship.target_actor_id)}${relationship.bond ? ` (${relationship.bond})` : ''}${relationship.notes ? `: ${relationship.notes}` : ''}`;
+          links.forEach(({ relationship, reverse }, index) => {
             const from = center(relationship.source_actor_id);
             const to = center(relationship.target_actor_id);
             const dx = to.x - from.x;
@@ -265,11 +278,15 @@
             const mid = { x: (start.x + end.x) / 2 - (dy / length) * bend, y: (start.y + end.y) / 2 + (dx / length) * bend };
             const touches = selectedId && (relationship.source_actor_id === selectedId || relationship.target_actor_id === selectedId);
             const group = svgEl('g', { class: `actor-graph__link${touches ? ' is-active' : ''}${selectedId && !touches ? ' is-dim' : ''}` });
-            group.appendChild(svgEl('path', { d: `M ${start.x} ${start.y} Q ${mid.x} ${mid.y} ${end.x} ${end.y}`, 'marker-end': 'url(#actor-graph-arrow)', style: `stroke: ${ATTITUDE_COLORS[relationship.attitude]}` }));
-            const linkText = relationship.bond ? `${relationship.bond} · ${relationship.attitude}` : relationship.attitude;
+            group.appendChild(svgEl('path', { d: `M ${start.x} ${start.y} Q ${mid.x} ${mid.y} ${end.x} ${end.y}`, 'marker-end': 'url(#actor-graph-arrow)', ...(reverse ? { 'marker-start': 'url(#actor-graph-arrow)' } : {}), style: `stroke: ${ATTITUDE_COLORS[relationship.attitude]}` }));
+            // A shared bond is named once; differing bonds read source ⇄ target.
+            const bond = reverse && (reverse.bond || '') !== (relationship.bond || '')
+              ? `${relationship.bond || '—'} ⇄ ${reverse.bond || '—'}`
+              : relationship.bond;
+            const linkText = bond ? `${bond} · ${relationship.attitude}` : relationship.attitude;
             const label = svgEl('text', { x: mid.x, y: mid.y, 'text-anchor': 'middle', class: 'actor-graph__link-label' }, linkText);
             group.appendChild(label);
-            group.appendChild(svgEl('title', {}, `${nameOf(relationship.source_actor_id)} is ${relationship.attitude} toward ${nameOf(relationship.target_actor_id)}${relationship.bond ? ` (${relationship.bond})` : ''}${relationship.notes ? `: ${relationship.notes}` : ''}`));
+            group.appendChild(svgEl('title', {}, reverse ? `${describe(relationship)}\n${describe(reverse)}` : describe(relationship)));
             svg.appendChild(group);
           });
 
