@@ -329,13 +329,27 @@
             }
             affiliationList.appendChild(item);
           });
+          // A member of a part is a member of every institution above it.
+          const directIds = new Set((actor.affiliations || []).map((affiliation) => affiliation.institution_id));
+          const inheritedIds = new Set();
+          (actor.affiliations || [])
+            .filter((affiliation) => ['member', 'leader'].includes(affiliation.standing || 'member'))
+            .forEach((affiliation) => ancestorsOf(affiliation.institution_id).forEach((ancestorId) => {
+              if (directIds.has(ancestorId) || inheritedIds.has(ancestorId)) return;
+              inheritedIds.add(ancestorId);
+              const ancestor = institutionById(ancestorId);
+              affiliationList.appendChild(el('li', { class: 'actor-graph__meta' }, `${settings.domains[ancestor.domain]}: ${ancestor.name} — through ${institutionById(affiliation.institution_id).name}`));
+            }));
           panel.appendChild(affiliationList);
           if (editable) {
             const affiliationForm = el('form', { class: 'actor-graph__form' });
             const tied = new Set((actor.affiliations || []).map((affiliation) => affiliation.institution_id));
             const open = institutions().filter((institution) => !tied.has(institution.institution_id));
             const institutionSelect = el('select', { class: 'form-select', 'aria-label': 'Institution', required: 'required' });
-            open.forEach((institution) => institutionSelect.appendChild(el('option', { value: institution.institution_id }, `${institution.name} (${settings.domains[institution.domain]})`)));
+            // Listed as they nest: a part under the whole it sits inside.
+            const pathOf = (institution) => [...ancestorsOf(institution.institution_id).reverse().map((id) => institutionById(id).name), institution.name];
+            open.sort((a, b) => pathOf(a).join('\u0000').localeCompare(pathOf(b).join('\u0000')))
+              .forEach((institution) => institutionSelect.appendChild(el('option', { value: institution.institution_id }, `${'— '.repeat(ancestorsOf(institution.institution_id).length)}${institution.name} (${settings.domains[institution.domain]})`)));
             const standingSelect = el('select', { class: 'form-select', 'aria-label': 'Standing' });
             ['member', 'leader', 'exile', 'ally'].forEach((standing) => standingSelect.appendChild(el('option', { value: standing }, standing)));
             if (open.length === 0) {

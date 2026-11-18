@@ -537,7 +537,7 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
 
         function institutionOptionLabel(institution) {
           const kind = wizard.querySelector('[data-row-template="institution_entries"]')
-            .content.querySelector(`[data-col-field="domain"] option[value="${institution.domain}"]`).textContent;
+            .content.querySelector(`[data-col-field="domain"] option[value="${institution.domain}"]`).dataset.short;
           return `${institution.name} (${kind})`;
         }
 

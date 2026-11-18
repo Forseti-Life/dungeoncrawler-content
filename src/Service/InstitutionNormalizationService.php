@@ -18,11 +18,20 @@ class InstitutionNormalizationService {
    * from its ancestry and class, not authored.
    */
   public const AUTHORABLE_DOMAINS = [
-    'state' => 'State, with its law and military',
-    'place' => 'Settlement or place',
-    'kin' => 'Kin: culture, tribe, clan, house or family',
-    'organization' => 'Organisation: faction, guild, order, school or covert group',
+    'state' => 'State',
+    'place' => 'Place',
+    'kin' => 'Kin',
+    'organization' => 'Organisation',
     'faith' => 'Faith',
+  ];
+
+  /** What each authored type covers, for the author choosing one. */
+  public const DOMAIN_HINTS = [
+    'state' => 'a nation or realm, with its law and military',
+    'place' => 'a settlement, district or region',
+    'kin' => 'a culture, tribe, clan, house or family',
+    'organization' => 'a faction, guild, order, school, company or covert group',
+    'faith' => 'a religion, church or cult',
   ];
 
   /**

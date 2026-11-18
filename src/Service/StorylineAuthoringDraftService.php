@@ -1648,12 +1648,27 @@ class StorylineAuthoringDraftService {
           $groups['Alignment:' . $name] = ['kind' => 'Alignment', 'name' => $name];
         }
       }
-      foreach (self::institutionsBelongedTo($member, $institutions) as $institution_id) {
-        $institution = $institutions[$institution_id];
-        $groups['institution:' . $institution_id] = [
-          'kind' => InstitutionNormalizationService::AUTHORABLE_DOMAINS[(string) $institution['domain']],
-          'name' => trim((string) $institution['name']),
-        ];
+      foreach (array_filter((array) ($member['affiliations'] ?? []), 'is_array') as $affiliation) {
+        $direct = (string) ($affiliation['institution_id'] ?? '');
+        if (!isset($institutions[$direct])) {
+          continue;
+        }
+        // The tie itself, then, for one who belongs, every institution above.
+        $chain = [$direct];
+        while (self::belongs($affiliation) && ($parent = trim((string) ($institutions[end($chain)]['parent_institution_id'] ?? ''))) !== '' && isset($institutions[$parent]) && !in_array($parent, $chain, TRUE)) {
+          $chain[] = $parent;
+        }
+        foreach ($chain as $position => $institution_id) {
+          $institution = $institutions[$institution_id];
+          $groups['institution:' . $institution_id] ??= [
+            'kind' => InstitutionNormalizationService::AUTHORABLE_DOMAINS[(string) $institution['domain']],
+            'name' => trim((string) $institution['name']),
+            'through' => $position === 0 ? '' : trim((string) $institutions[$direct]['name']),
+          ];
+          if ($position === 0) {
+            $groups['institution:' . $institution_id]['through'] = '';
+          }
+        }
       }
       return $groups;
     };
@@ -1666,11 +1681,19 @@ class StorylineAuthoringDraftService {
       }
     }
     $mine = [];
-    foreach ($groups as $group) {
+    $mine_groups = [];
+    foreach ($cast as $member) {
+      if ((string) ($member['actor_id'] ?? '') === $actor_id) {
+        $mine_groups = $groups_of($member);
+      }
+    }
+    foreach ($groups as $key => $group) {
       if (isset($group['members'][$actor_id])) {
         $mine[] = [
           'kind' => $group['kind'],
           'name' => $group['name'],
+          // Set when the actor belongs by inheritance from a part.
+          'through' => (string) ($mine_groups[$key]['through'] ?? ''),
           'shared_with' => array_values(array_diff_key($group['members'], [$actor_id => TRUE])),
         ];
       }

@@ -783,7 +783,7 @@
       <h3 class="dc-sheet__subsection-title">In the storyline {{ story_ties.storyline }}</h3>
       {% for group in story_ties.groups %}
         <div class="dc-sheet__detail">
-          <strong>{{ group.kind }}:</strong> {{ group.name }}
+          <strong>{{ group.kind }}:</strong> {{ group.name }}{% if group.through %} <span class="dc-sheet__tag">through {{ group.through }}</span>{% endif %}
           {% if group.shared_with|length > 0 %}
             <div class="dc-sheet__detail">Shared with {{ group.shared_with|length }}: {{ group.shared_with|slice(0, 12)|join(', ') }}{% if group.shared_with|length > 12 %} and {{ group.shared_with|length - 12 }} more{% endif %}</div>
           {% endif %}

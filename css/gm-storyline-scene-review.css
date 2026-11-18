@@ -53,3 +53,10 @@ a.scene-review__chip:hover, a.scene-review__chip:focus { background: #fbbf24; co
   .scene-review__facts { grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .scene-review__facts dd { margin-bottom: 8px; }
 }
+
+/* Institution review: the hierarchy. */
+.scene-review__tree { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 6px; }
+.scene-review__count { color: #94a3b8; font-size: 0.8rem; }
+.scene-review__scene--depth-1 { border-left: 4px solid #fbbf24; }
+.scene-review__scene--depth-2 { border-left: 4px solid #f59e0b; }
+.scene-review__scene--depth-3 { border-left: 4px solid #d97706; }

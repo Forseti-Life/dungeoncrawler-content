@@ -267,8 +267,42 @@ TWIG,
         'url' => Url::fromRoute('dungeoncrawler_content.actor_view', ['actor_id' => $actor_id], ['query' => ['draft_id' => $draft_id]])->toString(),
       ];
     }
+    // The hierarchy as the institution framework holds it: each institution
+    // names the one it sits inside; those with the same parent are peers.
+    $parent_of = static fn(string $id): string => isset($institutions[$id]) ? trim((string) ($institutions[$id]['parent_institution_id'] ?? '')) : '';
+    $children = array_fill_keys(array_keys($institutions), []);
+    $roots = [];
+    foreach (array_keys($institutions) as $id) {
+      $parent = $parent_of((string) $id);
+      if ($parent !== '' && isset($institutions[$parent])) {
+        $children[$parent][] = (string) $id;
+      }
+      else {
+        $roots[] = (string) $id;
+      }
+    }
+    $type_order = array_flip(array_keys(InstitutionNormalizationService::AUTHORABLE_DOMAINS));
+    $by_name = static fn(string $a, string $b): int => strcasecmp((string) $institutions[$a]['name'], (string) $institutions[$b]['name']);
+    usort($roots, static fn(string $a, string $b): int => [$type_order[(string) $institutions[$a]['domain']], mb_strtolower((string) $institutions[$a]['name'])] <=> [$type_order[(string) $institutions[$b]['domain']], mb_strtolower((string) $institutions[$b]['name'])]);
+    foreach ($children as &$list) {
+      usort($list, $by_name);
+    }
+    unset($list);
+    // Depth-first, so a part follows the whole it belongs to.
+    $ordered = [];
+    $walk = static function (string $id, int $depth) use (&$walk, &$ordered, $children): void {
+      $ordered[$id] = $depth;
+      foreach ($children[$id] as $child) {
+        $walk($child, $depth + 1);
+      }
+    };
+    foreach ($roots as $root) {
+      $walk($root, 0);
+    }
+    $link = static fn(string $id): array => ['name' => trim((string) $institutions[$id]['name']), 'anchor' => 'institution-' . Html::getClass($id)];
+
     // Leaders first, then those who belong, then those who stand outside.
-    $members = array_fill_keys(array_keys($institutions), ['leader' => [], 'member' => [], 'ally' => [], 'exile' => []]);
+    $members = array_fill_keys(array_keys($institutions), ['leader' => [], 'member' => [], 'inherited' => [], 'ally' => [], 'exile' => []]);
     $untied = [];
     foreach ($cast as $actor) {
       $entry = $actors[trim((string) ($actor['actor_id'] ?? ''))];
@@ -276,20 +310,46 @@ TWIG,
       if ($affiliations === []) {
         $untied[] = $entry;
       }
+      $direct = [];
       foreach ($affiliations as $affiliation) {
         $members[(string) $affiliation['institution_id']][(string) ($affiliation['standing'] ?? 'member')][] = $entry;
+        $direct[(string) $affiliation['institution_id']] = TRUE;
+      }
+      // A member of a part belongs to every institution above it.
+      foreach (StorylineAuthoringDraftService::institutionsBelongedTo($actor, $institutions) as $id) {
+        if (!isset($direct[$id])) {
+          $members[$id]['inherited'][] = $entry;
+        }
+      }
+    }
+    $regarded_by = array_fill_keys(array_keys($institutions), []);
+    foreach ($institutions as $id => $institution) {
+      foreach ($rows($institution['stances'] ?? []) as $stance) {
+        $regarded_by[(string) $stance['toward_institution_id']][] = [
+          'by' => $link((string) $id),
+          'attitude' => (string) $stance['attitude'],
+          'reason' => trim((string) ($stance['reason'] ?? '')),
+        ];
       }
     }
 
-    $standing_labels = ['leader' => 'Leaders', 'member' => 'Members', 'ally' => 'Allies', 'exile' => 'Exiles'];
+    $standing_labels = ['leader' => 'Leaders', 'member' => 'Members', 'inherited' => 'Members through its parts', 'ally' => 'Allies', 'exile' => 'Exiles'];
     $review = [];
-    foreach ($institutions as $id => $institution) {
+    $by_type = array_fill_keys(array_keys(InstitutionNormalizationService::AUTHORABLE_DOMAINS), 0);
+    foreach ($ordered as $id => $depth) {
+      $institution = $institutions[$id];
+      $by_type[(string) $institution['domain']]++;
       $leader = trim((string) ($institution['leader_actor_id'] ?? ''));
-      $parent = trim((string) ($institution['parent_institution_id'] ?? ''));
+      $path = [];
+      for ($ancestor = $parent_of($id); $ancestor !== '' && isset($institutions[$ancestor]) && count($path) < count($institutions); $ancestor = $parent_of($ancestor)) {
+        array_unshift($path, $link($ancestor));
+      }
+      $parent = $parent_of($id);
+      $siblings = $parent !== '' && isset($institutions[$parent]) ? $children[$parent] : $roots;
       $stances = [];
       foreach ($rows($institution['stances'] ?? []) as $stance) {
         $stances[] = [
-          'toward' => trim((string) $institutions[(string) $stance['toward_institution_id']]['name']),
+          'toward' => $link((string) $stance['toward_institution_id']),
           'attitude' => (string) $stance['attitude'],
           'reason' => trim((string) ($stance['reason'] ?? '')),
         ];
@@ -298,18 +358,28 @@ TWIG,
       foreach (array_filter($members[$id]) as $standing => $entries) {
         $groups[] = ['label' => $standing_labels[$standing], 'actors' => $entries];
       }
-      $review[] = [
-        'name' => trim((string) $institution['name']),
+      $review[] = $link($id) + [
+        'depth' => $depth,
         'kind' => InstitutionNormalizationService::AUTHORABLE_DOMAINS[(string) $institution['domain']],
         'description' => trim((string) ($institution['description'] ?? '')),
         'purpose' => trim((string) ($institution['purpose'] ?? '')),
         'seat' => trim((string) ($institution['seat_id'] ?? '')),
         // A leader outside the cast is a validation finding; it is shown as written.
         'leader' => $leader === '' ? NULL : ($actors[$leader] ?? ['name' => $leader, 'role' => '', 'url' => '']),
-        'parent' => $parent === '' ? '' : trim((string) $institutions[$parent]['name']),
+        'path' => $path,
+        'contains' => array_map($link, $children[$id]),
+        // Top-level institutions are peers only of their own type.
+        'peers' => array_map($link, array_values(array_filter($siblings, static fn(string $other): bool => $other !== $id
+          && ($parent !== '' || $institutions[$other]['domain'] === $institution['domain'])))),
         'stances' => $stances,
+        'regarded_by' => $regarded_by[$id],
+        'member_count' => count($members[$id]['leader']) + count($members[$id]['member']) + count($members[$id]['inherited']),
         'groups' => $groups,
       ];
+    }
+    $types = [];
+    foreach ($by_type as $domain => $count) {
+      $types[] = ['label' => InstitutionNormalizationService::AUTHORABLE_DOMAINS[$domain], 'hint' => InstitutionNormalizationService::DOMAIN_HINTS[$domain], 'count' => $count];
     }
 
     return [
@@ -320,7 +390,9 @@ TWIG,
         'title' => trim((string) ($payload['title'] ?? '')),
         'revision' => (int) ($draft['revision'] ?? 0),
         'back_url' => Url::fromRoute('dungeoncrawler_content.gm_storyline_builder', [], ['query' => ['draft_id' => $draft_id]])->toString(),
+        'graph_url' => Url::fromRoute('dungeoncrawler_content.gm_storyline_actor_graph', [], ['query' => ['draft_id' => $draft_id]])->toString(),
         'institutions' => $review,
+        'types' => $types,
         'cast_count' => count($cast),
         'untied' => $untied,
       ],
@@ -330,42 +402,55 @@ TWIG,
     <a class="scene-review__back" href="{{ back_url }}">← Back to the storyline draft</a>
     <h2 class="scene-review__title">{{ title ?: 'Untitled storyline' }}</h2>
     <p class="scene-review__meta">Revision {{ revision }} · {{ institutions|length }} institutions · {{ cast_count - untied|length }} of {{ cast_count }} cast members tied · read-only view of the saved draft</p>
-    <p class="scene-review__legend">Cast members open their actor page in a new tab.</p>
+    <p class="scene-review__meta">{% for type in types %}<span title="{{ type.hint }}">{{ type.label }} {{ type.count }}</span>{% if not loop.last %} · {% endif %}{% endfor %}</p>
+    <p class="scene-review__legend">An institution is listed under the one it sits inside. A member of a part is a member of the whole. Cast members open their actor page in a new tab. <a href="{{ graph_url }}">Open the actor relationship graph</a>.</p>
   </header>
   {% if institutions is empty %}<p>This draft has no institutions yet.</p>{% endif %}
   {% macro actor(entry) %}
     {% if entry.url %}<a class="scene-review__chip" href="{{ entry.url }}" target="_blank" rel="noopener" title="{{ entry.role }}">{{ entry.name }}</a>
     {% else %}<span class="scene-review__chip scene-review__chip--plain" title="Not a cast member of this draft">{{ entry.name }}</span>{% endif %}
   {% endmacro %}
+  {% macro links(list) %}{% for item in list %}<a href="#{{ item.anchor }}">{{ item.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}{% endmacro %}
   <div class="scene-review__layout">
     <nav class="scene-review__index" aria-label="Institutions">
       <p class="scene-review__label">Institutions</p>
-      <ol>
-        {% for institution in institutions %}<li><a href="#institution-{{ loop.index }}">{{ institution.name }}</a></li>{% endfor %}
+      <ul class="scene-review__tree">
+        {% for institution in institutions %}<li style="margin-left: {{ institution.depth * 14 }}px"><a href="#{{ institution.anchor }}">{{ institution.name }}</a> <span class="scene-review__count">{{ institution.member_count }}</span></li>{% endfor %}
         <li><a href="#untied-cast">Cast tied to no institution ({{ untied|length }})</a></li>
-      </ol>
+      </ul>
     </nav>
     <div class="scene-review__body">
       {% for institution in institutions %}
-        <section class="scene-review__scene" id="institution-{{ loop.index }}">
-          <p class="scene-review__number">{{ institution.kind }}</p>
+        <section class="scene-review__scene scene-review__scene--depth-{{ min(institution.depth, 3) }}" id="{{ institution.anchor }}" style="margin-left: {{ min(institution.depth, 3) * 24 }}px">
+          <p class="scene-review__number">{{ institution.kind }}{% for step in institution.path %} · in <a href="#{{ step.anchor }}">{{ step.name }}</a>{% endfor %}</p>
           <h3 class="scene-review__scene-title">{{ institution.name }}</h3>
           {% if institution.description %}<p class="scene-review__summary">{{ institution.description }}</p>{% endif %}
           <dl class="scene-review__facts">
             <dt>Purpose</dt><dd>{{ institution.purpose ?: 'Not written' }}</dd>
             <dt>Seat</dt><dd>{% if institution.seat %}<code>{{ institution.seat }}</code>{% else %}<span class="scene-review__none">None set</span>{% endif %}</dd>
             <dt>Leader</dt><dd>{% if institution.leader %}{{ _self.actor(institution.leader) }}{% else %}<span class="scene-review__none">None named</span>{% endif %}</dd>
-            <dt>Part of</dt><dd>{% if institution.parent %}{{ institution.parent }}{% else %}<span class="scene-review__none">No other institution</span>{% endif %}</dd>
+            <dt>Part of</dt><dd>{% if institution.path %}{{ _self.links(institution.path|reverse) }}{% else %}<span class="scene-review__none">Nothing: it stands at the top</span>{% endif %}</dd>
+            <dt>Contains</dt><dd>{% if institution.contains %}{{ _self.links(institution.contains) }}{% else %}<span class="scene-review__none">No smaller institution</span>{% endif %}</dd>
+            <dt>Peers</dt><dd>{% if institution.peers %}{{ _self.links(institution.peers) }}{% else %}<span class="scene-review__none">None</span>{% endif %}</dd>
           </dl>
-          <h4 class="scene-review__label">Stances</h4>
+          <h4 class="scene-review__label">Its stance toward others</h4>
           {% if institution.stances %}
             <ul class="scene-review__choices">{% for stance in institution.stances %}
               <li>
-                <span class="scene-review__choice-label">{{ stance.attitude|capitalize }} toward {{ stance.toward }}</span>
+                <span class="scene-review__choice-label">{{ stance.attitude|capitalize }} toward <a href="#{{ stance.toward.anchor }}">{{ stance.toward.name }}</a></span>
                 {% if stance.reason %}<span class="scene-review__choice-when">{{ stance.reason }}</span>{% endif %}
               </li>
             {% endfor %}</ul>
           {% else %}<p class="scene-review__none">No stance toward another institution.</p>{% endif %}
+          {% if institution.regarded_by %}
+            <h4 class="scene-review__label">How others regard it</h4>
+            <ul class="scene-review__choices">{% for stance in institution.regarded_by %}
+              <li>
+                <span class="scene-review__choice-label"><a href="#{{ stance.by.anchor }}">{{ stance.by.name }}</a> is {{ stance.attitude }}</span>
+                {% if stance.reason %}<span class="scene-review__choice-when">{{ stance.reason }}</span>{% endif %}
+              </li>
+            {% endfor %}</ul>
+          {% endif %}
           {% for group in institution.groups %}
             <h4 class="scene-review__label">{{ group.label }} ({{ group.actors|length }})</h4>
             <p>{% for entry in group.actors %}{{ _self.actor(entry) }}{% endfor %}</p>
@@ -881,7 +966,11 @@ TWIG,
       StorylineManagerService::STORYLINE_BRANCH_TARGET_TYPES[3] => 'Chapter',
       StorylineManagerService::STORYLINE_BRANCH_TARGET_TYPES[4] => 'Storyline',
     ]);
-    $institution_domain_options = $this->renderSelectOptions(InstitutionNormalizationService::AUTHORABLE_DOMAINS);
+    $institution_domain_options = '';
+    foreach (InstitutionNormalizationService::AUTHORABLE_DOMAINS as $domain => $label) {
+      $institution_domain_options .= '<option value="' . Html::escape($domain) . '" data-short="' . Html::escape($label) . '">'
+        . Html::escape($label . ' — ' . InstitutionNormalizationService::DOMAIN_HINTS[$domain]) . '</option>';
+    }
     $attitude_options = $this->renderSelectOptions(array_combine(
       RelationshipAttitudeService::ATTITUDES,
       array_map('ucfirst', RelationshipAttitudeService::ATTITUDES),
