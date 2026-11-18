@@ -83,7 +83,8 @@ class CanonicalDungeonLayoutPlanService {
     $input = [
       'prompt' => $this->boundedString($arguments, 'prompt', TRUE, 1, 2000),
       'theme' => $this->boundedString($arguments, 'theme', FALSE, 0, 100),
-      'room_count' => $this->intRange($arguments, 'room_count', 3, self::DUNGEON_MAX_PLACEMENTS, 3),
+      // A site whose rooms are named may be as small as the story makes it.
+      'room_count' => $this->intRange($arguments, 'room_count', ($arguments['required_room_ids'] ?? []) === [] ? 3 : 1, self::DUNGEON_MAX_PLACEMENTS, 3),
       'level' => $this->intRange($arguments, 'level', -1, 25, 1),
       'link_kind' => $this->enum($arguments, 'link_kind', GenerationVocabulary::LINK_KINDS, 'door'),
       'link_direction' => $this->enum($arguments, 'link_direction', GenerationVocabulary::LINK_DIRECTIONS, 'bidirectional'),

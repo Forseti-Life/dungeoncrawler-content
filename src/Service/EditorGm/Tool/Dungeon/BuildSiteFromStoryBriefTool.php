@@ -118,6 +118,7 @@ final class BuildSiteFromStoryBriefTool implements EditorGmToolInterface {
       ];
     }
 
+    $this->assertRoomsFormOnePath(array_keys($room_briefs), $context->roomLibrary(), $story['title']);
     $plan = $this->generation->generateDungeonLayout([
       'prompt' => mb_substr(sprintf(
         '%s Connect every room so each can be reached from the entrance. The level entrance is the room %s.',
@@ -150,6 +151,36 @@ final class BuildSiteFromStoryBriefTool implements EditorGmToolInterface {
         ? 'The site is laid out and passes publication checks. Review it, then publish.'
         : 'The site is laid out. Address the validation findings before publishing.',
     ];
+  }
+
+  /**
+   * A site is laid out as one path: one end room, every other room passing on.
+   *
+   * @throws \DomainException
+   *   `story_site_not_a_path`, naming each room that does not fit.
+   */
+  private function assertRoomsFormOnePath(array $room_ids, array $library, string $storyline): void {
+    $exits = array_column($library, 'exit_port_count', 'room_id');
+    $ends = [];
+    $branching = [];
+    foreach ($room_ids as $room_id) {
+      $count = $exits[$room_id] ?? throw new \LogicException('story_site_room_not_in_library:' . $room_id);
+      if ($count === 0) {
+        $ends[] = $room_id;
+      }
+      elseif ($count > 1) {
+        $branching[] = sprintf('%s (%d exits)', $room_id, $count);
+      }
+    }
+    if (count($ends) === 1 && $branching === []) {
+      return;
+    }
+    throw new \DomainException(sprintf(
+      "story_site_not_a_path: the rooms of '%s' cannot be laid out as one path. A site needs exactly one room without an exit, the end, and every other room with exactly one exit. Rooms without an exit: %s. Rooms with more than one exit: %s. Publish a version of the room that fits in the Room Editor; rooms are shared, so check the other dungeons that place it first.",
+      $storyline,
+      $ends === [] ? 'none' : implode(', ', $ends),
+      $branching === [] ? 'none' : implode(', ', $branching),
+    ));
   }
 
   /**

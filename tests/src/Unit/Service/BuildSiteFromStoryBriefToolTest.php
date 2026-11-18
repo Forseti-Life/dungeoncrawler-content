@@ -51,6 +51,10 @@ class BuildSiteFromStoryBriefToolTest extends UnitTestCase {
       return ['draft' => ['revision' => $command['expected_revision'] + 1]];
     });
     $editor->method('validateDraft')->willReturn(['is_valid' => TRUE, 'counts' => ['error' => 0, 'warning' => 0, 'info' => 0]]);
+    $editor->method('roomLibrary')->willReturn([
+      ['room_id' => 'cave-mouth', 'exit_port_count' => 1],
+      ['room_id' => 'warren', 'exit_port_count' => 0],
+    ]);
 
     $result = $this->tool($this->brief(['cave-mouth', 'warren']), $rooms, $generation)->execute(['expected_revision' => 3], $this->context($editor));
 
@@ -82,6 +86,26 @@ class BuildSiteFromStoryBriefToolTest extends UnitTestCase {
     $uuid = $this->createMock(UuidInterface::class);
     $uuid->method('generate')->willReturn('00000000-0000-4000-8000-000000000000');
     return new BuildSiteFromStoryBriefTool($storylines, $rooms, $generation, $uuid);
+  }
+
+  /**
+   * Existing rooms that cannot chain into one path are refused by name.
+   */
+  public function testRefusesRoomsThatCannotFormOnePath(): void {
+    $rooms = $this->createMock(CanonicalRoomBuildService::class);
+    $rooms->method('isPublished')->willReturn(TRUE);
+    $generation = $this->createMock(EditorCanonicalGenerationPlanService::class);
+    $generation->expects($this->never())->method('generateDungeonLayout');
+    $editor = $this->createMock(DungeonEditorService::class);
+    $editor->method('getDraft')->willReturn(['draft_id' => 'd1', 'revision' => 3, 'dungeon' => ['dungeon_id' => 'kobold-caves', 'room_placements' => []]]);
+    $editor->method('roomLibrary')->willReturn([
+      ['room_id' => 'cave-mouth', 'exit_port_count' => 2],
+      ['room_id' => 'warren', 'exit_port_count' => 1],
+    ]);
+
+    $this->expectException(\DomainException::class);
+    $this->expectExceptionMessageMatches('/^story_site_not_a_path: .*Rooms without an exit: none\. Rooms with more than one exit: cave-mouth \(2 exits\)\./');
+    $this->tool($this->brief(['cave-mouth', 'warren']), $rooms, $generation)->execute(['expected_revision' => 3], $this->context($editor));
   }
 
   private function context(DungeonEditorService $editor): DungeonEditorGmToolContext {
