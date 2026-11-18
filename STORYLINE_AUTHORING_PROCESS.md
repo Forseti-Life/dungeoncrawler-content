@@ -886,6 +886,11 @@ question is refused (`editor_gm_intent_parallel_call_not_a_tool`).
   inside anything. Institutions with the same parent are peers.
 - A cast member is tied to its innermost institution; it is a member of
   every institution above by inheritance.
+- Member and leader ties are stored on the cast member's library
+  character, so the character brings them to every storyline and
+  campaign. A storyline shows them and may add its own.
+- Validation warns when a cast member lacks a critical tie: ancestry,
+  class, alignment, or a home (kin or place).
 - An institution's ID is the institution engine's subject ID for its
   domain and name (`institution_kin_blackroot-clan`). The same domain
   and name is the same institution in every storyline and campaign, so

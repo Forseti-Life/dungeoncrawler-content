@@ -909,7 +909,8 @@ class StorylineAuthoringDraftService {
     if ($deleted !== 1) {
       throw new \DomainException('storyline_draft_delete_conflict');
     }
-    $this->syncInstitutionLibrary($draft_id, [], $draft['payload'] ?? []);
+    // Deleting a draft does not take memberships off library characters.
+    $this->syncInstitutionLibrary($draft_id, [], $draft['payload'] ?? [], FALSE);
     return [
       'draft_id' => $draft_id,
       'deleted' => TRUE,
@@ -1072,7 +1073,7 @@ class StorylineAuthoringDraftService {
     $stages['actor_character_sheets'] = [
       'valid' => $sheet_findings === [],
       'errors' => array_column($sheet_findings, 'message'),
-      'warnings' => array_merge($this->questGiverWarnings($draft), self::actorTieWarnings($draft['payload'] ?? [])),
+      'warnings' => array_merge($this->questGiverWarnings($draft), $this->actorTieWarnings($draft['payload'] ?? [])),
       'findings' => $sheet_findings,
     ];
     $stages['authored_questline_edges'] = [
@@ -1621,7 +1622,7 @@ class StorylineAuthoringDraftService {
    * affiliations; each lists the other cast members who share it. Personal
    * ties are the authored actor relationships, in both directions.
    *
-   * @return array{storyline: string, groups: array<int, array{kind: string, name: string, shared_with: string[]}>, ties: array<int, array<string, string>>}|null
+   * @return array{storyline: string, groups: array<int, array{kind: string, name: string, through: string, shared_with: string[]}>, ties: array<int, array<string, string>>, missing: string[]}|null
    *   NULL when the draft has no such cast member.
    */
   public function actorStoryTies(string $draft_id, string $actor_id): ?array {
@@ -1731,7 +1732,32 @@ class StorylineAuthoringDraftService {
         }
       }
     }
-    return ['storyline' => trim((string) ($payload['title'] ?? '')), 'groups' => $mine, 'ties' => $ties];
+    // Memberships held on the actor's library character, and what is missing.
+    $missing = [];
+    foreach ($cast as $member) {
+      if ((string) ($member['actor_id'] ?? '') !== $actor_id) {
+        continue;
+      }
+      $memberships = $this->castMemberships($member, $institutions);
+      $shown = array_column($mine, 'name');
+      foreach ($memberships as $membership) {
+        if ($membership['source'] === 'library' && !in_array($membership['name'], $shown, TRUE)
+          && !in_array($membership['name'] . ' (leader)', $shown, TRUE)) {
+          $mine[] = [
+            'kind' => InstitutionNormalizationService::AUTHORABLE_DOMAINS[$membership['domain']],
+            'name' => $membership['name'],
+            'through' => $membership['through'],
+            'shared_with' => [],
+          ];
+        }
+      }
+      if (InstitutionLibraryService::isSocialActor($member)) {
+        foreach (InstitutionLibraryService::criticalTieGaps($member, array_column($memberships, 'domain')) as $gap) {
+          $missing[] = InstitutionLibraryService::CRITICAL_TIES[$gap];
+        }
+      }
+    }
+    return ['storyline' => trim((string) ($payload['title'] ?? '')), 'groups' => $mine, 'ties' => $ties, 'missing' => $missing];
   }
 
   /**
@@ -1776,7 +1802,7 @@ class StorylineAuthoringDraftService {
    *
    * @return string[]
    */
-  private static function actorTieWarnings(array $payload): array {
+  private function actorTieWarnings(array $payload): array {
     $cast = array_values(array_filter((array) ($payload['objects']['actors']['generation_specs'] ?? []), 'is_array'));
     if (count($cast) < 2) {
       return [];
@@ -1788,13 +1814,18 @@ class StorylineAuthoringDraftService {
     }
     $no_affiliation = [];
     $no_relationship = [];
-    $no_alignment = [];
+    $lacking = [];
+    $draft_institutions = array_column(array_filter((array) ($payload['objects']['institutions'] ?? []), 'is_array'), NULL, 'institution_id');
     foreach ($cast as $member) {
       $name = trim((string) ($member['display_name'] ?? '')) ?: (string) ($member['actor_id'] ?? '');
-      if (trim((string) ($member['alignment'] ?? '')) === '') {
-        $no_alignment[] = $name;
+      $memberships = $this->castMemberships($member, $draft_institutions);
+      // The critical ties of a person; a creature stat block has none.
+      if (InstitutionLibraryService::isSocialActor($member)) {
+        foreach (InstitutionLibraryService::criticalTieGaps($member, array_column($memberships, 'domain')) as $gap) {
+          $lacking[$gap][] = $name;
+        }
       }
-      if (array_filter((array) ($member['affiliations'] ?? []), 'is_array') === []) {
+      if ($memberships === [] && array_filter((array) ($member['affiliations'] ?? []), 'is_array') === []) {
         $no_affiliation[] = $name;
       }
       if (!isset($related[(string) ($member['actor_id'] ?? '')])) {
@@ -1803,11 +1834,16 @@ class StorylineAuthoringDraftService {
     }
     $list = static fn(array $names): string => implode(', ', array_slice($names, 0, 8)) . (count($names) > 8 ? sprintf(' and %d more', count($names) - 8) : '');
     $warnings = [];
-    if ($no_alignment !== []) {
-      $warnings[] = sprintf(
-        '%d of %d cast members have no alignment and count as Neutral: %s. Give each one its alignment (LG, NG, CG, LN, N, CN, LE, NE or CE); it decides which alignment institutions the actor belongs to.',
-        count($no_alignment), count($cast), $list($no_alignment),
-      );
+    $fixes = [
+      'ancestry' => 'It comes from the character sheet; rebuild the sheet.',
+      'class' => 'It comes from the character sheet; rebuild the sheet.',
+      'alignment' => 'Give each one its alignment (LG, NG, CG, LN, N, CN, LE, NE or CE); without one the actor counts as Neutral.',
+      'home' => 'Tie each one to its kin (clan, house, family) or to the place it lives; a state then follows from the place.',
+    ];
+    foreach (InstitutionLibraryService::CRITICAL_TIES as $gap => $label) {
+      if (!empty($lacking[$gap])) {
+        $warnings[] = sprintf('%d of %d cast members lack %s: %s. %s', count($lacking[$gap]), count($cast), $label, $list($lacking[$gap]), $fixes[$gap]);
+      }
     }
     if ($no_affiliation !== []) {
       $warnings[] = sprintf(
@@ -2255,7 +2291,7 @@ class StorylineAuthoringDraftService {
    * it is saved; one the defining draft drops, and no other storyline uses,
    * leaves the library with it.
    */
-  private function syncInstitutionLibrary(string $draft_id, array $payload, array $previous_payload): void {
+  private function syncInstitutionLibrary(string $draft_id, array $payload, array $previous_payload, bool $sync_cast = TRUE): void {
     $institutions = array_values(array_filter((array) ($payload['objects']['institutions'] ?? []), 'is_array'));
     $previous = array_values(array_filter((array) ($previous_payload['objects']['institutions'] ?? []), 'is_array'));
     if ($institutions === [] && $previous === []) {
@@ -2265,6 +2301,69 @@ class StorylineAuthoringDraftService {
       throw new \LogicException('storyline_draft_institution_library_unavailable: a draft with institutions cannot be saved or deleted without the institution library service.');
     }
     $this->institutionLibrary->registerStorylineInstitutions($draft_id, trim((string) ($payload['title'] ?? '')), $institutions, $previous);
+    if (!$sync_cast) {
+      return;
+    }
+
+    // A cast member's memberships belong to its library character: what
+    // the storyline authors is written there, and what it takes away is
+    // removed there. Exile and ally ties stay with the storyline.
+    $memberships = static function (array $source): array {
+      $by_character = [];
+      foreach (array_filter((array) ($source['objects']['actors']['generation_specs'] ?? []), 'is_array') as $actor) {
+        $character_id = (int) ($actor['character_id'] ?? 0);
+        if ($character_id <= 0) {
+          continue;
+        }
+        $by_character[$character_id] ??= [];
+        foreach (array_filter((array) ($actor['affiliations'] ?? []), 'is_array') as $affiliation) {
+          if (self::belongs($affiliation)) {
+            $by_character[$character_id][(string) $affiliation['institution_id']] = (string) ($affiliation['standing'] ?? 'member');
+          }
+        }
+      }
+      return $by_character;
+    };
+    $now = $memberships($payload);
+    $before = $memberships($previous_payload);
+    foreach ($now + $before as $character_id => $unused) {
+      $add = $now[$character_id] ?? [];
+      $remove = array_keys(array_diff_key($before[$character_id] ?? [], $add));
+      if ($add !== [] || $remove !== []) {
+        $this->institutionLibrary->updateCharacterMemberships((int) $character_id, $add, array_map('strval', $remove));
+      }
+    }
+  }
+
+  /**
+   * The institutions a cast member belongs to, with each one's type.
+   *
+   * Its library character's memberships and the ones this storyline
+   * authors, inherited ones included.
+   *
+   * @return array<string, array{domain: string, name: string, through: string, source: string}>
+   *   By institution ID; source is "library" or "storyline".
+   */
+  private function castMemberships(array $actor, array $institutions): array {
+    $memberships = [];
+    $character_id = (int) ($actor['character_id'] ?? 0);
+    if ($character_id > 0 && $this->institutionLibrary !== NULL) {
+      $data = $this->database->select('dc_campaign_characters', 'c')
+        ->fields('c', ['character_data'])
+        ->condition('id', $character_id)
+        ->condition('campaign_id', 0)
+        ->execute()
+        ->fetchField();
+      if (is_string($data) && $data !== '') {
+        foreach ($this->institutionLibrary->characterMemberships(json_decode($data, TRUE, 512, JSON_THROW_ON_ERROR)) as $id => $membership) {
+          $memberships[$id] = ['domain' => $membership['domain'], 'name' => $membership['name'], 'through' => $membership['through'], 'source' => 'library'];
+        }
+      }
+    }
+    foreach (self::institutionsBelongedTo($actor, $institutions) as $id) {
+      $memberships[$id] ??= ['domain' => (string) $institutions[$id]['domain'], 'name' => trim((string) $institutions[$id]['name']), 'through' => '', 'source' => 'storyline'];
+    }
+    return $memberships;
   }
 
   /**

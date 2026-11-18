@@ -82,6 +82,16 @@ class InstitutionLibraryService {
       'provenance_json' => json_encode($record['requestContext'] ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
       'changed' => $now,
     ];
+    // The nesting order holds for every writer. A parent registered later
+    // in the same save is checked when it arrives, by its children's rows.
+    $parent = trim((string) ($record['parentSubjectId'] ?? ''));
+    $parent_record = $parent === '' ? NULL : $this->loadByReference($parent);
+    if ($parent_record !== NULL && !InstitutionNormalizationService::nestingAllowed((string) $record['domain'], (string) $parent_record['domain'])) {
+      throw new \InvalidArgumentException(sprintf(
+        'institution_library_parent_type: a %s institution cannot sit inside a %s institution ("%s" inside "%s").',
+        (string) $record['domain'], (string) $parent_record['domain'], (string) $record['canonicalLabel'], (string) $parent_record['canonicalLabel'],
+      ));
+    }
     $existing = $this->loadRow((string) $record['canonicalSlug']);
     if ($existing !== NULL) {
       $this->assertSameInstitution($existing, (string) $record['librarySubjectId'], (string) $record['canonicalLabel'], (string) $record['domain']);
@@ -221,6 +231,167 @@ class InstitutionLibraryService {
     }
     $payload = json_decode((string) $row['normalized_payload_json'], TRUE, 512, JSON_THROW_ON_ERROR);
     return $reference === (string) $row['source_asset_id'] || $reference === (string) $payload['librarySubjectId'] ? $payload : NULL;
+  }
+
+  /**
+   * A record and every record it sits inside, nearest first.
+   *
+   * The library is the authority for the hierarchy: a campaign builds its
+   * parent links from here.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Record payloads, the named institution first.
+   */
+  public function chain(string $reference): array {
+    $chain = [];
+    $seen = [];
+    $record = $this->loadByReference($reference);
+    while ($record !== NULL && !isset($seen[(string) $record['librarySubjectId']])) {
+      $seen[(string) $record['librarySubjectId']] = TRUE;
+      $chain[] = $record;
+      $parent = trim((string) ($record['parentSubjectId'] ?? ''));
+      $record = $parent === '' ? NULL : $this->loadByReference($parent);
+    }
+    return $chain;
+  }
+
+  /**
+   * The institutions a character belongs to through its own record.
+   *
+   * A library character holds its memberships in
+   * character_data.institution_refs, the field play reads when the
+   * character enters a campaign. Membership is inherited upward.
+   *
+   * @return array<string, array{institution_id: string, domain: string, name: string, standing: string, through: string}>
+   *   By institution ID; `through` names the part an inherited one comes from.
+   */
+  public function characterMemberships(array $character_data): array {
+    $memberships = [];
+    foreach (array_filter((array) ($character_data[InstitutionMembershipService::INSTITUTION_REFS_FIELD] ?? []), 'is_array') as $ref) {
+      $chain = $this->chain((string) ($ref['source_asset_id'] ?? ''));
+      if ($chain === []) {
+        throw new \RuntimeException(sprintf('A character is a member of "%s", which is not in the institution library.', (string) ($ref['display_name'] ?? $ref['source_asset_id'] ?? '')));
+      }
+      foreach ($chain as $position => $record) {
+        $id = (string) $record['librarySubjectId'];
+        if ($position === 0 || !isset($memberships[$id])) {
+          $memberships[$id] = [
+            'institution_id' => $id,
+            'domain' => (string) $record['domain'],
+            'name' => (string) $record['canonicalLabel'],
+            'standing' => $position === 0 ? (string) ($ref['standing'] ?? 'member') : 'member',
+            'through' => $position === 0 ? '' : (string) $chain[0]['canonicalLabel'],
+          ];
+        }
+      }
+    }
+    return $memberships;
+  }
+
+  /**
+   * Adds and removes memberships on a library character's own record.
+   *
+   * @param array<string, string> $add
+   *   Standing (member or leader) by institution ID or slug.
+   * @param string[] $remove
+   *   Institution IDs or slugs the character no longer belongs to.
+   *
+   * @return bool
+   *   Whether the record changed.
+   */
+  public function updateCharacterMemberships(int $character_row_id, array $add, array $remove): bool {
+    $row = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c', ['id', 'character_data', 'version'])
+      ->condition('id', $character_row_id)
+      ->condition('campaign_id', 0)
+      ->execute()
+      ->fetchAssoc();
+    if (!is_array($row)) {
+      throw new \RuntimeException(sprintf('Library character %d does not exist; memberships are stored on library characters.', $character_row_id));
+    }
+    $data = json_decode((string) $row['character_data'], TRUE, 512, JSON_THROW_ON_ERROR);
+    $refs = [];
+    foreach (array_filter((array) ($data[InstitutionMembershipService::INSTITUTION_REFS_FIELD] ?? []), 'is_array') as $ref) {
+      $refs[(string) $ref['source_asset_id']] = $ref;
+    }
+    $before = $refs;
+    foreach ($remove as $reference) {
+      $record = $this->loadByReference((string) $reference);
+      if ($record !== NULL) {
+        unset($refs[(string) $record['canonicalSlug']]);
+      }
+    }
+    foreach ($add as $reference => $standing) {
+      $record = $this->loadByReference((string) $reference);
+      if ($record === NULL) {
+        throw new \RuntimeException(sprintf('Institution "%s" is not in the institution library.', (string) $reference));
+      }
+      if (isset(InstitutionNormalizationService::DERIVED_DOMAINS[(string) $record['domain']])) {
+        throw new \InvalidArgumentException(sprintf('"%s" follows from the character sheet and cannot be given as a membership.', (string) $record['canonicalLabel']));
+      }
+      $refs[(string) $record['canonicalSlug']] = [
+        'domain' => (string) $record['domain'],
+        'display_name' => (string) $record['canonicalLabel'],
+        'source_asset_type' => self::CAMPAIGN_SOURCE_ASSET_TYPE,
+        'source_asset_id' => (string) $record['canonicalSlug'],
+      ] + ($standing === 'leader' ? ['standing' => 'leader'] : []);
+    }
+    ksort($refs);
+    ksort($before);
+    if ($refs === $before) {
+      return FALSE;
+    }
+    $data[InstitutionMembershipService::INSTITUTION_REFS_FIELD] = array_values($refs);
+    $this->database->update('dc_campaign_characters')
+      ->fields([
+        'character_data' => json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+        'version' => (int) $row['version'] + 1,
+        'changed' => time(),
+      ])
+      ->condition('id', $character_row_id)
+      ->execute();
+    return TRUE;
+  }
+
+  /**
+   * What every social actor has: the critical ties, by key and label.
+   */
+  public const CRITICAL_TIES = [
+    'ancestry' => 'an ancestry',
+    'class' => 'a class',
+    'alignment' => 'an alignment',
+    'home' => 'a home: a kin group or a place',
+  ];
+
+  /**
+   * Whether the critical ties apply: a person, not a creature stat block.
+   */
+  public static function isSocialActor(array $sheet): bool {
+    return !in_array(strtolower(trim((string) ($sheet['class'] ?? ''))), ['', 'npc', 'creature'], TRUE);
+  }
+
+  /**
+   * The critical ties an actor lacks.
+   *
+   * @param array<string, mixed> $sheet
+   *   ancestry, class and alignment as the actor's sheet states them.
+   * @param string[] $institution_domains
+   *   The type of every institution the actor belongs to, inherited included.
+   *
+   * @return string[]
+   *   Keys of CRITICAL_TIES.
+   */
+  public static function criticalTieGaps(array $sheet, array $institution_domains): array {
+    $gaps = [];
+    foreach (['ancestry', 'class', 'alignment'] as $field) {
+      if (trim((string) ($sheet[$field] ?? '')) === '') {
+        $gaps[] = $field;
+      }
+    }
+    if (array_intersect(['kin', 'place'], $institution_domains) === []) {
+      $gaps[] = 'home';
+    }
+    return $gaps;
   }
 
   /**

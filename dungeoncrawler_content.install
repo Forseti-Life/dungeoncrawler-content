@@ -6921,3 +6921,74 @@ function dungeoncrawler_content_update_10232(): string {
 
   return sprintf('Institution types merged: %d library record(s) renamed, %d campaign subject row(s), %d storyline draft(s).', count($renamed), $campaign_subjects, $drafts_changed);
 }
+
+/**
+ * Give library characters their critical ties.
+ *
+ * Memberships authored on storyline casts move to the library characters;
+ * characters whose home room is in the Absalom city site get Absalom as
+ * their home place; active social characters without an alignment or
+ * ancestry get one.
+ */
+function dungeoncrawler_content_update_10233(): string {
+  $database = \Drupal::database();
+  $library = new \Drupal\dungeoncrawler_content\Service\InstitutionLibraryService($database);
+  $summary = ['storyline_ties' => 0, 'homes' => 0, 'alignments' => 0, 'ancestries' => 0];
+
+  // Storyline cast memberships belong to the library characters.
+  $drafts = $database->query('SELECT draft_payload FROM {dungeoncrawler_content_storyline_authoring_drafts}')->fetchCol();
+  foreach ($drafts as $json) {
+    $payload = json_decode((string) $json, TRUE, 512, JSON_THROW_ON_ERROR);
+    foreach (array_filter((array) ($payload['objects']['actors']['generation_specs'] ?? []), 'is_array') as $actor) {
+      $add = [];
+      foreach (array_filter((array) ($actor['affiliations'] ?? []), 'is_array') as $affiliation) {
+        $standing = (string) ($affiliation['standing'] ?? 'member');
+        if (in_array($standing, ['member', 'leader'], TRUE)) {
+          $add[(string) $affiliation['institution_id']] = $standing;
+        }
+      }
+      if ($add !== [] && (int) ($actor['character_id'] ?? 0) > 0) {
+        $summary['storyline_ties'] += (int) $library->updateCharacterMemberships((int) $actor['character_id'], $add, []);
+      }
+    }
+  }
+
+  // The city the landmark characters live in.
+  $library->ensureRecord('place', 'Absalom', 'library_backfill', 'The city whose landmarks, shops and halls most library characters work in.');
+  $retired = $database->query("SELECT definition_id FROM {dungeoncrawler_content_definition_lifecycle} WHERE family = 'actor' AND status = 'retired'")->fetchCol();
+  $rows = $database->query("SELECT id, instance_id, name, ancestry, class, location_ref, character_data, version FROM {dc_campaign_characters} WHERE campaign_id = 0 AND status <> 2 AND type = 'npc'")->fetchAll(\PDO::FETCH_ASSOC);
+  $alignments = ['LG', 'NG', 'CG', 'LN', 'N', 'CN'];
+  foreach ($rows as $row) {
+    if (in_array((string) $row['instance_id'], $retired, TRUE)) {
+      continue;
+    }
+    if (str_starts_with((string) $row['location_ref'], 'tpl_room_absalom')) {
+      $summary['homes'] += (int) $library->updateCharacterMemberships((int) $row['id'], ['absalom' => 'member'], []);
+    }
+    if (!\Drupal\dungeoncrawler_content\Service\InstitutionLibraryService::isSocialActor(['class' => $row['class']])) {
+      continue;
+    }
+    // Re-read: the membership write above changed the record.
+    $current = $database->query('SELECT character_data, version FROM {dc_campaign_characters} WHERE id = :id', [':id' => $row['id']])->fetchAssoc();
+    $data = json_decode((string) $current['character_data'], TRUE, 512, JSON_THROW_ON_ERROR);
+    $fields = [];
+    if (trim((string) ($data['alignment'] ?? '')) === '') {
+      $data['alignment'] = $alignments[crc32((string) $row['instance_id']) % count($alignments)];
+      $summary['alignments']++;
+      $fields['character_data'] = TRUE;
+    }
+    if (trim((string) $row['ancestry']) === '' && trim((string) ($data['ancestry'] ?? '')) === '') {
+      $data['ancestry'] = 'human';
+      $fields['ancestry'] = 'human';
+      $summary['ancestries']++;
+    }
+    if ($fields !== []) {
+      $database->update('dc_campaign_characters')
+        ->fields(['character_data' => json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR), 'version' => (int) $current['version'] + 1, 'changed' => time()] + (isset($fields['ancestry']) ? ['ancestry' => 'human'] : []))
+        ->condition('id', (int) $row['id'])
+        ->execute();
+    }
+  }
+
+  return sprintf('Library characters: %d given storyline memberships, %d given a home in Absalom, %d alignments and %d ancestries set.', $summary['storyline_ties'], $summary['homes'], $summary['alignments'], $summary['ancestries']);
+}

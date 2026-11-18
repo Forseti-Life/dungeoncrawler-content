@@ -972,6 +972,35 @@ institution is registered and the one place one is looked up.
 - One name is one institution: the same name in a second domain is refused
   (`institution_library_name_taken`).
 
+### Memberships live on the library character
+
+- A library character holds its memberships on its own record, in
+  `character_data.institution_refs`, the field
+  `InstitutionMembershipService` reads when the character enters a
+  campaign. Each entry names a library institution; `standing: leader` is
+  kept on it. `InstitutionLibraryService::updateCharacterMemberships` is
+  the writer, `characterMemberships` the reader (inherited ones included).
+- Member and leader ties authored on a storyline's cast are written to the
+  cast member's library character on every draft save, and removed there
+  when the storyline takes them away. Deleting a draft removes nothing.
+  Exile and ally ties and stances stay with the storyline.
+- The library is the authority for the hierarchy: when a campaign creates
+  an institution subject, `CampaignSubjectRegistryService` creates the
+  institutions it sits inside, from the library record's parent, with their
+  parent links. The nesting order is enforced when a library record is
+  written.
+
+### Critical ties
+
+Every person has an ancestry, a class, an alignment and a home: a
+membership, direct or inherited, in a kin or place institution. A state
+follows from the place; organisation and faith are optional.
+`InstitutionLibraryService::criticalTieGaps` is the one rule. A gap is a
+warning, never a block, and is shown in three places: storyline draft
+validation (one warning per missing kind, naming the cast), the actor
+page, and the actor library list. A creature stat block (class `creature`
+or the generic `npc`) is not a person and is exempt.
+
 ### Alignment institutions
 
 Lawful, Chaotic, Good, Evil and Neutral are institutions of the derived

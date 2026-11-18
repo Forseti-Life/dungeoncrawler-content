@@ -8,6 +8,7 @@ use Drupal\Core\Access\CsrfRequestHeaderAccessCheck;
 use Drupal\Core\Access\CsrfTokenGenerator;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Url;
+use Drupal\dungeoncrawler_content\Service\InstitutionLibraryService;
 use Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService;
 use Drupal\dungeoncrawler_content\Service\Definition\DefinitionValidationException;
 use Drupal\dungeoncrawler_content\Render\DefinitionEditorGmPanel;
@@ -85,6 +86,27 @@ final class DefinitionEditorController extends ControllerBase {
     $catalog = $this->definitions->catalog($family, $search, 250, 0);
     $schema = $this->definitions->schemaForFamily($family);
 
+    // An actor's critical ties, read from its library character.
+    $characters = [];
+    if ($family === 'actor') {
+      $library = \Drupal::service('dungeoncrawler_content.institution_library');
+      $library_rows = \Drupal::database()->query("SELECT instance_id, ancestry, class, character_data FROM {dc_campaign_characters} WHERE campaign_id = 0 AND status <> 2")->fetchAllAssoc('instance_id', \PDO::FETCH_ASSOC);
+      foreach ($library_rows as $instance_id => $character) {
+        $data = json_decode((string) $character['character_data'], TRUE) ?: [];
+        $sheet = [
+          'ancestry' => trim((string) $character['ancestry']) ?: (is_string($data['ancestry'] ?? NULL) ? $data['ancestry'] : ''),
+          'class' => trim((string) $character['class']) ?: (is_string($data['class'] ?? NULL) ? $data['class'] : ''),
+          'alignment' => (string) ($data['alignment'] ?? ''),
+        ];
+        if (!InstitutionLibraryService::isSocialActor($sheet)) {
+          $characters[$instance_id] = $this->t('not a person');
+          continue;
+        }
+        $gaps = InstitutionLibraryService::criticalTieGaps($sheet, array_column($library->characterMemberships($data), 'domain'));
+        $characters[$instance_id] = $gaps === [] ? $this->t('complete') : $this->t('missing: @gaps', ['@gaps' => implode(', ', $gaps)]);
+      }
+    }
+
     $rows = [];
     foreach ($catalog['definitions'] as $entry) {
       $findings = $this->definitions->validateDefinition($family, $this->definitions->definitionPayload($family, $entry['definition_id']));
@@ -102,6 +124,7 @@ final class DefinitionEditorController extends ControllerBase {
         $findings === []
           ? $this->t('conforms')
           : $this->formatPlural(count($findings), '1 finding', '@count findings'),
+        ...($family === 'actor' ? [$characters[$entry['definition_id']] ?? $this->t('no library character')] : []),
       ];
     }
 
@@ -129,7 +152,7 @@ final class DefinitionEditorController extends ControllerBase {
       ],
       'table' => [
         '#type' => 'table',
-        '#header' => [$this->t('Name'), $this->t('ID'), $this->t('Category'), $this->t('Version'), $this->t('Schema status')],
+        '#header' => [$this->t('Name'), $this->t('ID'), $this->t('Category'), $this->t('Version'), $this->t('Schema status'), ...($family === 'actor' ? [$this->t('Critical ties')] : [])],
         '#rows' => $rows,
         '#empty' => $this->t('No definitions.'),
         '#attributes' => ['class' => ['dc-definition-list']],

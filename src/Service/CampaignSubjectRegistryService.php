@@ -121,6 +121,19 @@ class CampaignSubjectRegistryService {
     if (array_key_exists('parent_subject_id', $input)) {
       $this->syncInstitutionParentRelationship($campaign_id, (string) $fields['subject_id'], $normalized['parent_subject_id']);
     }
+    elseif (!$existing) {
+      // A new subject takes its place in the hierarchy from the library:
+      // the institution it sits inside is created with it, to the top.
+      $chain = $this->institutionLibrary->chain((string) $fields['subject_id']);
+      if (isset($chain[1])) {
+        $parent = $this->resolveOrCreateInstitutionSubject($campaign_id, [
+          'domain' => (string) $chain[1]['domain'],
+          'display_name' => (string) $chain[1]['canonicalLabel'],
+        ]);
+        $this->syncInstitutionParentRelationship($campaign_id, (string) $fields['subject_id'], (string) $parent['subject_id']);
+        $normalized['parent_subject_id'] = (string) $parent['subject_id'];
+      }
+    }
 
     return $fields + [
       'parent_subject_id' => $normalized['parent_subject_id'],

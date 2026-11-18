@@ -789,6 +789,9 @@
           {% endif %}
         </div>
       {% endfor %}
+      {% if story_ties.missing %}
+        <p class="dc-sheet__detail"><strong>Missing:</strong> {{ story_ties.missing|join('; ') }}.</p>
+      {% endif %}
       {% for tie in story_ties.ties %}
         <div class="dc-sheet__detail">
           <strong>{{ tie.direction == 'toward' ? 'Regards' : 'Regarded by' }}</strong> {{ tie.other_name }}

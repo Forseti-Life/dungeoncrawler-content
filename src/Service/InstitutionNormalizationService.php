@@ -162,6 +162,13 @@ class InstitutionNormalizationService {
   ];
 
   /**
+   * Whether an institution of one type may sit inside one of another.
+   */
+  public static function nestingAllowed(string $domain, string $parent_domain): bool {
+    return in_array($parent_domain, self::PARENT_DOMAINS[$domain] ?? [], TRUE);
+  }
+
+  /**
    * The current ID of an institution whose ID was built under an older type name.
    */
   public function currentSubjectId(string $subject_id): string {
