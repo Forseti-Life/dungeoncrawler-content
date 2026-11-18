@@ -519,10 +519,38 @@ TWIG,
     ];
   }
 
+  /** The eight stage buttons of the left column. */
+  private const STAGE_TABS_MARKUP = '
+        <div class="character-setup-page__tabs" data-gm-storyline-step-tabs>
+          <button type="button" class="character-setup-page__tab is-active" data-step-tab="1" title="Define the storyline identity, premise, player hook, entry point, level range, and intended ending."><span class="character-setup-page__tab-number">1</span><span class="character-setup-page__tab-copy"><span class="character-setup-page__tab-name">Title, Description, Premise</span><span class="character-setup-page__tab-description">Core identity and narrative premise.</span></span></button>
+          <button type="button" class="character-setup-page__tab" data-step-tab="2" title="Build chapters, scenes, tasks, objectives, conflict arcs, relationship changes, and progression dependencies."><span class="character-setup-page__tab-number">2</span><span class="character-setup-page__tab-copy"><span class="character-setup-page__tab-name">Journal/Task Objective Flow</span><span class="character-setup-page__tab-description">Completion criteria and progression links.</span></span></button>
+          <button type="button" class="character-setup-page__tab" data-step-tab="3" title="Define the groups the story is about: clans, families, settlements, factions, guards and guilds, with their purpose, seat, leader and stances."><span class="character-setup-page__tab-number">3</span><span class="character-setup-page__tab-copy"><span class="character-setup-page__tab-name">Institutions</span><span class="character-setup-page__tab-description">The groups the cast belongs to.</span></span></button>
+          <button type="button" class="character-setup-page__tab" data-step-tab="4" title="Connect canonical actors to scenes, roles, motivations, dialogue, knowledge, attitudes, and locations."><span class="character-setup-page__tab-number">4</span><span class="character-setup-page__tab-copy"><span class="character-setup-page__tab-name">Actors Framework</span><span class="character-setup-page__tab-description">Generate/validate actors and role bindings.</span></span></button>
+          <button type="button" class="character-setup-page__tab" data-step-tab="5" title="Associate independent dungeon and room objects with chapters and scenes without conflating their identities."><span class="character-setup-page__tab-number">5</span><span class="character-setup-page__tab-copy"><span class="character-setup-page__tab-name">Dungeons & Rooms Framework</span><span class="character-setup-page__tab-description">Generate/validate traversal spaces.</span></span></button>
+          <button type="button" class="character-setup-page__tab" data-step-tab="6" title="Connect canonical items to scenes, quests, actors, acquisition requirements, prerequisites, and rewards."><span class="character-setup-page__tab-number">6</span><span class="character-setup-page__tab-copy"><span class="character-setup-page__tab-name">Items Framework</span><span class="character-setup-page__tab-description">Generate/validate rewards and dependencies.</span></span></button>
+          <button type="button" class="character-setup-page__tab" data-step-tab="7" title="Generate the canonical definition, run structural and narrative validation, and inspect conflicts or continuity findings."><span class="character-setup-page__tab-number">7</span><span class="character-setup-page__tab-copy"><span class="character-setup-page__tab-name">Composition & Validation</span><span class="character-setup-page__tab-description">Assemble canonical storyline contract.</span></span></button>
+          <button type="button" class="character-setup-page__tab" data-step-tab="8" title="Review story progression, choices, and validation before publishing."><span class="character-setup-page__tab-number">8</span><span class="character-setup-page__tab-copy"><span class="character-setup-page__tab-name">Review Storyline</span><span class="character-setup-page__tab-description">Visual story review and publication.</span></span></button>
+        </div>';
+
+  /** The "Current state" card, filled by js/gm-storyline-builder.js. */
+  private const STATUS_CARD_MARKUP = '
+        <section class="character-setup-page__sidebar-card gm-storyline-status" data-storyline-status aria-labelledby="storyline-status-title">
+          <h2 id="storyline-status-title" class="character-setup-page__sidebar-title">Current state</h2>
+          <div class="gm-storyline-status__score"><strong data-storyline-status-percent>0%</strong><span>complete</span></div>
+          <progress data-storyline-status-progress max="100" value="0">0%</progress>
+          <dl>
+            <div><dt>Validity</dt><dd data-storyline-status-validity>No draft</dd></div>
+            <div><dt>Current focus</dt><dd data-storyline-status-focus>Stage 1</dd></div>
+            <div><dt>Objects</dt><dd data-storyline-status-counts>0 scenes · 0 actors · 0 rooms</dd></div>
+          </dl>
+          <ol class="gm-storyline-status__stages" data-storyline-status-stages></ol>
+          <p class="gm-storyline-status__label"><strong>Minimum content still needed</strong></p>
+          <ul data-storyline-status-missing><li>Create or load a draft.</li></ul>
+        </section>';
+
   public function page(): array {
     $initial_fields = $this->loadInitialWizardFields();
     $build = [
-      '#type' => 'container',
       '#attached' => [
         'library' => [
           'dungeoncrawler_content/character-setup-tabs',
@@ -583,135 +611,48 @@ TWIG,
           ],
         ],
       ],
-      '#attributes' => [
-        'class' => ['character-setup-page'],
+    ];
+
+    // The page layout comes from the template every editor page embeds;
+    // this page fills in its own stages, state card, links and workspace.
+    $quick_link = function (string $label, string $route_name, array $route_params = []): ?array {
+      $url = Url::fromRoute($route_name, $route_params);
+      return $url->access($this->currentUser()) ? ['label' => $this->t($label), 'url' => $url->toString()] : NULL;
+    };
+    $build['page'] = [
+      '#type' => 'inline_template',
+      '#context' => [
+        'surface' => '',
+        'title' => $this->t('GM Storyline Builder'),
+        'intro' => $this->t('Build storylines with one consolidated process flow showing available generation and validation tools at each stage.'),
+        'back_url' => Url::fromRoute('dungeoncrawler_content.storyline_management')->toString(),
+        'back_label' => $this->t('Back to Storyline Manager'),
+        'stages_title' => $this->t('Storyline process stages'),
+        'panel_meta' => $this->t('Guided creation with structured data controls below'),
+        'quick_links' => array_values(array_filter([
+      $quick_link('Storyline Explorer', 'dungeoncrawler_content.storyline_explorer'),
+      $quick_link('Analysis Explorer Hub', 'dungeoncrawler_content.analysis_explorer_home'),
+      $quick_link('Dungeon Editor', 'dungeoncrawler_content.dungeon_editor'),
+      $quick_link('Room Editor', 'dungeoncrawler_content.room_editor'),
+      $quick_link('Actor Editor', 'dungeoncrawler_content.definition_family', ['family' => 'actor']),
+      $quick_link('Item Editor', 'dungeoncrawler_content.definition_family', ['family' => 'item']),
+      $quick_link('Creature Editor', 'dungeoncrawler_content.definition_family', ['family' => 'creature']),
+      $quick_link('Obstacle Editor', 'dungeoncrawler_content.definition_family', ['family' => 'obstacle']),
+      $quick_link('Trap Editor', 'dungeoncrawler_content.definition_family', ['family' => 'trap']),
+      $quick_link('Hazard Editor', 'dungeoncrawler_content.definition_family', ['family' => 'hazard']),
+      $quick_link('My Campaigns', 'dungeoncrawler_content.campaigns'),
+      $quick_link('Create Campaign', 'dungeoncrawler_content.campaign_create'),
+      $quick_link('Archived Characters', 'dungeoncrawler_content.characters_archived'),
+        ])),
       ],
-    ];
-
-    $build['header'] = [
-      '#type' => 'container',
-      '#attributes' => ['class' => ['character-setup-page__header']],
-    ];
-    $build['header']['copy'] = [
-      '#markup' => '<p class="character-setup-page__eyebrow">' . $this->t('Game master workspace') . '</p>'
-        . '<h1 class="character-setup-page__title">' . $this->t('GM Storyline Builder') . '</h1>'
-        . '<p class="character-setup-page__intro">' . $this->t('Build storylines with one consolidated process flow showing available generation and validation tools at each stage.') . '</p>',
-    ];
-    $build['header']['back'] = [
-      '#type' => 'link',
-      '#title' => $this->t('Back to Storyline Manager'),
-      '#url' => Url::fromRoute('dungeoncrawler_content.storyline_management'),
-      '#attributes' => ['class' => ['btn', 'btn-secondary', 'character-setup-page__back']],
-    ];
-
-    $build['layout'] = [
-      '#type' => 'container',
-      '#attributes' => ['class' => ['character-setup-page__layout']],
-    ];
-
-    $build['layout']['sidebar'] = [
-      '#type' => 'container',
-      '#attributes' => ['class' => ['character-setup-page__sidebar']],
-    ];
-    $build['layout']['sidebar']['stack'] = [
-      '#type' => 'container',
-      '#attributes' => ['class' => ['character-setup-page__sidebar-stack']],
-    ];
-    $build['layout']['sidebar']['stack']['flow'] = [
-      '#type' => 'container',
-      '#attributes' => ['class' => ['character-setup-page__sidebar-card']],
-    ];
-    $build['layout']['sidebar']['stack']['flow']['title'] = [
-      '#markup' => '<h2 class="character-setup-page__sidebar-title">' . $this->t('Storyline process stages') . '</h2>',
-    ];
-    $build['layout']['sidebar']['stack']['flow']['steps'] = [
-      '#type' => 'inline_template',
-      '#template' => '
-        <div class="character-setup-page__tabs" data-gm-storyline-step-tabs>
-          <button type="button" class="character-setup-page__tab is-active" data-step-tab="1" title="Define the storyline identity, premise, player hook, entry point, level range, and intended ending."><span class="character-setup-page__tab-number">1</span><span class="character-setup-page__tab-copy"><span class="character-setup-page__tab-name">Title, Description, Premise</span><span class="character-setup-page__tab-description">Core identity and narrative premise.</span></span></button>
-          <button type="button" class="character-setup-page__tab" data-step-tab="2" title="Build chapters, scenes, tasks, objectives, conflict arcs, relationship changes, and progression dependencies."><span class="character-setup-page__tab-number">2</span><span class="character-setup-page__tab-copy"><span class="character-setup-page__tab-name">Journal/Task Objective Flow</span><span class="character-setup-page__tab-description">Completion criteria and progression links.</span></span></button>
-          <button type="button" class="character-setup-page__tab" data-step-tab="3" title="Define the groups the story is about: clans, families, settlements, factions, guards and guilds, with their purpose, seat, leader and stances."><span class="character-setup-page__tab-number">3</span><span class="character-setup-page__tab-copy"><span class="character-setup-page__tab-name">Institutions</span><span class="character-setup-page__tab-description">The groups the cast belongs to.</span></span></button>
-          <button type="button" class="character-setup-page__tab" data-step-tab="4" title="Connect canonical actors to scenes, roles, motivations, dialogue, knowledge, attitudes, and locations."><span class="character-setup-page__tab-number">4</span><span class="character-setup-page__tab-copy"><span class="character-setup-page__tab-name">Actors Framework</span><span class="character-setup-page__tab-description">Generate/validate actors and role bindings.</span></span></button>
-          <button type="button" class="character-setup-page__tab" data-step-tab="5" title="Associate independent dungeon and room objects with chapters and scenes without conflating their identities."><span class="character-setup-page__tab-number">5</span><span class="character-setup-page__tab-copy"><span class="character-setup-page__tab-name">Dungeons & Rooms Framework</span><span class="character-setup-page__tab-description">Generate/validate traversal spaces.</span></span></button>
-          <button type="button" class="character-setup-page__tab" data-step-tab="6" title="Connect canonical items to scenes, quests, actors, acquisition requirements, prerequisites, and rewards."><span class="character-setup-page__tab-number">6</span><span class="character-setup-page__tab-copy"><span class="character-setup-page__tab-name">Items Framework</span><span class="character-setup-page__tab-description">Generate/validate rewards and dependencies.</span></span></button>
-          <button type="button" class="character-setup-page__tab" data-step-tab="7" title="Generate the canonical definition, run structural and narrative validation, and inspect conflicts or continuity findings."><span class="character-setup-page__tab-number">7</span><span class="character-setup-page__tab-copy"><span class="character-setup-page__tab-name">Composition & Validation</span><span class="character-setup-page__tab-description">Assemble canonical storyline contract.</span></span></button>
-          <button type="button" class="character-setup-page__tab" data-step-tab="8" title="Review story progression, choices, and validation before publishing."><span class="character-setup-page__tab-number">8</span><span class="character-setup-page__tab-copy"><span class="character-setup-page__tab-name">Review Storyline</span><span class="character-setup-page__tab-description">Visual story review and publication.</span></span></button>
-        </div>',
-    ];
-    $build['layout']['sidebar']['stack']['status'] = [
-      '#type' => 'inline_template',
-      '#template' => '
-        <section class="character-setup-page__sidebar-card gm-storyline-status" data-storyline-status aria-labelledby="storyline-status-title">
-          <h2 id="storyline-status-title" class="character-setup-page__sidebar-title">Current state</h2>
-          <div class="gm-storyline-status__score"><strong data-storyline-status-percent>0%</strong><span>complete</span></div>
-          <progress data-storyline-status-progress max="100" value="0">0%</progress>
-          <dl>
-            <div><dt>Validity</dt><dd data-storyline-status-validity>No draft</dd></div>
-            <div><dt>Current focus</dt><dd data-storyline-status-focus>Stage 1</dd></div>
-            <div><dt>Objects</dt><dd data-storyline-status-counts>0 scenes · 0 actors · 0 rooms</dd></div>
-          </dl>
-          <ol class="gm-storyline-status__stages" data-storyline-status-stages></ol>
-          <p class="gm-storyline-status__label"><strong>Minimum content still needed</strong></p>
-          <ul data-storyline-status-missing><li>Create or load a draft.</li></ul>
-        </section>',
-    ];
-    $build['layout']['sidebar']['stack']['quick_links'] = [
-      '#type' => 'container',
-      '#attributes' => ['class' => ['character-setup-page__sidebar-card']],
-    ];
-    $build['layout']['sidebar']['stack']['quick_links']['title'] = [
-      '#markup' => '<h2 class="character-setup-page__sidebar-title">' . $this->t('Quick launch') . '</h2>',
-    ];
-    $quick_links = array_values(array_filter([
-      $this->routeLinkIfAccessible('Storyline Explorer', 'dungeoncrawler_content.storyline_explorer'),
-      $this->routeLinkIfAccessible('Analysis Explorer Hub', 'dungeoncrawler_content.analysis_explorer_home'),
-      $this->routeLinkIfAccessible('Dungeon Editor', 'dungeoncrawler_content.dungeon_editor'),
-      $this->routeLinkIfAccessible('Room Editor', 'dungeoncrawler_content.room_editor'),
-      $this->routeLinkIfAccessible('Actor Editor', 'dungeoncrawler_content.definition_family', ['family' => 'actor']),
-      $this->routeLinkIfAccessible('Item Editor', 'dungeoncrawler_content.definition_family', ['family' => 'item']),
-      $this->routeLinkIfAccessible('Creature Editor', 'dungeoncrawler_content.definition_family', ['family' => 'creature']),
-      $this->routeLinkIfAccessible('Obstacle Editor', 'dungeoncrawler_content.definition_family', ['family' => 'obstacle']),
-      $this->routeLinkIfAccessible('Trap Editor', 'dungeoncrawler_content.definition_family', ['family' => 'trap']),
-      $this->routeLinkIfAccessible('Hazard Editor', 'dungeoncrawler_content.definition_family', ['family' => 'hazard']),
-      $this->routeLinkIfAccessible('My Campaigns', 'dungeoncrawler_content.campaigns'),
-      $this->routeLinkIfAccessible('Create Campaign', 'dungeoncrawler_content.campaign_create'),
-      $this->routeLinkIfAccessible('Archived Characters', 'dungeoncrawler_content.characters_archived'),
-    ]));
-    $build['layout']['sidebar']['stack']['quick_links']['items'] = [
-      '#theme' => 'item_list',
-      '#items' => $quick_links,
-      '#empty' => $this->t('No additional quick-launch links are available for your role.'),
-      '#attributes' => ['class' => ['character-setup-page__quick-links']],
-    ];
-    $build['layout']['sidebar']['stack']['quick_links']['object_title'] = [
-      '#markup' => '<h3 class="character-setup-page__sidebar-title">' . $this->t('In this storyline') . '</h3>',
-    ];
-    $build['layout']['sidebar']['stack']['quick_links']['object_items'] = [
-      '#markup' => '<ul class="character-setup-page__quick-links" data-storyline-object-editor-links><li>Load a storyline to see its scenes, actors, sites and rooms.</li></ul>',
-    ];
-
-    $build['layout']['workspace'] = [
-      '#type' => 'container',
-      '#attributes' => ['class' => ['character-setup-page__workspace']],
-    ];
-    $build['layout']['workspace']['panel_header'] = [
-      '#type' => 'container',
-      '#attributes' => ['class' => ['character-setup-page__panel-header']],
-    ];
-    $build['layout']['workspace']['panel_header']['copy'] = [
-      '#markup' => '<p class="character-setup-page__panel-label">' . $this->t('Primary authoring interface') . '</p>'
-        . '<h2 class="character-setup-page__panel-title" data-storyline-heading>' . $this->t('New storyline') . '</h2>',
-    ];
-    $build['layout']['workspace']['panel_header']['meta'] = [
-      '#markup' => '<p class="character-setup-page__panel-meta">' . $this->t('Guided creation with structured data controls below') . '</p>',
-    ];
-    $build['layout']['workspace']['frame'] = [
-      '#type' => 'container',
-      '#attributes' => ['class' => ['character-setup-page__frame-shell']],
-    ];
-    $build['layout']['workspace']['frame']['wizard'] = [
-      '#type' => 'inline_template',
-      '#template' => $this->buildWizardMarkup(),
+      '#template' => "{% embed '@dungeoncrawler_content/editor-page-shell.html.twig' %}"
+        . '{% block stages %}' . self::STAGE_TABS_MARKUP . '{% endblock %}'
+        . '{% block state %}' . self::STATUS_CARD_MARKUP . '{% endblock %}'
+        . '{% block links %}<h3 class="character-setup-page__sidebar-title">{{ "In this storyline"|t }}</h3>'
+        . '<ul class="character-setup-page__quick-links" data-storyline-object-editor-links><li>Load a storyline to see its scenes, actors, sites and rooms.</li></ul>{% endblock %}'
+        . '{% block heading %}<h2 class="character-setup-page__panel-title" data-storyline-heading>{{ "New storyline"|t }}</h2>{% endblock %}'
+        . '{% block frame %}' . $this->buildWizardMarkup() . '{% endblock %}'
+        . '{% endembed %}',
     ];
 
     return $build;
@@ -887,17 +828,6 @@ TWIG,
    */
   private function routeLink(string $label, string $route_name): array {
     return Link::fromTextAndUrl($this->t($label), Url::fromRoute($route_name))->toRenderable();
-  }
-
-  /**
-   * Build route link when route is accessible for current user.
-   */
-  private function routeLinkIfAccessible(string $label, string $route_name, array $route_params = []): ?array {
-    $url = Url::fromRoute($route_name, $route_params);
-    if (!$url->access($this->currentUser())) {
-      return NULL;
-    }
-    return Link::fromTextAndUrl($this->t($label), $url)->toRenderable();
   }
 
   /**

@@ -155,7 +155,7 @@ class DungeonEditorService {
         $active_drafts[(string) $dungeon_id] = TRUE;
       }
     }
-    return array_map(static function (object $row) use ($active_drafts): array {
+    $listed = array_map(static function (object $row) use ($active_drafts): array {
       $published_version_id = trim((string) ($row->published_version_id ?? ''));
       $metadata = [];
       $room_count = 0;
@@ -179,6 +179,31 @@ class DungeonEditorService {
         'has_active_draft' => isset($active_drafts[(string) $row->dungeon_id]),
       ];
     }, $rows);
+
+    // A dungeon being built for the first time exists only as an editor
+    // draft until it is published. It is still a dungeon an author can open.
+    $known = array_fill_keys(array_column($listed, 'dungeon_id'), TRUE);
+    foreach ($this->listDrafts() as $draft) {
+      $dungeon_id = (string) $draft['dungeon_id'];
+      // A blank draft nobody named or placed a room in is not one yet.
+      if (isset($known[$dungeon_id]) || (($draft['name'] === '' || $draft['name'] === self::BLANK_NAME) && $draft['placement_pins'] === [])) {
+        continue;
+      }
+      $known[$dungeon_id] = TRUE;
+      $listed[] = [
+        'dungeon_id' => $dungeon_id,
+        'name' => $draft['name'] !== '' ? $draft['name'] : $dungeon_id,
+        'publication_status' => 'unpublished',
+        'published_version_id' => NULL,
+        'published_version' => NULL,
+        'published_at' => 0,
+        'published_room_count' => 0,
+        'metadata' => [],
+        'has_active_draft' => TRUE,
+      ];
+    }
+    usort($listed, static fn(array $a, array $b): int => strcasecmp((string) $a['name'], (string) $b['name']));
+    return $listed;
   }
 
   /**

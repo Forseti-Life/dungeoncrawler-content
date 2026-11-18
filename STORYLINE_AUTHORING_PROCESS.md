@@ -1002,3 +1002,11 @@ Each editor page has its own GM agent, working on one draft at a time.
   built or changed, the Storyline agent answers with a shortcut into that
   editor. The same shortcuts are listed beside the draft under "In this
   storyline": each site with its rooms beneath it.
+
+## Page format
+
+The builder page is laid out by templates/editor-page-shell.html.twig, the
+one template the Storyline Builder, the Dungeon Editor and the Room Editor
+all embed: header, left column (stages, current state, quick links) and
+workspace. This page fills the template's blocks with its own stage
+buttons, state card, "In this storyline" links and wizard.
