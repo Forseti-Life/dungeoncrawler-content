@@ -4,7 +4,9 @@
  * Canonical Dungeon Editor shell (slice 4: placement authoring).
  *
  * Layout contract, shared with the Room Editor:
- *   [author drawer] | [level canvas] | [GM assistant panel]
+ *   the shared editor page (editor-page-shell.html.twig): stages, state and
+ *   links on the left; the Game Master Agent above the [author drawer] |
+ *   [level canvas]
  * The drawer starts collapsed; the assistant panel owns the freed space.
  *
  * The shell places rooms, links ports, manages regions, publishes canonical
@@ -18,207 +20,173 @@
  * js/v2/editor/DungeonEditorShell.js.
  */
 #}
-<div class="hexmap-container room-editor dungeon-editor" data-dungeon-editor>
-  <div class="game-shell" data-dungeon-editor-shell>
+{% embed '@dungeoncrawler_content/editor-page-shell.html.twig' with {
+  surface: 'dungeon-editor',
+  title: 'Dungeon Editor'|t,
+  intro: 'Lay out a site from published rooms: place them, link their exits, validate and publish.'|t,
+  back_url: path('dungeoncrawler_content.dungeon_management'),
+  back_label: 'Back to Dungeon Manager'|t,
+  stages_title: 'Dungeon process stages'|t,
+  thing: 'dungeon'|t,
+  contains_title: 'Rooms in this dungeon'|t,
+  quick_links: [
+    { label: 'Dungeon Manager'|t, url: path('dungeoncrawler_content.dungeon_management') },
+    { label: 'Room Manager'|t, url: path('dungeoncrawler_content.room_management') },
+    { label: 'Room Editor'|t, url: path('dungeoncrawler_content.room_editor') },
+    { label: 'Storyline Manager'|t, url: path('dungeoncrawler_content.storyline_management') }
+  ],
+} %}
+  {% block gm %}
+    {% include '@dungeoncrawler_content/editor-gm-agent.html.twig' with {
+      surface: 'dungeon-editor',
+      eyebrow: 'Primary dungeon interface'|t,
+      intro: 'Describe the site you want, ask what is missing, or request a change. Clear requests are applied to the draft and stay editable on the map below.'|t,
+      placeholder: 'Describe the dungeon, ask what is missing, or request a change.'|t,
+      prompts: [
+        { label: 'What is next'|t, text: 'What is the next step for this dungeon? Name one finding and how it is fixed.'|t },
+        { label: 'Build from the story'|t, text: 'Load the story brief for this dungeon and build what the story needs.'|t },
+        { label: 'Check for publishing'|t, text: 'Validate this dungeon and tell me what blocks publishing.'|t }
+      ],
+    } only %}
+  {% endblock %}
+  {% block editor %}
+    <div class="hexmap-container room-editor dungeon-editor editor-page__editor">
+      <div class="game-shell" data-dungeon-editor-shell>
 
-    <header class="room-editor__header">
-      <div class="room-editor__header-row">
-        <button type="button"
-                class="room-editor__button room-editor__drawer-toggle"
-                data-dungeon-editor-action="toggle-author-drawer"
-                aria-expanded="false"
-                aria-controls="dungeon-editor-author-drawer"
-                title="{{ 'Show or hide the manual authoring tools'|t }}">{{ 'Author Tools'|t }}</button>
+        <header class="room-editor__header">
+          <div class="room-editor__header-row">
+            <button type="button"
+                    class="room-editor__button room-editor__drawer-toggle"
+                    data-dungeon-editor-action="toggle-author-drawer"
+                    aria-expanded="false"
+                    aria-controls="dungeon-editor-author-drawer"
+                    title="{{ 'Show or hide the manual authoring tools'|t }}">{{ 'Author Tools'|t }}</button>
 
-        <div class="room-editor__field room-editor__field--inline">
-          <label for="dungeon-editor-dungeon-select">{{ 'Dungeon'|t }}</label>
-          <select id="dungeon-editor-dungeon-select" data-dungeon-editor-dungeon-select>
-            <option value="">{{ '- Select a dungeon -'|t }}</option>
-            {% for dungeon in dungeons %}
-              <option value="{{ dungeon.dungeon_id }}"
-                      data-published-version-id="{{ dungeon.published_version_id }}"
-                      data-has-active-draft="{{ dungeon.has_active_draft ? '1' : '0' }}"
-                      {% if dungeon.dungeon_id == selected_dungeon_id %} selected{% endif %}>
-                {{ dungeon.name }} ({% if dungeon.published_version_id %}{{ dungeon.publication_status }}{% elseif dungeon.has_active_draft %}{{ 'converted draft'|t }}{% else %}{{ 'unpublished'|t }}{% endif %})
-              </option>
-            {% endfor %}
-          </select>
-        </div>
-        <button type="button" class="room-editor__button" data-dungeon-editor-action="load-dungeon">{{ 'Load'|t }}</button>
-        <button type="button" class="room-editor__button" data-dungeon-editor-action="new-dungeon">{{ 'New Dungeon'|t }}</button>
+            <div class="room-editor__field room-editor__field--inline">
+              <label for="dungeon-editor-dungeon-select">{{ 'Dungeon'|t }}</label>
+              <select id="dungeon-editor-dungeon-select" data-dungeon-editor-dungeon-select>
+                <option value="">{{ '- Select a dungeon -'|t }}</option>
+                {% for dungeon in dungeons %}
+                  <option value="{{ dungeon.dungeon_id }}"
+                          data-published-version-id="{{ dungeon.published_version_id }}"
+                          data-has-active-draft="{{ dungeon.has_active_draft ? '1' : '0' }}"
+                          {% if dungeon.dungeon_id == selected_dungeon_id %} selected{% endif %}>
+                    {{ dungeon.name }} ({% if dungeon.published_version_id %}{{ dungeon.publication_status }}{% elseif dungeon.has_active_draft %}{{ 'converted draft'|t }}{% else %}{{ 'unpublished'|t }}{% endif %})
+                  </option>
+                {% endfor %}
+              </select>
+            </div>
+            <button type="button" class="room-editor__button" data-dungeon-editor-action="load-dungeon">{{ 'Load'|t }}</button>
+            <button type="button" class="room-editor__button" data-dungeon-editor-action="new-dungeon">{{ 'New Dungeon'|t }}</button>
 
-        <span class="room-editor__spacer"></span>
-
-        <a class="room-editor__button" href="{{ path('dungeoncrawler_content.dungeon_management') }}">{{ 'Back to Dungeon Manager'|t }}</a>
-        <button type="button" class="room-editor__button" data-dungeon-editor-action="recenter" disabled title="{{ 'Recenter and fit the dungeon map in the viewport'|t }}">{{ 'Recenter'|t }}</button>
-        <button type="button" class="room-editor__button" data-dungeon-editor-action="undo" disabled title="{{ 'Undo the last command (Ctrl+Z)'|t }}">{{ 'Undo'|t }}</button>
-        <button type="button" class="room-editor__button" data-dungeon-editor-action="redo" disabled title="{{ 'Redo the last undone command (Ctrl+Shift+Z)'|t }}">{{ 'Redo'|t }}</button>
-        <span class="dungeon-editor__revision" data-dungeon-editor-revision></span>
-      </div>
-
-      <div class="room-editor__status" data-dungeon-editor-status role="status" aria-live="polite">
-        {{ 'Loading canonical Dungeon Editor...'|t }}
-      </div>
-    </header>
-
-    <div class="game-shell__workspace room-editor__workspace" data-dungeon-editor-workspace>
-
-      <aside id="dungeon-editor-author-drawer"
-             class="room-editor__author-drawer"
-             data-dungeon-editor-author-drawer
-             aria-label="{{ 'Manual authoring tools'|t }}"
-             hidden>
-
-        <section class="room-editor__drawer-section" data-dungeon-editor-metadata aria-label="{{ 'Dungeon metadata'|t }}">
-          <p class="room-editor__eyebrow">{{ 'Dungeon'|t }}</p>
-          <form class="dungeon-editor__metadata" data-dungeon-editor-metadata-form>
-            <label class="room-editor__field">{{ 'Name'|t }}<input type="text" name="name" maxlength="200" required data-dungeon-editor-meta="name"></label>
-            <label class="room-editor__field">{{ 'Theme'|t }}<input type="text" name="theme" maxlength="100" data-dungeon-editor-meta="theme"></label>
-            <label class="room-editor__field">{{ 'Depth'|t }}<input type="number" name="depth" min="0" max="100" step="1" data-dungeon-editor-meta="depth"></label>
-            <label class="room-editor__field">{{ 'Description'|t }}<textarea name="description" rows="3" maxlength="8000" data-dungeon-editor-meta="description"></textarea></label>
-          </form>
-        </section>
-
-        <section class="room-editor__drawer-section" data-dungeon-editor-room-library aria-label="{{ 'Room library'|t }}">
-          <p class="room-editor__eyebrow">{{ 'Room Library'|t }}</p>
-          <p class="room-editor__hint">{{ 'Drag a published room onto the level to place it.'|t }}</p>
-          <ul class="dungeon-editor__room-list" data-dungeon-editor-room-list role="list"></ul>
-          <p class="room-editor__catalog-empty" data-dungeon-editor-room-list-empty hidden>{{ 'No published rooms.'|t }}</p>
-        </section>
-
-        <section class="room-editor__drawer-section dungeon-editor__generation" data-dungeon-editor-generation aria-label="{{ 'Generate dungeon layout'|t }}">
-          <p class="room-editor__eyebrow">{{ 'Generate…'|t }}</p>
-          <label class="room-editor__field" for="dungeon-editor-generation-prompt">{{ 'Prompt'|t }}
-            <textarea id="dungeon-editor-generation-prompt" data-dungeon-editor-generation-prompt rows="3" maxlength="2000" placeholder="{{ '3 connected rooms, sewer theme'|t }}"></textarea>
-          </label>
-          <label class="room-editor__field">{{ 'Theme'|t }}<input type="text" data-dungeon-editor-generation-theme maxlength="100" placeholder="{{ 'sewer, ruin, crypt...'|t }}"></label>
-          <label class="room-editor__field">{{ 'Room count'|t }}<input type="number" data-dungeon-editor-generation-room-count min="3" max="20" step="1" value="3"></label>
-          <label class="room-editor__field">{{ 'Seed (optional)'|t }}<input type="number" data-dungeon-editor-generation-seed min="0" max="2147483647" step="1"></label>
-          <button type="button" class="room-editor__button room-editor__button--primary" data-dungeon-editor-action="generate-dungeon-layout">{{ 'Generate dungeon plan'|t }}</button>
-        </section>
-
-        <section class="room-editor__drawer-section" data-dungeon-editor-placements aria-label="{{ 'Placements'|t }}">
-          <p class="room-editor__eyebrow">{{ 'Placements'|t }}</p>
-          <p class="room-editor__hint">{{ 'Drag a room on the canvas to move it. With one selected: [ and ] rotate, Delete removes.'|t }}</p>
-          <ul class="dungeon-editor__placement-list" data-dungeon-editor-placement-list role="list"></ul>
-          <p class="room-editor__hint" data-dungeon-editor-placement-empty hidden>{{ 'This level has no placements.'|t }}</p>
-        </section>
-
-        <section class="room-editor__drawer-section" data-dungeon-editor-links aria-label="{{ 'Port links'|t }}">
-          <p class="room-editor__eyebrow">{{ 'Links'|t }}</p>
-          <p class="room-editor__hint">{{ 'Click an unlinked exit port on the canvas, then a highlighted entry port across the shared edge. Esc cancels.'|t }}</p>
-          <ul class="dungeon-editor__link-list" data-dungeon-editor-link-list role="list"></ul>
-          <p class="room-editor__hint" data-dungeon-editor-link-empty hidden>{{ 'No links yet.'|t }}</p>
-        </section>
-
-        <section class="room-editor__drawer-section" data-dungeon-editor-regions aria-label="{{ 'Regions'|t }}">
-          <p class="room-editor__eyebrow">{{ 'Regions'|t }}</p>
-          <ul class="dungeon-editor__region-list" data-dungeon-editor-region-list role="list"></ul>
-          <p class="room-editor__hint" data-dungeon-editor-region-empty hidden>{{ 'No regions yet.'|t }}</p>
-          <form class="dungeon-editor__region-form" data-dungeon-editor-region-form>
-            <label class="room-editor__field">{{ 'Region id (auto if blank)'|t }}<input type="text" name="region_id" maxlength="100" pattern="[a-z0-9][a-z0-9_\-]{0,99}" placeholder="north-wing"></label>
-            <label class="room-editor__field">{{ 'Name'|t }}<input type="text" name="name" maxlength="200" required></label>
-            <button type="submit" class="room-editor__button">{{ 'Add region'|t }}</button>
-          </form>
-        </section>
-
-        <section class="room-editor__drawer-section room-editor__inspector" data-dungeon-editor-inspector aria-label="{{ 'Inspector'|t }}">
-          <p class="room-editor__eyebrow">{{ 'Inspector'|t }}</p>
-          <div data-dungeon-editor-inspector-body>
-            <p class="room-editor__hint">{{ 'Select a placement, link or region to inspect it.'|t }}</p>
+            <span class="room-editor__spacer"></span>
+            <button type="button" class="room-editor__button" data-dungeon-editor-action="recenter" disabled title="{{ 'Recenter and fit the dungeon map in the viewport'|t }}">{{ 'Recenter'|t }}</button>
+            <button type="button" class="room-editor__button" data-dungeon-editor-action="undo" disabled title="{{ 'Undo the last command (Ctrl+Z)'|t }}">{{ 'Undo'|t }}</button>
+            <button type="button" class="room-editor__button" data-dungeon-editor-action="redo" disabled title="{{ 'Redo the last undone command (Ctrl+Shift+Z)'|t }}">{{ 'Redo'|t }}</button>
+            <span class="dungeon-editor__revision" data-dungeon-editor-revision></span>
           </div>
-        </section>
 
-        <section class="room-editor__drawer-section room-editor__validation" data-dungeon-editor-validation aria-label="{{ 'Validation results'|t }}">
-          <p class="room-editor__eyebrow">{{ 'Validation'|t }}</p>
-          <ul class="room-editor__validation-list" data-dungeon-editor-validation-list></ul>
-        </section>
-
-        <section class="room-editor__drawer-section room-editor__validation" data-dungeon-editor-publication aria-label="{{ 'Publication'|t }}">
-          <p class="room-editor__eyebrow">{{ 'Publish'|t }}</p>
-          <ul class="room-editor__validation-list" data-dungeon-editor-publish-readiness>
-            <li class="room-editor__validation-item">{{ 'Load a draft before publishing.'|t }}</li>
-          </ul>
-          <form class="dungeon-editor__publish-form" data-dungeon-editor-publish-form>
-            <label class="room-editor__field">{{ 'Version'|t }}<input type="text" name="version" maxlength="32" required placeholder="1.0.0" data-dungeon-editor-publish-version></label>
-            <label class="room-editor__field">{{ 'Publication note'|t }}<textarea name="publication_note" rows="2" maxlength="4000" data-dungeon-editor-publish-note></textarea></label>
-            <button type="submit" class="room-editor__button room-editor__button--primary" data-dungeon-editor-action="publish" disabled>{{ 'Publish'|t }}</button>
-            <p class="room-editor__hint" data-dungeon-editor-published-version hidden></p>
-          </form>
-        </section>
-
-      </aside>
-
-      <div class="game-shell__content room-editor__center">
-        <div class="hexmap-stage room-editor__stage">
-          <div id="dungeon-editor-canvas" class="hexmap-canvas-wrapper" data-dungeon-editor-canvas></div>
-        </div>
-      </div>
-
-      <aside class="room-editor__gm-panel" data-dungeon-editor-gm-panel aria-label="{{ 'GM assistant'|t }}">
-        <header class="room-editor__gm-header">
-          <p class="room-editor__eyebrow">{{ 'GM Assistant'|t }}</p>
-          <span class="room-editor__gm-state" data-dungeon-editor-gm-state role="status" aria-live="polite">{{ 'Idle'|t }}</span>
+          <div class="room-editor__status" data-dungeon-editor-status role="status" aria-live="polite">
+            {{ 'Loading canonical Dungeon Editor...'|t }}
+          </div>
         </header>
 
-        <section class="room-editor__gm-status" data-dungeon-editor-gm-status aria-label="{{ 'Draft status'|t }}">
-          <div class="room-editor__gm-status-score"><strong data-editor-status-percent>0%</strong> <span>{{ 'complete'|t }}</span></div>
-          <progress data-editor-status-progress max="100" value="0">0%</progress>
-          <dl class="room-editor__gm-status-facts">
-            <div><dt>{{ 'Validity'|t }}</dt><dd data-editor-status-validity>{{ 'No draft'|t }}</dd></div>
-            <div><dt>{{ 'Current stage'|t }}</dt><dd data-editor-status-stage>—</dd></div>
-          </dl>
-          <p class="room-editor__gm-status-label">{{ 'Still needed'|t }}</p>
-          <ul class="room-editor__gm-status-missing" data-editor-status-missing><li>{{ 'Create or load a draft.'|t }}</li></ul>
-          <p class="room-editor__gm-status-label">{{ 'In these storylines'|t }}</p>
-          <ul class="room-editor__gm-status-missing" data-editor-status-storylines><li>{{ 'No storyline uses this yet.'|t }}</li></ul>
-        </section>
+        <div class="game-shell__workspace room-editor__workspace room-editor__workspace--stacked" data-dungeon-editor-workspace>
 
-        <section class="room-editor__gm-disclosure-group" aria-label="{{ 'Grounded editor context'|t }}">
-          <button type="button"
-                  class="room-editor__gm-disclosure"
-                  data-dungeon-editor-action="gm-toggle-context"
-                  aria-expanded="false"
-                  aria-controls="dungeon-editor-gm-context-body">{{ 'Grounded context'|t }}</button>
-          <div id="dungeon-editor-gm-context-body" class="room-editor__gm-context-body" data-dungeon-editor-gm-context hidden></div>
-        </section>
+          <aside id="dungeon-editor-author-drawer"
+                 class="room-editor__author-drawer"
+                 data-dungeon-editor-author-drawer
+                 aria-label="{{ 'Manual authoring tools'|t }}"
+                 hidden>
 
-        <section class="room-editor__gm-disclosure-group" aria-label="{{ 'Assistant toolset'|t }}">
-          <button type="button"
-                  class="room-editor__gm-disclosure"
-                  data-dungeon-editor-action="gm-toggle-tools"
-                  aria-expanded="false"
-                  aria-controls="dungeon-editor-gm-tools-body">{{ 'Toolset'|t }}</button>
-          <div id="dungeon-editor-gm-tools-body" class="room-editor__gm-tools-body" data-dungeon-editor-gm-tools hidden></div>
-        </section>
+            <section class="room-editor__drawer-section" data-dungeon-editor-metadata aria-label="{{ 'Dungeon metadata'|t }}">
+              <p class="room-editor__eyebrow">{{ 'Dungeon'|t }}</p>
+              <form class="dungeon-editor__metadata" data-dungeon-editor-metadata-form>
+                <label class="room-editor__field">{{ 'Name'|t }}<input type="text" name="name" maxlength="200" required data-dungeon-editor-meta="name"></label>
+                <label class="room-editor__field">{{ 'Theme'|t }}<input type="text" name="theme" maxlength="100" data-dungeon-editor-meta="theme"></label>
+                <label class="room-editor__field">{{ 'Depth'|t }}<input type="number" name="depth" min="0" max="100" step="1" data-dungeon-editor-meta="depth"></label>
+                <label class="room-editor__field">{{ 'Description'|t }}<textarea name="description" rows="3" maxlength="8000" data-dungeon-editor-meta="description"></textarea></label>
+              </form>
+            </section>
 
-        <ol class="room-editor__gm-transcript" data-dungeon-editor-gm-transcript aria-label="{{ 'Assistant transcript'|t }}" aria-live="polite"></ol>
+            <section class="room-editor__drawer-section" data-dungeon-editor-room-library aria-label="{{ 'Room library'|t }}">
+              <p class="room-editor__eyebrow">{{ 'Room Library'|t }}</p>
+              <p class="room-editor__hint">{{ 'Drag a published room onto the level to place it.'|t }}</p>
+              <ul class="dungeon-editor__room-list" data-dungeon-editor-room-list role="list"></ul>
+              <p class="room-editor__catalog-empty" data-dungeon-editor-room-list-empty hidden>{{ 'No published rooms.'|t }}</p>
+            </section>
 
-        <div class="room-editor__gm-plan" data-dungeon-editor-gm-plan hidden>
-          <p class="room-editor__eyebrow">{{ 'Proposed command plan'|t }}</p>
-          <ol class="room-editor__gm-plan-list" data-dungeon-editor-gm-plan-list></ol>
-          <div class="room-editor__gm-plan-actions">
-            <button type="button" class="room-editor__button" data-dungeon-editor-action="gm-preview-plan">{{ 'Preview'|t }}</button>
-            <button type="button" class="room-editor__button room-editor__button--primary" data-dungeon-editor-action="gm-apply-plan">{{ 'Apply plan'|t }}</button>
-            <button type="button" class="room-editor__button" data-dungeon-editor-action="gm-discard-plan">{{ 'Discard'|t }}</button>
+            <section class="room-editor__drawer-section dungeon-editor__generation" data-dungeon-editor-generation aria-label="{{ 'Generate dungeon layout'|t }}">
+              <p class="room-editor__eyebrow">{{ 'Generate…'|t }}</p>
+              <label class="room-editor__field" for="dungeon-editor-generation-prompt">{{ 'Prompt'|t }}
+                <textarea id="dungeon-editor-generation-prompt" data-dungeon-editor-generation-prompt rows="3" maxlength="2000" placeholder="{{ '3 connected rooms, sewer theme'|t }}"></textarea>
+              </label>
+              <label class="room-editor__field">{{ 'Theme'|t }}<input type="text" data-dungeon-editor-generation-theme maxlength="100" placeholder="{{ 'sewer, ruin, crypt...'|t }}"></label>
+              <label class="room-editor__field">{{ 'Room count'|t }}<input type="number" data-dungeon-editor-generation-room-count min="3" max="20" step="1" value="3"></label>
+              <label class="room-editor__field">{{ 'Seed (optional)'|t }}<input type="number" data-dungeon-editor-generation-seed min="0" max="2147483647" step="1"></label>
+              <button type="button" class="room-editor__button room-editor__button--primary" data-dungeon-editor-action="generate-dungeon-layout">{{ 'Generate dungeon plan'|t }}</button>
+            </section>
+
+            <section class="room-editor__drawer-section" data-dungeon-editor-placements aria-label="{{ 'Placements'|t }}">
+              <p class="room-editor__eyebrow">{{ 'Placements'|t }}</p>
+              <p class="room-editor__hint">{{ 'Drag a room on the canvas to move it. With one selected: [ and ] rotate, Delete removes.'|t }}</p>
+              <ul class="dungeon-editor__placement-list" data-dungeon-editor-placement-list role="list"></ul>
+              <p class="room-editor__hint" data-dungeon-editor-placement-empty hidden>{{ 'This level has no placements.'|t }}</p>
+            </section>
+
+            <section class="room-editor__drawer-section" data-dungeon-editor-links aria-label="{{ 'Port links'|t }}">
+              <p class="room-editor__eyebrow">{{ 'Links'|t }}</p>
+              <p class="room-editor__hint">{{ 'Click an unlinked exit port on the canvas, then a highlighted entry port across the shared edge. Esc cancels.'|t }}</p>
+              <ul class="dungeon-editor__link-list" data-dungeon-editor-link-list role="list"></ul>
+              <p class="room-editor__hint" data-dungeon-editor-link-empty hidden>{{ 'No links yet.'|t }}</p>
+            </section>
+
+            <section class="room-editor__drawer-section" data-dungeon-editor-regions aria-label="{{ 'Regions'|t }}">
+              <p class="room-editor__eyebrow">{{ 'Regions'|t }}</p>
+              <ul class="dungeon-editor__region-list" data-dungeon-editor-region-list role="list"></ul>
+              <p class="room-editor__hint" data-dungeon-editor-region-empty hidden>{{ 'No regions yet.'|t }}</p>
+              <form class="dungeon-editor__region-form" data-dungeon-editor-region-form>
+                <label class="room-editor__field">{{ 'Region id (auto if blank)'|t }}<input type="text" name="region_id" maxlength="100" pattern="[a-z0-9][a-z0-9_\-]{0,99}" placeholder="north-wing"></label>
+                <label class="room-editor__field">{{ 'Name'|t }}<input type="text" name="name" maxlength="200" required></label>
+                <button type="submit" class="room-editor__button">{{ 'Add region'|t }}</button>
+              </form>
+            </section>
+
+            <section class="room-editor__drawer-section room-editor__inspector" data-dungeon-editor-inspector aria-label="{{ 'Inspector'|t }}">
+              <p class="room-editor__eyebrow">{{ 'Inspector'|t }}</p>
+              <div data-dungeon-editor-inspector-body>
+                <p class="room-editor__hint">{{ 'Select a placement, link or region to inspect it.'|t }}</p>
+              </div>
+            </section>
+
+            <section class="room-editor__drawer-section room-editor__validation" data-dungeon-editor-validation aria-label="{{ 'Validation results'|t }}">
+              <p class="room-editor__eyebrow">{{ 'Validation'|t }}</p>
+              <ul class="room-editor__validation-list" data-dungeon-editor-validation-list></ul>
+            </section>
+
+            <section class="room-editor__drawer-section room-editor__validation" data-dungeon-editor-publication aria-label="{{ 'Publication'|t }}">
+              <p class="room-editor__eyebrow">{{ 'Publish'|t }}</p>
+              <ul class="room-editor__validation-list" data-dungeon-editor-publish-readiness>
+                <li class="room-editor__validation-item">{{ 'Load a draft before publishing.'|t }}</li>
+              </ul>
+              <form class="dungeon-editor__publish-form" data-dungeon-editor-publish-form>
+                <label class="room-editor__field">{{ 'Version'|t }}<input type="text" name="version" maxlength="32" required placeholder="1.0.0" data-dungeon-editor-publish-version></label>
+                <label class="room-editor__field">{{ 'Publication note'|t }}<textarea name="publication_note" rows="2" maxlength="4000" data-dungeon-editor-publish-note></textarea></label>
+                <button type="submit" class="room-editor__button room-editor__button--primary" data-dungeon-editor-action="publish" disabled>{{ 'Publish'|t }}</button>
+                <p class="room-editor__hint" data-dungeon-editor-published-version hidden></p>
+              </form>
+            </section>
+
+          </aside>
+
+          <div class="game-shell__content room-editor__center">
+            <div class="hexmap-stage room-editor__stage">
+              <div id="dungeon-editor-canvas" class="hexmap-canvas-wrapper" data-dungeon-editor-canvas></div>
+            </div>
           </div>
+
         </div>
-
-        <form class="room-editor__gm-composer" data-dungeon-editor-gm-form>
-          <label class="visually-hidden" for="dungeon-editor-gm-input">{{ 'Message the GM assistant'|t }}</label>
-          <textarea id="dungeon-editor-gm-input"
-                    data-dungeon-editor-gm-input
-                    rows="3"
-                    placeholder="{{ 'Ask the assistant, or run a tool: validate_dungeon {}'|t }}"></textarea>
-          <div class="room-editor__gm-composer-actions">
-            <label class="room-editor__gm-dry-run">
-              <input type="checkbox" data-dungeon-editor-gm-dry-run> {{ 'Dry run'|t }}
-            </label>
-            <span class="room-editor__hint">{{ 'Enter to send · Shift + Enter for a new line'|t }}</span>
-            <button type="submit" class="room-editor__button room-editor__button--primary" data-dungeon-editor-action="gm-send">{{ 'Send'|t }}</button>
-          </div>
-        </form>
-      </aside>
+      </div>
     </div>
-  </div>
-</div>
+  {% endblock %}
+{% endembed %}

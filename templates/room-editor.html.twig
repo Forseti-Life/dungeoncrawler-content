@@ -3,7 +3,8 @@
  * @file
  * Canonical Room Editor shell with an embedded GM assistant.
  *
- * Layout contract: [author drawer] | [canvas] | [GM assistant panel].
+ * Layout: the shared editor page (editor-page-shell.html.twig): stages, state
+ * and links on the left; the Game Master Agent above [author drawer] | [canvas].
  * The GM assistant is the primary surface. Every manual authoring control
  * (catalog, tool palette, inspector, validation) lives inside the collapsible
  * author drawer, which starts collapsed so the freed real estate belongs to
@@ -17,242 +18,208 @@
  * - selected_room_id: Optional room_id to auto-load on page load.
  */
 #}
-<div class="hexmap-container room-editor" data-room-editor>
-  <div class="game-shell" data-room-editor-shell>
+{% embed '@dungeoncrawler_content/editor-page-shell.html.twig' with {
+  surface: 'room-editor',
+  title: 'Room Editor'|t,
+  intro: 'Shape one room: its floor, entrances and exits, and what stands in it; then validate and publish.'|t,
+  back_url: path('dungeoncrawler_content.room_management'),
+  back_label: 'Back to Room Manager'|t,
+  stages_title: 'Room process stages'|t,
+  thing: 'room'|t,
+  contains_title: 'Dungeons that use this room'|t,
+  quick_links: [
+    { label: 'Room Manager'|t, url: path('dungeoncrawler_content.room_management') },
+    { label: 'Dungeon Manager'|t, url: path('dungeoncrawler_content.dungeon_management') },
+    { label: 'Dungeon Editor'|t, url: path('dungeoncrawler_content.dungeon_editor') },
+    { label: 'Storyline Manager'|t, url: path('dungeoncrawler_content.storyline_management') }
+  ],
+} %}
+  {% block gm %}
+    {% include '@dungeoncrawler_content/editor-gm-agent.html.twig' with {
+      surface: 'room-editor',
+      eyebrow: 'Primary room interface'|t,
+      intro: 'Describe the room you want, ask what is missing, or request a change. Clear requests are applied to the draft and stay editable on the map below.'|t,
+      placeholder: 'Describe the room, ask what is missing, or request a change.'|t,
+      prompts: [
+        { label: 'What is next'|t, text: 'What is the next step for this room? Name one finding and how it is fixed.'|t },
+        { label: 'Build from the story'|t, text: 'Load the story brief for this room and build what the story needs.'|t },
+        { label: 'Check for publishing'|t, text: 'Validate this room and tell me what blocks publishing.'|t }
+      ],
+    } only %}
+  {% endblock %}
+  {% block editor %}
+    <div class="hexmap-container room-editor editor-page__editor">
+      <div class="game-shell" data-room-editor-shell>
 
-    <header class="room-editor__header">
-      <div class="room-editor__header-row">
-        <button type="button"
-                class="room-editor__button room-editor__drawer-toggle"
-                data-room-editor-action="toggle-author-drawer"
-                aria-expanded="false"
-                aria-controls="room-editor-author-drawer"
-                title="{{ 'Show or hide the manual authoring tools'|t }}">{{ 'Author Tools'|t }}</button>
+        <header class="room-editor__header">
+          <div class="room-editor__header-row">
+            <button type="button"
+                    class="room-editor__button room-editor__drawer-toggle"
+                    data-room-editor-action="toggle-author-drawer"
+                    aria-expanded="false"
+                    aria-controls="room-editor-author-drawer"
+                    title="{{ 'Show or hide the manual authoring tools'|t }}">{{ 'Author Tools'|t }}</button>
 
-        <div class="room-editor__field room-editor__field--inline">
-          <label for="room-editor-room-select">{{ 'Room'|t }}</label>
-          <select id="room-editor-room-select" data-room-editor-room-select>
-            <option value="">{{ '- Select a room -'|t }}</option>
-            {% for room in rooms %}
-              <option value="{{ room.room_id }}"{% if room.room_id == selected_room_id %} selected{% endif %}>
-                {{ room.name }} ({{ room.publication_status }})
-              </option>
-            {% endfor %}
-          </select>
-        </div>
-        <button type="button" class="room-editor__button" data-room-editor-action="load-room">{{ 'Load'|t }}</button>
-        <button type="button" class="room-editor__button" data-room-editor-action="new-room">{{ 'New Room'|t }}</button>
+            <div class="room-editor__field room-editor__field--inline">
+              <label for="room-editor-room-select">{{ 'Room'|t }}</label>
+              <select id="room-editor-room-select" data-room-editor-room-select>
+                <option value="">{{ '- Select a room -'|t }}</option>
+                {% for room in rooms %}
+                  <option value="{{ room.room_id }}"{% if room.room_id == selected_room_id %} selected{% endif %}>
+                    {{ room.name }} ({{ room.publication_status }})
+                  </option>
+                {% endfor %}
+              </select>
+            </div>
+            <button type="button" class="room-editor__button" data-room-editor-action="load-room">{{ 'Load'|t }}</button>
+            <button type="button" class="room-editor__button" data-room-editor-action="new-room">{{ 'New Room'|t }}</button>
 
-        <span class="room-editor__spacer"></span>
+            <span class="room-editor__spacer"></span>
+            <button type="button" class="room-editor__button" data-room-editor-action="undo" disabled title="{{ 'Undo (Ctrl/Cmd+Z)'|t }}">{{ 'Undo'|t }}</button>
+            <button type="button" class="room-editor__button" data-room-editor-action="redo" disabled title="{{ 'Redo (Ctrl/Cmd+Y)'|t }}">{{ 'Redo'|t }}</button>
 
-        <a class="room-editor__button" href="{{ path('dungeoncrawler_content.room_management') }}">{{ 'Back to Room Manager'|t }}</a>
-        <button type="button" class="room-editor__button" data-room-editor-action="undo" disabled title="{{ 'Undo (Ctrl/Cmd+Z)'|t }}">{{ 'Undo'|t }}</button>
-        <button type="button" class="room-editor__button" data-room-editor-action="redo" disabled title="{{ 'Redo (Ctrl/Cmd+Y)'|t }}">{{ 'Redo'|t }}</button>
+            <select data-room-editor-validate-profile aria-label="{{ 'Validation profile'|t }}">
+              <option value="editing">{{ 'Editing'|t }}</option>
+              <option value="preview">{{ 'Preview'|t }}</option>
+              <option value="publication">{{ 'Publication'|t }}</option>
+            </select>
+            <button type="button" class="room-editor__button" data-room-editor-action="validate">{{ 'Validate'|t }}</button>
+            <button type="button" class="room-editor__button" data-room-editor-action="save">{{ 'Save'|t }}</button>
+          </div>
 
-        <select data-room-editor-validate-profile aria-label="{{ 'Validation profile'|t }}">
-          <option value="editing">{{ 'Editing'|t }}</option>
-          <option value="preview">{{ 'Preview'|t }}</option>
-          <option value="publication">{{ 'Publication'|t }}</option>
-        </select>
-        <button type="button" class="room-editor__button" data-room-editor-action="validate">{{ 'Validate'|t }}</button>
-        <button type="button" class="room-editor__button" data-room-editor-action="save">{{ 'Save'|t }}</button>
-      </div>
+          <div class="room-editor__header-row room-editor__header-row--publish">
+            <div class="room-editor__field room-editor__field--inline">
+              <label for="room-editor-publish-version">{{ 'Version'|t }}</label>
+              <input type="text" id="room-editor-publish-version" data-room-editor-publish-version placeholder="1.0.0" size="8">
+            </div>
+            <div class="room-editor__field room-editor__field--inline room-editor__field--grow">
+              <label for="room-editor-publish-note">{{ 'Publication note'|t }}</label>
+              <input type="text" id="room-editor-publish-note" data-room-editor-publish-note placeholder="{{ 'What changed in this version?'|t }}">
+            </div>
+            <button type="button" class="room-editor__button room-editor__button--primary" data-room-editor-action="publish">{{ 'Publish'|t }}</button>
+          </div>
 
-      <div class="room-editor__header-row room-editor__header-row--publish">
-        <div class="room-editor__field room-editor__field--inline">
-          <label for="room-editor-publish-version">{{ 'Version'|t }}</label>
-          <input type="text" id="room-editor-publish-version" data-room-editor-publish-version placeholder="1.0.0" size="8">
-        </div>
-        <div class="room-editor__field room-editor__field--inline room-editor__field--grow">
-          <label for="room-editor-publish-note">{{ 'Publication note'|t }}</label>
-          <input type="text" id="room-editor-publish-note" data-room-editor-publish-note placeholder="{{ 'What changed in this version?'|t }}">
-        </div>
-        <button type="button" class="room-editor__button room-editor__button--primary" data-room-editor-action="publish">{{ 'Publish'|t }}</button>
-      </div>
-
-      <div class="room-editor__status" data-room-editor-status role="status" aria-live="polite">
-        {{ 'Loading canonical Room Editor...'|t }}
-      </div>
-    </header>
-
-    <div class="game-shell__workspace room-editor__workspace" data-room-editor-workspace>
-
-      <aside id="room-editor-author-drawer"
-             class="room-editor__author-drawer"
-             data-room-editor-author-drawer
-             aria-label="{{ 'Manual authoring tools'|t }}"
-             hidden>
-
-      <section class="room-editor__drawer-section room-editor__catalog" data-room-editor-catalog aria-label="{{ 'Placeable object catalog'|t }}">
-        <p class="room-editor__eyebrow">{{ 'Catalog'|t }}</p>
-        <div class="room-editor__catalog-controls">
-          <input type="search" data-room-editor-catalog-search placeholder="{{ 'Search catalog...'|t }}" aria-label="{{ 'Search catalog'|t }}">
-          <select data-room-editor-catalog-family aria-label="{{ 'Filter by family'|t }}">
-            <option value="">{{ 'All families'|t }}</option>
-            <option value="creature">{{ 'Creature'|t }}</option>
-            <option value="actor">{{ 'Actor'|t }}</option>
-            <option value="item">{{ 'Item'|t }}</option>
-            <option value="obstacle">{{ 'Obstacle'|t }}</option>
-            <option value="trap">{{ 'Trap'|t }}</option>
-            <option value="hazard">{{ 'Hazard'|t }}</option>
-          </select>
-        </div>
-        <p class="room-editor__catalog-selected" data-room-editor-catalog-selected>{{ 'No object selected for placement.'|t }}</p>
-        <div class="room-editor__catalog-actions">
-          <button type="button" class="room-editor__button" data-room-editor-action="catalog-create-definition">{{ 'New in Library ↗'|t }}</button>
-          <button type="button" class="room-editor__button" data-room-editor-action="catalog-edit-definition" disabled>{{ 'Edit Selected ↗'|t }}</button>
-        </div>
-        <ul class="room-editor__catalog-list" data-room-editor-catalog-list role="listbox" aria-label="{{ 'Placeable objects'|t }}"></ul>
-        <p class="room-editor__catalog-empty" data-room-editor-catalog-empty hidden>{{ 'No matching objects.'|t }}</p>
-        <button type="button" class="room-editor__button room-editor__catalog-more" data-room-editor-action="catalog-more" hidden>{{ 'Load more'|t }}</button>
-      </section>
-
-      <section class="room-editor__drawer-section room-editor__generation" data-room-editor-generation aria-label="{{ 'Generate room layout'|t }}">
-        <p class="room-editor__eyebrow">{{ 'Generate…'|t }}</p>
-        <label class="room-editor__field" for="room-editor-generation-prompt">{{ 'Prompt'|t }}
-          <textarea id="room-editor-generation-prompt" data-room-editor-generation-prompt rows="3" maxlength="2000" placeholder="{{ 'A flooded cellar with a broken altar, ~20 hexes'|t }}"></textarea>
-        </label>
-        <label class="room-editor__field">{{ 'Theme'|t }}<input type="text" data-room-editor-generation-theme maxlength="100" placeholder="{{ 'sewer, cellar, shrine...'|t }}"></label>
-        <label class="room-editor__field">{{ 'Size'|t }}
-          <select data-room-editor-generation-size>
-            <option value="small">{{ 'Small'|t }}</option>
-            <option value="medium" selected>{{ 'Medium'|t }}</option>
-            <option value="large">{{ 'Large'|t }}</option>
-            <option value="huge">{{ 'Huge'|t }}</option>
-          </select>
-        </label>
-        <label class="room-editor__field">{{ 'Minimum hexes'|t }}<input type="number" data-room-editor-generation-min-hexes min="16" max="80" step="1" value="16"></label>
-        <label class="room-editor__field">{{ 'Maximum hexes'|t }}<input type="number" data-room-editor-generation-max-hexes min="16" max="80" step="1" value="32"></label>
-        <label class="room-editor__field">{{ 'Seed (optional)'|t }}<input type="number" data-room-editor-generation-seed min="0" max="2147483647" step="1"></label>
-        <button type="button" class="room-editor__button room-editor__button--primary" data-room-editor-action="generate-room-layout">{{ 'Generate room plan'|t }}</button>
-      </section>
-
-      <section class="room-editor__drawer-section room-editor__definition-generation" data-room-editor-definition-generation aria-label="{{ 'Generate canonical object'|t }}">
-        <p class="room-editor__eyebrow">{{ 'Generate Library Object…'|t }}</p>
-        <label class="room-editor__field">{{ 'Family'|t }}
-          <select data-room-editor-defgen-family>
-            <option value="obstacle">{{ 'Obstacle / Object (table, chair, lava pit…)'|t }}</option>
-            <option value="hazard">{{ 'Hazard (environmental / complex)'|t }}</option>
-            <option value="trap">{{ 'Trap (mechanical / magical / haunt)'|t }}</option>
-            <option value="item">{{ 'Item'|t }}</option>
-            <option value="creature">{{ 'Creature'|t }}</option>
-            <option value="actor">{{ 'Actor / NPC'|t }}</option>
-          </select>
-        </label>
-        <label class="room-editor__field">{{ 'Prompt'|t }}
-          <textarea data-room-editor-defgen-prompt rows="2" maxlength="2000" placeholder="{{ 'Heavy oak banquet table, bubbling lava fissure, or poison dart glyph'|t }}"></textarea>
-        </label>
-        <label class="room-editor__field">{{ 'Category / Type / Role (optional)'|t }}
-          <input type="text" data-room-editor-defgen-subtype maxlength="100" placeholder="{{ 'table, decor, simple, mechanical, guardian…'|t }}">
-        </label>
-        <label class="room-editor__field">{{ 'Level'|t }}
-          <input type="number" data-room-editor-defgen-level min="-1" max="30" step="1" value="1">
-        </label>
-        <button type="button" class="room-editor__button room-editor__button--primary" data-room-editor-action="generate-canonical-definition">{{ 'Generate library object'|t }}</button>
-      </section>
-
-      <section class="room-editor__drawer-section" aria-label="{{ 'Editing tools'|t }}">
-        <p class="room-editor__eyebrow">{{ 'Tools'|t }}</p>
-        <div class="room-editor__toolbar" role="toolbar" data-room-editor-toolbar aria-label="{{ 'Editing tools'|t }}">
-          <button type="button" data-room-editor-tool="select" aria-pressed="true">{{ 'Select'|t }}</button>
-          <button type="button" data-room-editor-tool="add_hex" aria-pressed="false">{{ 'Add Hex'|t }}</button>
-          <button type="button" data-room-editor-tool="remove_hex" aria-pressed="false">{{ 'Remove Hex'|t }}</button>
-          <button type="button" data-room-editor-tool="terrain" aria-pressed="false">{{ 'Terrain'|t }}</button>
-          <select data-room-editor-terrain-value hidden aria-label="{{ 'Terrain type to apply'|t }}"></select>
-          <button type="button" data-room-editor-tool="elevation" aria-pressed="false">{{ 'Elevation'|t }}</button>
-          <input type="number" data-room-editor-elevation-value hidden min="-50" max="200" value="0" aria-label="{{ 'Elevation to apply (ft)'|t }}">
-          <button type="button" data-room-editor-tool="place" aria-pressed="false">{{ 'Place'|t }}</button>
-          <button type="button" data-room-editor-tool="entry_port" aria-pressed="false">{{ 'Entry Port'|t }}</button>
-          <button type="button" data-room-editor-tool="exit_port" aria-pressed="false">{{ 'Exit Port'|t }}</button>
-        </div>
-      </section>
-
-      <section class="room-editor__drawer-section room-editor__inspector" data-room-editor-inspector aria-label="{{ 'Inspector'|t }}">
-        <p class="room-editor__eyebrow">{{ 'Inspector'|t }}</p>
-        <div data-room-editor-inspector-body>
-          <p class="room-editor__hint">{{ 'Load or create a room to begin editing.'|t }}</p>
-        </div>
-      </section>
-
-      <section class="room-editor__drawer-section room-editor__validation" data-room-editor-validation aria-label="{{ 'Validation results'|t }}">
-        <p class="room-editor__eyebrow">{{ 'Validation'|t }}</p>
-        <ul class="room-editor__validation-list" data-room-editor-validation-list></ul>
-      </section>
-
-      </aside>
-
-      <div class="game-shell__content room-editor__center">
-        <div class="hexmap-stage room-editor__stage">
-          <div id="room-editor-canvas" class="hexmap-canvas-wrapper" data-room-editor-canvas></div>
-        </div>
-      </div>
-
-      <aside class="room-editor__gm-panel" data-room-editor-gm-panel aria-label="{{ 'GM assistant'|t }}">
-        <header class="room-editor__gm-header">
-          <p class="room-editor__eyebrow">{{ 'GM Assistant'|t }}</p>
-          <span class="room-editor__gm-state" data-room-editor-gm-state role="status" aria-live="polite">{{ 'Idle'|t }}</span>
+          <div class="room-editor__status" data-room-editor-status role="status" aria-live="polite">
+            {{ 'Loading canonical Room Editor...'|t }}
+          </div>
         </header>
 
-        <section class="room-editor__gm-status" data-room-editor-gm-status aria-label="{{ 'Draft status'|t }}">
-          <div class="room-editor__gm-status-score"><strong data-editor-status-percent>0%</strong> <span>{{ 'complete'|t }}</span></div>
-          <progress data-editor-status-progress max="100" value="0">0%</progress>
-          <dl class="room-editor__gm-status-facts">
-            <div><dt>{{ 'Validity'|t }}</dt><dd data-editor-status-validity>{{ 'No draft'|t }}</dd></div>
-            <div><dt>{{ 'Current stage'|t }}</dt><dd data-editor-status-stage>—</dd></div>
-          </dl>
-          <p class="room-editor__gm-status-label">{{ 'Still needed'|t }}</p>
-          <ul class="room-editor__gm-status-missing" data-editor-status-missing><li>{{ 'Create or load a draft.'|t }}</li></ul>
-          <p class="room-editor__gm-status-label">{{ 'In these storylines'|t }}</p>
-          <ul class="room-editor__gm-status-missing" data-editor-status-storylines><li>{{ 'No storyline uses this yet.'|t }}</li></ul>
-        </section>
+        <div class="game-shell__workspace room-editor__workspace room-editor__workspace--stacked" data-room-editor-workspace>
 
-        <section class="room-editor__gm-disclosure-group" aria-label="{{ 'Grounded editor context'|t }}">
-          <button type="button"
-                  class="room-editor__gm-disclosure"
-                  data-room-editor-action="gm-toggle-context"
-                  aria-expanded="false"
-                  aria-controls="room-editor-gm-context-body">{{ 'Grounded context'|t }}</button>
-          <div id="room-editor-gm-context-body" class="room-editor__gm-context-body" data-room-editor-gm-context hidden></div>
-        </section>
+          <aside id="room-editor-author-drawer"
+                 class="room-editor__author-drawer"
+                 data-room-editor-author-drawer
+                 aria-label="{{ 'Manual authoring tools'|t }}"
+                 hidden>
 
-        <section class="room-editor__gm-disclosure-group" aria-label="{{ 'Assistant toolset'|t }}">
-          <button type="button"
-                  class="room-editor__gm-disclosure"
-                  data-room-editor-action="gm-toggle-tools"
-                  aria-expanded="false"
-                  aria-controls="room-editor-gm-tools-body">{{ 'Toolset'|t }}</button>
-          <div id="room-editor-gm-tools-body" class="room-editor__gm-tools-body" data-room-editor-gm-tools hidden></div>
-        </section>
+          <section class="room-editor__drawer-section room-editor__catalog" data-room-editor-catalog aria-label="{{ 'Placeable object catalog'|t }}">
+            <p class="room-editor__eyebrow">{{ 'Catalog'|t }}</p>
+            <div class="room-editor__catalog-controls">
+              <input type="search" data-room-editor-catalog-search placeholder="{{ 'Search catalog...'|t }}" aria-label="{{ 'Search catalog'|t }}">
+              <select data-room-editor-catalog-family aria-label="{{ 'Filter by family'|t }}">
+                <option value="">{{ 'All families'|t }}</option>
+                <option value="creature">{{ 'Creature'|t }}</option>
+                <option value="actor">{{ 'Actor'|t }}</option>
+                <option value="item">{{ 'Item'|t }}</option>
+                <option value="obstacle">{{ 'Obstacle'|t }}</option>
+                <option value="trap">{{ 'Trap'|t }}</option>
+                <option value="hazard">{{ 'Hazard'|t }}</option>
+              </select>
+            </div>
+            <p class="room-editor__catalog-selected" data-room-editor-catalog-selected>{{ 'No object selected for placement.'|t }}</p>
+            <div class="room-editor__catalog-actions">
+              <button type="button" class="room-editor__button" data-room-editor-action="catalog-create-definition">{{ 'New in Library ↗'|t }}</button>
+              <button type="button" class="room-editor__button" data-room-editor-action="catalog-edit-definition" disabled>{{ 'Edit Selected ↗'|t }}</button>
+            </div>
+            <ul class="room-editor__catalog-list" data-room-editor-catalog-list role="listbox" aria-label="{{ 'Placeable objects'|t }}"></ul>
+            <p class="room-editor__catalog-empty" data-room-editor-catalog-empty hidden>{{ 'No matching objects.'|t }}</p>
+            <button type="button" class="room-editor__button room-editor__catalog-more" data-room-editor-action="catalog-more" hidden>{{ 'Load more'|t }}</button>
+          </section>
 
-        <ol class="room-editor__gm-transcript" data-room-editor-gm-transcript aria-label="{{ 'Assistant transcript'|t }}" aria-live="polite"></ol>
+          <section class="room-editor__drawer-section room-editor__generation" data-room-editor-generation aria-label="{{ 'Generate room layout'|t }}">
+            <p class="room-editor__eyebrow">{{ 'Generate…'|t }}</p>
+            <label class="room-editor__field" for="room-editor-generation-prompt">{{ 'Prompt'|t }}
+              <textarea id="room-editor-generation-prompt" data-room-editor-generation-prompt rows="3" maxlength="2000" placeholder="{{ 'A flooded cellar with a broken altar, ~20 hexes'|t }}"></textarea>
+            </label>
+            <label class="room-editor__field">{{ 'Theme'|t }}<input type="text" data-room-editor-generation-theme maxlength="100" placeholder="{{ 'sewer, cellar, shrine...'|t }}"></label>
+            <label class="room-editor__field">{{ 'Size'|t }}
+              <select data-room-editor-generation-size>
+                <option value="small">{{ 'Small'|t }}</option>
+                <option value="medium" selected>{{ 'Medium'|t }}</option>
+                <option value="large">{{ 'Large'|t }}</option>
+                <option value="huge">{{ 'Huge'|t }}</option>
+              </select>
+            </label>
+            <label class="room-editor__field">{{ 'Minimum hexes'|t }}<input type="number" data-room-editor-generation-min-hexes min="16" max="80" step="1" value="16"></label>
+            <label class="room-editor__field">{{ 'Maximum hexes'|t }}<input type="number" data-room-editor-generation-max-hexes min="16" max="80" step="1" value="32"></label>
+            <label class="room-editor__field">{{ 'Seed (optional)'|t }}<input type="number" data-room-editor-generation-seed min="0" max="2147483647" step="1"></label>
+            <button type="button" class="room-editor__button room-editor__button--primary" data-room-editor-action="generate-room-layout">{{ 'Generate room plan'|t }}</button>
+          </section>
 
-        <div class="room-editor__gm-plan" data-room-editor-gm-plan hidden>
-          <p class="room-editor__eyebrow">{{ 'Proposed command plan'|t }}</p>
-          <ol class="room-editor__gm-plan-list" data-room-editor-gm-plan-list></ol>
-          <div class="room-editor__gm-plan-actions">
-            <button type="button" class="room-editor__button" data-room-editor-action="gm-preview-plan">{{ 'Preview'|t }}</button>
-            <button type="button" class="room-editor__button room-editor__button--primary" data-room-editor-action="gm-apply-plan">{{ 'Apply plan'|t }}</button>
-            <button type="button" class="room-editor__button" data-room-editor-action="gm-discard-plan">{{ 'Discard'|t }}</button>
+          <section class="room-editor__drawer-section room-editor__definition-generation" data-room-editor-definition-generation aria-label="{{ 'Generate canonical object'|t }}">
+            <p class="room-editor__eyebrow">{{ 'Generate Library Object…'|t }}</p>
+            <label class="room-editor__field">{{ 'Family'|t }}
+              <select data-room-editor-defgen-family>
+                <option value="obstacle">{{ 'Obstacle / Object (table, chair, lava pit…)'|t }}</option>
+                <option value="hazard">{{ 'Hazard (environmental / complex)'|t }}</option>
+                <option value="trap">{{ 'Trap (mechanical / magical / haunt)'|t }}</option>
+                <option value="item">{{ 'Item'|t }}</option>
+                <option value="creature">{{ 'Creature'|t }}</option>
+                <option value="actor">{{ 'Actor / NPC'|t }}</option>
+              </select>
+            </label>
+            <label class="room-editor__field">{{ 'Prompt'|t }}
+              <textarea data-room-editor-defgen-prompt rows="2" maxlength="2000" placeholder="{{ 'Heavy oak banquet table, bubbling lava fissure, or poison dart glyph'|t }}"></textarea>
+            </label>
+            <label class="room-editor__field">{{ 'Category / Type / Role (optional)'|t }}
+              <input type="text" data-room-editor-defgen-subtype maxlength="100" placeholder="{{ 'table, decor, simple, mechanical, guardian…'|t }}">
+            </label>
+            <label class="room-editor__field">{{ 'Level'|t }}
+              <input type="number" data-room-editor-defgen-level min="-1" max="30" step="1" value="1">
+            </label>
+            <button type="button" class="room-editor__button room-editor__button--primary" data-room-editor-action="generate-canonical-definition">{{ 'Generate library object'|t }}</button>
+          </section>
+
+          <section class="room-editor__drawer-section" aria-label="{{ 'Editing tools'|t }}">
+            <p class="room-editor__eyebrow">{{ 'Tools'|t }}</p>
+            <div class="room-editor__toolbar" role="toolbar" data-room-editor-toolbar aria-label="{{ 'Editing tools'|t }}">
+              <button type="button" data-room-editor-tool="select" aria-pressed="true">{{ 'Select'|t }}</button>
+              <button type="button" data-room-editor-tool="add_hex" aria-pressed="false">{{ 'Add Hex'|t }}</button>
+              <button type="button" data-room-editor-tool="remove_hex" aria-pressed="false">{{ 'Remove Hex'|t }}</button>
+              <button type="button" data-room-editor-tool="terrain" aria-pressed="false">{{ 'Terrain'|t }}</button>
+              <select data-room-editor-terrain-value hidden aria-label="{{ 'Terrain type to apply'|t }}"></select>
+              <button type="button" data-room-editor-tool="elevation" aria-pressed="false">{{ 'Elevation'|t }}</button>
+              <input type="number" data-room-editor-elevation-value hidden min="-50" max="200" value="0" aria-label="{{ 'Elevation to apply (ft)'|t }}">
+              <button type="button" data-room-editor-tool="place" aria-pressed="false">{{ 'Place'|t }}</button>
+              <button type="button" data-room-editor-tool="entry_port" aria-pressed="false">{{ 'Entry Port'|t }}</button>
+              <button type="button" data-room-editor-tool="exit_port" aria-pressed="false">{{ 'Exit Port'|t }}</button>
+            </div>
+          </section>
+
+          <section class="room-editor__drawer-section room-editor__inspector" data-room-editor-inspector aria-label="{{ 'Inspector'|t }}">
+            <p class="room-editor__eyebrow">{{ 'Inspector'|t }}</p>
+            <div data-room-editor-inspector-body>
+              <p class="room-editor__hint">{{ 'Load or create a room to begin editing.'|t }}</p>
+            </div>
+          </section>
+
+          <section class="room-editor__drawer-section room-editor__validation" data-room-editor-validation aria-label="{{ 'Validation results'|t }}">
+            <p class="room-editor__eyebrow">{{ 'Validation'|t }}</p>
+            <ul class="room-editor__validation-list" data-room-editor-validation-list></ul>
+          </section>
+
+          </aside>
+
+          <div class="game-shell__content room-editor__center">
+            <div class="hexmap-stage room-editor__stage">
+              <div id="room-editor-canvas" class="hexmap-canvas-wrapper" data-room-editor-canvas></div>
+            </div>
           </div>
+
+
         </div>
 
-        <form class="room-editor__gm-composer" data-room-editor-gm-form>
-          <label class="visually-hidden" for="room-editor-gm-input">{{ 'Message the GM assistant'|t }}</label>
-          <textarea id="room-editor-gm-input"
-                    data-room-editor-gm-input
-                    rows="3"
-                    placeholder="{{ 'Ask the GM assistant, or run a tool by name...'|t }}"></textarea>
-          <div class="room-editor__gm-composer-actions">
-            <label class="room-editor__gm-dry-run">
-              <input type="checkbox" data-room-editor-gm-dry-run> {{ 'Dry run'|t }}
-            </label>
-            <span class="room-editor__hint">{{ 'Enter to send · Shift + Enter for a new line'|t }}</span>
-            <button type="submit" class="room-editor__button room-editor__button--primary" data-room-editor-action="gm-send">{{ 'Send'|t }}</button>
-          </div>
-        </form>
-      </aside>
-
+      </div>
     </div>
-
-  </div>
-</div>
+  {% endblock %}
+{% endembed %}

@@ -213,7 +213,7 @@
     overscroll-behavior: contain;
   }
 
-  .character-setup-page[data-character-setup-root] .room-editor__gm-message {
+  .character-setup-page[data-character-setup-root] .gm-storyline-wizard__assistant-item {
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     padding: 0.75rem;
@@ -221,7 +221,7 @@
     background: rgba(18, 24, 38, 0.9);
   }
 
-  .character-setup-page[data-character-setup-root] .room-editor__gm-message pre {
+  .character-setup-page[data-character-setup-root] .gm-storyline-wizard__assistant-item pre {
     max-height: 14rem;
     overflow: auto;
     white-space: pre-wrap;

@@ -33,6 +33,7 @@ import { HexCanvas } from '../canvas/HexCanvas.js?v=20261009-module-background-1
 import './placementTransform.js?v=20260908g1';
 import {
   appendEditorGmMessage,
+  bindEditorGmPrompts,
   buildEditorGmRequest,
   describeEditorGmToolCall,
   parseEditorGmMessage,
@@ -43,8 +44,8 @@ import {
   restoreEditorGmConversation,
   selectEditorGmTool,
   shouldSubmitEditorGmKey,
-} from './EditorGmChatClient.js?v=20261024-tool-calls-1';
-import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261118-storylines-1';
+} from './EditorGmChatClient.js?v=20261118-format-3';
+import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261118-format-3';
 
 const transform = globalThis.DungeonCrawlerPlacementTransform;
 if (!transform) {
@@ -821,6 +822,7 @@ export class DungeonEditorShell {
   _bindGmEvents() {
     this._gm = { context: null, manifest: null, plan: null };
 
+    bindEditorGmPrompts(this._dom.gmPanel, this._dom.gmInput, () => this._submitGmMessage());
     this._dom.gmContextToggle?.addEventListener('click', () => {
       this._toggleDisclosure(this._dom.gmContextToggle, this._dom.gmContext);
     });

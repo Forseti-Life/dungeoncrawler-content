@@ -1,0 +1,156 @@
+/**
+ * The editor page format shared by the Dungeon and Room editors.
+ *
+ * The page shell itself (header, left column, workspace) is styled by
+ * css/character-setup-tabs.css and the Game Master Agent panel by
+ * css/gm-storyline-builder.css, the same stylesheets the Storyline Builder
+ * uses. Only what those two pages add is here.
+ */
+
+/* Stages are status, not buttons. */
+.editor-page__stages {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.editor-page__stage {
+  align-items: center;
+}
+
+.editor-page__stage .character-setup-page__tab-copy {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.editor-page__stage-state {
+  flex: 0 0 auto;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 248, 230, 0.72);
+}
+
+.editor-page__stage.is-complete .character-setup-page__tab-number {
+  background: rgba(74, 163, 99, 0.3);
+  color: #c9f2d3;
+}
+
+.editor-page__stage.is-complete .editor-page__stage-state {
+  color: #9be0ae;
+}
+
+.editor-page__stage-empty {
+  color: rgba(255, 248, 230, 0.72);
+  font-size: 0.86rem;
+}
+
+/* The agent sits on top; the map takes the full width under it. */
+.editor-page__frame {
+  display: grid;
+  gap: 1rem;
+}
+
+.editor-page__editor.room-editor {
+  min-height: 0;
+}
+
+.room-editor__workspace--stacked {
+  grid-template-columns: 0 minmax(0, 1fr);
+}
+
+.room-editor__workspace--stacked[data-author-drawer-open="true"] {
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+}
+
+/* Parts of the agent panel the editors have and the Storyline Builder lacks. */
+.editor-gm-agent .gm-storyline-wizard__assistant-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.editor-gm-agent__state {
+  flex: 0 0 auto;
+  padding: 0.2rem 0.6rem;
+  border: 1px solid rgba(240, 200, 122, 0.35);
+  border-radius: 999px;
+  font-size: 0.78rem;
+  color: rgba(255, 248, 230, 0.88);
+}
+
+.editor-gm-agent__state[data-status-level="error"] {
+  border-color: rgba(239, 68, 68, 0.6);
+  color: #fca5a5;
+}
+
+.editor-gm-agent__plan {
+  margin: 0 0 0.7rem;
+  padding: 0.65rem;
+  border: 1px solid rgba(240, 200, 122, 0.35);
+  border-radius: 10px;
+}
+
+.editor-gm-agent__plan[hidden] {
+  display: none;
+}
+
+.editor-gm-agent__plan-list {
+  margin: 0 0 0.5rem;
+  padding-left: 1.25rem;
+  font-size: 0.86rem;
+}
+
+.editor-gm-agent__plan-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.editor-gm-agent__option {
+  display: block;
+  margin-top: 0.4rem;
+  text-align: left;
+  white-space: normal;
+}
+
+.editor-gm-agent__dry-run {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  font-weight: 400;
+}
+
+.editor-gm-agent__disclosures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 0.7rem;
+}
+
+.editor-gm-agent__disclosures > section {
+  flex: 1 1 18rem;
+  min-width: 0;
+}
+
+.editor-gm-agent__disclosures [hidden] {
+  display: none;
+}
+
+/* The agent panel styles every label as a block heading and every input at
+   full width; the dry-run tick is neither. */
+.editor-gm-agent .editor-gm-agent__dry-run {
+  display: inline-flex;
+  margin: 0;
+  font-weight: 400;
+  font-size: 0.86rem;
+}
+
+.editor-gm-agent .editor-gm-agent__dry-run input {
+  width: auto;
+  margin: 0;
+}

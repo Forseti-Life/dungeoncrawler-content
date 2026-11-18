@@ -2,7 +2,7 @@ import {
   appendEditorGmMessage, buildEditorGmRequest, renderEditorGmToolCalls,
   restoreEditorGmConversation, renderEditorGmClarification,
   shouldSubmitEditorGmKey,
-} from './v2/editor/EditorGmChatClient.js?v=20261024-tool-calls-1';
+} from './v2/editor/EditorGmChatClient.js?v=20261118-format-3';
 
 (function (Drupal, once, drupalSettings) {
   'use strict';

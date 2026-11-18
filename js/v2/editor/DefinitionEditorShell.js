@@ -12,7 +12,7 @@ import {
   renderEditorGmToolset,
   selectEditorGmTool,
   shouldSubmitEditorGmKey,
-} from './EditorGmChatClient.js?v=20261024-tool-calls-1';
+} from './EditorGmChatClient.js?v=20261118-format-3';
 
 function makeEl(tag, className = null, text = null) {
   const el = document.createElement(tag);

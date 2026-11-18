@@ -54,3 +54,27 @@ definition is missing or invalid). A code with no declared route throws.
 
 Same harness and rules as the Dungeon Editor. Replay check:
 `tests/editor_gm_intent_contract_check.php -- room <draft_id>`.
+
+## Page format
+
+The editor uses the page format of the Storyline Builder
+(templates/editor-page-shell.html.twig, templates/editor-gm-agent.html.twig):
+
+- Header: title, what the page is for, back to the manager.
+- Left column: the process stages with their state (done, now, open), the
+  Current state card (percent complete, validity, current stage, minimum
+  content still needed), then quick links: the manager pages, what this
+  links to (a dungeon lists its rooms; a room lists the dungeons that use
+  it) and the storylines that use it.
+- Workspace: the Game Master Agent on top (suggested requests,
+  conversation, composer), then the toolbar and the map at full width.
+  Author Tools still opens as a drawer beside the map.
+
+The left column is drawn from the status projection (summarizeDraftState)
+by js/v2/editor/EditorDraftStatusCard.js; nothing is computed in the
+browser. Stages show status only; they do not switch tools yet.
+
+Every editor's agent conversation is rendered by one client,
+js/v2/editor/EditorGmChatClient.js, with one set of styles
+(css/gm-storyline-builder.css): Storyline, Dungeon, Room, Definition and
+Character pages.

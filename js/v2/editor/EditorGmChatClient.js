@@ -4,7 +4,27 @@
  * Surface shells retain only domain-specific context rendering and post-apply
  * refresh behavior. Composer keys, tool parsing/rendering, request envelopes,
  * transcript messages, and approval controls resolve here.
+ *
+ * One look on every surface: messages carry the classes styled by
+ * css/gm-storyline-builder.css (library editor-gm-chat-style).
  */
+
+/** Classes of one conversation entry of the given kind. */
+export function editorGmMessageClass(kind) {
+  return `gm-storyline-wizard__assistant-item gm-storyline-wizard__assistant-item--${kind} gm-storyline-wizard__assistant-text`;
+}
+
+/**
+ * Suggested-request buttons send their request, as on the Storyline Builder.
+ */
+export function bindEditorGmPrompts(panel, input, send) {
+  panel?.querySelectorAll('[data-editor-gm-prompt]').forEach((button) => {
+    button.addEventListener('click', () => {
+      input.value = button.getAttribute('data-editor-gm-prompt');
+      send();
+    });
+  });
+}
 
 export function shouldSubmitEditorGmKey(event) {
   return event.key === 'Enter' && !event.shiftKey && !event.isComposing;
@@ -196,7 +216,7 @@ export function renderEditorGmClarification(transcript, result, options = {}) {
     return null;
   }
   const item = document.createElement('li');
-  item.className = 'room-editor__gm-message room-editor__gm-message--assistant';
+  item.className = editorGmMessageClass('assistant');
   const prompt = document.createElement('p');
   prompt.textContent = String(result.question || result.assistant_response || 'Choose a direction.');
   item.appendChild(prompt);
@@ -204,17 +224,29 @@ export function renderEditorGmClarification(transcript, result, options = {}) {
   choices.forEach((option, index) => {
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = 'room-editor__button';
+    button.className = 'gm-storyline-wizard__assistant-choice';
     const label = String(option.label || `Option ${index + 1}`);
     const description = String(option.description || '');
-    const tradeoff = String(option.tradeoff || '');
-    button.textContent = `${index + 1}. ${label}${description ? ` — ${description}` : ''}${tradeoff ? ` (${tradeoff})` : ''}`;
+    const name = document.createElement('strong');
+    name.textContent = `${index + 1}. ${label}`;
+    const what = document.createElement('span');
+    what.textContent = description;
+    const tradeoff = document.createElement('small');
+    tradeoff.textContent = String(option.tradeoff || '');
+    button.append(name, what, tradeoff);
     if (typeof options.onSelectOption === 'function') {
-      button.addEventListener('click', () => {
-        item.querySelectorAll('button').forEach((btn) => {
+      button.addEventListener('click', async () => {
+        const buttons = item.querySelectorAll('button');
+        buttons.forEach((btn) => {
           btn.disabled = true;
         });
-        options.onSelectOption(`I select option ${index + 1}, ${label}. Use this direction: ${option.selection || description || label}`);
+        // A selection that could not be sent can be made again.
+        const sent = await options.onSelectOption(`I select option ${index + 1}, ${label}. Use this direction: ${option.selection || description || label}`);
+        if (sent === false) {
+          buttons.forEach((btn) => {
+            btn.disabled = false;
+          });
+        }
       });
     }
     item.appendChild(button);
@@ -224,10 +256,38 @@ export function renderEditorGmClarification(transcript, result, options = {}) {
   return item;
 }
 
+function editorGmNextSteps(steps, headingText, tag) {
+  const block = document.createElement(tag);
+  block.className = 'gm-storyline-wizard__assistant-next-steps';
+  const heading = document.createElement('strong');
+  heading.textContent = headingText;
+  const list = document.createElement('ol');
+  steps.forEach((step) => {
+    const li = document.createElement('li');
+    li.textContent = step.trim();
+    list.appendChild(li);
+  });
+  block.append(heading, list);
+  return block;
+}
+
+/** The harness's next step, as its own conversation entry. */
+export function appendEditorGmNextSteps(transcript, nextSteps, headingText = 'Next step') {
+  const steps = Array.isArray(nextSteps)
+    ? nextSteps.filter((step) => typeof step === 'string' && step.trim() !== '')
+    : [];
+  if (!transcript || steps.length === 0) return null;
+  const item = editorGmNextSteps(steps, headingText, 'li');
+  item.className = `gm-storyline-wizard__assistant-item gm-storyline-wizard__assistant-item--assistant ${item.className}`;
+  transcript.appendChild(item);
+  transcript.scrollTop = transcript.scrollHeight;
+  return item;
+}
+
 export function appendEditorGmMessage(transcript, kind, text, detail = undefined) {
   if (!transcript) return null;
   const item = document.createElement('li');
-  item.className = `room-editor__gm-message room-editor__gm-message--${kind}`;
+  item.className = editorGmMessageClass(kind);
   item.textContent = text;
   if (detail !== undefined && detail !== null) {
     if (typeof detail === 'object' && typeof detail.assistant_response === 'string' && detail.assistant_response.trim() !== '') {
@@ -236,18 +296,7 @@ export function appendEditorGmMessage(transcript, kind, text, detail = undefined
         ? detail.next_steps.filter((step) => typeof step === 'string' && step.trim() !== '')
         : [];
       if (steps.length > 0) {
-        const nextBlock = document.createElement('div');
-        nextBlock.className = 'room-editor__gm-next-steps';
-        const heading = document.createElement('strong');
-        heading.textContent = 'Next steps';
-        const list = document.createElement('ol');
-        steps.forEach((step) => {
-          const li = document.createElement('li');
-          li.textContent = step.trim();
-          list.appendChild(li);
-        });
-        nextBlock.append(heading, list);
-        item.appendChild(nextBlock);
+        item.appendChild(editorGmNextSteps(steps, 'Next steps', 'div'));
       }
     } else {
       const pre = document.createElement('pre');
@@ -294,10 +343,10 @@ export function renderEditorGmProposal(transcript, result, options) {
     proposal.arguments || {},
   );
   const actions = document.createElement('div');
-  actions.className = options.actionsClass || 'room-editor__gm-plan-actions';
+  actions.className = options.actionsClass || 'editor-gm-agent__plan-actions';
   const approve = document.createElement('button');
   approve.type = 'button';
-  approve.className = options.approveClass || 'room-editor__button room-editor__button--primary';
+  approve.className = options.approveClass || 'btn btn-primary btn-sm';
   approve.textContent = options.approveLabel || 'Approve and run';
   approve.addEventListener('click', () => {
     approve.disabled = true;
@@ -305,7 +354,7 @@ export function renderEditorGmProposal(transcript, result, options) {
   });
   const reject = document.createElement('button');
   reject.type = 'button';
-  reject.className = options.rejectClass || 'room-editor__button';
+  reject.className = options.rejectClass || 'btn btn-secondary btn-sm';
   reject.textContent = options.rejectLabel || 'Reject';
   reject.addEventListener('click', () => item.remove());
   actions.append(approve, reject);

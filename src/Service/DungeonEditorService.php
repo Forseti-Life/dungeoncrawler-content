@@ -866,6 +866,17 @@ class DungeonEditorService {
       static fn(array $story): array => array_intersect_key($story, array_flip(['draft_id', 'title', 'status'])),
       $this->storiesUsing((string) $dungeon['dungeon_id']),
     );
+    // What the editor page names and links to.
+    $result['name'] = (string) $dungeon['name'];
+    $rooms = [];
+    foreach ($placements as $placement) {
+      $room_id = (string) $placement['room_id'];
+      $rooms[$room_id] ??= [
+        'room_id' => $room_id,
+        'name' => (string) ($this->roomVersion((string) $placement['version_id'])['name'] ?? $room_id),
+      ];
+    }
+    $result['rooms'] = array_values($rooms);
     $result['next_steps'] = self::recommendNextAuthoringAction($result);
     return $result;
   }

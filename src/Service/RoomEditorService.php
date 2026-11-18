@@ -97,6 +97,7 @@ class RoomEditorService {
     protected UuidInterface $uuid,
     protected CanonicalDefinitionService $definitions,
     protected ?StorylineAuthoringDraftService $storylines = NULL,
+    protected ?DungeonEditorService $dungeons = NULL,
   ) {}
 
   /**
@@ -497,6 +498,16 @@ class RoomEditorService {
       static fn(array $story): array => array_intersect_key($story, array_flip(['draft_id', 'title', 'status'])),
       $this->storylines->readStoryBriefs('room', $room_id)['storylines'],
     );
+    // What the editor page names and links to.
+    $result['name'] = $text('name');
+    $result['dungeons'] = [];
+    if ($this->dungeons !== NULL && $room_id !== '') {
+      $usage = $this->dungeons->roomUsage($room_id);
+      foreach (array_merge($usage['published_dungeons'], $usage['active_dungeon_drafts']) as $dungeon) {
+        $result['dungeons'][(string) $dungeon['dungeon_id']] = ['dungeon_id' => (string) $dungeon['dungeon_id'], 'name' => (string) $dungeon['name']];
+      }
+      $result['dungeons'] = array_values($result['dungeons']);
+    }
     $result['next_steps'] = self::recommendNextAuthoringAction($result);
     return $result;
   }

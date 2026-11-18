@@ -1,7 +1,12 @@
 import {
+  appendEditorGmMessage,
+  appendEditorGmNextSteps,
   buildEditorGmRequest,
+  editorGmMessageClass,
+  renderEditorGmClarification,
+  renderEditorGmToolCalls,
   shouldSubmitEditorGmKey,
-} from './v2/editor/EditorGmChatClient.js?v=20261023-gm-chat-2';
+} from './v2/editor/EditorGmChatClient.js?v=20261118-format-3';
 import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117-review-2';
 
 (function (Drupal, once, drupalSettings) {
@@ -1680,15 +1685,12 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
           }
         }
 
+        // Conversation entries are rendered by the client every editor's
+        // agent shares (EditorGmChatClient.js).
         function pushAssistantLog(kind, text) {
-          if (!assistantLog || !text) {
-            return;
+          if (text) {
+            appendEditorGmMessage(assistantLog, kind, text);
           }
-          const item = document.createElement('li');
-          item.className = `gm-storyline-wizard__assistant-item gm-storyline-wizard__assistant-item--${kind} gm-storyline-wizard__assistant-text`;
-          item.textContent = text;
-          assistantLog.appendChild(item);
-          assistantLog.scrollTop = assistantLog.scrollHeight;
         }
 
         // The Storyline GM does not change sites or rooms: it hands the
@@ -1700,7 +1702,7 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
           }
           const editorName = result.kind === 'dungeon' ? 'Dungeon Editor' : 'Room Editor';
           const item = document.createElement('li');
-          item.className = 'gm-storyline-wizard__assistant-item gm-storyline-wizard__assistant-item--assistant';
+          item.className = editorGmMessageClass('assistant');
           const link = document.createElement('a');
           link.href = route;
           link.target = '_blank';
@@ -1722,41 +1724,11 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
         }
 
         function pushAssistantToolCalls(toolCalls) {
-          if (!assistantLog || !Array.isArray(toolCalls) || toolCalls.length === 0) {
-            return;
-          }
-          const seen = new Set();
-          toolCalls.forEach((call) => {
-            const text = typeof call === 'string'
-              ? call.trim()
-              : String(call?.message || '').trim();
-            if (!text || seen.has(text)) {
-              return;
-            }
-            seen.add(text);
-            pushAssistantLog('status', text);
-          });
+          renderEditorGmToolCalls(assistantLog, toolCalls);
         }
 
         function pushAssistantNextSteps(nextSteps) {
-          const steps = Array.isArray(nextSteps)
-            ? nextSteps.filter((step) => typeof step === 'string' && step.trim() !== '')
-            : [];
-          if (steps.length > 0 && assistantLog) {
-            const item = document.createElement('li');
-            item.className = 'gm-storyline-wizard__assistant-item gm-storyline-wizard__assistant-item--assistant gm-storyline-wizard__assistant-next-steps';
-            const heading = document.createElement('strong');
-            heading.textContent = 'Next step';
-            const list = document.createElement('ol');
-            steps.forEach((step) => {
-              const listItem = document.createElement('li');
-              listItem.textContent = step.trim();
-              list.appendChild(listItem);
-            });
-            item.append(heading, list);
-            assistantLog.appendChild(item);
-            assistantLog.scrollTop = assistantLog.scrollHeight;
-          }
+          appendEditorGmNextSteps(assistantLog, nextSteps);
         }
 
         function formatAssistantFinding(finding) {
@@ -1956,37 +1928,9 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
           if (!assistantLog || !Array.isArray(options) || options.length !== 3) {
             throw new Error('assistant_three_options_required');
           }
-          const item = document.createElement('li');
-          item.className = 'gm-storyline-wizard__assistant-item gm-storyline-wizard__assistant-item--assistant';
-          const prompt = document.createElement('p');
-          prompt.textContent = question;
-          item.appendChild(prompt);
-          options.forEach((option, index) => {
-            const button = document.createElement('button');
-            button.type = 'button';
-            button.className = 'gm-storyline-wizard__assistant-choice';
-            const label = document.createElement('strong');
-            label.textContent = `${index + 1}. ${String(option.label || '')}`;
-            const description = document.createElement('span');
-            description.textContent = String(option.description || '');
-            const tradeoff = document.createElement('small');
-            tradeoff.textContent = String(option.tradeoff || '');
-            button.append(label, description, tradeoff);
-            button.addEventListener('click', async () => {
-              item.querySelectorAll('button').forEach((choice) => {
-                choice.disabled = true;
-              });
-              const succeeded = await askAssistant(`I select option ${index + 1}, ${option.label}. Use this direction: ${option.description}`);
-              if (!succeeded) {
-                item.querySelectorAll('button').forEach((choice) => {
-                  choice.disabled = false;
-                });
-              }
-            });
-            item.appendChild(button);
+          renderEditorGmClarification(assistantLog, { intent: 'clarification', question, options }, {
+            onSelectOption: (selection) => askAssistant(selection),
           });
-          assistantLog.appendChild(item);
-          assistantLog.scrollTop = assistantLog.scrollHeight;
         }
 
         async function initAssistant(announce = true) {

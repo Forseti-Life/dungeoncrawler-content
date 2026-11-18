@@ -605,6 +605,37 @@
   background: rgba(56, 44, 22, 0.5);
 }
 
+/* Kinds every editor's agent uses (js/v2/editor/EditorGmChatClient.js). */
+.gm-storyline-wizard__assistant-item--tool {
+  border-left: 3px solid #38bdf8;
+  color: rgba(226, 232, 240, 0.72);
+  font-style: italic;
+  font-size: 0.78rem;
+  padding: 0.3rem 0.6rem;
+}
+
+.gm-storyline-wizard__assistant-item--success {
+  border-left: 3px solid #22c55e;
+  background: rgba(36, 50, 30, 0.45);
+}
+
+.gm-storyline-wizard__assistant-item--warning {
+  border-left: 3px solid #f59e0b;
+  background: rgba(72, 48, 12, 0.42);
+}
+
+.gm-storyline-wizard__assistant-item--info {
+  background: rgba(56, 44, 22, 0.5);
+}
+
+.gm-storyline-wizard__assistant-item pre {
+  margin: 0.3rem 0 0;
+  max-height: 220px;
+  overflow: auto;
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+}
+
 .gm-storyline-wizard__assistant-panel label {
   display: block;
   margin: 0 0 0.65rem;

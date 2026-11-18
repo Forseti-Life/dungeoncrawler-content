@@ -1,0 +1,92 @@
+{#
+/**
+ * @file
+ * The page format shared by the authoring editors.
+ *
+ *   header:   title, what the page is for, back to the manager
+ *   left:     process stages, current state, quick links
+ *   right:    the Game Master Agent on top, the editing surface below
+ *
+ * Same classes and stylesheet as the Storyline Builder page. Embed it and
+ * fill the `gm` and `editor` blocks.
+ *
+ * Variables:
+ * - surface: 'dungeon-editor' or 'room-editor'. Becomes the root data
+ *   attribute the editor shell binds to (data-dungeon-editor) and the prefix
+ *   of the status attribute (data-dungeon-editor-gm-status).
+ * - title, intro: page heading and one-sentence purpose.
+ * - back_url, back_label: link to the manager page.
+ * - stages_title: heading of the stage list.
+ * - thing: what is being edited, lower case ("dungeon", "room").
+ * - contains_title: heading of the links to what this thing contains or is
+ *   contained by.
+ * - quick_links: list of { label, url } shown under "Quick launch".
+ *
+ * The left column is filled from the server's status projection by
+ * js/v2/editor/EditorDraftStatusCard.js; nothing in it is computed here.
+ */
+#}
+<div class="character-setup-page editor-page editor-page--{{ surface }}" data-{{ surface }}>
+  <div class="character-setup-page__header">
+    <p class="character-setup-page__eyebrow">{{ 'Game master workspace'|t }}</p>
+    <h1 class="character-setup-page__title">{{ title }}</h1>
+    <p class="character-setup-page__intro">{{ intro }}</p>
+    <a class="btn btn-secondary character-setup-page__back" href="{{ back_url }}">{{ back_label }}</a>
+  </div>
+
+  <div class="character-setup-page__layout">
+    <div class="character-setup-page__sidebar">
+      <div class="character-setup-page__sidebar-stack" data-{{ surface }}-gm-status>
+        <div class="character-setup-page__sidebar-card">
+          <h2 class="character-setup-page__sidebar-title">{{ stages_title }}</h2>
+          <ol class="character-setup-page__tabs editor-page__stages" data-editor-status-stages>
+            <li class="editor-page__stage-empty">{{ 'Load or create a @thing to see its stages.'|t({'@thing': thing}) }}</li>
+          </ol>
+        </div>
+
+        <section class="character-setup-page__sidebar-card gm-storyline-status" aria-labelledby="{{ surface }}-status-title">
+          <h2 id="{{ surface }}-status-title" class="character-setup-page__sidebar-title">{{ 'Current state'|t }}</h2>
+          <div class="gm-storyline-status__score"><strong data-editor-status-percent>0%</strong><span>{{ 'complete'|t }}</span></div>
+          <progress data-editor-status-progress max="100" value="0">0%</progress>
+          <dl>
+            <div><dt>{{ 'Validity'|t }}</dt><dd data-editor-status-validity>{{ 'No draft'|t }}</dd></div>
+            <div><dt>{{ 'Current stage'|t }}</dt><dd data-editor-status-stage>—</dd></div>
+          </dl>
+          <p class="gm-storyline-status__label"><strong>{{ 'Minimum content still needed'|t }}</strong></p>
+          <ul data-editor-status-missing><li>{{ 'Create or load a draft.'|t }}</li></ul>
+        </section>
+
+        <div class="character-setup-page__sidebar-card">
+          <h2 class="character-setup-page__sidebar-title">{{ 'Quick launch'|t }}</h2>
+          <ul class="character-setup-page__quick-links">
+            {% for link in quick_links %}
+              <li><a href="{{ link.url }}">{{ link.label }}</a></li>
+            {% endfor %}
+          </ul>
+          <h3 class="character-setup-page__sidebar-title">{{ contains_title }}</h3>
+          <ul class="character-setup-page__quick-links" data-editor-status-links>
+            <li>{{ 'Load a @thing to see what it links to.'|t({'@thing': thing}) }}</li>
+          </ul>
+          <h3 class="character-setup-page__sidebar-title">{{ 'In these storylines'|t }}</h3>
+          <ul class="character-setup-page__quick-links" data-editor-status-storylines>
+            <li>{{ 'No storyline uses this yet.'|t }}</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="character-setup-page__workspace">
+      <div class="character-setup-page__panel-header">
+        <p class="character-setup-page__panel-label">{{ 'Primary authoring interface'|t }}</p>
+        <h2 class="character-setup-page__panel-title" data-editor-status-name>{{ 'No @thing loaded'|t({'@thing': thing}) }}</h2>
+        <p class="character-setup-page__panel-meta">{{ 'Ask the Game Master Agent, or edit on the map below'|t }}</p>
+      </div>
+      <div class="character-setup-page__frame-shell">
+        <div class="gm-storyline-wizard editor-page__frame">
+          {% block gm %}{% endblock %}
+          {% block editor %}{% endblock %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,76 @@
+{#
+/**
+ * @file
+ * The Game Master Agent panel shared by the authoring editors.
+ *
+ * Same markup classes and stylesheet as the Storyline Builder's agent panel
+ * (css/gm-storyline-builder.css, library editor-gm-chat-style). Messages are
+ * rendered by js/v2/editor/EditorGmChatClient.js on every surface.
+ *
+ * Variables:
+ * - surface: 'dungeon-editor' or 'room-editor'; prefix of the data
+ *   attributes the editor shell binds to.
+ * - eyebrow: short label above the title.
+ * - intro: what the author can ask for here.
+ * - placeholder: composer placeholder.
+ * - prompts: list of { label, text } suggested requests.
+ */
+#}
+<section class="gm-storyline-wizard__assistant-panel gm-storyline-wizard__assistant-panel--primary editor-gm-agent"
+         data-{{ surface }}-gm-panel
+         aria-labelledby="{{ surface }}-gm-title">
+  <div class="gm-storyline-wizard__assistant-header">
+    <div>
+      <p class="gm-storyline-wizard__assistant-eyebrow">{{ eyebrow }}</p>
+      <h3 id="{{ surface }}-gm-title">{{ 'Game Master Agent'|t }}</h3>
+      <p>{{ intro }}</p>
+    </div>
+    <span class="editor-gm-agent__state" data-{{ surface }}-gm-state role="status" aria-live="polite">{{ 'Idle'|t }}</span>
+  </div>
+
+  <div class="gm-storyline-wizard__assistant-prompts" aria-label="{{ 'Suggested requests'|t }}">
+    {% for prompt in prompts %}
+      <button type="button" class="btn btn-secondary btn-sm" data-editor-gm-prompt="{{ prompt.text }}">{{ prompt.label }}</button>
+    {% endfor %}
+  </div>
+
+  <h4 class="gm-storyline-wizard__assistant-log-title">{{ 'GM conversation'|t }}</h4>
+  <ol class="gm-storyline-wizard__assistant-log" data-{{ surface }}-gm-transcript aria-label="{{ 'GM conversation'|t }}" aria-live="polite" aria-relevant="additions"></ol>
+
+  <div class="editor-gm-agent__plan" data-{{ surface }}-gm-plan hidden>
+    <p class="gm-storyline-wizard__assistant-eyebrow">{{ 'Proposed command plan'|t }}</p>
+    <ol class="editor-gm-agent__plan-list" data-{{ surface }}-gm-plan-list></ol>
+    <div class="editor-gm-agent__plan-actions">
+      <button type="button" class="btn btn-secondary btn-sm" data-{{ surface }}-action="gm-preview-plan">{{ 'Preview'|t }}</button>
+      <button type="button" class="btn btn-primary btn-sm" data-{{ surface }}-action="gm-apply-plan">{{ 'Apply plan'|t }}</button>
+      <button type="button" class="btn btn-secondary btn-sm" data-{{ surface }}-action="gm-discard-plan">{{ 'Discard'|t }}</button>
+    </div>
+  </div>
+
+  <form class="gm-storyline-wizard__assistant-composer" data-{{ surface }}-gm-form>
+    <label for="{{ surface }}-gm-input">{{ 'Ask the Game Master Agent'|t }}</label>
+    <textarea id="{{ surface }}-gm-input" class="form-textarea" rows="4" data-{{ surface }}-gm-input placeholder="{{ placeholder }}"></textarea>
+    <div class="gm-storyline-wizard__assistant-composer-actions">
+      <span>{{ 'Enter to send · Shift + Enter for a new line'|t }}</span>
+      <label class="editor-gm-agent__dry-run"><input type="checkbox" data-{{ surface }}-gm-dry-run> {{ 'Dry run'|t }}</label>
+      <button type="submit" class="btn btn-primary" data-{{ surface }}-action="gm-send">{{ 'Send to GM'|t }}</button>
+    </div>
+  </form>
+
+  <div class="editor-gm-agent__disclosures">
+    <section aria-label="{{ 'Grounded editor context'|t }}">
+      <button type="button" class="btn btn-secondary btn-sm"
+              data-{{ surface }}-action="gm-toggle-context"
+              aria-expanded="false"
+              aria-controls="{{ surface }}-gm-context-body">{{ 'What the GM sees'|t }}</button>
+      <div id="{{ surface }}-gm-context-body" class="room-editor__gm-context-body" data-{{ surface }}-gm-context hidden></div>
+    </section>
+    <section aria-label="{{ 'Assistant toolset'|t }}">
+      <button type="button" class="btn btn-secondary btn-sm"
+              data-{{ surface }}-action="gm-toggle-tools"
+              aria-expanded="false"
+              aria-controls="{{ surface }}-gm-tools-body">{{ 'Toolset'|t }}</button>
+      <div id="{{ surface }}-gm-tools-body" class="room-editor__gm-tools-body" data-{{ surface }}-gm-tools hidden></div>
+    </section>
+  </div>
+</section>
