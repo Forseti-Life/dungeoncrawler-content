@@ -344,8 +344,9 @@ class InstitutionLibraryService {
     $data[InstitutionMembershipService::INSTITUTION_REFS_FIELD] = array_values($refs);
     $this->database->update('dc_campaign_characters')
       ->fields([
+        // Memberships are not part of the character sheet: its revision,
+        // which storyline casts pin, does not move.
         'character_data' => json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
-        'version' => (int) $row['version'] + 1,
         'changed' => time(),
       ])
       ->condition('id', $character_row_id)

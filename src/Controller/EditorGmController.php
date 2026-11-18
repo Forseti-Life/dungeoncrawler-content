@@ -334,7 +334,7 @@ class EditorGmController extends ControllerBase {
       $error['message'] = 'This draft and its findings no longer fit in the GM model\'s context, so its reply was cut off and nothing was executed. Nothing was changed. This needs a fix to the GM, not a different request.';
     }
     if ($code === 'editor_gm_intent_output_truncated') {
-      $error['message'] = 'The GM response exceeded its output limit; that batch was not executed. Previously completed batches remain saved and can be resumed.';
+      $error['message'] = 'The GM tried to write the whole change in one reply and ran out of room, so nothing was executed. Ask for it in smaller parts, or ask the GM to plan it as saved work. Batches already saved remain saved.';
     }
     if ($exception instanceof DefinitionValidationException) {
       $error['code'] = 'definition_validation_failed';

@@ -9,6 +9,7 @@ use Drupal\Core\Database\Query\SelectInterface;
 use Drupal\Core\Database\StatementInterface;
 use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\dungeoncrawler_content\Service\CanonicalQuestTemplateService;
+use Drupal\dungeoncrawler_content\Service\CharacterCreationGmService;
 use Drupal\dungeoncrawler_content\Service\ObjectiveTypeService;
 use Drupal\dungeoncrawler_content\Service\StorylineAuthoringDraftService;
 use Drupal\dungeoncrawler_content\Service\StorylineManagerService;
@@ -670,6 +671,52 @@ class StorylineDraftPatchTest extends UnitTestCase {
 
     $this->assertSame(1, $state['counts']['decisions']);
     $this->assertSame(1, $state['counts']['choices']);
+  }
+
+  /**
+   * Story text about a cast member is carried to its sheet; a build change is not.
+   */
+  public function testCastStoryTextIsCarriedToTheSheetOnSave(): void {
+    $applied = [];
+    $characters = $this->createMock(CharacterCreationGmService::class);
+    $characters->method('getDraft')->willReturn(['revision' => 4, 'payload' => ['name' => 'Rilla']]);
+    $characters->method('applyDraftUpdates')->willReturnCallback(static function (int $id, int $revision, array $updates) use (&$applied): array {
+      $applied[] = [$id, $revision, $updates];
+      return ['draft' => ['revision' => $revision + 1]];
+    });
+    $service = new StorylineAuthoringDraftService(
+      $this->createMock(Connection::class),
+      $this->createMock(StorylineManagerService::class),
+      $this->createMock(AccountProxyInterface::class),
+      $this->createMock(UuidInterface::class),
+      $this->createMock(TimeInterface::class),
+      NULL, NULL, NULL, NULL, NULL,
+      $characters,
+    );
+    $row = static function (string $id, array $changes = []): array {
+      $actor = ['actor_id' => $id, 'display_name' => 'Rilla', 'role' => 'scout', 'motivation' => 'Find the cure.', 'attitude' => 'friendly',
+        'knowledge' => 'The trails.', 'class' => 'ranger', 'ancestry' => 'goblin', 'level' => 1, 'character_id' => 70, 'character_sheet_revision' => 4];
+      $actor['character_sheet_spec_hash'] = StorylineAuthoringDraftService::actorSpecHash($actor);
+      return $changes + $actor;
+    };
+    $payload = static fn(array $actors): array => ['objects' => ['actors' => ['generation_specs' => $actors]]];
+    $carry = new \ReflectionMethod($service, 'carryCastNarrativeToSheets');
+    $carry->setAccessible(TRUE);
+
+    $after = $carry->invoke($service, $payload([$row('rilla'), $row('vurn')]), $payload([
+      $row('rilla', ['motivation' => 'Beat her brother to the cure.', 'alignment' => 'CG']),
+      $row('vurn', ['class' => 'wizard']),
+    ]))['objects']['actors']['generation_specs'];
+
+    $this->assertCount(1, $applied);
+    $this->assertSame(70, $applied[0][0]);
+    $this->assertSame("Beat her brother to the cure.\nThe trails.", $applied[0][2]['backstory']);
+    $this->assertSame('CG', $applied[0][2]['alignment']);
+    $this->assertArrayNotHasKey('name', $applied[0][2]);
+    $this->assertSame(5, $after[0]['character_sheet_revision']);
+    $this->assertSame(StorylineAuthoringDraftService::actorSpecHash($after[0]), $after[0]['character_sheet_spec_hash']);
+    // A different class is a different build: its sheet stays outdated.
+    $this->assertNotSame(StorylineAuthoringDraftService::actorSpecHash($after[1]), $after[1]['character_sheet_spec_hash']);
   }
 
   /**

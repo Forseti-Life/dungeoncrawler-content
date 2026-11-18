@@ -1504,6 +1504,7 @@ services:
       - '@dungeoncrawler_content.objective_type'
       - '@dungeoncrawler_content.canonical_definitions'
       - '@dungeoncrawler_content.institution_library'
+      - '@dungeoncrawler_content.character_creation_gm'
 
   dungeoncrawler_content.institution_library:
     class: Drupal\dungeoncrawler_content\Service\InstitutionLibraryService

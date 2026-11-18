@@ -102,6 +102,7 @@ class StorylineAuthoringDraftService {
     protected ?ObjectiveTypeService $objectiveTypes = NULL,
     protected ?CanonicalDefinitionService $definitions = NULL,
     protected ?InstitutionLibraryService $institutionLibrary = NULL,
+    protected ?CharacterCreationGmService $characters = NULL,
   ) {}
 
   /**
@@ -2249,9 +2250,16 @@ class StorylineAuthoringDraftService {
     $this->assertDraftPayloadValid($payload);
     $updated_at = $this->time->getRequestTime();
     $next_revision = $current_revision + 1;
+    $transaction = $this->database->startTransaction();
+    try {
+      $payload = $this->carryCastNarrativeToSheets($draft['payload'] ?? [], $payload);
+    }
+    catch (\Throwable $exception) {
+      $transaction->rollBack();
+      throw $exception;
+    }
     $payload_json = $this->encodePayload($payload);
     $payload_hash = hash('sha256', $payload_json);
-    $transaction = $this->database->startTransaction();
     $affected = $this->database->update(self::TABLE)
       ->fields([
         'revision' => $next_revision,
@@ -2264,6 +2272,7 @@ class StorylineAuthoringDraftService {
       ->condition('revision', $current_revision)
       ->execute();
     if ($affected !== 1) {
+      $transaction->rollBack();
       throw new \DomainException('storyline_draft_revision_conflict');
     }
     try {
@@ -2282,6 +2291,65 @@ class StorylineAuthoringDraftService {
       $updated_at,
     );
     return $this->getDraft($draft_id);
+  }
+
+  /** What a storyline says about a cast member that its sheet repeats. */
+  private const ACTOR_SHEET_NARRATIVE_FIELDS = ['display_name', 'role', 'motivation', 'attitude', 'knowledge', 'alignment'];
+
+  /**
+   * Carries a cast member's story text onto its character sheet.
+   *
+   * A sheet repeats what the storyline says about the actor: its name,
+   * concept, personality, backstory and alignment. When only those change,
+   * the sheet is updated in the same save and stays current, instead of
+   * being left outdated for a rebuild. A change to class, ancestry or level
+   * is a different build and still needs one.
+   *
+   * @return array<string, mixed>
+   *   The payload, with each carried row's sheet revision and source hash.
+   */
+  private function carryCastNarrativeToSheets(array $previous_payload, array $payload): array {
+    $previous = array_column(array_filter((array) ($previous_payload['objects']['actors']['generation_specs'] ?? []), 'is_array'), NULL, 'actor_id');
+    foreach ((array) ($payload['objects']['actors']['generation_specs'] ?? []) as $index => $actor) {
+      $before = is_array($actor) ? ($previous[(string) ($actor['actor_id'] ?? '')] ?? NULL) : NULL;
+      $character_id = is_array($actor) ? (int) ($actor['character_id'] ?? 0) : 0;
+      if ($before === NULL || $character_id <= 0 || (int) ($before['character_id'] ?? 0) !== $character_id
+        // Its sheet was current before this save, and is not after it.
+        || ($before['character_sheet_spec_hash'] ?? NULL) !== self::actorSpecHash($before)
+        || ($actor['character_sheet_spec_hash'] ?? NULL) === self::actorSpecHash($actor)) {
+        continue;
+      }
+      $changed = [];
+      foreach (self::ACTOR_SHEET_SOURCE_FIELDS as $field) {
+        if (($actor[$field] ?? NULL) !== ($before[$field] ?? NULL)) {
+          $changed[] = $field;
+        }
+      }
+      if ($changed === [] || array_diff($changed, self::ACTOR_SHEET_NARRATIVE_FIELDS) !== []) {
+        continue;
+      }
+      if ($this->characters === NULL) {
+        throw new \LogicException('storyline_draft_character_service_unavailable: a cast member with a character sheet cannot be changed without the character service.');
+      }
+      // The same text a sheet build writes.
+      $updates = [
+        'name' => (string) ($actor['display_name'] ?? ''),
+        'concept' => (string) ($actor['role'] ?? '') . ': ' . (string) ($actor['motivation'] ?? ''),
+        'personality' => (string) ($actor['attitude'] ?? ''),
+        'backstory' => (string) ($actor['motivation'] ?? '') . "\n" . (string) ($actor['knowledge'] ?? ''),
+      ];
+      if (trim((string) ($actor['alignment'] ?? '')) !== '') {
+        $updates['alignment'] = (string) $actor['alignment'];
+      }
+      $sheet = $this->characters->getDraft($character_id);
+      $updates = array_filter($updates, static fn(string $value, string $field): bool => (string) ($sheet['payload'][$field] ?? '') !== $value, ARRAY_FILTER_USE_BOTH);
+      $revision = $updates === []
+        ? (int) $sheet['revision']
+        : (int) $this->characters->applyDraftUpdates($character_id, (int) $sheet['revision'], $updates)['draft']['revision'];
+      $payload['objects']['actors']['generation_specs'][$index]['character_sheet_revision'] = $revision;
+      $payload['objects']['actors']['generation_specs'][$index]['character_sheet_spec_hash'] = self::actorSpecHash($payload['objects']['actors']['generation_specs'][$index]);
+    }
+    return $payload;
   }
 
   /**

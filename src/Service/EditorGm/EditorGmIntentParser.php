@@ -196,19 +196,21 @@ STEP;
     }
 
     if (in_array($result['finish_reason'] ?? $result['stop_reason'] ?? '', ['length', 'max_tokens'], TRUE)) {
-      $input_tokens = (int) ($result['usage']['prompt_tokens'] ?? $result['usage']['input_tokens'] ?? $result['input_tokens'] ?? 0);
-      $output_tokens = (int) ($result['usage']['completion_tokens'] ?? $result['usage']['output_tokens'] ?? $result['output_tokens'] ?? 0);
+      // The provider's own counts decide the cause; estimates cannot.
+      $usage = is_array($result['usage'] ?? NULL) ? $result['usage'] : [];
+      $prompt_tokens = isset($usage['prompt_tokens']) ? (int) $usage['prompt_tokens'] : NULL;
+      $reply_tokens = isset($usage['completion_tokens']) ? (int) $usage['completion_tokens'] : NULL;
       $budget = (int) ($execution_options['max_tokens'] ?? 0);
       // Cut short of its own budget: the prompt left no room in the model's
       // context window. Cut at the budget: the reply itself was too long.
-      $window_exhausted = $output_tokens > 0 && $output_tokens < $budget;
+      $window_exhausted = $reply_tokens !== NULL && $reply_tokens < $budget;
       $this->logger->error('Editor GM intent reply was cut off for @surface/@draft (@model): @cause. Prompt @input tokens, reply @output of @tokens allowed. No intent was executed.', [
         '@surface' => $surface_label,
         '@draft' => (string) ($context_snapshot['draft']['draft_id'] ?? ''),
         '@model' => (string) ($result['model_id'] ?? ''),
-        '@cause' => $window_exhausted ? 'the prompt filled the model context window' : 'the reply exceeded its token budget',
-        '@input' => $input_tokens,
-        '@output' => $output_tokens,
+        '@cause' => $window_exhausted ? 'the prompt filled the model context window' : 'the reply reached its token budget',
+        '@input' => $prompt_tokens ?? 'unreported',
+        '@output' => $reply_tokens ?? 'unreported',
         '@tokens' => $budget,
       ]);
       throw new \RuntimeException($window_exhausted ? 'editor_gm_context_window_exhausted' : 'editor_gm_intent_output_truncated', 502);
