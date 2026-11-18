@@ -202,7 +202,6 @@ class StorylineManagementController extends ControllerBase {
     return [
       '#theme' => 'storyline_management_list',
       '#storylines' => $storylines,
-      '#drafts' => $draft_records,
       '#metrics' => $metrics,
       '#builder_url' => Url::fromRoute('dungeoncrawler_content.gm_storyline_builder')->toString(),
       '#storyline_explorer_url' => Url::fromRoute('dungeoncrawler_content.storyline_explorer')->toString(),

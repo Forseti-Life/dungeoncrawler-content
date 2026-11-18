@@ -1,5 +1,5 @@
 {#
- # Shared storyline library and collaborative draft history.
+ # Shared storyline library. A storyline with a working draft is one card.
  #}
 <div class="dc-character-list dc-character-list--storylines">
   <div class="dc-character-list__header">
@@ -84,45 +84,5 @@
         <p>Create a storyline draft in the GM Storyline Builder.</p>
       </div>
     {% endif %}
-  </div>
-
-  <div class="dc-sheet__section storyline-drafts">
-    <h2 class="dc-sheet__section-title">Working Drafts and Revisions</h2>
-    <p>All storyline editors can open and update these drafts and inspect their saved revisions. Published snapshots remain in history, not as extra draft cards. Archive and delete actions retain their existing restrictions.</p>
-    {% if drafts|length > 0 %}
-      <div class="storyline-drafts__table-wrap">
-        <table class="storyline-drafts__table">
-          <thead>
-            <tr><th>Draft</th><th>Last updater</th><th>Revision</th><th>Saved versions</th><th>Updated</th><th>Actions</th></tr>
-          </thead>
-          <tbody>
-            {% for draft in drafts %}
-              <tr data-storyline-draft-row="{{ draft.draft_id }}">
-                <td>
-                  <a href="{{ draft.edit_url }}">{{ draft.title }}</a>
-                  {% if draft.based_on %}<div>Based on: {{ draft.based_on }}</div>{% endif %}
-                </td>
-                <td>{{ draft.updated_by_name }}</td>
-                <td>{{ draft.revision }}</td>
-                <td>{{ draft.revision_count }}</td>
-                <td>{{ draft.updated }}</td>
-                <td class="storyline-drafts__actions">
-                  <a href="{{ draft.edit_url }}" class="dc-btn dc-btn-secondary">Open and edit</a>
-                  {% if draft.archive_url %}
-                    <a href="{{ draft.archive_url }}" class="dc-btn dc-btn-secondary">Archive</a>
-                  {% endif %}
-                  {% if draft.delete_url %}
-                    <button type="button" class="dc-btn dc-btn-danger" data-storyline-draft-delete data-delete-url="{{ draft.delete_url }}" data-draft-title="{{ draft.title }}">Delete</button>
-                  {% endif %}
-                </td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    {% else %}
-      <p>No working drafts.</p>
-    {% endif %}
-    <p class="storyline-drafts__status" data-storyline-draft-delete-status role="status" aria-live="polite"></p>
   </div>
 </div>
