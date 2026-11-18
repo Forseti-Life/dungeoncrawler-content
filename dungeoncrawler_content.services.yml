@@ -1487,6 +1487,7 @@ services:
       - '@dungeoncrawler_content.definition_schema_validator'
       - '@dungeoncrawler_content.canonical_quest_template'
       - '@dungeoncrawler_content.objective_type'
+      - '@dungeoncrawler_content.canonical_definitions'
 
   dungeoncrawler_content.gameplay_action_processor:
     class: Drupal\dungeoncrawler_content\Service\GameplayActionProcessor

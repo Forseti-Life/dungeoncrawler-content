@@ -96,7 +96,20 @@ class StorylineAuthoringDraftService {
     protected ?DefinitionSchemaValidator $draftValidator = NULL,
     protected ?CanonicalQuestTemplateService $questTemplates = NULL,
     protected ?ObjectiveTypeService $objectiveTypes = NULL,
+    protected ?CanonicalDefinitionService $definitions = NULL,
   ) {}
+
+  /**
+   * Library characters whose definition is retired: not offered, not bound.
+   *
+   * @return array<string, true>
+   */
+  private function retiredLibraryCharacters(): array {
+    if ($this->definitions === NULL) {
+      throw new \LogicException('storyline_library_definitions_unavailable');
+    }
+    return $this->definitions->retiredDefinitionIds('actor');
+  }
 
   /**
    * Describe the exact operation objects accepted by the draft authority.
@@ -1300,10 +1313,11 @@ class StorylineAuthoringDraftService {
     // A cast member bound to a library record is not a duplicate of it,
     // nor of other library records that share its name.
     $library_ids = array_fill_keys(array_column($rows, 'instance_id'), TRUE);
+    $retired = $this->retiredLibraryCharacters();
     $findings = [];
     foreach ($rows as $row) {
       $spec = $named[mb_strtolower(trim((string) $row['name']))] ?? NULL;
-      if ($spec === NULL || isset($library_ids[(string) $spec['actor_id']])) {
+      if ($spec === NULL || isset($library_ids[(string) $spec['actor_id']]) || isset($retired[(string) $row['instance_id']])) {
         continue;
       }
       $findings[] = [
@@ -1484,7 +1498,11 @@ class StorylineAuthoringDraftService {
     }
     $terms = array_values(array_filter(preg_split('/\s+/', mb_strtolower(trim($search))) ?: []));
     $matches = [];
+    $retired = $this->retiredLibraryCharacters();
     foreach ($query->execute()->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+      if (isset($retired[(string) $row['instance_id']])) {
+        continue;
+      }
       $data = json_decode((string) $row['character_data'], TRUE);
       $description = is_array($data) ? trim((string) ($data['description'] ?? '')) : '';
       $haystack = mb_strtolower(implode(' ', [$row['name'], $row['instance_id'], $row['role'], $row['location_ref'], $description]));

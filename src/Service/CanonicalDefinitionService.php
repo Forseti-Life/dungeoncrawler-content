@@ -254,6 +254,21 @@ class CanonicalDefinitionService {
     }
   }
 
+  /**
+   * IDs of one family's retired definitions.
+   *
+   * @return array<string, true>
+   */
+  public function retiredDefinitionIds(string $family): array {
+    $this->assertFamily($family);
+    return array_fill_keys(array_map('strval', $this->database->select('dungeoncrawler_content_definition_lifecycle', 'l')
+      ->fields('l', ['definition_id'])
+      ->condition('family', $family)
+      ->condition('status', 'retired')
+      ->execute()
+      ->fetchCol()), TRUE);
+  }
+
   private function retiredDefinitionKeys(): array {
     $keys = [];
     $rows = $this->database->select('dungeoncrawler_content_definition_lifecycle', 'l')
