@@ -886,16 +886,39 @@ class DungeonEditorService {
    * @return array<int, array{dungeon_id: string, name: string, campaigns: int}>
    */
   public function unattachedDungeons(): array {
+    if ($this->storylines === NULL) {
+      throw new \LogicException('dungeon_editor_storylines_unavailable');
+    }
     $rows = $this->database->query(
       "SELECT d.dungeon_id, d.name, (SELECT COUNT(DISTINCT c.campaign_id) FROM {dc_campaign_dungeons} c WHERE c.source_dungeon_id = d.dungeon_id OR c.dungeon_id = d.dungeon_id) AS campaigns FROM {dungeoncrawler_content_dungeons} d WHERE d.published_version_id IS NOT NULL ORDER BY d.name, d.dungeon_id"
     )->fetchAll(\PDO::FETCH_ASSOC);
+    $attached = $this->storylines->placeUsageIndex()['dungeons'];
     $unattached = [];
     foreach ($rows as $row) {
-      if ($this->storiesUsing((string) $row['dungeon_id']) === []) {
+      if (!isset($attached[(string) $row['dungeon_id']])) {
         $unattached[] = ['dungeon_id' => (string) $row['dungeon_id'], 'name' => (string) $row['name'], 'campaigns' => (int) $row['campaigns']];
       }
     }
     return $unattached;
+  }
+
+  /**
+   * Which published dungeons place each room.
+   *
+   * @return array<string, array<int, array{dungeon_id: string, name: string}>>
+   */
+  public function roomPlacementIndex(): array {
+    $query = $this->database->select('dungeoncrawler_content_dungeons', 'd');
+    $query->innerJoin('dungeoncrawler_content_dungeon_versions', 'v', 'v.version_id = d.published_version_id');
+    $rows = $query->fields('d', ['dungeon_id', 'name'])->fields('v', ['dungeon_payload'])->orderBy('d.name')->execute()->fetchAll();
+    $index = [];
+    foreach ($rows as $row) {
+      $dungeon = json_decode((string) $row->dungeon_payload, TRUE, 512, JSON_THROW_ON_ERROR);
+      foreach (array_unique(array_column((array) ($dungeon['room_placements'] ?? []), 'room_id')) as $room_id) {
+        $index[(string) $room_id][] = ['dungeon_id' => (string) $row->dungeon_id, 'name' => (string) $row->name];
+      }
+    }
+    return $index;
   }
 
   /**

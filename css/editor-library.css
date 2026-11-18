@@ -1,0 +1,11 @@
+.editor-library__filter {
+  display: grid;
+  gap: 0.25rem;
+  max-width: 28rem;
+  margin: 0.75rem 0 0.25rem;
+  font-weight: 700;
+}
+
+.editor-library__filter input {
+  padding: 0.5rem 0.65rem;
+}

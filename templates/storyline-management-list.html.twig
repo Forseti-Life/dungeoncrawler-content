@@ -6,6 +6,8 @@
     <h1 class="dc-character-list__title">Storylines</h1>
     <div class="dc-sheet__nav-actions">
       <a href="{{ campaigns_url }}" class="dc-btn dc-btn-secondary">Campaigns</a>
+      <a href="{{ path('dungeoncrawler_content.dungeon_management') }}" class="dc-btn dc-btn-secondary">Dungeons</a>
+      <a href="{{ path('dungeoncrawler_content.room_management') }}" class="dc-btn dc-btn-secondary">Rooms</a>
       <a href="{{ storyline_explorer_url }}" class="dc-btn dc-btn-secondary">Storyline Explorer</a>
       {% if archived_url %}
         <a href="{{ archived_url }}" class="dc-btn dc-btn-secondary">Archived Storylines</a>

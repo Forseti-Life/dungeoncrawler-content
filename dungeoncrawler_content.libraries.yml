@@ -279,6 +279,17 @@ room-editor:
     - core/drupalSettings
     - core/once
 
+editor-library:
+  version: 20261118-1
+  css:
+    theme:
+      css/editor-library.css: {}
+  js:
+    js/editor-library.js: {}
+  dependencies:
+    - core/drupal
+    - core/once
+
 editor-suite:
   version: 20261024-tool-calls-1
   js:

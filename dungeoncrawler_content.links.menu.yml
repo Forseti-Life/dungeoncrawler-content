@@ -86,6 +86,20 @@ dungeoncrawler_content.menu.storyline_explorer:
   expanded: true
   weight: 21
 
+dungeoncrawler_content.menu.dungeon_management:
+  title: 'Dungeons'
+  description: 'The dungeon library, working drafts and the storylines each dungeon serves.'
+  route_name: dungeoncrawler_content.dungeon_management
+  parent: dungeoncrawler_content.menu.storyline_explorer
+  weight: -1
+
+dungeoncrawler_content.menu.room_management:
+  title: 'Rooms'
+  description: 'The room library, working drafts and where each room is used.'
+  route_name: dungeoncrawler_content.room_management
+  parent: dungeoncrawler_content.menu.storyline_explorer
+  weight: -1
+
 dungeoncrawler_content.menu.storyline_home:
   title: 'Storylines Home'
   description: 'Return to the main storyline management page.'

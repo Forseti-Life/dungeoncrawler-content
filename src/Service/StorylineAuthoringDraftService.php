@@ -1335,6 +1335,40 @@ class StorylineAuthoringDraftService {
   }
 
   /**
+   * Which storylines name each dungeon and each room, in one pass.
+   *
+   * @return array{dungeons: array<string, array<int, array{draft_id: string, title: string, status: string}>>, rooms: array<string, array<int, array{draft_id: string, title: string, status: string}>>}
+   */
+  public function placeUsageIndex(): array {
+    $rows = $this->database->select(self::TABLE, 'd')
+      ->fields('d', ['draft_id', 'status', 'draft_payload'])
+      ->orderBy('updated_at', 'DESC')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+    $index = ['dungeons' => [], 'rooms' => []];
+    foreach ($rows as $row) {
+      $payload = json_decode((string) $row['draft_payload'], TRUE, 512, JSON_THROW_ON_ERROR);
+      $story = [
+        'draft_id' => (string) $row['draft_id'],
+        'title' => trim((string) ($payload['title'] ?? '')),
+        'status' => (string) $row['status'],
+      ];
+      $rooms = array_filter((array) ($payload['objects']['rooms']['generation_specs'] ?? []), 'is_array');
+      $dungeons = array_filter((array) ($payload['objects']['dungeons']['generation_specs'] ?? []), 'is_array');
+      $named = [
+        'dungeons' => array_merge(array_column($dungeons, 'dungeon_id'), array_column($rooms, 'dungeon_id')),
+        'rooms' => array_column($rooms, 'room_id'),
+      ];
+      foreach ($named as $kind => $ids) {
+        foreach (array_unique(array_filter(array_map(static fn(mixed $id): string => trim((string) $id), $ids))) as $id) {
+          $index[$kind][$id][] = $story;
+        }
+      }
+    }
+    return $index;
+  }
+
+  /**
    * The story brief without a permission check.
    *
    * For the Dungeon and Room editors, which derive status and findings from

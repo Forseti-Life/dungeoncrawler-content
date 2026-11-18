@@ -340,6 +340,24 @@ dungeoncrawler_content.module_manager_release_execution_run:
     _permission: 'access dungeoncrawler module manager'
     release_id: '[0-9a-f-]{36}'
 
+dungeoncrawler_content.dungeon_management:
+  path: '/dungeons'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\EditorLibraryController::dungeons'
+    _title: 'Dungeon Manager'
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+
+dungeoncrawler_content.room_management:
+  path: '/rooms'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\EditorLibraryController::rooms'
+    _title: 'Room Manager'
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+
 dungeoncrawler_content.room_editor:
   path: '/dungeoncrawler/room-editor'
   defaults:
