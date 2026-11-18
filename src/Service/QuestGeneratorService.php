@@ -4050,67 +4050,13 @@ class QuestGeneratorService {
     array $storyline_data = [],
     array $quest_nodes = [],
   ): bool {
-    $dependencies = array_values(array_filter(array_map('strval', is_array($quest_node['unlocks_after'] ?? NULL) ? $quest_node['unlocks_after'] : [])));
-    if ($dependencies === []) {
-      return FALSE;
-    }
-
-    $quest_id = trim((string) ($quest_node['quest_id'] ?? ''));
-    $selections = is_array($storyline_data['variables']['branch_choices'] ?? NULL)
-      ? $storyline_data['variables']['branch_choices']
-      : [];
-    $selected_branch_sources = [];
-    foreach (array_values(array_filter($quest_nodes, 'is_array')) as $source_node) {
-      $source_id = trim((string) ($source_node['quest_id'] ?? ''));
-      foreach (array_values(array_filter((array) ($source_node['choices'] ?? []), 'is_array')) as $choice) {
-        if (trim((string) ($choice['target_quest_id'] ?? '')) !== $quest_id) {
-          continue;
-        }
-        $decision_id = trim((string) ($choice['decision_id'] ?? ''));
-        $choice_id = trim((string) ($choice['choice_id'] ?? ''));
-        if ($decision_id !== '' && $choice_id !== '' && (string) ($selections[$decision_id] ?? '') === $choice_id) {
-          $selected_branch_sources[] = $source_id;
-        }
-      }
-    }
-    if ($selected_branch_sources !== []) {
-      foreach (array_unique($selected_branch_sources) as $source_id) {
-        if (strtolower(trim((string) ($status_by_node[$source_id] ?? ''))) === 'completed') {
-          return FALSE;
-        }
-      }
-      return TRUE;
-    }
-    $has_incoming_choice = FALSE;
-    foreach (array_values(array_filter($quest_nodes, 'is_array')) as $source_node) {
-      foreach (array_values(array_filter((array) ($source_node['choices'] ?? []), 'is_array')) as $choice) {
-        if (trim((string) ($choice['target_quest_id'] ?? '')) === $quest_id) {
-          $has_incoming_choice = TRUE;
-          break 2;
-        }
-      }
-    }
-    if ($has_incoming_choice) {
-      return TRUE;
-    }
-
-    $prerequisite_mode = trim((string) ($quest_node['prerequisite_mode'] ?? 'all')) ?: 'all';
-    if ($prerequisite_mode === 'any') {
-      foreach ($dependencies as $dependency) {
-        if (strtolower(trim((string) ($status_by_node[$dependency] ?? ''))) === 'completed') {
-          return FALSE;
-        }
-      }
-      return TRUE;
-    }
-    foreach ($dependencies as $dependency) {
-      $status = strtolower(trim((string) ($status_by_node[$dependency] ?? '')));
-      if ($status !== 'completed') {
-        return TRUE;
-      }
-    }
-
-    return FALSE;
+    return StorylineManagerService::questNodeBlocked(
+      $quest_node,
+      $status_by_node,
+      (array) ($storyline_data['variables']['branch_choices'] ?? []),
+      $quest_nodes,
+      (array) ($storyline_data['questline']['storyline_choices'] ?? []),
+    );
   }
 
   /**

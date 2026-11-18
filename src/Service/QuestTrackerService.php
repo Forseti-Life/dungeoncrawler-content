@@ -1175,7 +1175,7 @@ class QuestTrackerService {
     }
 
     $already_completed = !empty($progress_record['completed_at'])
-      || strtolower((string) ($quest['status'] ?? '')) === 'completed';
+      || in_array(strtolower((string) ($quest['status'] ?? '')), StorylineManagerService::SETTLED_QUEST_STATUSES, TRUE);
     $progress_character_id = !empty($progress_record['character_id'])
       ? (int) $progress_record['character_id']
       : $character_id;
@@ -1228,9 +1228,9 @@ class QuestTrackerService {
       ->condition('character_id', $progress_character_id)
       ->execute();
 
-    // Update quest status
+    // A failed quest is over but not completed: it opens nothing after it.
     $this->database->update('dc_campaign_quests')
-      ->fields(['status' => 'completed'])
+      ->fields(['status' => $outcome === 'success' ? 'completed' : 'failed'])
       ->condition('campaign_id', $campaign_id)
       ->condition('quest_id', $quest_id)
       ->execute();

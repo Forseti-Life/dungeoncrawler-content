@@ -144,7 +144,7 @@ class StorylineQuestLifecycleService {
       ->fields('q', ['quest_id'])
       ->condition('campaign_id', $campaign_id)
       ->condition('source_template_id', $normalized_template_id)
-      ->condition('status', 'completed')
+      ->condition('status', StorylineManagerService::SETTLED_QUEST_STATUSES, 'IN')
       ->range(0, 1)
       ->execute()
       ->fetchField();

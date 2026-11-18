@@ -663,9 +663,69 @@ through storyline advancement. The Storyline Manager records the selection in
 `variables.branch_choices`, applies the declared state mutations, advances the
 runtime pointers, and logs the result.
 
-Trigger types describe when a choice is eligible; they are not autonomous
-polling jobs. The gameplay or GM caller remains responsible for recognizing the
-trigger and submitting the selected branch.
+Trigger types describe when a choice is eligible. A choice without a
+story-state condition is recognised and submitted by the gameplay or GM
+caller. A choice whose trigger carries `when` is resolved by the engine
+itself (see "Story-state conditions" below).
+
+### Optional paths
+
+There are three ways a story can go more than one way. Pick by what
+differs:
+
+- **Different ways to reach the same goal:** approaches of one task. The
+  task has a `goal_text`; each choice carries an `approach` naming the
+  objectives it uses. Finishing any one finishes the task.
+- **Different directions for the story:** choices that lead to different
+  tasks. Routes may rejoin.
+- **Something that can happen at any time:** one storyline-wide choice (no
+  source task), authored once.
+
+There is no optional objective. Every objective row is a required step of
+its task.
+
+### What opens next
+
+One rule decides it, `StorylineManagerService::questNodeBlocked`, used by
+the quest log, by scene progression and by what is offered:
+
+- A task without choices leads to the next task in the list, unless it
+  names its own `unlocks_to`. List order is story order; the first task is
+  where the story starts.
+- A task that is the target of a choice opens when that choice is the one
+  resolved and its source task succeeded. A storyline-wide choice opens
+  its target at once.
+- A task several routes lead to opens when any one of them succeeds.
+- A task reached both by order and by a choice opens either way.
+- Only success opens what follows. A failed quest has status `failed`, a
+  quest the story moved past has status `superseded`; neither opens
+  anything. A story that must continue after a failure needs a choice that
+  says where it goes.
+
+The storyline stands in the scene of the quest that is open. Only quests
+the rule has opened are offered. The storyline is complete when nothing is
+open and a task that leads nowhere further has succeeded.
+
+### Story-state conditions
+
+A choice's trigger may carry `when`, a state the engine can measure:
+
+- `{subject_type: institution, subject_id, measure: members_lost,
+  at_least}`: that share of the institution's members are dead or have
+  fled the room an encounter was fought in.
+- `{subject_type: actor, subject_id, measure: dead | fled | lost}`.
+- `{subject_type: task, subject_id, measure: completed | failed |
+  superseded}`.
+
+The engine evaluates these when an encounter ends and when a quest changes
+state, and resolves the choice once. Encounter end records each
+non-player actor's fate on the campaign actor (`state_data.fate`).
+
+A resolved choice acts on quests through its storyline effects: `lock` or
+`resolve` on a task closes that quest as superseded; `redirect` on the
+storyline closes every open quest except the target. Superseded pays
+nothing and costs no standing. The target scene's quests are then
+offered.
 
 The gameplay GM receives current pending decisions and their authored trigger
 contracts in its prompt context. Its standard `inspect_storyline_branches` tool

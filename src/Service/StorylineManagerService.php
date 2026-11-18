@@ -4768,6 +4768,92 @@ class StorylineManagerService {
     return FALSE;
   }
 
+  /** Quest statuses after which a quest is over, however it ended. */
+  public const SETTLED_QUEST_STATUSES = ['completed', 'failed', 'superseded', 'abandoned'];
+
+  /**
+   * Whether a quest of the questline is still closed to the party.
+   *
+   * The one rule for what opens next. A quest opens when:
+   * - it has nothing before it; or
+   * - a choice that leads to it was the one resolved (for a task's choice,
+   *   once that task succeeded; a storyline-wide choice opens it at once);
+   *   or
+   * - a task that leads to it by order, not by choice, succeeded. Any one
+   *   such route is enough unless the quest asks for all of them.
+   *
+   * Only success opens what follows. A failed or superseded quest opens
+   * nothing; the story needs another route, such as a storyline-wide
+   * choice.
+   *
+   * @param array<string, string> $status_by_node
+   *   Quest status by questline quest ID.
+   * @param array<string, string> $selections
+   *   Resolved choices: decision ID => choice ID.
+   */
+  public static function questNodeBlocked(array $quest_node, array $status_by_node, array $selections, array $quest_nodes, array $storyline_choices = []): bool {
+    $dependencies = array_values(array_filter(array_map('strval', (array) ($quest_node['unlocks_after'] ?? []))));
+    $quest_id = trim((string) ($quest_node['quest_id'] ?? ''));
+    $selected = static fn(array $choice): bool => trim((string) ($choice['target_quest_id'] ?? '')) === $quest_id
+      && trim((string) ($choice['decision_id'] ?? '')) !== ''
+      && (string) ($selections[trim((string) $choice['decision_id'])] ?? '') === trim((string) ($choice['choice_id'] ?? ''));
+    foreach (array_filter($storyline_choices, 'is_array') as $choice) {
+      if ($selected($choice)) {
+        return FALSE;
+      }
+    }
+    if ($dependencies === []) {
+      return FALSE;
+    }
+    $succeeded = static fn(string $id): bool => strtolower(trim((string) ($status_by_node[$id] ?? ''))) === 'completed';
+    $choice_sources = [];
+    foreach (array_filter($quest_nodes, 'is_array') as $source_node) {
+      $source_id = trim((string) ($source_node['quest_id'] ?? ''));
+      foreach (array_filter((array) ($source_node['choices'] ?? []), 'is_array') as $choice) {
+        if (trim((string) ($choice['target_quest_id'] ?? '')) !== $quest_id) {
+          continue;
+        }
+        $choice_sources[$source_id] = TRUE;
+        if ($selected($choice) && $succeeded($source_id)) {
+          return FALSE;
+        }
+      }
+    }
+    // Routes that arrive by order rather than by a choice.
+    $plain = array_values(array_filter($dependencies, static fn(string $id): bool => !isset($choice_sources[$id])));
+    if ($plain === []) {
+      return TRUE;
+    }
+    $done = array_filter($plain, $succeeded);
+    return (trim((string) ($quest_node['prerequisite_mode'] ?? 'all')) ?: 'all') === 'any'
+      ? $done === []
+      : count($done) < count($plain);
+  }
+
+  /**
+   * Quest status by quest ID and by questline (template) ID for a storyline.
+   *
+   * @return array<string, string>
+   */
+  protected function loadStorylineQuestStatusMap(int $campaign_id, string $storyline_id): array {
+    $map = [];
+    $rows = $this->database->select('dc_campaign_quests', 'q')
+      ->fields('q', ['quest_id', 'source_template_id', 'status'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('storyline_id', $storyline_id)
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+    foreach ($rows as $row) {
+      foreach (['quest_id', 'source_template_id'] as $key) {
+        $id = trim((string) ($row[$key] ?? ''));
+        if ($id !== '') {
+          $map[$id] = $this->mergeStorylineQuestStatus($map[$id] ?? NULL, (string) ($row['status'] ?? 'available'));
+        }
+      }
+    }
+    return $map;
+  }
+
   /**
    * Synchronizes quest-derived storyline runtime state.
    */
@@ -4814,43 +4900,58 @@ class StorylineManagerService {
       }
     }
 
-    while ($current_chapter_id !== '') {
-      $position_quest_ids = $this->getQuestIdsForPosition($storyline_data, $current_chapter_id, $current_scene_id);
-      if ($position_quest_ids === []) {
-        break;
+    // The questline decides what opens next; the storyline stands in the
+    // scene of the quest that is open.
+    $quest_nodes = array_values(array_filter((array) ($storyline_data['questline']['quest_nodes'] ?? []), 'is_array'));
+    $selections = (array) ($storyline_data['variables']['branch_choices'] ?? []);
+    $storyline_choices = (array) ($storyline_data['questline']['storyline_choices'] ?? []);
+    $node_status = [];
+    foreach ($quest_nodes as $node) {
+      $node_status[(string) ($node['quest_id'] ?? '')] = strtolower(trim((string) ($quest_state_map[(string) ($node['quest_id'] ?? '')] ?? '')));
+    }
+    $is_open = function (array $node) use ($node_status, $selections, $quest_nodes, $storyline_choices): bool {
+      $node_state = $node_status[(string) ($node['quest_id'] ?? '')] ?? '';
+      if (in_array($node_state, self::SETTLED_QUEST_STATUSES, TRUE)) {
+        return FALSE;
       }
-
-      $all_completed = TRUE;
-      foreach ($position_quest_ids as $quest_id) {
-        if (($quest_state_map[$quest_id] ?? '') !== 'completed') {
-          $all_completed = FALSE;
-          break;
+      // A quest already given to the party stays open.
+      return in_array($node_state, StorylineQuestLifecycleService::OPEN_STATUSES, TRUE)
+        || !self::questNodeBlocked($node, $node_status, $selections, $quest_nodes, $storyline_choices);
+    };
+    $open_nodes = array_values(array_filter($quest_nodes, $is_open));
+    $here = $current_chapter_id === '' ? [] : $this->getQuestIdsForPosition($storyline_data, $current_chapter_id, $current_scene_id);
+    $open_here = array_filter($open_nodes, static fn(array $node): bool => in_array((string) $node['quest_id'], $here, TRUE));
+    if ($quest_nodes !== [] && $open_here === [] && $status !== 'completed') {
+      if ($open_nodes !== []) {
+        $next_chapter_id = (string) ($open_nodes[0]['chapter_id'] ?? '');
+        $next_scene_id = (string) ($open_nodes[0]['scene_id'] ?? '');
+        if ($next_chapter_id !== '' && ($next_chapter_id !== $current_chapter_id || $next_scene_id !== $current_scene_id)) {
+          $current_chapter_id = $next_chapter_id;
+          $current_scene_id = $next_scene_id;
+          $storyline_data['unlocked_chapter_ids'] = $this->ensureUnlockedId($storyline_data['unlocked_chapter_ids'] ?? [], $current_chapter_id);
+          $storyline_data['unlocked_scene_ids'] = $this->ensureUnlockedId($storyline_data['unlocked_scene_ids'] ?? [], $current_scene_id);
+          $status = 'active';
+          $events[] = [
+            'event_type' => 'storyline_progressed',
+            'narrative_text' => sprintf('Storyline advanced to %s / %s.', $current_chapter_id, $current_scene_id ?: 'chapter'),
+          ];
         }
       }
-
-      if (!$all_completed) {
-        break;
+      else {
+        // Nothing is open. The story is over when a quest that leads
+        // nowhere further has succeeded; otherwise it waits (a failed
+        // quest, or a choice not yet made).
+        foreach ($quest_nodes as $node) {
+          if (array_filter((array) ($node['unlocks_to'] ?? [])) === [] && ($node_status[(string) ($node['quest_id'] ?? '')] ?? '') === 'completed') {
+            $status = 'completed';
+            $events[] = [
+              'event_type' => 'storyline_completed',
+              'narrative_text' => 'Storyline completed by linked quest progression.',
+            ];
+            break;
+          }
+        }
       }
-
-      $next = $this->deriveNextPosition($storyline_data, $current_chapter_id, $current_scene_id);
-      if ($next === NULL) {
-        $status = 'completed';
-        $events[] = [
-          'event_type' => 'storyline_completed',
-          'narrative_text' => 'Storyline completed by linked quest progression.',
-        ];
-        break;
-      }
-
-      $current_chapter_id = (string) ($next['chapter_id'] ?? '');
-      $current_scene_id = (string) ($next['scene_id'] ?? '');
-      $storyline_data['unlocked_chapter_ids'] = $this->ensureUnlockedId($storyline_data['unlocked_chapter_ids'] ?? [], $current_chapter_id);
-      $storyline_data['unlocked_scene_ids'] = $this->ensureUnlockedId($storyline_data['unlocked_scene_ids'] ?? [], $current_scene_id);
-      $status = 'active';
-      $events[] = [
-        'event_type' => 'storyline_progressed',
-        'narrative_text' => sprintf('Storyline advanced to %s / %s.', $current_chapter_id, $current_scene_id ?: 'chapter'),
-      ];
     }
 
     $storyline_data['status'] = $status;
@@ -8674,32 +8775,7 @@ class StorylineManagerService {
     $storyline_id = (string) ($row['storyline_id'] ?? '');
     $storyline_data = $this->normalizeRuntimeStorylineData($this->decodeJsonColumn($row['storyline_data'] ?? NULL));
 
-    $quest_rows = $this->database->select('dc_campaign_quests', 'q')
-      ->fields('q', ['quest_id', 'source_template_id', 'status'])
-      ->condition('campaign_id', $campaign_id)
-      ->condition('storyline_id', $storyline_id)
-      ->execute()
-      ->fetchAll(\PDO::FETCH_ASSOC);
-
-    $quest_state_map = [];
-    foreach ($quest_rows as $quest_row) {
-      $status = (string) ($quest_row['status'] ?? 'available');
-      $runtime_quest_id = trim((string) ($quest_row['quest_id'] ?? ''));
-      if ($runtime_quest_id !== '') {
-        $quest_state_map[$runtime_quest_id] = $this->mergeStorylineQuestStatus(
-          $quest_state_map[$runtime_quest_id] ?? NULL,
-          $status
-        );
-      }
-
-      $template_id = trim((string) ($quest_row['source_template_id'] ?? ''));
-      if ($template_id !== '') {
-        $quest_state_map[$template_id] = $this->mergeStorylineQuestStatus(
-          $quest_state_map[$template_id] ?? NULL,
-          $status
-        );
-      }
-    }
+    $quest_state_map = $this->loadStorylineQuestStatusMap($campaign_id, $storyline_id);
 
     $sync = $this->synchronizeStorylineDataWithQuestStates(
       $storyline_data,
@@ -8823,10 +8899,24 @@ class StorylineManagerService {
     $quest_lifecycle = $this->resolveStorylineQuestLifecycleService();
     $activation_character_id = $this->resolveStorylineQuestActivationCharacterId($campaign_id, $character_id);
     $materialized = FALSE;
+    $quest_nodes = array_values(array_filter((array) ($storyline_data['questline']['quest_nodes'] ?? []), 'is_array'));
+    $node_status = $this->loadStorylineQuestStatusMap($campaign_id, $storyline_id);
     foreach ($template_ids as $template_id) {
       $template_id = trim($template_id);
       if ($template_id === '') {
         continue;
+      }
+      // Only what the questline has opened is offered.
+      foreach ($quest_nodes as $node) {
+        if ((string) ($node['quest_id'] ?? '') === $template_id && self::questNodeBlocked(
+          $node,
+          $node_status,
+          (array) ($storyline_data['variables']['branch_choices'] ?? []),
+          $quest_nodes,
+          (array) ($storyline_data['questline']['storyline_choices'] ?? []),
+        )) {
+          continue 2;
+        }
       }
 
       $quest_link = is_array($storyline_data['linked_quests'][$template_id] ?? NULL)
@@ -9009,46 +9099,6 @@ class StorylineManagerService {
     }
 
     return [];
-  }
-
-  /**
-   * Derives the next chapter/scene position after the current one.
-   */
-  protected function deriveNextPosition(array $storyline_data, string $chapter_id, string $scene_id): ?array {
-    $chapters = array_values($storyline_data['chapters'] ?? []);
-    foreach ($chapters as $chapter_index => $chapter) {
-      if ((string) ($chapter['chapter_id'] ?? '') !== $chapter_id) {
-        continue;
-      }
-
-      $scenes = array_values($chapter['scenes'] ?? []);
-      if ($scene_id !== '') {
-        foreach ($scenes as $scene_index => $scene) {
-          if ((string) ($scene['scene_id'] ?? '') !== $scene_id) {
-            continue;
-          }
-
-          if (isset($scenes[$scene_index + 1])) {
-            return [
-              'chapter_id' => $chapter_id,
-              'scene_id' => (string) ($scenes[$scene_index + 1]['scene_id'] ?? ''),
-            ];
-          }
-
-          break;
-        }
-      }
-
-      if (isset($chapters[$chapter_index + 1])) {
-        $next_chapter = $chapters[$chapter_index + 1];
-        return [
-          'chapter_id' => (string) ($next_chapter['chapter_id'] ?? ''),
-          'scene_id' => (string) ($next_chapter['scenes'][0]['scene_id'] ?? ''),
-        ];
-      }
-    }
-
-    return NULL;
   }
 
   /**
