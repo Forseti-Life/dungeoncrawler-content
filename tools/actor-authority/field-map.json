@@ -714,6 +714,34 @@
     "xp_reward": {
       "target": "domain:quest",
       "note": "quest progress/rewards are quest-owned; not an actor list"
+    },
+    "hardness": {
+      "target": "document:build.hit_points"
+    },
+    "immunities": {
+      "target": "document:build.hit_points"
+    },
+    "resistances": {
+      "target": "document:build.hit_points"
+    },
+    "weaknesses": {
+      "target": "document:build.hit_points"
+    },
+    "speeds": {
+      "target": "document:build.speed",
+      "note": "movement modes other than land (D09)"
+    },
+    "spawn": {
+      "target": "document:defaults.spawn",
+      "note": "spawn/patrol inputs only; alive/dead/current room are instance facts (D18)"
+    },
+    "combat": {
+      "target": "document:defaults.psychology",
+      "note": "immutable seed; mutable psychology stays in dc_psychology (D16)"
+    },
+    "speech": {
+      "target": "document:defaults.psychology",
+      "note": "immutable seed; mutable psychology stays in dc_psychology (D16)"
     }
   },
   "observed_keys": {

@@ -1,0 +1,796 @@
+{
+  "contract": "creature-fold-authoring-v1",
+  "note": "Original content authored 2026-11-19 for the creature fold (docs/CREATURE_FOLD_PLAN.md). Names differ from any published bestiary by Board decision.",
+  "renames": {
+    "3a7f5c2e-9b4d-4e8a-b1c6-5d2f8a0e3b7d": {
+      "name": "Tidewarden Soldier",
+      "replace": {
+        "merfolk soldier": "tidewarden soldier",
+        "merfolk": "tidewarden"
+      }
+    },
+    "7c5e9a1b-4d2f-4f6c-8b3e-1a9d5c7e2b4f": {
+      "name": "Glimmerwing Sprite",
+      "replace": {
+        "pixie dust": "glimmer dust",
+        "pixie": "glimmerwing"
+      }
+    },
+    "9e3b7d5a-2c4f-4a8e-b6d1-4f2a0c8e6b3d": {
+      "name": "Cinderspite Imp",
+      "replace": {
+        "abyssal plague": "cinder plague",
+        "quasit": "cinderspite imp"
+      }
+    },
+    "b6e2c1a4-8f3d-4b7e-9a5c-2d1e0f4a8b6c": {
+      "name": "Marsh Lantern",
+      "replace": {
+        "will-o-wisp": "marsh lantern",
+        "wisp": "lantern"
+      }
+    },
+    "c8b2e4a6-7d3f-4b5e-9a1c-3f0d6b8e2c4a": {
+      "name": "Reefstrangler Octopus",
+      "replace": {
+        "giant octopus": "reefstrangler octopus"
+      }
+    },
+    "d1f4a8c2-6b3e-4c9d-a7e5-8f0b2d6e4a1c": {
+      "name": "Brasswork Sentry",
+      "replace": {
+        "clockwork soldier": "brasswork sentry",
+        "clockwork": "brasswork"
+      }
+    },
+    "f2a5c9e7-3b6d-4d1f-a8c4-6e3b0d7f2a5c": {
+      "name": "Ashmaw Stalker",
+      "replace": {
+        "barghest": "ashmaw stalker"
+      }
+    }
+  },
+  "action_costs": {
+    "3a7f5c2e-9b4d-4e8a-b1c6-5d2f8a0e3b7d": {
+      "Aquatic Advantage": "passive"
+    },
+    "7c5e9a1b-4d2f-4f6c-8b3e-1a9d5c7e2b4f": {
+      "Primal Innate Spells": "passive"
+    },
+    "9e3b7d5a-2c4f-4a8e-b6d1-4f2a0c8e6b3d": {
+      "Abyssal Plague": "passive",
+      "Occult Innate Spells": "passive"
+    },
+    "b6e2c1a4-8f3d-4b7e-9a5c-2d1e0f4a8b6c": {
+      "Feed on Fear": "passive"
+    },
+    "d1f4a8c2-6b3e-4c9d-a7e5-8f0b2d6e4a1c": {
+      "Winding": "passive"
+    },
+    "f2a5c9e7-3b6d-4d1f-a8c4-6e3b0d7f2a5c": {
+      "Feed on Fear": "passive",
+      "Occult Innate Spells": "passive"
+    }
+  },
+  "merge_into": {
+    "ef7bfd31-cc70-475c-b44d-c78247ac5e7a": "goblin_warrior",
+    "r7-drowned-dead-pack": "r7-drowned-dead-pack",
+    "r7-sump-beast": "r7-sump-beast"
+  },
+  "superseded_by_existing_actor": [
+    "skeleton_guard_alpha",
+    "skeleton_guard_beta"
+  ],
+  "authored": {
+    "army_ant_swarm": {
+      "name": "Legion Ant Swarm",
+      "species": "animal",
+      "size": "Large",
+      "rarity": "common",
+      "traits": [
+        "animal",
+        "swarm"
+      ],
+      "description": "A rust-red carpet of soldier ants that moves as one body, stripping anything it crosses down to bone.",
+      "hp_current": 55,
+      "max_hp": 55,
+      "ac": 21,
+      "perception": 11,
+      "senses": [
+        "tremorsense 30 feet (imprecise)"
+      ],
+      "speed": 30,
+      "speeds": {
+        "climb": 30
+      },
+      "abilities": {
+        "strength": 10,
+        "dexterity": 18,
+        "constitution": 16,
+        "intelligence": 1,
+        "wisdom": 12,
+        "charisma": 6
+      },
+      "saves": {
+        "fortitude": 13,
+        "reflex": 11,
+        "will": 9
+      },
+      "skills": [
+        {
+          "name": "Acrobatics",
+          "modifier": 13
+        },
+        {
+          "name": "Stealth",
+          "modifier": 11
+        }
+      ],
+      "immunities": [
+        "precision",
+        "swarm mind"
+      ],
+      "weaknesses": [
+        {
+          "type": "area damage",
+          "value": 5
+        },
+        {
+          "type": "splash damage",
+          "value": 5
+        }
+      ],
+      "resistances": [
+        {
+          "type": "bludgeoning",
+          "value": 2
+        },
+        {
+          "type": "piercing",
+          "value": 5
+        },
+        {
+          "type": "slashing",
+          "value": 5
+        }
+      ],
+      "special_abilities": [
+        {
+          "name": "Stripping Mandibles",
+          "action_cost": "1",
+          "description": "Each creature in the swarm's space takes 2d8 piercing damage (DC 22 basic Reflex save). A creature that fails also takes 1d6 persistent bleed damage."
+        },
+        {
+          "name": "Cling",
+          "action_cost": "passive",
+          "description": "A creature that leaves the swarm's space carries ants with it and takes 1d6 piercing damage at the end of its next turn unless it or an ally spends an action brushing them off."
+        }
+      ],
+      "attitude": "hostile",
+      "personality_traits": [
+        "mindless",
+        "relentless"
+      ],
+      "motivations": "Consume everything edible in its path.",
+      "combat": {
+        "aggression": "aggressive",
+        "tactics": "mindless",
+        "morale": "fanatical",
+        "preferred_range": "melee"
+      }
+    },
+    "assassin_vine": {
+      "name": "Throttlevine",
+      "species": "plant",
+      "size": "Large",
+      "rarity": "common",
+      "traits": [
+        "plant"
+      ],
+      "description": "A thick creeper that lies slack among ordinary growth until something warm brushes past, then coils, lifts and squeezes.",
+      "hp_current": 68,
+      "max_hp": 68,
+      "ac": 18,
+      "perception": 10,
+      "senses": [
+        "tremorsense 30 feet (imprecise)"
+      ],
+      "speed": 5,
+      "abilities": {
+        "strength": 20,
+        "dexterity": 10,
+        "constitution": 18,
+        "intelligence": 1,
+        "wisdom": 14,
+        "charisma": 6
+      },
+      "saves": {
+        "fortitude": 12,
+        "reflex": 7,
+        "will": 7
+      },
+      "skills": [
+        {
+          "name": "Athletics",
+          "modifier": 12
+        },
+        {
+          "name": "Stealth",
+          "modifier": 9
+        }
+      ],
+      "weaknesses": [
+        {
+          "type": "fire",
+          "value": 5
+        }
+      ],
+      "attacks": [
+        {
+          "name": "Vine Lash",
+          "bonus": 11,
+          "damage": "1d8+7 bludgeoning",
+          "type": "melee",
+          "traits": [
+            "reach 10 feet",
+            "grab"
+          ]
+        }
+      ],
+      "special_abilities": [
+        {
+          "name": "Slack Among the Leaves",
+          "action_cost": "passive",
+          "description": "Until it moves, the throttlevine looks like ordinary growth. A creature must succeed at a DC 22 Perception check to notice it."
+        },
+        {
+          "name": "Throttle",
+          "action_cost": "1",
+          "description": "A creature the throttlevine has grabbed takes 1d8+5 bludgeoning damage (DC 20 basic Fortitude save). On a critical failure the creature also cannot speak until it escapes."
+        }
+      ],
+      "attitude": "hostile",
+      "personality_traits": [
+        "mindless",
+        "patient"
+      ],
+      "motivations": "Feed the soil under its roots.",
+      "combat": {
+        "aggression": "cautious",
+        "tactics": "instinctive",
+        "morale": "steady",
+        "preferred_range": "melee"
+      }
+    },
+    "changeling": {
+      "name": "Hagblood Foundling",
+      "species": "humanoid",
+      "size": "Medium",
+      "rarity": "uncommon",
+      "traits": [
+        "humanoid",
+        "hagblood"
+      ],
+      "description": "A child of a hag left to be raised by strangers, now grown and hearing its mother's call. One eye is always a different colour from the other.",
+      "hp_current": 45,
+      "max_hp": 45,
+      "ac": 18,
+      "perception": 10,
+      "senses": [
+        "darkvision"
+      ],
+      "languages": [
+        "Common"
+      ],
+      "speed": 25,
+      "abilities": {
+        "strength": 12,
+        "dexterity": 16,
+        "constitution": 12,
+        "intelligence": 14,
+        "wisdom": 16,
+        "charisma": 18
+      },
+      "saves": {
+        "fortitude": 7,
+        "reflex": 9,
+        "will": 11
+      },
+      "skills": [
+        {
+          "name": "Deception",
+          "modifier": 11
+        },
+        {
+          "name": "Occultism",
+          "modifier": 8
+        },
+        {
+          "name": "Stealth",
+          "modifier": 9
+        }
+      ],
+      "attacks": [
+        {
+          "name": "Claws",
+          "bonus": 10,
+          "damage": "1d6+4 slashing",
+          "type": "melee",
+          "traits": [
+            "agile"
+          ]
+        }
+      ],
+      "special_abilities": [
+        {
+          "name": "Borrowed Face",
+          "action_cost": "1",
+          "description": "The foundling takes on the appearance of a humanoid it has seen in the last day. A creature that studies it can see through the change with a DC 20 Perception check."
+        },
+        {
+          "name": "Unsettling Whisper",
+          "action_cost": "2",
+          "description": "The foundling whispers something only one creature within 30 feet can hear. That creature must attempt a DC 20 Will save: frightened 1 on a failure, frightened 2 on a critical failure."
+        }
+      ],
+      "attitude": "unfriendly",
+      "personality_traits": [
+        "watchful",
+        "torn between two families"
+      ],
+      "motivations": "Decide whether to answer the call.",
+      "combat": {
+        "aggression": "cautious",
+        "tactics": "tactical",
+        "morale": "cautious",
+        "flee_threshold_hp_percent": 40,
+        "preferred_range": "melee"
+      }
+    },
+    "cockroach_swarm": {
+      "name": "Skitterroach Swarm",
+      "species": "animal",
+      "size": "Large",
+      "rarity": "common",
+      "traits": [
+        "animal",
+        "swarm"
+      ],
+      "description": "A glossy brown tide of roaches that pours out of drains and wall cracks when the light goes.",
+      "hp_current": 28,
+      "max_hp": 28,
+      "ac": 16,
+      "perception": 7,
+      "senses": [
+        "tremorsense 30 feet (imprecise)"
+      ],
+      "speed": 25,
+      "speeds": {
+        "climb": 25
+      },
+      "abilities": {
+        "strength": 6,
+        "dexterity": 16,
+        "constitution": 14,
+        "intelligence": 1,
+        "wisdom": 10,
+        "charisma": 4
+      },
+      "saves": {
+        "fortitude": 9,
+        "reflex": 9,
+        "will": 5
+      },
+      "skills": [
+        {
+          "name": "Acrobatics",
+          "modifier": 8
+        },
+        {
+          "name": "Stealth",
+          "modifier": 8
+        }
+      ],
+      "immunities": [
+        "precision",
+        "swarm mind"
+      ],
+      "weaknesses": [
+        {
+          "type": "area damage",
+          "value": 3
+        },
+        {
+          "type": "splash damage",
+          "value": 3
+        }
+      ],
+      "resistances": [
+        {
+          "type": "piercing",
+          "value": 4
+        },
+        {
+          "type": "slashing",
+          "value": 4
+        }
+      ],
+      "special_abilities": [
+        {
+          "name": "Swarming Bites",
+          "action_cost": "1",
+          "description": "Each creature in the swarm's space takes 1d8 piercing damage (DC 18 basic Reflex save)."
+        },
+        {
+          "name": "Crawling Carpet",
+          "action_cost": "passive",
+          "description": "A creature that starts its turn in the swarm's space must succeed at a DC 16 Fortitude save or become sickened 1."
+        }
+      ],
+      "attitude": "hostile",
+      "personality_traits": [
+        "mindless",
+        "light-shy"
+      ],
+      "motivations": "Feed, and stay out of the light.",
+      "combat": {
+        "aggression": "aggressive",
+        "tactics": "mindless",
+        "morale": "steady",
+        "preferred_range": "melee"
+      }
+    },
+    "ice_mephit": {
+      "name": "Rimeling",
+      "species": "elemental",
+      "size": "Small",
+      "rarity": "common",
+      "traits": [
+        "elemental",
+        "cold"
+      ],
+      "description": "A spiteful sliver of living frost with a needle grin, forever looking for something warm to ruin.",
+      "hp_current": 18,
+      "max_hp": 18,
+      "ac": 16,
+      "perception": 5,
+      "senses": [
+        "darkvision"
+      ],
+      "languages": [
+        "Boreal"
+      ],
+      "speed": 15,
+      "speeds": {
+        "fly": 40
+      },
+      "abilities": {
+        "strength": 10,
+        "dexterity": 16,
+        "constitution": 12,
+        "intelligence": 8,
+        "wisdom": 10,
+        "charisma": 14
+      },
+      "saves": {
+        "fortitude": 5,
+        "reflex": 8,
+        "will": 5
+      },
+      "skills": [
+        {
+          "name": "Acrobatics",
+          "modifier": 7
+        },
+        {
+          "name": "Deception",
+          "modifier": 6
+        },
+        {
+          "name": "Stealth",
+          "modifier": 7
+        }
+      ],
+      "immunities": [
+        "cold",
+        "bleed",
+        "paralyzed",
+        "poison",
+        "sleep"
+      ],
+      "weaknesses": [
+        {
+          "type": "fire",
+          "value": 3
+        }
+      ],
+      "attacks": [
+        {
+          "name": "Rime Claw",
+          "bonus": 8,
+          "damage": "1d4+2 slashing",
+          "type": "melee",
+          "traits": [
+            "agile",
+            "finesse"
+          ]
+        }
+      ],
+      "special_abilities": [
+        {
+          "name": "Frost Breath",
+          "action_cost": "2",
+          "description": "The rimeling exhales a 15-foot cone of freezing air that deals 2d4 cold damage (DC 16 basic Reflex save). It cannot use Frost Breath again for 1d4 rounds."
+        },
+        {
+          "name": "Thaw-Hunger",
+          "action_cost": "passive",
+          "description": "While it is in snow, ice or freezing air, the rimeling regains 2 Hit Points at the start of its turn."
+        }
+      ],
+      "attitude": "hostile",
+      "personality_traits": [
+        "spiteful",
+        "boastful"
+      ],
+      "motivations": "Snuff out fires and the people who tend them.",
+      "combat": {
+        "aggression": "aggressive",
+        "tactics": "basic",
+        "morale": "cowardly",
+        "flee_threshold_hp_percent": 50,
+        "preferred_range": "mixed"
+      }
+    },
+    "level_7_black_pudding": {
+      "name": "Blackmire Ooze",
+      "species": "ooze",
+      "size": "Large",
+      "rarity": "common",
+      "traits": [
+        "ooze",
+        "mindless"
+      ],
+      "description": "A slow black tide that smells of vinegar and old iron. Blades only make more of it.",
+      "hp_current": 110,
+      "max_hp": 110,
+      "ac": 14,
+      "perception": 7,
+      "senses": [
+        "motion sense 60 feet",
+        "no vision"
+      ],
+      "speed": 20,
+      "speeds": {
+        "climb": 20
+      },
+      "abilities": {
+        "strength": 20,
+        "dexterity": 6,
+        "constitution": 22,
+        "intelligence": 1,
+        "wisdom": 10,
+        "charisma": 1
+      },
+      "saves": {
+        "fortitude": 15,
+        "reflex": 6,
+        "will": 8
+      },
+      "skills": [
+        {
+          "name": "Athletics",
+          "modifier": 13
+        }
+      ],
+      "immunities": [
+        "acid",
+        "critical hits",
+        "mental",
+        "precision",
+        "unconscious",
+        "visual"
+      ],
+      "attacks": [
+        {
+          "name": "Pseudopod",
+          "bonus": 15,
+          "damage": "2d8+7 bludgeoning",
+          "type": "melee",
+          "traits": [
+            "reach 10 feet"
+          ]
+        }
+      ],
+      "special_abilities": [
+        {
+          "name": "Eating Touch",
+          "action_cost": "passive",
+          "description": "A creature hit by the ooze's pseudopod takes 1d6 acid damage. Unattended wood and metal the ooze rests on take 1d6 acid damage each round."
+        },
+        {
+          "name": "Divide",
+          "action_cost": "reaction",
+          "description": "Trigger: the ooze takes slashing or piercing damage and has at least 10 Hit Points. Effect: it splits into two oozes that share its remaining Hit Points evenly; one occupies its space and the other an adjacent space."
+        }
+      ],
+      "attitude": "hostile",
+      "personality_traits": [
+        "mindless"
+      ],
+      "motivations": "Dissolve and absorb.",
+      "combat": {
+        "aggression": "aggressive",
+        "tactics": "mindless",
+        "morale": "fanatical",
+        "preferred_range": "melee"
+      }
+    },
+    "young_copper_dragon": {
+      "name": "Young Verdigris Dragon",
+      "species": "dragon",
+      "size": "Large",
+      "rarity": "uncommon",
+      "traits": [
+        "dragon",
+        "acid"
+      ],
+      "description": "A lean dragon the green of weathered copper that would rather win an argument than a fight, and cheats at both.",
+      "hp_current": 140,
+      "max_hp": 140,
+      "ac": 27,
+      "perception": 16,
+      "senses": [
+        "darkvision",
+        "scent 60 feet (imprecise)"
+      ],
+      "languages": [
+        "Common",
+        "Draconic"
+      ],
+      "speed": 40,
+      "speeds": {
+        "fly": 100,
+        "climb": 20
+      },
+      "abilities": {
+        "strength": 22,
+        "dexterity": 16,
+        "constitution": 18,
+        "intelligence": 14,
+        "wisdom": 14,
+        "charisma": 16
+      },
+      "saves": {
+        "fortitude": 17,
+        "reflex": 15,
+        "will": 16
+      },
+      "skills": [
+        {
+          "name": "Acrobatics",
+          "modifier": 15
+        },
+        {
+          "name": "Athletics",
+          "modifier": 18
+        },
+        {
+          "name": "Deception",
+          "modifier": 16
+        },
+        {
+          "name": "Society",
+          "modifier": 14
+        },
+        {
+          "name": "Stealth",
+          "modifier": 15
+        }
+      ],
+      "immunities": [
+        "acid",
+        "paralyzed",
+        "sleep"
+      ],
+      "attacks": [
+        {
+          "name": "Jaws",
+          "bonus": 19,
+          "damage": "2d10+9 piercing",
+          "type": "melee",
+          "traits": [
+            "reach 10 feet"
+          ]
+        },
+        {
+          "name": "Claw",
+          "bonus": 19,
+          "damage": "2d8+9 slashing",
+          "type": "melee",
+          "traits": [
+            "agile"
+          ]
+        },
+        {
+          "name": "Tail",
+          "bonus": 17,
+          "damage": "2d8+7 bludgeoning",
+          "type": "melee",
+          "traits": [
+            "reach 15 feet"
+          ]
+        }
+      ],
+      "special_abilities": [
+        {
+          "name": "Corroding Breath",
+          "action_cost": "2",
+          "description": "The dragon breathes a 60-foot line of acid that deals 9d6 acid damage (DC 26 basic Reflex save). It cannot use a breath again for 1d4 rounds."
+        },
+        {
+          "name": "Heavy Air",
+          "action_cost": "2",
+          "description": "The dragon breathes a 30-foot cone of numbing vapour. Each creature in the area must succeed at a DC 26 Fortitude save or be slowed 1 for 1 round (2 rounds on a critical failure). It cannot use a breath again for 1d4 rounds."
+        },
+        {
+          "name": "Rend and Sweep",
+          "action_cost": "2",
+          "description": "The dragon makes two claw Strikes and one tail Strike in any order."
+        },
+        {
+          "name": "Looming Presence",
+          "action_cost": "passive",
+          "description": "A creature that first comes within 90 feet of the dragon must attempt a DC 24 Will save: frightened 1 on a failure, frightened 2 on a critical failure. A creature is then immune for 1 minute."
+        }
+      ],
+      "attitude": "unfriendly",
+      "personality_traits": [
+        "vain",
+        "quick-witted",
+        "holds grudges"
+      ],
+      "motivations": "Be amused, be admired, and keep its hoard.",
+      "combat": {
+        "aggression": "cautious",
+        "tactics": "strategic",
+        "morale": "cautious",
+        "flee_threshold_hp_percent": 35,
+        "preferred_range": "mixed"
+      }
+    }
+  },
+  "not_creatures": [
+    "failure_sonic_waves_fling_the",
+    "gamemastery_guide",
+    "gargantuan",
+    "huge_giant",
+    "incorporeal",
+    "introduction",
+    "medium_incorporeal",
+    "mindless",
+    "negative",
+    "otherssuch_as_relictner_dwarves",
+    "positive",
+    "strike_effect_the_devil_pulls_the",
+    "strike_effect_the_devil_moves_the",
+    "uncommon",
+    "uncommon_ce",
+    "undercommon_to_a_destrachan_than",
+    "urgathoa_or_some_other_deity"
+  ],
+  "index_fragments": [
+    "level_12_shining_child",
+    "level_20_draconal",
+    "level_20_pleroma",
+    "level_5_ether_spider",
+    "level_6_xillu",
+    "level_7_hound_of_tindalosr",
+    "level_7_sceaduinarr",
+    "level_7_tendriculos",
+    "level_9_jyoti",
+    "samsaran_rare",
+    "sasquatch_rare",
+    "shae_rare"
+  ]
+}

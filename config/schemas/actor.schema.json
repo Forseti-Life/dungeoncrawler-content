@@ -432,6 +432,16 @@
                     "mixed",
                     "flee"
                   ]
+                },
+                "preferred_targets": {
+                  "type": "array",
+                  "maxItems": 20,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  }
                 }
               }
             }
@@ -465,6 +475,16 @@
             "patrol_route": {
               "type": "array",
               "maxItems": 100,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              }
+            },
+            "encounter_themes": {
+              "type": "array",
+              "maxItems": 50,
               "uniqueItems": true,
               "items": {
                 "type": "string",

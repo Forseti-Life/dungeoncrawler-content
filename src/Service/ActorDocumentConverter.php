@@ -88,10 +88,13 @@ class ActorDocumentConverter {
       }
     }
 
+    // A creature is an actor whose class is "creature"; the class is not a
+    // rules class and never selects a different schema.
+    $stored_class = strtolower(trim((string) ($source['class'] ?? '')));
     $kind = match (TRUE) {
       ($row['type'] ?? '') === 'pc' => 'pc',
       ($row['role'] ?? '') === 'familiar' => 'companion',
-      ($row['role'] ?? '') === 'creature' => 'creature',
+      ($row['role'] ?? '') === 'creature', $stored_class === 'creature' => 'creature',
       default => 'npc',
     };
     $model = $kind === 'pc' ? 'pc_build' : 'authored_statblock';
@@ -108,6 +111,13 @@ class ActorDocumentConverter {
         : $issue('/identity/size', 'invalid', $size);
     }
     self::text($identity, 'alignment', $source['alignment'] ?? NULL, 32, $issue);
+    self::text($identity, 'title', $source['title'] ?? NULL, 200, $issue);
+    $rarity = $source['rarity'] ?? NULL;
+    if (is_string($rarity) && $rarity !== '') {
+      in_array($rarity, ['common', 'uncommon', 'rare', 'unique'], TRUE)
+        ? $identity['taxonomy']['rarity'] = $rarity
+        : $issue('/identity/taxonomy/rarity', 'invalid', $rarity);
+    }
     $role = trim((string) ($source['role'] ?? $row['role'] ?? ''));
     // Words that only restate the actor kind are not a role.
     if ($role !== '' && !in_array($role, ['player', 'creature', 'familiar', 'npc', 'pc'], TRUE)) {
@@ -153,19 +163,63 @@ class ActorDocumentConverter {
     }
     else {
       $class_label = trim((string) ($source['class'] ?? ''));
-      if ($class_label !== '' && !isset($identity['role'])) {
+      if ($class_label !== '' && $kind !== 'creature' && !isset($identity['role'])) {
         $identity['role'] = mb_substr($class_label, 0, 150);
       }
       // A stat-block actor has no ancestry build choice; what it is belongs
       // to its taxonomy.
-      $family = strtolower(trim((string) ($source['ancestry'] ?? $source['species'] ?? '')));
-      $family = trim((string) preg_replace('/[^a-z0-9]+/', '-', $family), '-');
+      $slug = static fn(mixed $value): string => trim((string) preg_replace('/[^a-z0-9]+/', '-', strtolower(trim((string) $value))), '-');
+      if ($kind === 'creature') {
+        // A creature's species is its creature type; its family is narrower.
+        $creature_type = $slug($source['species'] ?? '');
+        if ($creature_type !== '') {
+          $identity['taxonomy']['creature_type'] = $creature_type;
+        }
+        $family = $slug($source['family'] ?? $source['ancestry'] ?? '');
+      }
+      else {
+        $family = $slug($source['ancestry'] ?? $source['species'] ?? '');
+      }
       if ($family !== '') {
         $identity['taxonomy']['family'] = $family;
+      }
+      if (is_int($source['hex_footprint'] ?? NULL)) {
+        $build['hex_footprint'] = $source['hex_footprint'];
       }
       $max_hp = $source['hit_points']['max'] ?? $source['max_hp'] ?? $stats['maxHp'] ?? ($source['resources']['hitPoints']['max'] ?? ($row['hp_max'] ?? NULL));
       if (is_numeric($max_hp) && (int) $max_hp > 0) {
         $build['hit_points'] = ['max' => (int) $max_hp];
+      }
+      $toughness = [];
+      if (is_int($source['hardness'] ?? NULL) && $source['hardness'] > 0) {
+        $toughness['hardness'] = $source['hardness'];
+      }
+      $immunities = self::strings($source['immunities'] ?? []);
+      if ($immunities !== []) {
+        $toughness['immunities'] = $immunities;
+      }
+      foreach (['resistances', 'weaknesses'] as $list) {
+        foreach ((array) ($source[$list] ?? []) as $index => $entry) {
+          is_array($entry) && is_string($entry['type'] ?? NULL) && $entry['type'] !== '' && is_int($entry['value'] ?? NULL) && $entry['value'] > 0
+            ? $toughness[$list][] = ['type' => $entry['type'], 'value' => $entry['value']]
+            : $issue('/build/hit_points/' . $list . '/' . $index, 'invalid', is_array($entry) ? (string) ($entry['type'] ?? '') : '');
+        }
+      }
+      if ($toughness !== []) {
+        isset($build['hit_points'])
+          ? $build['hit_points'] += $toughness
+          : $issue('/build/hit_points', 'missing', 'Hardness, immunities, resistances or weaknesses without maximum hit points.');
+      }
+      $modes = [];
+      foreach (['fly', 'swim', 'climb', 'burrow'] as $mode) {
+        if (is_int($source['speeds'][$mode] ?? NULL)) {
+          $modes[$mode] = $source['speeds'][$mode];
+        }
+      }
+      if ($modes !== []) {
+        isset($build['speed'])
+          ? $build['speed'] += $modes
+          : $issue('/build/speed', 'missing', 'Movement modes without a land speed.');
       }
       $ac = $stats['ac'] ?? $source['ac'] ?? $source['armor_class'] ?? (is_array($defenses['armorClass'] ?? NULL) ? ($defenses['armorClass']['base'] ?? NULL) : ($defenses['armorClass'] ?? NULL));
       $authored = [];
@@ -197,6 +251,20 @@ class ActorDocumentConverter {
         }
         $strike['id'] = 'strike-' . ($index + 1);
         $build['strikes'][] = $strike;
+      }
+      foreach ((array) ($source['special_abilities'] ?? []) as $index => $ability) {
+        $cost = is_array($ability) ? ($ability['action_cost'] ?? NULL) : NULL;
+        if (!is_array($ability) || trim((string) ($ability['name'] ?? '')) === '' || trim((string) ($ability['description'] ?? '')) === ''
+          || !in_array($cost, ['passive', 'free', 'reaction', '1', '2', '3'], TRUE)) {
+          $issue('/build/special_abilities/' . $index, 'needs_authoring', is_array($ability) ? (string) ($ability['name'] ?? '') : '');
+          continue;
+        }
+        $special = ['id' => 'ability-' . ($index + 1), 'name' => trim($ability['name']), 'action_cost' => $cost, 'description' => $ability['description']];
+        $ability_traits = self::strings($ability['traits'] ?? []);
+        if ($ability_traits !== []) {
+          $special['traits'] = $ability_traits;
+        }
+        $build['special_abilities'][] = $special;
       }
     }
     $this->spellcasting($build, $source['spells'] ?? NULL, $issue);
@@ -234,6 +302,18 @@ class ActorDocumentConverter {
       in_array($attitude, ['hostile', 'unfriendly', 'indifferent', 'friendly', 'helpful'], TRUE)
         ? $defaults['psychology']['attitude'] = $attitude
         : $issue('/defaults/psychology/attitude', 'invalid', $attitude);
+    }
+    foreach (['combat' => ['aggression', 'tactics', 'morale', 'flee_threshold_hp_percent', 'preferred_range', 'preferred_targets'], 'speech' => ['dialect', 'formality', 'catchphrases']] as $group => $keys) {
+      foreach ($keys as $key) {
+        if (isset($source[$group][$key]) && $source[$group][$key] !== [] && $source[$group][$key] !== '') {
+          $defaults['psychology'][$group][$key] = $source[$group][$key];
+        }
+      }
+    }
+    foreach (['spawn_type', 'respawn_cooldown_hours', 'wander_radius_rooms', 'encounter_themes'] as $key) {
+      if (isset($source['spawn'][$key]) && $source['spawn'][$key] !== [] && $source['spawn'][$key] !== '') {
+        $defaults['spawn'][$key] = $source['spawn'][$key];
+      }
     }
     $seed = [];
     foreach (['inner_conflict', 'coping_mechanism', 'stress_response', 'insecurity', 'secret', 'desire', 'need', 'trigger', 'anchor'] as $key) {
@@ -460,7 +540,19 @@ class ActorDocumentConverter {
       return NULL;
     }
 
-    return ['id' => '', 'name' => $name, 'attack_bonus' => (int) $attack['bonus'], 'damage' => $match[1], 'damage_type' => strtolower($match[2])];
+    $strike = ['id' => '', 'name' => $name, 'attack_bonus' => (int) $attack['bonus'], 'damage' => $match[1], 'damage_type' => strtolower($match[2])];
+    if (in_array($attack['type'] ?? NULL, ['melee', 'ranged'], TRUE)) {
+      $strike['type'] = $attack['type'];
+    }
+    $traits = self::strings($attack['traits'] ?? []);
+    if ($traits !== []) {
+      $strike['traits'] = $traits;
+    }
+    if (is_int($attack['range_feet'] ?? NULL)) {
+      $strike['range_feet'] = $attack['range_feet'];
+    }
+
+    return $strike;
   }
 
   /**

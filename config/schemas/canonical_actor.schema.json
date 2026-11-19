@@ -73,7 +73,71 @@
         },
         "psychology": {"$ref": "#/definitions/psychology"},
         "storyline_binding": {"$ref": "#/definitions/storyline_binding"},
-        "conditions": {"$ref": "#/definitions/conditions"}
+        "conditions": {"$ref": "#/definitions/conditions"},
+        "title": {"type": "string", "minLength": 1, "maxLength": 200},
+        "traits": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 100}},
+        "rarity": {"enum": ["common", "uncommon", "rare", "unique"]},
+        "family": {"type": "string", "minLength": 1, "maxLength": 100},
+        "hex_footprint": {"type": "integer", "minimum": 1, "maximum": 30},
+        "hardness": {"type": "integer", "minimum": 0, "maximum": 50},
+        "immunities": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 100}},
+        "resistances": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["type", "value"], "properties": {"type": {"type": "string", "minLength": 1, "maxLength": 60}, "value": {"type": "integer", "minimum": 1, "maximum": 100}}}},
+        "weaknesses": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["type", "value"], "properties": {"type": {"type": "string", "minLength": 1, "maxLength": 60}, "value": {"type": "integer", "minimum": 1, "maximum": 100}}}},
+        "speeds": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "fly": {"type": "integer", "minimum": 0, "maximum": 200},
+            "swim": {"type": "integer", "minimum": 0, "maximum": 100},
+            "climb": {"type": "integer", "minimum": 0, "maximum": 100},
+            "burrow": {"type": "integer", "minimum": 0, "maximum": 60}
+          }
+        },
+        "special_abilities": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "action_cost", "description"],
+            "properties": {
+              "name": {"type": "string", "minLength": 1, "maxLength": 200},
+              "action_cost": {"enum": ["passive", "free", "reaction", "1", "2", "3"]},
+              "description": {"type": "string", "minLength": 1, "maxLength": 4000},
+              "traits": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 100}}
+            }
+          }
+        },
+        "spawn": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "spawn_type": {"enum": ["permanent", "respawning", "wandering", "boss", "quest", "summoned"]},
+            "respawn_cooldown_hours": {"type": "integer", "minimum": 0, "maximum": 100000},
+            "wander_radius_rooms": {"type": "integer", "minimum": 0, "maximum": 50},
+            "encounter_themes": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 100}}
+          }
+        },
+        "combat": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "aggression": {"enum": ["pacifist", "defensive", "cautious", "aggressive", "berserk"]},
+            "tactics": {"enum": ["mindless", "instinctive", "basic", "tactical", "strategic", "genius"]},
+            "morale": {"enum": ["cowardly", "cautious", "steady", "brave", "fanatical"]},
+            "flee_threshold_hp_percent": {"type": "integer", "minimum": 0, "maximum": 100},
+            "preferred_range": {"enum": ["melee", "ranged", "mixed", "flee"]},
+            "preferred_targets": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 100}}
+          }
+        },
+        "speech": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "dialect": {"type": "string", "minLength": 1, "maxLength": 200},
+            "formality": {"enum": ["crude", "casual", "formal", "archaic", "alien"]},
+            "catchphrases": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 100}}
+          }
+        }
       },
       "allOf": [
         {
@@ -126,7 +190,10 @@
         "properties": {
           "name": {"type": "string", "minLength": 1, "maxLength": 120},
           "bonus": {"type": "integer", "minimum": -10, "maximum": 60},
-          "damage": {"type": "string", "minLength": 1, "maxLength": 120}
+          "damage": {"type": "string", "minLength": 1, "maxLength": 120},
+          "type": {"enum": ["melee", "ranged"]},
+          "traits": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 100}},
+          "range_feet": {"type": "integer", "minimum": 5, "maximum": 1000}
         }
       }
     },

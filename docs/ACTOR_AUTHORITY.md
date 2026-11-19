@@ -21,6 +21,12 @@ GM tools, deterministic rule handlers, imports and jobs.
 - Each fact has exactly one physical home. No backwards-compatible aliases,
   fallback reads, dual writers or read-time repair.
 
+## Creatures
+
+Creatures are not folded in yet: the content registry still holds a separate
+creature family. The plan, the measured state and the open decisions are in
+[CREATURE_FOLD_PLAN.md](CREATURE_FOLD_PLAN.md).
+
 ## Current state: S0 (inventory and contract freeze)
 
 Nothing in the runtime has changed yet. The writer set is frozen so it cannot
