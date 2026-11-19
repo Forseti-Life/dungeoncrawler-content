@@ -32,9 +32,9 @@
 
 /* global PIXI */
 
-import { GameEventBus } from '../GameEventBus.js?v=20261119-room-rotate-1';
-import { HexCanvas } from '../canvas/HexCanvas.js?v=20261119-room-rotate-1';
-import { SpriteService } from '../../SpriteService.js?v=20261119-room-rotate-1';
+import { GameEventBus } from '../GameEventBus.js?v=20261119-room-drag-1';
+import { HexCanvas } from '../canvas/HexCanvas.js?v=20261119-room-drag-1';
+import { SpriteService } from '../../SpriteService.js?v=20261119-room-drag-1';
 import {
   appendEditorGmMessage,
   bindEditorGmPrompts,
@@ -48,8 +48,8 @@ import {
   restoreEditorGmConversation,
   selectEditorGmTool,
   shouldSubmitEditorGmKey,
-} from './EditorGmChatClient.js?v=20261119-room-rotate-1';
-import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261119-room-rotate-1';
+} from './EditorGmChatClient.js?v=20261119-room-drag-1';
+import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261119-room-drag-1';
 
 const FAMILIES = ['actor', 'item', 'obstacle', 'trap', 'hazard'];
 const SOLID_FAMILIES = ['actor', 'obstacle'];
@@ -760,7 +760,11 @@ export class RoomEditorShell {
       return;
     }
     objectContainer.removeChildren();
-    // A redraw replaces every token; the card follows the one still hovered.
+    // A redraw replaces every token and marker; a drag in progress is handed
+    // the replacement at the end, so what is dragged is what is on screen.
+    this._tokens = new Map();
+    this._portMarkers = new Map();
+    // The hover card follows the token still hovered.
     const hovered = this._hoverKey;
     this._hideObjectHover();
     if (!window.PIXI || !this.draft?.room) {
@@ -848,8 +852,10 @@ export class RoomEditorShell {
       token.on('pointerdown', (event) => {
         event.stopPropagation();
         this._selectPlacement(placement.instance_id);
-        this._beginPlacementDrag(placement, token, event);
+        // Selecting redrew the tokens; drag the one now on screen.
+        this._beginPlacementDrag(placement, this._tokens.get(placement.instance_id), event);
       });
+      this._tokens.set(placement.instance_id, token);
       if (hovered === `placement:${placement.instance_id}`) {
         this._showPlacementHover(placement, token);
       }
@@ -888,14 +894,34 @@ export class RoomEditorShell {
         marker.on('pointerdown', (event) => {
           event.stopPropagation();
           this._selectPort(family, port.port_id);
-          this._beginPortDrag(port, family, marker, event);
+          this._beginPortDrag(port, family, this._portMarkers.get(`${family}:${port.port_id}`), event);
         });
+        this._portMarkers.set(`${family}:${port.port_id}`, marker);
         if (hovered === `port:${family}:${port.port_id}`) {
           this._showPortHover(port, family, marker);
         }
         objectContainer.addChild(marker);
       });
     });
+
+    const drag = this._dragState;
+    const dragged = drag?.kind === 'placement'
+      ? this._tokens.get(drag.instanceId)
+      : (drag?.kind === 'port' ? this._portMarkers.get(`${drag.family}:${drag.portId}`) : null);
+    if (dragged) {
+      const previous = drag.kind === 'placement' ? drag.token : drag.marker;
+      if (previous && previous !== dragged && drag.moved) {
+        dragged.x = previous.x;
+        dragged.y = previous.y;
+      }
+      dragged.alpha = 0.6;
+      dragged.cursor = 'grabbing';
+      if (drag.kind === 'placement') {
+        drag.token = dragged;
+      } else {
+        drag.marker = dragged;
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------
