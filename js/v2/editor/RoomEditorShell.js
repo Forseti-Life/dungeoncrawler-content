@@ -32,9 +32,9 @@
 
 /* global PIXI */
 
-import { GameEventBus } from '../GameEventBus.js?v=20261119-creature-fold-1';
-import { HexCanvas } from '../canvas/HexCanvas.js?v=20261119-creature-fold-1';
-import { SpriteService } from '../../SpriteService.js?v=20261119-creature-fold-1';
+import { GameEventBus } from '../GameEventBus.js?v=20261119-room-rotate-1';
+import { HexCanvas } from '../canvas/HexCanvas.js?v=20261119-room-rotate-1';
+import { SpriteService } from '../../SpriteService.js?v=20261119-room-rotate-1';
 import {
   appendEditorGmMessage,
   bindEditorGmPrompts,
@@ -48,8 +48,8 @@ import {
   restoreEditorGmConversation,
   selectEditorGmTool,
   shouldSubmitEditorGmKey,
-} from './EditorGmChatClient.js?v=20261119-creature-fold-1';
-import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261119-creature-fold-1';
+} from './EditorGmChatClient.js?v=20261119-room-rotate-1';
+import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261119-room-rotate-1';
 
 const FAMILIES = ['actor', 'item', 'obstacle', 'trap', 'hazard'];
 const SOLID_FAMILIES = ['actor', 'obstacle'];
@@ -79,6 +79,9 @@ const ROOM_TYPES = [
 ];
 
 const SIZE_CATEGORIES = ['tiny', 'small', 'medium', 'large', 'huge', 'gargantuan'];
+
+/** Facing index to compass name, as the token notch is drawn (0 is north, clockwise). */
+const FACING_NAMES = ['N', 'NE', 'SE', 'S', 'SW', 'NW'];
 
 const TOOLS = ['select', 'add_hex', 'remove_hex', 'terrain', 'elevation', 'place', 'entry_port', 'exit_port'];
 
@@ -259,6 +262,16 @@ export class RoomEditorShell {
     this._loadCatalog(true);
 
     this._keydownHandler = (event) => this._handleKeydown(event);
+    this._dom.selectionBar?.addEventListener('click', (event) => {
+      const action = event.target.closest('[data-room-editor-selection-action]')?.getAttribute('data-room-editor-selection-action');
+      if (action === 'rotate-ccw' || action === 'rotate-cw') {
+        this._rotateSelection(action === 'rotate-cw' ? 1 : -1);
+      } else if (action === 'remove' && this.selection?.type === 'placement') {
+        this._sendCommand('remove_object', { instance_id: this.selection.instanceId });
+      } else if (action === 'remove' && this.selection?.type === 'port') {
+        this._sendCommand(`remove_${this.selection.family}_port`, { port_id: this.selection.portId });
+      }
+    });
     document.addEventListener('keydown', this._keydownHandler);
 
     const initialDraftId = new URLSearchParams(window.location.search).get('draft_id');
@@ -327,6 +340,8 @@ export class RoomEditorShell {
       status: q('[data-room-editor-status]'),
       roomSelect: q('[data-room-editor-room-select]'),
       undoBtn: q('[data-room-editor-action="undo"]'),
+      selectionBar: q('[data-room-editor-selection-bar]'),
+      selectionName: q('[data-room-editor-selection-name]'),
       redoBtn: q('[data-room-editor-action="redo"]'),
       newRoomBtn: q('[data-room-editor-action="new-room"]'),
       loadRoomBtn: q('[data-room-editor-action="load-room"]'),
@@ -786,6 +801,18 @@ export class RoomEditorShell {
           ring.drawCircle(0, 0, hexSize * 0.42);
           token.addChild(ring);
         }
+        // Artwork does not show which way the object faces; a pip does.
+        const pipAngle = (Math.PI / 3) * Number(placement.facing || 0) - Math.PI / 2;
+        const pip = new PIXI.Graphics();
+        pip.beginFill(0xf8fafc, 0.95);
+        pip.lineStyle(1, 0x0f172a, 1);
+        pip.drawPolygon([
+          Math.cos(pipAngle) * hexSize * 0.62, Math.sin(pipAngle) * hexSize * 0.62,
+          Math.cos(pipAngle + 0.35) * hexSize * 0.44, Math.sin(pipAngle + 0.35) * hexSize * 0.44,
+          Math.cos(pipAngle - 0.35) * hexSize * 0.44, Math.sin(pipAngle - 0.35) * hexSize * 0.44,
+        ]);
+        pip.endFill();
+        token.addChild(pip);
       } else {
         const body = new PIXI.Graphics();
         body.beginFill(color, 0.9);
@@ -932,11 +959,11 @@ export class RoomEditorShell {
         .filter(Boolean).join(' · '),
       description.length > 160 ? `${description.slice(0, 157)}…` : description,
       Array.isArray(entry?.tags) && entry.tags.length ? `Tags: ${entry.tags.slice(0, 6).join(', ')}` : '',
-      `Hex (${placement.anchor_hex?.q}, ${placement.anchor_hex?.r}) · elevation ${Number(placement.elevation_ft || 0)} ft`,
+      `Hex (${placement.anchor_hex?.q}, ${placement.anchor_hex?.r}) · facing ${FACING_NAMES[Number(placement.facing || 0)] || '?'} · elevation ${Number(placement.elevation_ft || 0)} ft`,
       overrides.hidden ? 'Hidden from players until found' : '',
       `Library id: ${definitionId}${placement.definition_ref?.version ? ` v${placement.definition_ref.version}` : ''}`,
       this.selection?.type === 'placement' && this.selection.instanceId === placement.instance_id
-        ? 'Selected: details are in Author Tools › Inspector'
+        ? 'Selected: [ and ] turn it, drag to move'
         : 'Click to select, drag to move',
     ]);
     if (!this._catalogEntryCache.has(cacheKey)) {
@@ -1001,6 +1028,8 @@ export class RoomEditorShell {
       currentQ: Number(placement.anchor_hex?.q),
       currentR: Number(placement.anchor_hex?.r),
       moved: false,
+      startX: global.x,
+      startY: global.y,
     };
     token.alpha = 0.6;
     token.cursor = 'grabbing';
@@ -1026,6 +1055,8 @@ export class RoomEditorShell {
       currentQ: Number(port.hex?.q),
       currentR: Number(port.hex?.r),
       moved: false,
+      startX: global.x,
+      startY: global.y,
     };
     marker.alpha = 0.6;
     marker.cursor = 'grabbing';
@@ -1138,14 +1169,19 @@ export class RoomEditorShell {
     this.hexCanvas?.clearMovementBandOverlay();
 
     const global = event?.data?.global;
-    if (global && this.hexCanvas) {
+    // A press and release in place is a click, whatever the page did under
+    // the pointer in between: it selects and never moves.
+    const clicked = global && Math.hypot(global.x - dragState.startX, global.y - dragState.startY) < 6;
+    if (global && this.hexCanvas && !clicked) {
       const axial = this.hexCanvas.globalToAxial(global.x, global.y);
       if (axial) {
         dragState.currentQ = axial.q;
         dragState.currentR = axial.r;
         dragState.moved = true;
-    this._hideObjectHover();
       }
+    }
+    if (clicked) {
+      dragState.moved = false;
     }
 
     if (!dragState.moved || (dragState.currentQ === dragState.originQ && dragState.currentR === dragState.originR)) {
@@ -1165,14 +1201,19 @@ export class RoomEditorShell {
     this.hexCanvas?.clearMovementBandOverlay();
 
     const global = event?.data?.global;
-    if (global && this.hexCanvas) {
+    // A press and release in place is a click, whatever the page did under
+    // the pointer in between: it selects and never moves.
+    const clicked = global && Math.hypot(global.x - dragState.startX, global.y - dragState.startY) < 6;
+    if (global && this.hexCanvas && !clicked) {
       const axial = this.hexCanvas.globalToAxial(global.x, global.y);
       if (axial) {
         dragState.currentQ = axial.q;
         dragState.currentR = axial.r;
         dragState.moved = true;
-    this._hideObjectHover();
       }
+    }
+    if (clicked) {
+      dragState.moved = false;
     }
 
     if (!dragState.moved || (dragState.currentQ === dragState.originQ && dragState.currentR === dragState.originR)) {
@@ -1884,7 +1925,62 @@ export class RoomEditorShell {
   // Inspector
   // ---------------------------------------------------------------------------
 
+  /**
+   * Turns the selected object one step: a placed object changes the way it
+   * faces, a port moves to the next side of its hex.
+   *
+   * @param {number} delta  1 is clockwise, -1 counter-clockwise.
+   */
+  _rotateSelection(delta) {
+    if (this.selection?.type === 'placement') {
+      const placement = this._findPlacement(this.selection.instanceId);
+      if (placement) {
+        this._sendCommand('rotate_object', { instance_id: placement.instance_id, facing: ((Number(placement.facing) || 0) + delta + 6) % 6 });
+      }
+    } else if (this.selection?.type === 'port') {
+      const port = this._findPort(this.selection.family, this.selection.portId);
+      if (port) {
+        this._sendCommand(`update_${this.selection.family}_port`, { port_id: port.port_id, changes: { edge: ((Number(port.edge) || 0) + delta + 6) % 6 } });
+      }
+    }
+  }
+
+  /**
+   * The always-visible controls for the selected object or port.
+   */
+  _renderSelectionBar() {
+    const bar = this._dom.selectionBar;
+    if (!bar) {
+      return;
+    }
+    let text = 'Nothing selected. Click an object or a port on the map.';
+    let selected = false;
+    if (this.selection?.type === 'placement') {
+      const placement = this._findPlacement(this.selection.instanceId);
+      if (placement) {
+        const family = String(placement.definition_ref?.family || '');
+        const definitionId = String(placement.definition_ref?.definition_id || '');
+        const name = this._catalogEntryCache.get(`${family}:${definitionId}`)?.label || definitionId;
+        text = `Selected: ${name} · facing ${FACING_NAMES[Number(placement.facing || 0)] || '?'}`;
+        selected = true;
+      }
+    } else if (this.selection?.type === 'port') {
+      const port = this._findPort(this.selection.family, this.selection.portId);
+      if (port) {
+        text = `Selected: ${this.selection.family} port "${port.port_id}" · side ${Number(port.edge || 0) + 1} of 6`;
+        selected = true;
+      }
+    }
+    if (this._dom.selectionName) {
+      this._dom.selectionName.textContent = text;
+    }
+    bar.querySelectorAll('button').forEach((button) => {
+      button.disabled = !selected || this._busy || !this.draft;
+    });
+  }
+
   _renderInspector() {
+    this._renderSelectionBar();
     const body = this._dom.inspectorBody;
     if (!body) {
       return;
@@ -2379,14 +2475,9 @@ export class RoomEditorShell {
           });
         }
         break;
-      case 'rotate-placement': {
-        if (this.selection?.type === 'placement') {
-          const placement = this._findPlacement(this.selection.instanceId);
-          const nextFacing = ((Number(placement?.facing) || 0) + 1) % 6;
-          this._sendCommand('rotate_object', { instance_id: this.selection.instanceId, facing: nextFacing });
-        }
+      case 'rotate-placement':
+        this._rotateSelection(1);
         break;
-      }
       case 'remove-placement':
         if (this.selection?.type === 'placement') {
           this._sendCommand('remove_object', { instance_id: this.selection.instanceId });
@@ -2456,6 +2547,13 @@ export class RoomEditorShell {
     if (isMeta && event.key.toLowerCase() === 'v') {
       event.preventDefault();
       this._pasteClipboard();
+      return;
+    }
+    if (event.key === '[' || event.key === ']') {
+      if (this.selection?.type === 'placement' || this.selection?.type === 'port') {
+        event.preventDefault();
+        this._rotateSelection(event.key === ']' ? 1 : -1);
+      }
       return;
     }
     if (event.key === 'Delete' || event.key === 'Backspace') {

@@ -850,3 +850,14 @@ body.room-editor__body--dragging {
 [data-editor-status-contents] li:focus-within > .editor-page__content-card {
   display: flex;
 }
+
+/* Fixed basis and clipped text: the bar keeps one height whatever is selected. */
+.room-editor__selection-name {
+  flex: 1 1 220px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm, 0.85em);
+  font-weight: 600;
+}

@@ -101,6 +101,13 @@
             <button type="button" class="room-editor__button room-editor__button--primary" data-room-editor-action="publish">{{ 'Publish'|t }}</button>
           </div>
 
+          <div class="room-editor__header-row room-editor__selection-bar" data-room-editor-selection-bar aria-label="{{ 'Selected object'|t }}">
+            <span class="room-editor__selection-name" data-room-editor-selection-name>{{ 'Nothing selected. Click an object or a port on the map.'|t }}</span>
+            <button type="button" class="room-editor__button" data-room-editor-selection-action="rotate-ccw" disabled title="{{ 'Turn the selected object 60° counter-clockwise ( [ ). A port moves to the previous side of its hex.'|t }}">{{ '⟲ Turn left'|t }}</button>
+            <button type="button" class="room-editor__button" data-room-editor-selection-action="rotate-cw" disabled title="{{ 'Turn the selected object 60° clockwise ( ] ). A port moves to the next side of its hex.'|t }}">{{ '⟳ Turn right'|t }}</button>
+            <button type="button" class="room-editor__button room-editor__button--danger" data-room-editor-selection-action="remove" disabled title="{{ 'Remove the selected object or port from this room (Delete)'|t }}">{{ 'Remove'|t }}</button>
+          </div>
+
           <div class="room-editor__status" data-room-editor-status role="status" aria-live="polite">
             {{ 'Loading canonical Room Editor...'|t }}
           </div>
@@ -238,7 +245,7 @@
                 ] }
               ],
             } only %}
-            <p class="room-editor__hint">{{ 'Contents with artwork show their picture instead of a lettered token. The notch on a lettered token shows which way it faces. Doorways sit on the edge of their hex; the Dungeon Editor connects an exit of one room to an entry of another.'|t }}</p>
+            <p class="room-editor__hint">{{ 'Select an object, then Turn left or Turn right above the map (or [ and ]) to change which way it faces; drag it to move it. Contents with artwork show their picture instead of a lettered token. The notch or white pip on a token shows which way it faces. Doorways sit on the edge of their hex; the Dungeon Editor connects an exit of one room to an entry of another.'|t }}</p>
           </div>
 
 
