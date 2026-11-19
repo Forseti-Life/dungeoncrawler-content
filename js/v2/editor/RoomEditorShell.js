@@ -32,9 +32,9 @@
 
 /* global PIXI */
 
-import { GameEventBus } from '../GameEventBus.js?v=20261119-room-drag-1';
-import { HexCanvas } from '../canvas/HexCanvas.js?v=20261119-room-drag-1';
-import { SpriteService } from '../../SpriteService.js?v=20261119-room-drag-1';
+import { GameEventBus } from '../GameEventBus.js?v=20261119-room-unfreeze-1';
+import { HexCanvas } from '../canvas/HexCanvas.js?v=20261119-room-unfreeze-1';
+import { SpriteService } from '../../SpriteService.js?v=20261119-room-unfreeze-1';
 import {
   appendEditorGmMessage,
   bindEditorGmPrompts,
@@ -48,8 +48,8 @@ import {
   restoreEditorGmConversation,
   selectEditorGmTool,
   shouldSubmitEditorGmKey,
-} from './EditorGmChatClient.js?v=20261119-room-drag-1';
-import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261119-room-drag-1';
+} from './EditorGmChatClient.js?v=20261119-room-unfreeze-1';
+import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261119-room-unfreeze-1';
 
 const FAMILIES = ['actor', 'item', 'obstacle', 'trap', 'hazard'];
 const SOLID_FAMILIES = ['actor', 'obstacle'];
@@ -995,7 +995,8 @@ export class RoomEditorShell {
     if (!this._catalogEntryCache.has(cacheKey)) {
       // The name and description arrive from the library; refresh if still hovered.
       this._fetchCatalogEntry(family, definitionId).then(() => {
-        if (this._hoverKey === key) {
+        // Only once the lookup has an answer, or this would ask forever.
+        if (this._hoverKey === key && this._catalogEntryCache.has(cacheKey)) {
           this._showPlacementHover(placement, token);
         }
       });
@@ -1708,9 +1709,12 @@ export class RoomEditorShell {
       return;
     }
     const spriteIds = new Set();
+    this._catalogSpritesTried ??= new Set();
     this.catalog.items.forEach((definition) => {
       const spriteId = String(definition.visual?.sprite_id || '').trim();
-      if (spriteId && !this._sprites.isCached(spriteId)) {
+      // Each sprite is looked up once. Asking again for one the server does
+      // not have re-rendered the list in an endless loop.
+      if (spriteId && !this._sprites.isCached(spriteId) && !this._catalogSpritesTried.has(spriteId)) {
         spriteIds.add(spriteId);
       }
     });
@@ -1718,10 +1722,16 @@ export class RoomEditorShell {
       return;
     }
     this._catalogSpriteResolveInFlight = true;
+    spriteIds.forEach((id) => this._catalogSpritesTried.add(id));
     Promise.all(Array.from(spriteIds, (id) => this._sprites.fetchOne(id)))
-      .finally(() => {
+      .then((urls) => urls.some(Boolean))
+      .catch(() => false)
+      .then((found) => {
         this._catalogSpriteResolveInFlight = false;
-        this._renderCatalogList();
+        // Redraw only when artwork actually arrived.
+        if (found) {
+          this._renderCatalogList();
+        }
       });
   }
 

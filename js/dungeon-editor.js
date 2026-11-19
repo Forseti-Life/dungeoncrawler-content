@@ -11,7 +11,7 @@
  * placement transform via ES modules. It does not fork the renderer.
  */
 
-import { DungeonEditorShell } from './v2/editor/DungeonEditorShell.js?v=20261119-room-drag-1';
+import { DungeonEditorShell } from './v2/editor/DungeonEditorShell.js?v=20261119-room-unfreeze-1';
 
 (function (Drupal, drupalSettings, once) {
   'use strict';
