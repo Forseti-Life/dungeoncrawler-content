@@ -266,7 +266,7 @@ hexmap-v2:
     - core/once
 
 room-editor:
-  version: 20261118-format-8
+  version: 20261119-creature-fold-1
   js:
     https://cdn.jsdelivr.net/npm/pixi.js@7.3.2/dist/pixi.min.js: { type: external, minified: true }
     js/room-editor.js: { attributes: { type: module } }
@@ -335,7 +335,7 @@ module-explorer:
     - core/once
 
 dungeon-editor:
-  version: 20261118-format-8
+  version: 20261119-creature-fold-1
   js:
     https://cdn.jsdelivr.net/npm/pixi.js@7.3.2/dist/pixi.min.js: { type: external, minified: true }
     js/dungeon-editor.js: { attributes: { type: module } }
@@ -353,7 +353,7 @@ dungeon-editor:
     - core/once
 
 definition-editor:
-  version: 20261118-format-8
+  version: 20261119-creature-fold-1
   js:
     js/definition-editor.js: { attributes: { type: module } }
   css:

@@ -132,4 +132,50 @@ class RoomEditorStatusTest extends TestCase {
     $this->assertSame(['Have the GM address the next validation finding.'], $status['next_steps']);
   }
 
+  /**
+   * The published projection files a creature-class actor under `creatures`.
+   */
+  public function testProjectionSplitsActorPlacementsByCreatureClass(): void {
+    $definitions = $this->createMock(CanonicalDefinitionService::class);
+    $definitions->method('isCreature')->willReturnMap([['blight-wolf', TRUE], ['gate-warden', FALSE]]);
+    $service = new RoomEditorService(
+      $this->createMock(Connection::class),
+      $this->createMock(AccountProxyInterface::class),
+      $this->createMock(UuidInterface::class),
+      $definitions,
+    );
+    $actor = static fn(string $instance_id, string $definition_id): array => [
+      'instance_id' => $instance_id,
+      'definition_ref' => ['family' => 'actor', 'definition_id' => $definition_id, 'version' => '1.0.0'],
+      'state_defaults' => [],
+    ];
+    $room = $this->draft([
+      'hexes' => [['q' => 0, 'r' => 0, 'terrain_type' => 'stone_floor', 'h3_index_res14' => '8f28308280f18a4']],
+      'placements' => [
+        $actor('33333333-3333-4333-8333-333333333333', 'blight-wolf') + $this->object(),
+        $actor('44444444-4444-4444-8444-444444444444', 'gate-warden') + $this->object(),
+      ],
+    ])['room'];
+
+    [, $contents] = (new \ReflectionMethod($service, 'legacyProjection'))->invoke($service, $room);
+
+    $this->assertSame(['blight-wolf'], array_column($contents['creatures'], 'content_id'));
+    $this->assertSame(['gate-warden'], array_column($contents['npcs'], 'content_id'));
+  }
+
+  public function testStatusListsEachPlacedDefinitionOnceWithItsCount(): void {
+    $service = $this->service();
+    $actor = ['instance_id' => '33333333-3333-4333-8333-333333333333', 'definition_ref' => ['family' => 'actor', 'definition_id' => 'blight-wolf', 'version' => '1.0.0']] + $this->object();
+    $second = ['instance_id' => '44444444-4444-4444-8444-444444444444'] + $this->object();
+    $draft = $this->draft(['placements' => [$this->object(), $actor, $second]]);
+
+    $status = $service->summarizeDraftState($draft, ['profile' => 'editing'] + $service->validateAggregate($draft['room']));
+
+    // The mocked library holds no names, so each is listed by its id.
+    $this->assertSame([
+      ['family' => 'actor', 'definition_id' => 'blight-wolf', 'name' => 'blight-wolf', 'category' => '', 'description' => '', 'count' => 1],
+      ['family' => 'item', 'definition_id' => 'iron-brazier', 'name' => 'iron-brazier', 'category' => '', 'description' => '', 'count' => 2],
+    ], $status['contents']);
+  }
+
 }

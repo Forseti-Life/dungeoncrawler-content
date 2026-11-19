@@ -19,7 +19,6 @@ use Psr\Log\LoggerInterface;
  * - setting_templates/  → dungeoncrawler_content_setting_templates
  * - room_templates/     → dungeoncrawler_content_room_templates
  * - items/              → dungeoncrawler_content_registry (via ContentRegistry)
- * - creatures/          → dungeoncrawler_content_registry
  * - traps/              → dungeoncrawler_content_registry
  * - hazards/            → dungeoncrawler_content_registry
  * - loot_tables.json    → dungeoncrawler_content_loot_tables

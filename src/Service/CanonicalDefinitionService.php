@@ -27,7 +27,7 @@ use Drupal\dungeoncrawler_content\Service\Actor\ActorDefinitionMirror;
  *
  * Storage is deliberately not uniform, and this service is the only place that
  * knows it:
- *  - creature, item, trap, hazard -> dungeoncrawler_content_registry
+ *  - item, trap, hazard           -> dungeoncrawler_content_registry
  *  - obstacle                     -> the same table, but content_type is
  *                                    'obstacle_object', not 'obstacle'
  *  - actor (pc, npc)              -> the library actor row, read and
@@ -41,12 +41,17 @@ class CanonicalDefinitionService {
   /**
    * The canonical definition families.
    */
-  public const FAMILIES = ['creature', 'actor', 'item', 'obstacle', 'trap', 'hazard'];
+  public const FAMILIES = ['actor', 'item', 'obstacle', 'trap', 'hazard'];
 
   /**
    * The family stored outside the content registry.
    */
   private const ACTOR_FAMILY = 'actor';
+
+  /**
+   * The `state_data.class` that makes an actor definition a creature.
+   */
+  public const CREATURE_CLASS = 'creature';
 
   /**
    * Actor types whose definition is a library actor row.
@@ -65,7 +70,6 @@ class CanonicalDefinitionService {
    * written by anything, and that is enforced, not defaulted.
    */
   public const SCHEMA_FILES = [
-    'creature' => 'creature.schema.json',
     'actor' => 'canonical_actor.schema.json',
     'item' => 'item.schema.json',
     'obstacle' => 'obstacle.schema.json',
@@ -77,7 +81,6 @@ class CanonicalDefinitionService {
    * Payload property that carries the definition identity per family.
    */
   public const ID_PROPERTIES = [
-    'creature' => 'creature_id',
     'actor' => 'actor_id',
     'item' => 'item_id',
     'obstacle' => 'object_id',
@@ -89,7 +92,6 @@ class CanonicalDefinitionService {
    * Payload property that carries the display name per family.
    */
   public const NAME_PROPERTIES = [
-    'creature' => 'name',
     'actor' => 'display_name',
     'item' => 'name',
     'obstacle' => 'label',
@@ -348,18 +350,31 @@ class CanonicalDefinitionService {
       return $entry['schema_data'];
     }
 
-    $payload = [
+    return $this->actorPayload([
       'actor_id' => $entry['definition_id'],
       'version' => $entry['version'],
       'actor_type' => $entry['category'],
       'display_name' => $entry['name'],
       'state_data' => $entry['schema_data'],
+      'source_module' => $entry['source_module'],
+      'metadata' => $entry['metadata'],
+    ]);
+  }
+
+  /**
+   * The schema-shaped payload of one stored actor record.
+   */
+  private function actorPayload(array $record): array {
+    $payload = [
+      'actor_id' => $record['actor_id'],
+      'version' => $record['version'],
+      'actor_type' => $record['actor_type'],
+      'display_name' => $record['display_name'],
+      'state_data' => $record['state_data'],
+      'source_module' => $record['source_module'],
     ];
-    if (array_key_exists('source_module', $entry)) {
-      $payload['source_module'] = $entry['source_module'];
-    }
-    if (isset($entry['metadata']) && is_array($entry['metadata'])) {
-      $payload['metadata'] = $entry['metadata'];
+    if (is_array($record['metadata'])) {
+      $payload['metadata'] = $record['metadata'];
     }
 
     return $payload;
@@ -373,6 +388,24 @@ class CanonicalDefinitionService {
    */
   public function validateDefinition(string $family, array $payload): array {
     return $this->validator->validate($this->schemaForFamily($family), $payload);
+  }
+
+  /**
+   * Whether an actor definition is a creature.
+   *
+   * A creature is an actor definition whose `state_data.class` is exactly
+   * `creature`. This is the only place that rule is evaluated.
+   *
+   * @throws \OutOfBoundsException
+   *   `definition_missing:actor:<id>` when no such actor definition exists.
+   */
+  public function isCreature(string $actor_id): bool {
+    $record = $this->actorRecords($actor_id)[0] ?? NULL;
+    if ($record === NULL) {
+      throw new \OutOfBoundsException('definition_missing:actor:' . $actor_id);
+    }
+
+    return ($record['state_data']['class'] ?? NULL) === self::CREATURE_CLASS;
   }
 
   /**
@@ -836,18 +869,23 @@ class CanonicalDefinitionService {
    * runtime source content.
    *
    * @param array<string,mixed> $criteria
-   *   Supported keys: level_min, level_max, tags_any, rarity, limit.
+   *   Supported keys: level_min, level_max, tags_any, rarity, limit. The actor
+   *   family requires `class` (exact `state_data.class`); no other family
+   *   accepts it.
    *
    * @return array<int,array<string,mixed>>
    *   Rows with definition_id, version, label, level, rarity, tags, payload.
    */
   public function publishedDefinitions(string $family, array $criteria = []): array {
     $this->assertFamily($family);
+    $limit = max(1, min(250, (int) ($criteria['limit'] ?? 100)));
     if ($family === self::ACTOR_FAMILY) {
-      throw new \InvalidArgumentException('published_definition_family_unsupported');
+      return $this->publishedActorDefinitions($criteria, $limit);
+    }
+    if (array_key_exists('class', $criteria)) {
+      throw new \InvalidArgumentException('published_definition_criteria_unsupported:class');
     }
 
-    $limit = max(1, min(250, (int) ($criteria['limit'] ?? 100)));
     $scan_limit = max($limit * 20, 5000);
     $query = $this->database->select('dungeoncrawler_content_registry', 'r')
       ->fields('r', ['content_id', 'name', 'version', 'level', 'rarity', 'tags', 'schema_data'])
@@ -906,6 +944,69 @@ class CanonicalDefinitionService {
     }
 
     return $definitions;
+  }
+
+  /**
+   * Schema-valid, active actor definitions of one class.
+   *
+   * An actor's tags are its traits and its spawn encounter themes.
+   *
+   * @return array<int,array<string,mixed>>
+   *   Rows in the publishedDefinitions() shape, ordered by level, label, id.
+   */
+  private function publishedActorDefinitions(array $criteria, int $limit): array {
+    $class = $criteria['class'] ?? NULL;
+    if (!is_string($class) || $class === '') {
+      throw new \InvalidArgumentException('published_definition_class_required');
+    }
+    $level_min = isset($criteria['level_min']) && is_numeric($criteria['level_min']) ? (int) $criteria['level_min'] : NULL;
+    $level_max = isset($criteria['level_max']) && is_numeric($criteria['level_max']) ? (int) $criteria['level_max'] : NULL;
+    $rarity = isset($criteria['rarity']) && is_string($criteria['rarity']) ? $criteria['rarity'] : '';
+    $normalize_tags = static fn(array $tags): array => array_values(array_unique(array_filter(array_map(
+      static fn($tag): string => strtolower(trim((string) $tag)),
+      $tags
+    ), static fn(string $tag): bool => $tag !== '')));
+    $tags_any = $normalize_tags((array) ($criteria['tags_any'] ?? []));
+    $retired = $this->retiredDefinitionKeys();
+
+    $definitions = [];
+    foreach ($this->actorRecords() as $record) {
+      $state = $record['state_data'];
+      if (($state['class'] ?? NULL) !== $class || isset($retired[self::ACTOR_FAMILY . ':' . $record['actor_id']])) {
+        continue;
+      }
+      $payload = $this->actorPayload($record);
+      if ($this->validateDefinition(self::ACTOR_FAMILY, $payload) !== []) {
+        continue;
+      }
+      $level = $state['level'];
+      if (($level_min !== NULL && $level < $level_min) || ($level_max !== NULL && $level > $level_max)) {
+        continue;
+      }
+      $definition_rarity = (string) ($state['rarity'] ?? '');
+      if ($rarity !== '' && $definition_rarity !== $rarity) {
+        continue;
+      }
+      $tags = $normalize_tags(array_merge($state['traits'] ?? [], $state['spawn']['encounter_themes'] ?? []));
+      if ($tags_any !== [] && array_intersect($tags_any, $tags) === []) {
+        continue;
+      }
+      $definitions[] = [
+        'family' => self::ACTOR_FAMILY,
+        'definition_id' => $record['actor_id'],
+        'version' => $this->normalizeSemanticVersion($record['version']),
+        'label' => $record['display_name'],
+        'level' => $level,
+        'rarity' => $definition_rarity,
+        'tags' => $tags,
+        'payload' => $payload,
+      ];
+    }
+    usort($definitions, static fn(array $a, array $b): int =>
+      [$a['level'], $a['label'], $a['definition_id']] <=> [$b['level'], $b['label'], $b['definition_id']]
+    );
+
+    return array_slice($definitions, 0, $limit);
   }
 
   /**

@@ -33,6 +33,8 @@
  * - contains_title: heading of the links to what this thing contains or is
  *   contained by.
  * - quick_links: list of { label, url } shown under "Quick launch".
+ * - contents_title: optional heading for the list of definitions placed in
+ *   the thing being edited; the list is omitted when this is not set.
  *
  * The left column is filled from the server's status projection by
  * js/v2/editor/EditorDraftStatusCard.js; nothing in it is computed here.
@@ -86,6 +88,12 @@
           <ul class="character-setup-page__quick-links" data-editor-status-links>
             <li>{{ 'Load a @thing to see what it links to.'|t({'@thing': thing}) }}</li>
           </ul>
+          {% if contents_title %}
+          <h3 class="character-setup-page__sidebar-title">{{ contents_title }}</h3>
+          <ul class="character-setup-page__quick-links" data-editor-status-contents>
+            <li>{{ 'Load a @thing to see what is placed in it.'|t({'@thing': thing}) }}</li>
+          </ul>
+          {% endif %}
           <h3 class="character-setup-page__sidebar-title">{{ 'In these storylines'|t }}</h3>
           <ul class="character-setup-page__quick-links" data-editor-status-storylines>
             <li>{{ 'No storyline uses this yet.'|t }}</li>

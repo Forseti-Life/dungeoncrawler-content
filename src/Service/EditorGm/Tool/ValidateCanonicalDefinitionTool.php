@@ -15,11 +15,11 @@ final class ValidateCanonicalDefinitionTool implements EditorGmToolInterface {
     return new EditorGmToolDefinition(
       'validate_canonical_definition',
       EditorGmToolDefinition::FAMILY_VALIDATION,
-      'Validate a complete canonical definition payload against its family schema (obstacle, hazard, trap, item, creature, actor) without saving.',
+      'Validate a complete canonical definition payload against its family schema (obstacle, hazard, trap, item, actor) without saving.',
       FALSE,
       'CanonicalDefinitionService::validateDefinition()',
       [
-        EditorGmToolDefinition::argument('family', 'string', TRUE, 'Placeable family: obstacle|hazard|trap|item|creature|actor.'),
+        EditorGmToolDefinition::argument('family', 'string', TRUE, 'Placeable family: obstacle|hazard|trap|item|actor.'),
         EditorGmToolDefinition::argument('payload', 'object', TRUE, 'Complete schema-shaped definition payload.'),
         EditorGmToolDefinition::argument('definition_id', 'string', FALSE, 'Optional existing definition id when blast-radius preview is wanted.'),
       ],

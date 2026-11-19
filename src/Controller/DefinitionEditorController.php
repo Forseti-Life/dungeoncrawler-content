@@ -77,7 +77,7 @@ final class DefinitionEditorController extends ControllerBase {
       '#rows' => $rows,
       '#attributes' => ['class' => ['dc-definition-index']],
       '#cache' => ['max-age' => 0],
-    ], ['family' => 'creature'], DefinitionEditorPage::wrap(
+    ], ['family' => 'actor'], DefinitionEditorPage::wrap(
       $this->definitions,
       (string) $this->t('Canonical Library'),
       NULL,

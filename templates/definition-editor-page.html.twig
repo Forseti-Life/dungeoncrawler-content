@@ -21,7 +21,7 @@
 {% embed '@dungeoncrawler_content/editor-page-shell.html.twig' with {
   surface: 'definition-editor',
   title: 'Definition Editor'|t,
-  intro: 'Create and maintain the library everything else is built from: items, creatures, actors, obstacles, traps and hazards.'|t,
+  intro: 'Create and maintain the library everything else is built from: items, actors, obstacles, traps and hazards.'|t,
   back_url: path('dungeoncrawler_content.definition_index'),
   back_label: 'Back to the library'|t,
   stages_title: 'Definition families'|t,
@@ -98,7 +98,6 @@
             <label>{{ 'Family'|t }}
               <select data-definition-editor-generation-family>
                 <option value="item">{{ 'Item'|t }}</option>
-                <option value="creature">{{ 'Creature'|t }}</option>
                 <option value="actor">{{ 'NPC'|t }}</option>
                 <option value="obstacle">{{ 'Obstacle / Object'|t }}</option>
                 <option value="hazard">{{ 'Hazard'|t }}</option>
@@ -139,7 +138,7 @@
             </label>
           </div>
           <button type="button" class="btn btn-primary btn-sm" data-definition-editor-action="generate-definition">{{ 'Generate definition'|t }}</button>
-          <p data-definition-editor-generation-unavailable hidden>{{ 'Generation is available for item, creature, actor/NPC, obstacle, hazard and trap scopes.'|t }}</p>
+          <p data-definition-editor-generation-unavailable hidden>{{ 'Generation is available for item, actor/NPC, obstacle, hazard and trap scopes.'|t }}</p>
         </details>
       {% endblock %}
     {% endembed %}

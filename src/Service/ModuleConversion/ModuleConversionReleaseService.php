@@ -2318,7 +2318,6 @@ class ModuleConversionReleaseService {
     $prefix = match ($family) {
       'actor' => 'actor',
       'item' => 'item',
-      'creature' => 'creature',
       'obstacle' => 'obstacle',
       'trap' => 'trap',
       'hazard' => 'hazard',

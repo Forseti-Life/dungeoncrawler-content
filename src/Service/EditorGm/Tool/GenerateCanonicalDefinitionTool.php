@@ -8,7 +8,7 @@ use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolDefinition;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolInterface;
 
 /**
- * Planning tool: generates a canonical definition proposal for obstacle, hazard, trap, item, creature, or actor.
+ * Planning tool: generates a canonical definition proposal for obstacle, hazard, trap, item, or actor.
  */
 final class GenerateCanonicalDefinitionTool implements EditorGmToolInterface {
 
@@ -25,11 +25,11 @@ final class GenerateCanonicalDefinitionTool implements EditorGmToolInterface {
     return new EditorGmToolDefinition(
       'generate_canonical_definition',
       EditorGmToolDefinition::FAMILY_PLANNING,
-      'Generate an original canonical definition payload proposal for obstacle, hazard, trap, item, creature, or actor.',
+      'Generate an original canonical definition payload proposal for obstacle, hazard, trap, item, or actor. A creature is an actor with class=creature.',
       FALSE,
       'propose only; validate_canonical_definition/create_canonical_definition approval required',
       [
-        EditorGmToolDefinition::argument('family', 'string', TRUE, 'Placeable family: obstacle|hazard|trap|item|creature|actor.'),
+        EditorGmToolDefinition::argument('family', 'string', TRUE, 'Placeable family: obstacle|hazard|trap|item|actor.'),
         EditorGmToolDefinition::argument('prompt', 'string', TRUE, 'Original definition request (e.g. oak banquet table, lava fissure hazard, poison dart trap), 1..2000 chars.'),
         EditorGmToolDefinition::argument('definition_id', 'string', FALSE, 'Optional canonical id slug.'),
         EditorGmToolDefinition::argument('level', 'integer', FALSE, 'Optional level (-1..30 depending on family).'),
@@ -39,8 +39,9 @@ final class GenerateCanonicalDefinitionTool implements EditorGmToolInterface {
         EditorGmToolDefinition::argument('complexity', 'string', FALSE, 'Hazard/trap complexity: simple|complex.'),
         EditorGmToolDefinition::argument('type', 'string', FALSE, 'Trap type: mechanical|magical|haunt|environmental.'),
         EditorGmToolDefinition::argument('item_type', 'string', FALSE, 'Item type when family=item.'),
-        EditorGmToolDefinition::argument('creature_type', 'string', FALSE, 'Creature type when family=creature.'),
-        EditorGmToolDefinition::argument('role', 'string', FALSE, 'Creature/actor role when family=creature|actor.'),
+        EditorGmToolDefinition::argument('class', 'string', FALSE, 'Actor class when family=actor. Use creature for a creature stat block.'),
+        EditorGmToolDefinition::argument('species', 'string', FALSE, 'Kind of creature when family=actor and class=creature.'),
+        EditorGmToolDefinition::argument('role', 'string', FALSE, 'Actor role when family=actor.'),
         EditorGmToolDefinition::argument('attitude', 'string', FALSE, 'Actor attitude when family=actor.'),
         EditorGmToolDefinition::argument('seed', 'integer', FALSE, 'Optional deterministic seed 0..2147483647.'),
       ],

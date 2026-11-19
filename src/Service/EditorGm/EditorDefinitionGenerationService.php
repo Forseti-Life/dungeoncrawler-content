@@ -28,10 +28,6 @@ final class EditorDefinitionGenerationService {
     return $this->core->generateItemDefinition($arguments, $this->scope($context));
   }
 
-  public function generateCreatureDefinition(array $arguments, DefinitionEditorGmToolContext $context): array {
-    return $this->core->generateCreatureDefinition($arguments, $this->scope($context));
-  }
-
   public function generateNpcDefinition(array $arguments, DefinitionEditorGmToolContext $context): array {
     return $this->core->generateNpcDefinition($arguments, $this->scope($context));
   }

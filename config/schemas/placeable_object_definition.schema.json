@@ -9,7 +9,7 @@
     "schema_version": {"const": "placeable-object-v1"},
     "definition_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,99}$"},
     "definition_version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$"},
-    "family": {"enum": ["creature", "actor", "item", "obstacle", "trap", "hazard"]},
+    "family": {"enum": ["actor", "item", "obstacle", "trap", "hazard"]},
     "label": {"type": "string", "minLength": 1, "maxLength": 200},
     "category": {"type": "string", "minLength": 1, "maxLength": 100},
     "description": {"type": "string", "maxLength": 2000},

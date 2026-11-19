@@ -87,6 +87,18 @@
             <span class="dungeon-editor__revision" data-dungeon-editor-revision></span>
           </div>
 
+          <div class="room-editor__header-row dungeon-editor__selection-bar" data-dungeon-editor-selection-bar aria-label="{{ 'Selected room'|t }}">
+            <span class="dungeon-editor__selection-name" data-dungeon-editor-selection-name>{{ 'No room selected. Click a room on the map.'|t }}</span>
+            <button type="button" class="room-editor__button" data-inspector-action="rotate-ccw" disabled title="{{ 'Rotate the selected room 60° counter-clockwise ( [ )'|t }}">{{ '⟲ Rotate left'|t }}</button>
+            <button type="button" class="room-editor__button" data-inspector-action="rotate-cw" disabled title="{{ 'Rotate the selected room 60° clockwise ( ] )'|t }}">{{ '⟳ Rotate right'|t }}</button>
+            <button type="button" class="room-editor__button" data-inspector-action="toggle-entrance" disabled title="{{ 'Players enter the dungeon through this room'|t }}">{{ 'Set as entrance'|t }}</button>
+            <button type="button" class="room-editor__button room-editor__button--danger" data-inspector-action="remove" disabled title="{{ 'Remove the selected room from this dungeon (Delete)'|t }}">{{ 'Remove from dungeon'|t }}</button>
+            <a class="room-editor__button" data-dungeon-editor-selection-room-link href="#" target="_blank" rel="noopener" style="visibility: hidden" title="{{ 'Room contents are edited in the Room Editor'|t }}">{{ 'Edit room contents'|t }}</a>
+          </div>
+          <p class="room-editor__hint dungeon-editor__howto">
+            {{ 'Place: drag a room from Author Tools › Room Library onto the map. Move: drag a room. Rotate: select a room, then Rotate left or right. Connect: drag from a port dot on one room onto another room; they do not need to touch.'|t }}
+          </p>
+
           <div class="room-editor__status" data-dungeon-editor-status role="status" aria-live="polite">
             {{ 'Loading canonical Dungeon Editor...'|t }}
           </div>
@@ -130,14 +142,14 @@
 
             <section class="room-editor__drawer-section" data-dungeon-editor-placements aria-label="{{ 'Placements'|t }}">
               <p class="room-editor__eyebrow">{{ 'Placements'|t }}</p>
-              <p class="room-editor__hint">{{ 'Drag a room on the canvas to move it. With one selected: [ and ] rotate, Delete removes.'|t }}</p>
+              <p class="room-editor__hint">{{ 'Drag a room on the canvas to move it. With one selected: Rotate left and Rotate right above the map (or [ and ]) turn it 60°, Delete removes.'|t }}</p>
               <ul class="dungeon-editor__placement-list" data-dungeon-editor-placement-list role="list"></ul>
               <p class="room-editor__hint" data-dungeon-editor-placement-empty hidden>{{ 'This level has no placements.'|t }}</p>
             </section>
 
             <section class="room-editor__drawer-section" data-dungeon-editor-links aria-label="{{ 'Port links'|t }}">
               <p class="room-editor__eyebrow">{{ 'Links'|t }}</p>
-              <p class="room-editor__hint">{{ 'Click an unlinked exit port on the canvas, then a highlighted entry port across the shared edge. Esc cancels.'|t }}</p>
+              <p class="room-editor__hint">{{ 'Drag from a port dot on one room onto another room, or click the two ports in turn. A link joins an exit to an entry; the rooms do not need to touch. Esc cancels.'|t }}</p>
               <ul class="dungeon-editor__link-list" data-dungeon-editor-link-list role="list"></ul>
               <p class="room-editor__hint" data-dungeon-editor-link-empty hidden>{{ 'No links yet.'|t }}</p>
             </section>
@@ -184,6 +196,33 @@
             <div class="hexmap-stage room-editor__stage">
               <div id="dungeon-editor-canvas" class="hexmap-canvas-wrapper" data-dungeon-editor-canvas></div>
             </div>
+            {% include '@dungeoncrawler_content/editor-map-legend.html.twig' with {
+              groups: [
+                { title: 'Rooms'|t, items: [
+                  { symbol: 'hex', fill: '#446998', line: '#60a5fa', label: 'A room'|t },
+                  { symbol: 'hex', fill: '#307d6c', line: '#34d399', label: 'Another room (each has its own colour)'|t },
+                  { symbol: 'badge', fill: '#0f172a', line: '#60a5fa', text: 'Name', label: 'Room name'|t },
+                  { symbol: 'hex', fill: '#dc2626', line: '#fecaca', label: 'Two rooms overlap here'|t }
+                ] },
+                { title: 'Doorways'|t, items: [
+                  { symbol: 'dot', fill: '#38bdf8', line: '#38bdf8', label: 'Entry port'|t },
+                  { symbol: 'ring', line: '#f59e0b', label: 'Exit port, not connected yet'|t },
+                  { symbol: 'dot', fill: '#22c55e', line: '#22c55e', label: 'Exit port, connected'|t }
+                ] },
+                { title: 'Connections'|t, items: [
+                  { symbol: 'line', fill: '#f8fafc', label: 'Connection between two rooms'|t },
+                  { symbol: 'line', fill: '#a855f7', label: 'Secret door'|t }
+                ] },
+                { title: 'While editing'|t, items: [
+                  { symbol: 'ring', line: '#facc15', label: 'Port you are connecting from'|t },
+                  { symbol: 'ring', line: '#22c55e', label: 'Port you can connect to'|t },
+                  { symbol: 'line', fill: '#facc15', label: 'Connection being dragged'|t },
+                  { symbol: 'hex', fill: '#22c55e', line: '#22c55e', label: 'Dragged room fits here'|t },
+                  { symbol: 'hex', fill: '#ef4444', line: '#ef4444', label: 'Dragged room would overlap'|t }
+                ] }
+              ],
+            } only %}
+            <p class="room-editor__hint">{{ 'Water and lava keep their own shade inside a room. The compass at the bottom right shows which way is north.'|t }}</p>
           </div>
 
         </div>

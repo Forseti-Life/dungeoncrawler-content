@@ -192,7 +192,6 @@ PHP);
     );
     $this->assertSame(['minimum' => 1, 'maximum' => 20], $level('character.schema.json', ['properties', 'level']));
     $this->assertSame(['minimum' => -1, 'maximum' => 30], $level('canonical_actor.schema.json', ['definitions', 'state_data', 'properties', 'level']));
-    $this->assertSame(['minimum' => -1, 'maximum' => 25], $level('creature.schema.json', ['properties', 'level']));
   }
 
   /**
@@ -208,7 +207,6 @@ PHP);
     $schema_properties = [];
     $schemas = [
       'character.schema.json' => [[]],
-      'creature.schema.json' => [[]],
       'canonical_actor.schema.json' => [[], ['definitions', 'state_data']],
     ];
     foreach ($schemas as $file => $pointers) {

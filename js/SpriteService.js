@@ -23,6 +23,9 @@ export class SpriteService {
     /** @type {Object<string, Promise<string|null>>} In-flight single lookups. */
     this._pendingLookups = {};
 
+    /** @type {Set<string>} Sprite ids the server reported as not existing. */
+    this._missing = new Set();
+
     /**
      * @type {Set<Function>} Listeners notified when a texture finishes loading.
      * Renderers that build sprites straight from PIXI.utils.TextureCache (the v2
@@ -166,6 +169,11 @@ export class SpriteService {
     if (this._cache[spriteId]) {
       return this._cache[spriteId];
     }
+    // The server already said this sprite does not exist; one lookup-only
+    // request per page is enough.
+    if (this._missing.has(spriteId)) {
+      return null;
+    }
 
     // Coalesce concurrent requests for the same ID.
     if (this._pendingLookups[spriteId]) {
@@ -179,6 +187,10 @@ export class SpriteService {
           method: 'GET',
           credentials: 'same-origin',
         });
+        if (res.status === 404) {
+          this._missing.add(spriteId);
+          return null;
+        }
         if (!res.ok) return null;
         const data = await res.json();
         if (data.success && data.url) {

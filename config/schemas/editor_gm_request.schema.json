@@ -49,7 +49,6 @@
           "properties": {
             "family": {
               "enum": [
-                "creature",
                 "actor",
                 "item",
                 "obstacle",

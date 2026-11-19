@@ -26,7 +26,7 @@ final class GenerationVocabulary {
   ];
 
   public const LIGHTING_LEVELS = ['bright_light', 'dim_light', 'darkness', 'magical_darkness'];
-  public const PLACEABLE_FAMILIES = ['creature', 'actor', 'item', 'obstacle', 'trap', 'hazard'];
+  public const PLACEABLE_FAMILIES = ['actor', 'item', 'obstacle', 'trap', 'hazard'];
   public const LINK_KINDS = ['hallway', 'archway', 'door', 'hatch', 'portcullis', 'secret_door', 'magical_barrier', 'collapsed', 'bridge', 'one_way_drop'];
   public const LINK_DIRECTIONS = ['bidirectional', 'one_way'];
   public const LINK_STATES = ['open', 'closed', 'locked', 'barred', 'trapped', 'triggered', 'destroyed'];

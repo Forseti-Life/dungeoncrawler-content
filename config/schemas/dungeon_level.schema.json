@@ -89,7 +89,7 @@
       "description": "Compatibility field; prefer entities[] with entity_type=creature.",
       "uniqueItems": true,
       "maxItems": 200,
-      "items": { "$ref": "creature.schema.json" }
+      "items": { "type": "object" }
     },
     "items": {
       "type": "array",

@@ -5,7 +5,6 @@ namespace Drupal\dungeoncrawler_content\Service\EditorGm;
 use Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Definition\CreateDefinitionTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Definition\DescribeDefinitionSchemaTool;
-use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Definition\GenerateCreatureDefinitionTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Definition\GenerateHazardDefinitionTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Definition\GenerateItemDefinitionTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Definition\GenerateNpcDefinitionTool;
@@ -49,7 +48,6 @@ final class DefinitionEditorGmSurface implements EditorGmSurfaceInterface {
     if ($generation !== NULL) {
       array_splice($tools, 4, 0, [
         new GenerateItemDefinitionTool($generation),
-        new GenerateCreatureDefinitionTool($generation),
         new GenerateNpcDefinitionTool($generation),
         new GenerateObstacleDefinitionTool($generation),
         new GenerateHazardDefinitionTool($generation),

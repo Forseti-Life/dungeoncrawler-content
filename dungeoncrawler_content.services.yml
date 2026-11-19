@@ -655,6 +655,7 @@ services:
     arguments:
       - '@database'
       - '@datetime.time'
+      - '@dungeoncrawler_content.canonical_definitions'
 
   dungeoncrawler_content.runtime_canonical_room:
     class: Drupal\dungeoncrawler_content\Service\Generation\RuntimeCanonicalRoomService

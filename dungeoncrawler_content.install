@@ -6413,7 +6413,8 @@ function _dungeoncrawler_content_room_editor_legacy_aggregate(array $row): array
   $family_map = [
     'entities' => NULL,
     'npcs' => 'actor',
-    'creatures' => 'creature',
+    // A creature is an actor definition of class creature.
+    'creatures' => 'actor',
     'items' => 'item',
     'obstacles' => 'obstacle',
     'traps' => 'trap',
@@ -6430,7 +6431,7 @@ function _dungeoncrawler_content_room_editor_legacy_aggregate(array $row): array
       }
       $family = $default_family ?: (string) ($entry['family'] ?? $entry['type'] ?? '');
       $family = $family === 'npc' ? 'actor' : $family;
-      if (!in_array($family, ['actor', 'creature', 'item', 'obstacle', 'trap', 'hazard'], TRUE)) {
+      if (!in_array($family, ['actor', 'item', 'obstacle', 'trap', 'hazard'], TRUE)) {
         continue;
       }
       $definition_id = (string) ($entry['definition_id'] ?? $entry['content_id'] ?? $entry['object_id'] ?? '');

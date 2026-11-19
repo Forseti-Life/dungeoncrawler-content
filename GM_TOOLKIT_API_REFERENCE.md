@@ -368,10 +368,6 @@ Supporting endpoints that do not fit the main GM toolkit buckets but are still p
 
 | Methods | Path | Handler |
 |---|---|---|
-| `GET` | `/api/creatures` | `CreatureCatalogController::list` |
-| `POST` | `/api/creatures/import` | `CreatureCatalogController::import` |
-| `GET` | `/api/creatures/{creature_id}` | `CreatureCatalogController::get` |
-| `POST` | `/api/creatures/{creature_id}/override` | `CreatureCatalogController::override` |
 | `GET` | `/api/deities` | `DeityController::list` |
 | `GET` | `/api/deities/{deity_id}` | `DeityController::get` |
 | `POST` | `/api/game/{campaign_id}/action` | `GameCoordinatorController::action` |

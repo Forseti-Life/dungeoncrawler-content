@@ -157,8 +157,7 @@ class EncounterBalancer {
     // Determine creature level range.
     $level_range = $this->getCreatureLevelRange($party_level, $difficulty);
 
-    // Query available creatures from the content registry.
-    $available_creatures = $this->getAvailableCreatures($theme, $level_range);
+    $available_creatures = $this->getFallbackCreatures($theme, $level_range);
 
     // Select creatures to fill the budget.
     $creatures = $this->selectCreaturesForBudget(
@@ -373,49 +372,6 @@ class EncounterBalancer {
     $level_diff = max(-4, min(4, $level_diff));
 
     return self::XP_BY_LEVEL_DIFF[$level_diff] ?? 40;
-  }
-
-  /**
-   * Get available creatures for a theme and level range.
-   *
-   * Queries the content registry for creatures, or uses a built-in
-   * fallback creature catalog organized by theme.
-   *
-   * @param string $theme
-   *   Dungeon theme.
-   * @param array $level_range
-   *   Array with 'min' and 'max' keys.
-   *
-   * @return array
-   *   Array of creature data arrays.
-   */
-  private function getAvailableCreatures(string $theme, array $level_range): array {
-    // Try content registry first.
-    try {
-      $query = $this->database->select('dc_campaign_content_registry', 'r')
-        ->fields('r', ['content_id', 'name', 'content_data'])
-        ->condition('r.content_type', 'creature')
-        ->condition('r.level', $level_range['min'], '>=')
-        ->condition('r.level', $level_range['max'], '<=');
-
-      $results = $query->execute()->fetchAll();
-      if (!empty($results)) {
-        $creatures = [];
-        foreach ($results as $row) {
-          $data = json_decode($row->content_data, TRUE) ?: [];
-          $data['creature_id'] = $row->content_id;
-          $data['name'] = $row->name;
-          $creatures[] = $data;
-        }
-        return $creatures;
-      }
-    }
-    catch (\Exception $e) {
-      // Content registry table may not have a level column; fall through.
-    }
-
-    // Fallback: built-in creature catalog by theme.
-    return $this->getFallbackCreatures($theme, $level_range);
   }
 
   /**

@@ -27,6 +27,7 @@
   stages_title: 'Room process stages'|t,
   thing: 'room'|t,
   contains_title: 'Dungeons that use this room'|t,
+  contents_title: 'Placed in this room'|t,
   panel_meta: 'Ask the Game Master Agent, or edit on the map below'|t,
   quick_links: [
     { label: 'Room Manager'|t, url: path('dungeoncrawler_content.room_management') },
@@ -119,7 +120,6 @@
               <input type="search" data-room-editor-catalog-search placeholder="{{ 'Search catalog...'|t }}" aria-label="{{ 'Search catalog'|t }}">
               <select data-room-editor-catalog-family aria-label="{{ 'Filter by family'|t }}">
                 <option value="">{{ 'All families'|t }}</option>
-                <option value="creature">{{ 'Creature'|t }}</option>
                 <option value="actor">{{ 'Actor'|t }}</option>
                 <option value="item">{{ 'Item'|t }}</option>
                 <option value="obstacle">{{ 'Obstacle'|t }}</option>
@@ -165,7 +165,6 @@
                 <option value="hazard">{{ 'Hazard (environmental / complex)'|t }}</option>
                 <option value="trap">{{ 'Trap (mechanical / magical / haunt)'|t }}</option>
                 <option value="item">{{ 'Item'|t }}</option>
-                <option value="creature">{{ 'Creature'|t }}</option>
                 <option value="actor">{{ 'Actor / NPC'|t }}</option>
               </select>
             </label>
@@ -215,6 +214,31 @@
             <div class="hexmap-stage room-editor__stage">
               <div id="room-editor-canvas" class="hexmap-canvas-wrapper" data-room-editor-canvas></div>
             </div>
+            {% include '@dungeoncrawler_content/editor-map-legend.html.twig' with {
+              groups: [
+                { title: 'Hexes'|t, items: [
+                  { symbol: 'hex', fill: '#2d3748', line: '#4a5568', label: 'Floor (part of the room)'|t },
+                  { symbol: 'hex', fill: '#1d4ed8', line: '#93c5fd', label: 'Water'|t },
+                  { symbol: 'hex', fill: '#7f1d1d', line: '#f97316', label: 'Lava'|t },
+                  { symbol: 'hex', fill: '#38bdf8', line: '#e0f2fe', label: 'Selected hex, or where a drag will land'|t },
+                  { symbol: 'hex', fill: '#ef4444', line: '#fee2e2', label: 'A drag cannot land here'|t },
+                  { symbol: 'text', text: '+10ft', label: 'Elevation of the hex'|t }
+                ] },
+                { title: 'Contents'|t, items: [
+                  { symbol: 'token', fill: '#22c55e', text: 'A', label: 'Actor'|t },
+                  { symbol: 'token', fill: '#f59e0b', text: 'I', label: 'Item'|t },
+                  { symbol: 'token', fill: '#6b7280', text: 'O', label: 'Obstacle'|t },
+                  { symbol: 'token', fill: '#a855f7', text: 'T', label: 'Trap'|t },
+                  { symbol: 'token', fill: '#f97316', text: 'H', label: 'Hazard'|t },
+                  { symbol: 'token', fill: '#94a3b8', line: '#ffffff', label: 'White outline: selected'|t }
+                ] },
+                { title: 'Doorways'|t, items: [
+                  { symbol: 'triangle', fill: '#38bdf8', label: 'Entry port (a way into the room)'|t },
+                  { symbol: 'square', fill: '#2563eb', label: 'Exit port (a way out of the room)'|t }
+                ] }
+              ],
+            } only %}
+            <p class="room-editor__hint">{{ 'Contents with artwork show their picture instead of a lettered token. The notch on a lettered token shows which way it faces. Doorways sit on the edge of their hex; the Dungeon Editor connects an exit of one room to an entry of another.'|t }}</p>
           </div>
 
 

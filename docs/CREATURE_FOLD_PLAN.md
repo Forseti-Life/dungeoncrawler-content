@@ -4,14 +4,21 @@ Part of **DC-ACTOR-AUTHORITY-20261114** (`docs/ACTOR_AUTHORITY.md`). The
 binding decision is "creatures are actors; retire the creature family".
 This plan covers only that part.
 
-Status on 2026-11-19: **stages A and B done; stage C (cutover) not run.**
+Status on 2026-11-19: **cutover done.** There is no creature definition
+family.
 
-- 18 creatures exist as actor definitions with class `creature` (15 created,
-  3 merged into the actor that already had the id or name). Applied with
-  `CREATURE_FOLD_APPLY=definitions`; library actor rows were copied first to
-  `zz_backup_library_actor_rows_20261119`.
-- The creature family, its 86 registry rows and the 76 room placements that
-  point at it are unchanged until the cutover.
+- 22 actor definitions have class `creature`: the 18 folded here and four
+  that already existed.
+- 76 room placements (31 in room versions, 45 in drafts) were repointed from
+  the creature family to the actor family. None remains.
+- The 86 creature registry rows and 82 quarantine rows were deleted after
+  being copied to `zz_backup_creature_registry_20261119` and
+  `zz_backup_creature_quarantine_20261119`. The rewritten room rows are in
+  `zz_backup_creature_room_versions_20261119` and
+  `zz_backup_creature_room_drafts_20261119`; library actor rows as they were
+  before the fold are in `zz_backup_library_actor_rows_20261119`.
+- The code change was applied without running the unit suites afterwards
+  (Board direction). Run them before the next release.
 
 ## Decision (Board, 2026-11-19): a creature is a class
 
@@ -171,7 +178,7 @@ action costs, loot item ids.
 style of `retire-canonical-actor-rows.php`. For each creature it saves the
 actor definition, reads it back, and proves every source field arrived.
 
-### C. Cutover (one change, under a maintenance window)
+### C. Cutover (done)
 
 Code and data move together. Applying the data alone would leave an empty
 creature family that the encounter generator refills at run time.

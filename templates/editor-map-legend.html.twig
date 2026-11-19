@@ -1,0 +1,34 @@
+{#
+/**
+ * @file
+ * Map legend shared by the Room Editor and the Dungeon Editor.
+ *
+ * Each editor lists only what its own map draws; colours here mirror the
+ * renderer (HexCanvas.js, RoomEditorShell.js) and must change with it.
+ *
+ * Available variables:
+ * - groups: list of { title, items }, where each item is
+ *   { symbol, fill, line, text, label }.
+ *   symbol: hex | token | dot | ring | triangle | square | line | badge | text.
+ *   fill / line: CSS colours (optional, by symbol).
+ *   text: characters shown inside a token, badge or text symbol (optional).
+ */
+#}
+<section class="editor-map-legend" aria-label="{{ 'Map legend'|t }}">
+  <p class="editor-map-legend__title">{{ 'Map legend'|t }}</p>
+  {% for group in groups %}
+    <div class="editor-map-legend__group">
+      <span class="editor-map-legend__group-title">{{ group.title }}</span>
+      <ul class="editor-map-legend__items" role="list">
+        {% for item in group.items %}
+          <li class="editor-map-legend__item">
+            <span class="editor-map-legend__symbol editor-map-legend__symbol--{{ item.symbol }}"
+                  style="{% if item.fill %}--legend-fill: {{ item.fill }};{% endif %}{% if item.line %}--legend-line: {{ item.line }};{% endif %}"
+                  aria-hidden="true">{{ item.text }}</span>
+            <span>{{ item.label }}</span>
+          </li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% endfor %}
+</section>

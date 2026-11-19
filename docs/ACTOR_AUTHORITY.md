@@ -23,8 +23,26 @@ GM tools, deterministic rule handlers, imports and jobs.
 
 ## Creatures
 
-Creatures are not folded in yet: the content registry still holds a separate
-creature family. The plan, the measured state and the open decisions are in
+A creature is a canonical actor definition of type `npc` whose
+`state_data.class` is exactly `creature`. What kind of creature it is lives in
+`state_data.species`. The code has no creature definition family, schema,
+catalog or generation tool; a placement with `family: creature` fails like any
+unknown family.
+
+- `CanonicalDefinitionService::isCreature($actor_id)` is the one place the
+  rule is evaluated. It throws `definition_missing:actor:<id>` for an actor
+  definition that does not exist.
+- Room contents keep their buckets. `CanonicalRoomProjectionService` and
+  `RoomEditorService` put an `actor` placement in `creatures` when
+  `isCreature()` is true and in `npcs` otherwise.
+- Encounters select `publishedDefinitions('actor', ['class' => 'creature',
+  ...])`. An actor's selection tags are its `traits` and
+  `spawn.encounter_themes`.
+- `generate_npc_definition` with `class: creature` generates a creature: the
+  same actor definition, with a required stat block and no NPC sheet defaults.
+
+The data migration that moves the stored creature definitions and repoints
+room placements is separate; its plan, measurements and open decisions are in
 [CREATURE_FOLD_PLAN.md](CREATURE_FOLD_PLAN.md).
 
 ## Current state: S0 (inventory and contract freeze)

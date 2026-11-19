@@ -25,7 +25,8 @@ final class EncounterGeneratorCanonicalDefinitionTest extends TestCase {
     $published = [
       $this->creature('creature-leech', 'Bloat Leech Swarm', 1, ['gen-evidence', 'sewer']),
     ];
-    $service = $this->service($published);
+    $requests = [];
+    $service = $this->service($published, [], $requests);
 
     $encounter = $service->generateEncounter([
       'party_level' => 2,
@@ -37,6 +38,11 @@ final class EncounterGeneratorCanonicalDefinitionTest extends TestCase {
       'seed' => 42,
     ]);
 
+    // Creatures are drawn from the actor family, by class, never by family.
+    $this->assertSame([[
+      'actor',
+      ['class' => 'creature', 'level_min' => 1, 'level_max' => 3, 'tags_any' => ['sewer'], 'limit' => 100],
+    ]], $requests);
     $this->assertSame('encounter_population_plan-v1', $encounter['schema_version']);
     $this->assertSame(80, $encounter['xp_budget']['target_xp']);
     $this->assertGreaterThanOrEqual($encounter['xp_budget']['min_xp'], $encounter['actual_xp']);
@@ -49,6 +55,9 @@ final class EncounterGeneratorCanonicalDefinitionTest extends TestCase {
       $this->assertArrayHasKey('q', $entry['hex']);
       $this->assertArrayHasKey('r', $entry['hex']);
       $this->assertSame('hostile', $entry['disposition']);
+    }
+    foreach ($encounter['combatants'] as $combatant) {
+      $this->assertSame(24, $combatant['max_hp']);
     }
   }
 
@@ -134,12 +143,18 @@ final class EncounterGeneratorCanonicalDefinitionTest extends TestCase {
     ], 'sewer'));
   }
 
-  private function service(array $creatures, array $items = []): EncounterGeneratorService {
+  private function service(array $creatures, array $items = [], array &$requests = []): EncounterGeneratorService {
     $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
     $logger_factory->method('get')->willReturn($this->createMock(LoggerChannelInterface::class));
     $definitions = $this->createMock(CanonicalDefinitionService::class);
     $definitions->method('publishedDefinitions')
-      ->willReturnCallback(static fn(string $family, array $criteria): array => $family === 'item' ? $items : $creatures);
+      ->willReturnCallback(static function (string $family, array $criteria) use ($creatures, $items, &$requests): array {
+        $requests[] = [$family, $criteria];
+        return match ($family) {
+          'item' => $items,
+          'actor' => $creatures,
+        };
+      });
 
     return new EncounterGeneratorService(
       $this->createMock(Connection::class),
@@ -153,13 +168,13 @@ final class EncounterGeneratorCanonicalDefinitionTest extends TestCase {
 
   private function creature(string $id, string $name, int $level, array $tags): array {
     return [
-      'family' => 'creature',
+      'family' => 'actor',
       'definition_id' => $id,
       'version' => '1.0.0',
       'label' => $name,
       'level' => $level,
       'tags' => $tags,
-      'payload' => ['pf2e_stats' => ['hp' => ['max' => 24]]],
+      'payload' => ['state_data' => ['class' => 'creature', 'level' => $level, 'hp_current' => 24, 'max_hp' => 24]],
     ];
   }
 

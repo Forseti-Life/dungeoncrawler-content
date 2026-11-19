@@ -13,8 +13,8 @@
     "none": "no actor-reaching site in this file"
   },
   "totals": {
-    "files": 112,
-    "write_sites": 325
+    "files": 111,
+    "write_sites": 324
   },
   "files": {
     "dungeoncrawler_content.install": {
@@ -104,12 +104,6 @@
       "slice": "S4",
       "sites": {
         "mutation_entry_call:call:conditionManager->removeCondition": 1
-      }
-    },
-    "src/Controller/CreatureCatalogController.php": {
-      "slice": "S2",
-      "sites": {
-        "literal_table_write:merge:dungeoncrawler_content_registry": 1
       }
     },
     "src/Controller/DefinitionEditorController.php": {

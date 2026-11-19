@@ -7,6 +7,7 @@ namespace Drupal\dungeoncrawler_content\Service\Generation;
 use Drupal\Component\Datetime\TimeInterface;
 use Drupal\Core\Database\Connection;
 use Drupal\dungeoncrawler_content\Geometry\RoomPlacementTransformer;
+use Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService;
 use Drupal\dungeoncrawler_content\Support\H3SpatialHelper;
 
 /**
@@ -22,6 +23,7 @@ class CanonicalRoomProjectionService {
   public function __construct(
     private readonly ?Connection $database = NULL,
     private readonly ?TimeInterface $time = NULL,
+    private readonly ?CanonicalDefinitionService $definitions = NULL,
   ) {}
 
   /**
@@ -595,16 +597,15 @@ class CanonicalRoomProjectionService {
         throw new RuntimeGenerationException('campaign_source_room_instantiation_invalid', [$this->finding('campaign_source_room_instantiation_invalid', '/placements', 'Malformed contents placement.')]);
       }
       $family = (string) ($entity['definition_ref']['family'] ?? '');
+      $definition_id = (string) ($entity['definition_ref']['definition_id'] ?? '');
       $bucket = match ($family) {
-        'actor' => 'npcs',
-        'creature' => 'creatures',
+        'actor' => $this->actorPlacementIsCreature($definition_id) ? 'creatures' : 'npcs',
         'item' => 'items',
         'obstacle' => 'obstacles',
         'trap' => 'traps',
         'hazard' => 'hazards',
         default => throw new RuntimeGenerationException('campaign_source_room_instantiation_invalid', [$this->finding('campaign_source_room_instantiation_invalid', '/placements', sprintf('Unsupported contents family "%s".', $family))]),
       };
-      $definition_id = (string) ($entity['definition_ref']['definition_id'] ?? '');
       $entry = [
         'instance_id' => (string) ($entity['instance_id'] ?? ''),
         'content_id' => $definition_id,
@@ -624,6 +625,24 @@ class CanonicalRoomProjectionService {
       $contents[$bucket][] = $entry;
     }
     return $contents;
+  }
+
+  /**
+   * Whether a placed actor definition is a creature.
+   *
+   * Decides between the `creatures` and `npcs` contents buckets, so a missing
+   * definition authority or a missing definition is an error, never `npcs`.
+   */
+  private function actorPlacementIsCreature(string $definition_id): bool {
+    if ($this->definitions === NULL) {
+      throw new \LogicException('CanonicalDefinitionService is required to project actor placements.');
+    }
+    try {
+      return $this->definitions->isCreature($definition_id);
+    }
+    catch (\OutOfBoundsException $e) {
+      throw new RuntimeGenerationException('campaign_source_room_instantiation_invalid', [$this->finding('campaign_source_room_instantiation_invalid', '/placements', sprintf('Actor definition "%s" does not exist.', $definition_id))], 422, $e);
+    }
   }
 
   /**

@@ -165,7 +165,7 @@ class DungeonEditorStatusTest extends TestCase {
   }
 
   public function testStatusOfABuiltLevelReachesPublication(): void {
-    $object = ['definition_ref' => ['family' => 'creature', 'definition_id' => 'skeleton', 'version' => '1.0.0']];
+    $object = ['definition_ref' => ['family' => 'actor', 'definition_id' => 'skeleton', 'version' => '1.0.0']];
     $service = $this->service([self::VERSION => $this->room([$object])]);
     $draft = $this->draft(['name' => 'Barrow', 'description' => 'A barrow.', 'theme' => 'undead'], [
       $this->placement(1, self::VERSION, 0, TRUE),

@@ -64,7 +64,7 @@ class RoomEditorContractTest extends UnitTestCase {
     $this->assertSame(20, $room['properties']['entry_ports']['maxItems']);
     $this->assertSame(50, $room['properties']['exit_ports']['maxItems']);
     $this->assertSame(
-      ['creature', 'actor', 'item', 'obstacle', 'trap', 'hazard'],
+      ['actor', 'item', 'obstacle', 'trap', 'hazard'],
       $placement['properties']['definition_ref']['properties']['family']['enum']
     );
   }

@@ -7,7 +7,7 @@ use Drupal\Core\Database\Connection;
 /**
  * Service for querying and filtering game content.
  *
- * Provides methods to query creatures, items, traps, and other content
+ * Provides methods to query items, traps, and other content
  * with various filters (level, tags, rarity, etc.).
  *
  * @see docs/dungeoncrawler/issues/issue-3-game-content-system-design.md
@@ -41,32 +41,6 @@ class ContentQuery {
   }
 
   /**
-   * Query creatures by filters.
-   *
-   * @param array $filters
-   *   Filter criteria:
-   *   - level_min: int - Minimum level
-   *   - level_max: int - Maximum level
-   *   - tags_include: array - Tags that must be present
-   *   - tags_exclude: array - Tags that must not be present
-   *   - rarity: array - Rarity values to match
-   *   - size: string - Creature size
-   *   - alignment: string - Creature alignment
-   * @param int $limit
-   *   Maximum number of results (default 10).
-   *
-   * @return array
-   *   Array of creature data.
-   *
-   * @see docs/dungeoncrawler/issues/issue-3-game-content-system-design.md
-   *   Line 172: queryCreatures method specification
-   *   Section: Content Query Algorithm (lines 955-1013)
-   */
-  public function queryCreatures(array $filters, int $limit = 10): array {
-    return $this->queryContent('creature', $filters, $limit);
-  }
-
-  /**
    * Query items by filters.
    *
    * @param array $filters
@@ -93,7 +67,7 @@ class ContentQuery {
    * Query traps by filters.
    *
    * @param array $filters
-   *   Filter criteria similar to creatures/items.
+   *   Filter criteria similar to items.
    * @param int $limit
    *   Maximum number of results.
    *
@@ -183,7 +157,7 @@ class ContentQuery {
    * Get random content matching criteria.
    *
    * @param string $content_type
-   *   Content type ('creature', 'item', 'trap', 'hazard').
+   *   Content type ('item', 'trap', 'hazard').
    * @param array $filters
    *   Filter criteria.
    * @param int $count

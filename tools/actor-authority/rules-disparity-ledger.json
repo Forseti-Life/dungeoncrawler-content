@@ -5,7 +5,7 @@
   "sources": {
     "character": "config/schemas/character.schema.json",
     "canonical_actor": "config/schemas/canonical_actor.schema.json",
-    "creature": "config/schemas/creature.schema.json",
+    "creature": "config/schemas/creature.schema.json (removed with the creature definition family; see docs/CREATURE_FOLD_PLAN.md)",
     "actor_row": "dc_campaign_characters hot columns (dungeoncrawler_content.install)",
     "library_validator": "StateValidationService::validateCanonicalActorLibraryContracts()",
     "registry": "dungeoncrawler_content_registry content_type npc|creature"

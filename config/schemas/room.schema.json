@@ -381,7 +381,7 @@
     },
     "creatures": {
       "type": "array",
-      "description": "Creatures currently in this room. References creature schema.",
+      "description": "Creatures currently in this room.",
       "maxItems": 50,
       "uniqueItems": true,
       "items": {

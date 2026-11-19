@@ -187,3 +187,26 @@
   outline: 2px dashed rgba(250, 204, 21, 0.7);
   outline-offset: -2px;
 }
+
+.dungeon-editor__selection-bar {
+  flex-wrap: wrap;
+}
+
+/* Fixed basis and clipped text: the bar keeps one height whatever is selected. */
+.dungeon-editor__selection-name {
+  flex: 1 1 220px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm, 0.85em);
+  font-weight: 600;
+}
+
+.dungeon-editor__selection-bar [data-inspector-action="toggle-entrance"] {
+  min-width: 10em;
+}
+
+.dungeon-editor__howto {
+  margin: 0;
+}

@@ -13,7 +13,7 @@ import {
   renderEditorGmToolset,
   selectEditorGmTool,
   shouldSubmitEditorGmKey,
-} from './EditorGmChatClient.js?v=20261118-format-5';
+} from './EditorGmChatClient.js?v=20261119-creature-fold-1';
 
 function makeEl(tag, className = null, text = null) {
   const el = document.createElement(tag);
@@ -32,7 +32,7 @@ export class DefinitionEditorShell {
     this.settings = settings;
     this.urls = { gm: String(settings.gmUrl || '') };
     this.csrfToken = String(settings.csrfToken || '');
-    this.scope = settings.scope || { family: 'creature' };
+    this.scope = settings.scope || { family: 'actor' };
     this._handlers = [];
     this._busy = false;
     this._waitingOnGenerator = false;
@@ -62,7 +62,7 @@ export class DefinitionEditorShell {
     }
     const url = new URL(this.urls.gm, window.location.origin);
     url.searchParams.set('profile', 'editing');
-    url.searchParams.set('family', this.scope.family || 'creature');
+    url.searchParams.set('family', this.scope.family || 'actor');
     if (this.scope.definition_id) {
       url.searchParams.set('definition_id', this.scope.definition_id);
     }
@@ -259,8 +259,8 @@ export class DefinitionEditorShell {
   }
 
   _renderGenerationForm() {
-    const supportedFamilies = ['item', 'creature', 'actor', 'obstacle', 'hazard', 'trap'];
-    const scopeFamily = this.scope.family || 'creature';
+    const supportedFamilies = ['item', 'actor', 'obstacle', 'hazard', 'trap'];
+    const scopeFamily = this.scope.family || 'actor';
     const family = supportedFamilies.includes(this._dom.generateFamily.value)
       ? this._dom.generateFamily.value
       : (supportedFamilies.includes(scopeFamily) ? scopeFamily : 'item');
@@ -280,7 +280,7 @@ export class DefinitionEditorShell {
   }
 
   async _generateDefinition() {
-    const family = this._dom.generateFamily.value || this.scope.family || 'creature';
+    const family = this._dom.generateFamily.value || this.scope.family || 'actor';
     const prompt = String(this._dom.generatePrompt.value || '').trim();
     if (!prompt) {
       this._appendGmMessage('error', 'Enter a generation prompt first.');
@@ -303,7 +303,6 @@ export class DefinitionEditorShell {
     const commonUniqueRarities = ['common', 'uncommon', 'rare', 'unique'];
     const toolByFamily = {
       item: 'generate_item_definition',
-      creature: 'generate_creature_definition',
       actor: 'generate_npc_definition',
       obstacle: 'generate_obstacle_definition',
       hazard: 'generate_hazard_definition',
@@ -316,9 +315,6 @@ export class DefinitionEditorShell {
     }
     if (family === 'item') {
       args.rarity = ['common', 'uncommon', 'rare', 'epic', 'legendary'].includes(rarity) ? rarity : 'common';
-    } else if (family === 'creature') {
-      if (roleOrSubtype) args.role = roleOrSubtype;
-      args.rarity = commonUniqueRarities.includes(rarity) ? rarity : 'common';
     } else if (family === 'actor') {
       if (roleOrSubtype) args.role = roleOrSubtype;
       if (this._dom.generateAttitude.value) args.attitude = this._dom.generateAttitude.value;

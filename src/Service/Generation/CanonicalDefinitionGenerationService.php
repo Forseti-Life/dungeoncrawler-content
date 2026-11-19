@@ -35,38 +35,32 @@ final class CanonicalDefinitionGenerationService {
     );
   }
 
-  public function generateCreatureDefinition(array $arguments, array $scope): array {
-    $this->assertScope($scope, 'creature');
-    $input = [
-      'prompt' => $this->boundedString($arguments, 'prompt', TRUE, 1, 2000),
-      'definition_id' => $this->boundedString($arguments, 'definition_id', FALSE, 0, 100),
-      'level' => $this->intRange($arguments, 'level', -1, 25, 1),
-      'role' => $this->boundedString($arguments, 'role', FALSE, 0, 100),
-      'creature_type' => $this->enum($arguments, 'creature_type', GenerationVocabulary::CREATURE_TYPES, 'animal'),
-      'rarity' => $this->enum($arguments, 'rarity', GenerationVocabulary::CREATURE_RARITIES, 'common'),
-      'seed' => $this->seed($arguments),
-    ];
-
-    return $this->generation->completeJson('generate_creature_definition', 'editor_generation_creature_definition', $input['seed'], 4000,
-      fn(array $prior_findings): string => $this->definitionPrompt('creature', $input, $scope, $prior_findings, $this->creatureShape($input)),
-      fn(array $decoded, array $provenance): array => $this->definitionResult('creature', 'creature_definition', 'generate_creature_definition', $decoded, $provenance, $input)
-    );
-  }
-
+  /**
+   * Generates an actor definition proposal.
+   *
+   * `class` = `creature` asks for a creature: the same actor definition, with
+   * an authored stat block in place of the NPC's social fields.
+   */
   public function generateNpcDefinition(array $arguments, array $scope): array {
     $this->assertScope($scope, 'actor');
     $input = [
       'prompt' => $this->boundedString($arguments, 'prompt', TRUE, 1, 2000),
       'level' => $this->intRange($arguments, 'level', -1, 30, 1),
       'role' => $this->boundedString($arguments, 'role', FALSE, 0, 100),
+      'class' => $this->boundedString($arguments, 'class', FALSE, 0, 64),
       'attitude' => $this->enum($arguments, 'attitude', GenerationVocabulary::NPC_ATTITUDES, 'indifferent'),
       'definition_id' => $this->boundedString($arguments, 'definition_id', FALSE, 0, 100),
       'storyline_binding' => is_array($arguments['storyline_binding'] ?? NULL) ? $arguments['storyline_binding'] : [],
       'seed' => $this->seed($arguments),
     ];
+    $is_creature = $input['class'] === CanonicalDefinitionService::CREATURE_CLASS;
+    if ($is_creature) {
+      $input['species'] = $this->enum($arguments, 'species', GenerationVocabulary::CREATURE_TYPES, 'animal');
+      $input['rarity'] = $this->enum($arguments, 'rarity', GenerationVocabulary::CREATURE_RARITIES, 'common');
+    }
 
     return $this->generation->completeJson('generate_npc_definition', 'editor_generation_npc_definition', $input['seed'], 4000,
-      fn(array $prior_findings): string => $this->definitionPrompt('actor', $input, $scope, $prior_findings, $this->actorShape($input)),
+      fn(array $prior_findings): string => $this->definitionPrompt('actor', $input, $scope, $prior_findings, $is_creature ? $this->creatureShape($input) : $this->actorShape($input)),
       fn(array $decoded, array $provenance): array => $this->definitionResult('actor', 'npc_definition', 'generate_npc_definition', $decoded, $provenance, $input)
     );
   }
@@ -129,7 +123,6 @@ final class CanonicalDefinitionGenerationService {
     $scope['family'] = $family;
     return match ($family) {
       'item' => $this->generateItemDefinition($arguments, $scope),
-      'creature' => $this->generateCreatureDefinition($arguments, $scope),
       'actor' => $this->generateNpcDefinition($arguments, $scope),
       'obstacle' => $this->generateObstacleDefinition($arguments, $scope),
       'hazard' => $this->generateHazardDefinition($arguments, $scope),
@@ -216,11 +209,9 @@ final class CanonicalDefinitionGenerationService {
         'Do not include ai_generation, magic_properties, activation, rules, unidentified, or nested effect blocks.',
         'If the item is magical, express it with the magical trait and concise description text only.',
       ],
-      'creature' => [
-        'For creature definitions, use the exact pf2e_stats, ai_personality, lifecycle object structure shown in required_output_shape.',
-      ],
       'actor' => [
         'For actor/NPC definitions, use only actor_id, version, actor_type, display_name, source_module, and state_data top-level keys; metadata is server-injected.',
+        'A creature is an actor definition whose state_data.class is exactly "creature". When author_inputs.class is "creature", return the full stat block shown in required_output_shape.',
       ],
       'obstacle' => [
         'For obstacle definitions, include object_id, label, category, movable, stackable, movement (passable, blocks_movement, cost_multiplier), size, description, and tags.',
@@ -320,26 +311,55 @@ final class CanonicalDefinitionGenerationService {
     ];
   }
 
+  /**
+   * The actor definition shape of a creature: a stat block, no social sheet.
+   */
   private function creatureShape(array $input): array {
+    $stats = Pf2eGenerationRules::baselineCreatureStats($input['level'], $input['role']);
     return [
-      'schema_version' => '1.0.0',
-      'creature_id' => 'optional uuid; server fills if absent',
-      'name' => 'string 1..200',
-      'level' => $input['level'],
-      'creature_type' => $input['creature_type'],
-      'rarity' => $input['rarity'],
-      'traits' => ['animal', 'swarm', 'gen-evidence'],
-      'size' => 'tiny|small|medium|large|huge|gargantuan',
-      'hex_footprint' => 'integer 1..30',
-      'pf2e_stats' => Pf2eGenerationRules::baselineCreaturePf2eStats($input['level'], $input['role']),
-      'ai_personality' => [
-        'disposition' => 'hostile|unfriendly|indifferent|friendly|helpful',
-        'personality_traits' => ['string'],
-        'goals' => ['primary' => 'string'],
+      'actor_id' => 'optional canonical slug; server fills if absent',
+      'version' => '1.0.0',
+      'actor_type' => 'npc',
+      'display_name' => 'string 1..255',
+      'source_module' => 'gen-evidence',
+      'state_data' => [
+        'name' => 'same as display_name',
+        'class' => CanonicalDefinitionService::CREATURE_CLASS,
+        'species' => $input['species'],
+        'level' => $input['level'],
+        'rarity' => $input['rarity'],
+        'traits' => [$input['species'], 'gen-evidence'],
+        'size' => 'Tiny|Small|Medium|Large|Huge|Gargantuan',
+        'hex_footprint' => 'integer 1..30',
+        'alignment' => 'N',
+        'attitude' => $input['attitude'],
+        'hp_current' => $stats['max_hp'],
+        'max_hp' => $stats['max_hp'],
+        'ac' => $stats['ac'],
+        'perception' => $stats['perception'],
+        'saves' => $stats['saves'],
+        'abilities' => $stats['abilities'],
+        'speed' => $stats['speed'],
+        'speeds' => ['fly' => 'optional integer feet', 'swim' => 'optional integer feet', 'climb' => 'optional integer feet', 'burrow' => 'optional integer feet'],
+        'senses' => ['string'],
+        'languages' => ['string'],
+        'skills' => [['name' => 'Athletics', 'modifier' => $stats['attacks'][0]['bonus']]],
+        'attacks' => $stats['attacks'],
+        'special_abilities' => [
+          ['name' => 'string 1..200', 'action_cost' => 'passive|free|reaction|1|2|3', 'description' => 'string 1..4000', 'traits' => ['string']],
+        ],
+        'immunities' => ['string'],
+        'resistances' => [['type' => 'string', 'value' => 'integer 1..100']],
+        'weaknesses' => [['type' => 'string', 'value' => 'integer 1..100']],
+        'spawn' => ['spawn_type' => 'permanent|respawning|wandering|boss|quest|summoned', 'encounter_themes' => ['string']],
+        'combat' => [
+          'aggression' => 'pacifist|defensive|cautious|aggressive|berserk',
+          'tactics' => 'mindless|instinctive|basic|tactical|strategic|genius',
+          'morale' => 'cowardly|cautious|steady|brave|fanatical',
+        ],
+        'description' => 'string <=4000',
+        'conditions' => [],
       ],
-      'lifecycle' => ['spawn_type' => 'permanent', 'is_alive' => TRUE],
-      'description' => 'string 1..5000',
-      'source' => 'gen-evidence',
     ];
   }
 
@@ -356,7 +376,7 @@ final class CanonicalDefinitionGenerationService {
       'source_module' => 'gen-evidence',
       'state_data' => [
         'name' => 'same as display_name',
-        'class' => $role,
+        'class' => $input['class'] !== '' ? $input['class'] : $role,
         'ancestry' => 'Humanoid',
         'occupation' => $role,
         'role' => $role,
@@ -420,6 +440,9 @@ final class CanonicalDefinitionGenerationService {
     if ($findings !== []) {
       throw $this->nonconforming($this->definitionFindings($findings));
     }
+    if ($family === 'actor' && $input['class'] === CanonicalDefinitionService::CREATURE_CLASS) {
+      $this->assertCreatureStatBlock($payload['state_data']);
+    }
     $definition_id = (string) $payload[$this->definitions->idProperty($family)];
     if ($this->definitions->currentVersion($family, $definition_id) !== NULL) {
       throw $this->nonconforming([$this->finding('generation_nonconforming', '/' . $this->definitions->idProperty($family), 'Generated definition id already exists.')]);
@@ -444,6 +467,27 @@ final class CanonicalDefinitionGenerationService {
     ];
   }
 
+  /**
+   * A requested creature must come back as one, with its stat block.
+   *
+   * The schema keeps every stat optional, so the stat block a creature needs
+   * to be placed in an encounter is required here.
+   */
+  private function assertCreatureStatBlock(array $state): void {
+    if ($state['class'] !== CanonicalDefinitionService::CREATURE_CLASS) {
+      throw $this->nonconforming([$this->finding('generation_nonconforming', '/state_data/class', 'A creature definition must have state_data.class "creature".')]);
+    }
+    $findings = [];
+    foreach (['species', 'max_hp', 'ac', 'perception', 'saves', 'abilities', 'speed', 'attacks'] as $key) {
+      if (!isset($state[$key]) || $state[$key] === []) {
+        $findings[] = $this->finding('generation_nonconforming', '/state_data/' . $key, sprintf('A creature definition requires state_data.%s.', $key));
+      }
+    }
+    if ($findings !== []) {
+      throw $this->nonconforming($findings);
+    }
+  }
+
   private function completeIdentity(string $family, array $payload, array $input): array {
     $id_property = $this->definitions->idProperty($family);
     $name_property = $this->definitions->nameProperty($family);
@@ -457,75 +501,13 @@ final class CanonicalDefinitionGenerationService {
     }
     $name = trim((string) ($payload[$name_property] ?? $payload['name'] ?? $payload['display_name'] ?? 'generated-definition'));
     if (!isset($payload[$id_property]) || trim((string) $payload[$id_property]) === '') {
-      $payload[$id_property] = $family === 'creature'
-        ? $this->deterministicUuid($seed, $family . ':' . $name)
-        : $this->slug($name, $seed);
+      $payload[$id_property] = $this->slug($name, $seed);
     }
     if ($family === 'actor' && isset($payload['state_data']) && is_array($payload['state_data'])) {
       $state = $payload['state_data'];
-      $level = max(1, (int) ($state['level'] ?? $input['level'] ?? 1));
-      $role = trim((string) ($state['role'] ?? $input['role'] ?? $state['class'] ?? 'npc'));
-      $class_name = trim((string) ($state['class'] ?? $role));
-      $stats = Pf2eGenerationRules::npcFallbackStats($level, [
-        'ac' => $state['ac'] ?? NULL,
-        'currentHp' => $state['hp_current'] ?? NULL,
-        'maxHp' => $state['max_hp'] ?? ($state['hp_current'] ?? NULL),
-      ]);
-      $state['max_hp'] = (int) ($state['max_hp'] ?? $stats['maxHp']);
-      $state['hp_current'] = (int) ($state['hp_current'] ?? $state['max_hp']);
-      $state['ac'] = (int) ($state['ac'] ?? $stats['ac']);
-      $state['ancestry'] = (string) ($state['ancestry'] ?? $state['species'] ?? 'Human');
-      $state['role'] = $role !== '' ? $role : 'npc';
-      $state['occupation'] = (string) ($state['occupation'] ?? $state['role']);
-      $state['alignment'] = (string) ($state['alignment'] ?? 'N');
-      $state['perception'] = (int) ($state['perception'] ?? $stats['perception']);
-      $state['saves'] = is_array($state['saves'] ?? NULL) ? [
-        'fortitude' => (int) ($state['saves']['fortitude'] ?? $stats['fortitude']),
-        'reflex' => (int) ($state['saves']['reflex'] ?? $stats['reflex']),
-        'will' => (int) ($state['saves']['will'] ?? $stats['will']),
-      ] : [
-        'fortitude' => $stats['fortitude'],
-        'reflex' => $stats['reflex'],
-        'will' => $stats['will'],
-      ];
-      $state['abilities'] = is_array($state['abilities'] ?? NULL)
-        ? array_replace(Pf2eGenerationRules::npcFallbackAbilityScores($role, $class_name), $state['abilities'])
-        : Pf2eGenerationRules::npcFallbackAbilityScores($role, $class_name);
-      if (empty($state['skills']) || !is_array($state['skills'])) {
-        $state['skills'] = [
-          ['name' => 'Perception', 'modifier' => $state['perception']],
-          ['name' => 'Society', 'modifier' => 3 + $level],
-        ];
-      }
-      if (empty($state['attacks']) || !is_array($state['attacks'])) {
-        $state['attacks'] = [
-          ['name' => 'Dagger', 'bonus' => 5 + $level, 'damage' => '1d4+1 piercing'],
-        ];
-      }
-      $state['languages'] = is_array($state['languages'] ?? NULL) && $state['languages'] !== [] ? array_values($state['languages']) : ['Common'];
-      $state['senses'] = is_array($state['senses'] ?? NULL) && $state['senses'] !== [] ? array_values($state['senses']) : ['Normal vision'];
-      $state['equipment'] = is_array($state['equipment'] ?? NULL) ? array_values($state['equipment']) : [];
-      $state['spells'] = is_array($state['spells'] ?? NULL) ? array_values($state['spells']) : [];
-      $state['appearance'] = (string) ($state['appearance'] ?? $state['description'] ?? '');
-      $state['backstory'] = (string) ($state['backstory'] ?? $state['description'] ?? '');
-      $state['personality_traits'] = is_array($state['personality_traits'] ?? NULL) && $state['personality_traits'] !== []
-        ? array_values($state['personality_traits'])
-        : ['observant', 'guarded'];
-      $state['motivations'] = (string) ($state['motivations'] ?? 'Protect their interests and survive the current crisis.');
-      $state['fears'] = (string) ($state['fears'] ?? 'Being exposed or betrayed.');
-      $state['bonds'] = (string) ($state['bonds'] ?? 'Tied to local factions and contacts.');
-      if (empty($state['psychology']) || !is_array($state['psychology'])) {
-        $state['psychology'] = [
-          'inner_conflict' => 'Balances duty against personal safety.',
-          'coping_mechanism' => 'Stays focused on routines and practical details.',
-          'stress_response' => 'Becomes guarded and transactional under pressure.',
-          'insecurity' => 'Doubts whether allies will keep their word.',
-          'secret' => 'Knows more about local operations than they admit.',
-          'desire' => 'Wants leverage and stability.',
-          'need' => 'Needs trustworthy allies.',
-          'trigger' => 'Direct threats or broken promises.',
-          'anchor' => 'A trusted contact or sworn obligation.',
-        ];
+      // A creature's stat block is authored, never filled with NPC defaults.
+      if ($input['class'] !== CanonicalDefinitionService::CREATURE_CLASS) {
+        $state = $this->completeNpcState($state, $input);
       }
       if (is_array($input['storyline_binding'] ?? NULL) && $input['storyline_binding'] !== []) {
         $state['storyline_binding'] = array_replace(
@@ -536,6 +518,77 @@ final class CanonicalDefinitionGenerationService {
       $payload['state_data'] = $state;
     }
     return $payload;
+  }
+
+  /**
+   * Fills the NPC sheet fields a generated NPC left out.
+   */
+  private function completeNpcState(array $state, array $input): array {
+    $level = max(1, (int) ($state['level'] ?? $input['level'] ?? 1));
+    $role = trim((string) ($state['role'] ?? $input['role'] ?? $state['class'] ?? 'npc'));
+    $class_name = trim((string) ($state['class'] ?? $role));
+    $stats = Pf2eGenerationRules::npcFallbackStats($level, [
+      'ac' => $state['ac'] ?? NULL,
+      'currentHp' => $state['hp_current'] ?? NULL,
+      'maxHp' => $state['max_hp'] ?? ($state['hp_current'] ?? NULL),
+    ]);
+    $state['max_hp'] = (int) ($state['max_hp'] ?? $stats['maxHp']);
+    $state['hp_current'] = (int) ($state['hp_current'] ?? $state['max_hp']);
+    $state['ac'] = (int) ($state['ac'] ?? $stats['ac']);
+    $state['ancestry'] = (string) ($state['ancestry'] ?? $state['species'] ?? 'Human');
+    $state['role'] = $role !== '' ? $role : 'npc';
+    $state['occupation'] = (string) ($state['occupation'] ?? $state['role']);
+    $state['alignment'] = (string) ($state['alignment'] ?? 'N');
+    $state['perception'] = (int) ($state['perception'] ?? $stats['perception']);
+    $state['saves'] = is_array($state['saves'] ?? NULL) ? [
+      'fortitude' => (int) ($state['saves']['fortitude'] ?? $stats['fortitude']),
+      'reflex' => (int) ($state['saves']['reflex'] ?? $stats['reflex']),
+      'will' => (int) ($state['saves']['will'] ?? $stats['will']),
+    ] : [
+      'fortitude' => $stats['fortitude'],
+      'reflex' => $stats['reflex'],
+      'will' => $stats['will'],
+    ];
+    $state['abilities'] = is_array($state['abilities'] ?? NULL)
+      ? array_replace(Pf2eGenerationRules::npcFallbackAbilityScores($role, $class_name), $state['abilities'])
+      : Pf2eGenerationRules::npcFallbackAbilityScores($role, $class_name);
+    if (empty($state['skills']) || !is_array($state['skills'])) {
+      $state['skills'] = [
+        ['name' => 'Perception', 'modifier' => $state['perception']],
+        ['name' => 'Society', 'modifier' => 3 + $level],
+      ];
+    }
+    if (empty($state['attacks']) || !is_array($state['attacks'])) {
+      $state['attacks'] = [
+        ['name' => 'Dagger', 'bonus' => 5 + $level, 'damage' => '1d4+1 piercing'],
+      ];
+    }
+    $state['languages'] = is_array($state['languages'] ?? NULL) && $state['languages'] !== [] ? array_values($state['languages']) : ['Common'];
+    $state['senses'] = is_array($state['senses'] ?? NULL) && $state['senses'] !== [] ? array_values($state['senses']) : ['Normal vision'];
+    $state['equipment'] = is_array($state['equipment'] ?? NULL) ? array_values($state['equipment']) : [];
+    $state['spells'] = is_array($state['spells'] ?? NULL) ? array_values($state['spells']) : [];
+    $state['appearance'] = (string) ($state['appearance'] ?? $state['description'] ?? '');
+    $state['backstory'] = (string) ($state['backstory'] ?? $state['description'] ?? '');
+    $state['personality_traits'] = is_array($state['personality_traits'] ?? NULL) && $state['personality_traits'] !== []
+      ? array_values($state['personality_traits'])
+      : ['observant', 'guarded'];
+    $state['motivations'] = (string) ($state['motivations'] ?? 'Protect their interests and survive the current crisis.');
+    $state['fears'] = (string) ($state['fears'] ?? 'Being exposed or betrayed.');
+    $state['bonds'] = (string) ($state['bonds'] ?? 'Tied to local factions and contacts.');
+    if (empty($state['psychology']) || !is_array($state['psychology'])) {
+      $state['psychology'] = [
+        'inner_conflict' => 'Balances duty against personal safety.',
+        'coping_mechanism' => 'Stays focused on routines and practical details.',
+        'stress_response' => 'Becomes guarded and transactional under pressure.',
+        'insecurity' => 'Doubts whether allies will keep their word.',
+        'secret' => 'Knows more about local operations than they admit.',
+        'desire' => 'Wants leverage and stability.',
+        'need' => 'Needs trustworthy allies.',
+        'trigger' => 'Direct threats or broken promises.',
+        'anchor' => 'A trusted contact or sworn obligation.',
+      ];
+    }
+    return $state;
   }
 
   private function schemaProvenance(array $provenance): array {
@@ -620,14 +673,6 @@ final class CanonicalDefinitionGenerationService {
     $slug = strtolower(trim(preg_replace('/[^a-z0-9]+/i', '-', $name) ?? '', '-'));
     $slug = $slug !== '' ? $slug : 'generated-definition';
     return substr($slug, 0, 70) . '-' . substr(hash('sha256', $seed . ':' . $name), 0, 8);
-  }
-
-  private function deterministicUuid(int $seed, string $value): string {
-    $hex = substr(hash('sha256', $seed . ':' . $value), 0, 32);
-    $hex[12] = '4';
-    $variant = hexdec($hex[16]);
-    $hex[16] = dechex(($variant & 0x3) | 0x8);
-    return substr($hex, 0, 8) . '-' . substr($hex, 8, 4) . '-' . substr($hex, 12, 4) . '-' . substr($hex, 16, 4) . '-' . substr($hex, 20, 12);
   }
 
   private function nonconforming(array $findings): CanonicalGenerationException {

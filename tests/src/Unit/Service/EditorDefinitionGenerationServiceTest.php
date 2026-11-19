@@ -6,6 +6,7 @@ use Drupal\Component\Datetime\TimeInterface;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\Core\Logger\LoggerChannelInterface;
 use Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService;
+use Drupal\dungeoncrawler_content\Service\Definition\DefinitionSchemaValidator;
 use Drupal\dungeoncrawler_content\Service\EditorGm\DefinitionEditorGmToolContext;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorDefinitionGenerationService;
 use Drupal\dungeoncrawler_content\Service\Generation\CanonicalGenerationException;
@@ -62,11 +63,10 @@ final class EditorDefinitionGenerationServiceTest extends TestCase {
   private function definitions(array $validationFindings = []): CanonicalDefinitionService {
     $calls = 0;
     $definitions = $this->createMock(CanonicalDefinitionService::class);
-    $definitions->method('families')->willReturn(['creature', 'actor', 'item', 'obstacle', 'trap', 'hazard']);
+    $definitions->method('families')->willReturn(['actor', 'item', 'obstacle', 'trap', 'hazard']);
     $definitions->method('schemaForFamily')->willReturn(['type' => 'object', 'additionalProperties' => FALSE, 'required' => []]);
     $definitions->method('idProperty')->willReturnCallback(static fn(string $family): string => [
       'item' => 'item_id',
-      'creature' => 'creature_id',
       'actor' => 'actor_id',
       'obstacle' => 'object_id',
       'hazard' => 'hazard_id',
@@ -74,7 +74,6 @@ final class EditorDefinitionGenerationServiceTest extends TestCase {
     ][$family]);
     $definitions->method('nameProperty')->willReturnCallback(static fn(string $family): string => [
       'item' => 'name',
-      'creature' => 'name',
       'actor' => 'display_name',
       'obstacle' => 'label',
       'hazard' => 'name',
@@ -89,6 +88,22 @@ final class EditorDefinitionGenerationServiceTest extends TestCase {
       $calls++;
       return $findings;
     });
+    return $definitions;
+  }
+
+  /**
+   * The definition authority double, validating against the real actor schema.
+   */
+  private function schemaValidatingDefinitions(): CanonicalDefinitionService {
+    $schema = json_decode((string) file_get_contents(dirname(__DIR__, 4) . '/config/schemas/canonical_actor.schema.json'), TRUE, 512, JSON_THROW_ON_ERROR);
+    $definitions = $this->createMock(CanonicalDefinitionService::class);
+    $definitions->method('schemaForFamily')->willReturn($schema);
+    $definitions->method('idProperty')->willReturn('actor_id');
+    $definitions->method('nameProperty')->willReturn('display_name');
+    $definitions->method('currentVersion')->willReturn(NULL);
+    $definitions->method('validateDefinition')->willReturnCallback(
+      static fn(string $family, array $payload): array => (new DefinitionSchemaValidator())->validate($schema, $payload)
+    );
     return $definitions;
   }
 
@@ -119,18 +134,49 @@ final class EditorDefinitionGenerationServiceTest extends TestCase {
     $this->assertSame('editor_generation_item_definition', $ai->operations[0]);
   }
 
-  public function testConformingCreatureResponseProducesCreateProposal(): void {
+  public function testCreatureRequestProducesACreatureClassActorProposal(): void {
     $ai = $this->ai([$this->creaturePayload()]);
-    $result = $this->service($ai, $this->definitions())->generateCreatureDefinition([
+    $result = $this->service($ai, $this->schemaValidatingDefinitions())->generateNpcDefinition([
       'prompt' => 'a bloated sewer leech swarm',
+      'class' => 'creature',
+      'species' => 'animal',
       'level' => 1,
       'seed' => 43,
-    ], $this->context('creature'));
+    ], $this->context('actor'));
 
-    $this->assertSame('creature_definition', $result['generation_type']);
-    $this->assertSame('create_definition', $result['proposed_execution']['tool_name']);
-    $this->assertSame('generate_creature_definition', $result['payload']['metadata']['generated_by']['tool']);
-    $this->assertSame('editor_generation_creature_definition', $ai->operations[0]);
+    $this->assertSame('actor', $result['family']);
+    $this->assertSame('actor', $result['proposed_execution']['arguments']['family']);
+    $this->assertSame('generate_npc_definition', $result['payload']['metadata']['generated_by']['tool']);
+    $this->assertSame('editor_generation_npc_definition', $ai->operations[0]);
+    $state = $result['payload']['state_data'];
+    $this->assertSame('creature', $state['class']);
+    $this->assertSame('npc', $result['payload']['actor_type']);
+    // The stat block is the model's; no NPC sheet defaults are added to it.
+    $this->assertSame($this->creaturePayload()['state_data'], $state);
+    $prompt = json_decode($ai->prompts[0], TRUE, 512, JSON_THROW_ON_ERROR);
+    $this->assertSame('creature', $prompt['required_output_shape']['state_data']['class']);
+    $this->assertSame('animal', $prompt['required_output_shape']['state_data']['species']);
+    $this->assertArrayNotHasKey('psychology', $prompt['required_output_shape']['state_data']);
+  }
+
+  public function testRequestedCreatureMustComeBackAsACreatureWithAStatBlock(): void {
+    $without_stat_block = $this->creaturePayload();
+    unset($without_stat_block['state_data']['attacks'], $without_stat_block['state_data']['saves']);
+    foreach ([
+      'NPC returned' => [$this->actorPayload(), ['/state_data/class']],
+      'creature without a stat block' => [$without_stat_block, ['/state_data/saves', '/state_data/attacks']],
+    ] as $case => [$payload, $pointers]) {
+      try {
+        $this->service($this->ai([$payload]), $this->schemaValidatingDefinitions())
+          ->generateNpcDefinition(['class' => 'creature', 'prompt' => 'fixture definition', 'seed' => 51], $this->context('actor'));
+        $this->fail($case . ' must hard-fail.');
+      }
+      catch (CanonicalGenerationException $exception) {
+        $this->assertSame('generation_nonconforming', $exception->getMessage(), $case);
+        // Both attempts report; the pointers are what each one found.
+        $this->assertSame($pointers, array_values(array_unique(array_column($exception->getFindings(), 'pointer'))), $case);
+      }
+    }
   }
 
   public function testConformingNpcResponseProducesCreateProposal(): void {
@@ -207,9 +253,9 @@ final class EditorDefinitionGenerationServiceTest extends TestCase {
   public function testNonconformingTwiceHardFailsWithFindings(): void {
     $finding = [[
       'code' => 'required',
-      'pointer' => '/pf2e_stats',
+      'pointer' => '/description',
       'schema_pointer' => '/required',
-      'message' => 'pf2e_stats is required',
+      'message' => 'description is required',
     ]];
 
     foreach ($this->generatorCases() as [$method, $family, $payload]) {
@@ -220,7 +266,7 @@ final class EditorDefinitionGenerationServiceTest extends TestCase {
       }
       catch (CanonicalGenerationException $exception) {
         $this->assertSame('generation_nonconforming', $exception->getMessage(), $method);
-        $this->assertSame('/pf2e_stats', $exception->getFindings()[0]['pointer'], $method);
+        $this->assertSame('/description', $exception->getFindings()[0]['pointer'], $method);
       }
     }
   }
@@ -228,7 +274,6 @@ final class EditorDefinitionGenerationServiceTest extends TestCase {
   public function testProviderMissingHardFailsForEveryDefinitionGenerator(): void {
     foreach ([
       ['generateItemDefinition', 'item'],
-      ['generateCreatureDefinition', 'creature'],
       ['generateNpcDefinition', 'actor'],
       ['generateObstacleDefinition', 'obstacle'],
       ['generateHazardDefinition', 'hazard'],
@@ -251,7 +296,6 @@ final class EditorDefinitionGenerationServiceTest extends TestCase {
   private function generatorCases(): array {
     return [
       ['generateItemDefinition', 'item', $this->itemPayload(), 'item_definition'],
-      ['generateCreatureDefinition', 'creature', $this->creaturePayload(), 'creature_definition'],
       ['generateNpcDefinition', 'actor', $this->actorPayload(), 'npc_definition'],
       ['generateObstacleDefinition', 'obstacle', $this->obstaclePayload(), 'obstacle_definition'],
       ['generateHazardDefinition', 'hazard', $this->hazardPayload(), 'hazard_definition'],
@@ -283,25 +327,31 @@ final class EditorDefinitionGenerationServiceTest extends TestCase {
   }
 
   private function creaturePayload(): array {
+    $stats = Pf2eGenerationRules::baselineCreatureStats(1, 'skirmisher');
     return $this->generatedPayloadBase() + [
-      'schema_version' => '1.0.0',
-      'creature_id' => '22222222-2222-4222-8222-222222222222',
-      'name' => 'Bloated Sewer Leech Swarm',
-      'level' => 1,
-      'creature_type' => 'animal',
-      'rarity' => 'common',
-      'traits' => ['swarm', 'gen-evidence'],
-      'size' => 'tiny',
-      'hex_footprint' => 1,
-      'pf2e_stats' => Pf2eGenerationRules::baselineCreaturePf2eStats(1, 'skirmisher'),
-      'ai_personality' => [
-        'disposition' => 'hostile',
-        'personality_traits' => ['hungry'],
-        'goals' => ['primary' => 'Feed.'],
-      ],
-      'lifecycle' => ['spawn_type' => 'permanent', 'is_alive' => TRUE],
-      'description' => 'A crawling mass of original sewer vermin.',
-      'source' => 'gen-evidence',
+      'actor_id' => 'bloated-sewer-leech-swarm',
+      'version' => '1.0.0',
+      'actor_type' => 'npc',
+      'display_name' => 'Bloated Sewer Leech Swarm',
+      'source_module' => 'gen-evidence',
+      'state_data' => [
+        'name' => 'Bloated Sewer Leech Swarm',
+        'class' => 'creature',
+        'species' => 'animal',
+        'level' => 1,
+        'rarity' => 'common',
+        'traits' => ['swarm', 'gen-evidence'],
+        'size' => 'Tiny',
+        'hex_footprint' => 1,
+        'attitude' => 'hostile',
+        'hp_current' => $stats['max_hp'],
+        'special_abilities' => [
+          ['name' => 'Swarming Bites', 'action_cost' => '1', 'description' => 'The swarm bites every creature in its space.'],
+        ],
+        'spawn' => ['spawn_type' => 'permanent', 'encounter_themes' => ['sewer']],
+        'description' => 'A crawling mass of original sewer vermin.',
+        'conditions' => [],
+      ] + $stats,
     ];
   }
 

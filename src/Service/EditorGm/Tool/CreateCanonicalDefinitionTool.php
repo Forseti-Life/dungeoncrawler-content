@@ -21,11 +21,11 @@ final class CreateCanonicalDefinitionTool implements EditorGmToolInterface {
     return new EditorGmToolDefinition(
       'create_canonical_definition',
       EditorGmToolDefinition::FAMILY_DEFINITION,
-      'Create and persist a new schema-validated canonical definition (obstacle, hazard, trap, item, creature, or actor) in the canonical library.',
+      'Create and persist a new schema-validated canonical definition (obstacle, hazard, trap, item, or actor) in the canonical library.',
       TRUE,
       'CanonicalDefinitionService::saveDefinition()',
       [
-        EditorGmToolDefinition::argument('family', 'string', TRUE, 'Placeable family: obstacle|hazard|trap|item|creature|actor.'),
+        EditorGmToolDefinition::argument('family', 'string', TRUE, 'Placeable family: obstacle|hazard|trap|item|actor.'),
         EditorGmToolDefinition::argument('payload', 'object', TRUE, 'Complete schema-shaped definition payload to store.'),
       ],
     );

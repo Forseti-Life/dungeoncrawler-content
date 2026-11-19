@@ -1285,10 +1285,6 @@ class AgentHarnessManagementService {
         'The link %s must run from an exit to an entrance.',
         $this->linkEnds($finding, $context_snapshot),
       ),
-      'port_link_not_adjacent' => sprintf(
-        'The link %s does not line up: its exit and its entrance are not on touching hexes.',
-        $this->linkEnds($finding, $context_snapshot),
-      ),
       'port_already_linked' => sprintf(
         'The exit "%s" on %s is used by %d links; at most one is allowed.',
         implode('', $this->subjectIds($finding, 'port_id')),

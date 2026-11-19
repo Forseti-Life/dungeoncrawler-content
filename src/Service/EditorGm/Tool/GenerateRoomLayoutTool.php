@@ -30,7 +30,7 @@ final class GenerateRoomLayoutTool implements EditorGmToolInterface {
         EditorGmToolDefinition::argument('level', 'integer', FALSE, 'Encounter level -1..25, default 1.'),
         EditorGmToolDefinition::argument('min_hexes', 'integer', FALSE, 'Minimum generated hexes, default 16.'),
         EditorGmToolDefinition::argument('max_hexes', 'integer', FALSE, 'Maximum generated hexes, hard cap 80.'),
-        EditorGmToolDefinition::argument('placeable_families', 'array', FALSE, 'Optional list of creature|actor|item|obstacle|trap|hazard.'),
+        EditorGmToolDefinition::argument('placeable_families', 'array', FALSE, 'Optional list of actor|item|obstacle|trap|hazard.'),
         EditorGmToolDefinition::argument('seed', 'integer', FALSE, 'Optional deterministic seed 0..2147483647.'),
       ],
     );

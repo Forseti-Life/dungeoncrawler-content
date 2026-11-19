@@ -67,37 +67,12 @@ Each table directory includes default JSON files with template rows to provide a
 **Files:**
 - `dungeoncrawler_content_registry/default_registry_examples.json` - 431 item definitions
 
-### Comprehensive PF2E Creature Library
+### Creatures
 
-**As of February 19, 2026**, this library includes **creatures from 3 Pathfinder 2E Bestiary books**:
-
-**Source Coverage:**
-- Bestiary 1: 20 creatures
-- Bestiary 2: 32 creatures
-- Bestiary 3: 21 creatures
-
-**Total: 73 creatures**
-
-**Creature Breakdown:**
-- Generic creatures: 61
-- Fiends (demons/devils): 4
-- Undead: 2
-- Plants: 2
-- Oozes: 2
-- Celestials: 1
-- Dragons: 1
-
-**Key Features:**
-- Creature type classification
-- Level ranges from 0 to 18
-- Source book attribution
-- Trait information when available
-- Ready for encounter generation
-
-**Files:**
-- `dungeoncrawler_content_registry/default_registry_examples.json` - 73 creature definitions (appended to items)
-
-**Note**: This is an initial creature extraction. The Bestiary books contain hundreds more creatures that can be added through refined extraction methods.
+The registry examples hold no creatures. A creature is a canonical actor
+definition of class `creature`, saved through
+`CanonicalDefinitionService::saveDefinition('actor', ...)`; there is no
+creature content type to import.
 
 ### Comprehensive PF2E Spell Library
 
@@ -150,8 +125,8 @@ Each table directory includes default JSON files with template rows to provide a
 Unlike items and creatures which required OCR pattern matching, spells were extracted from structured spell list sections in the source books (e.g., "Arcane Spell List", "Divine 2nd-Level Spells"). This provided higher quality extraction with proper spell names like "Magic Missile", "Fireball", "Detect Magic" rather than game mechanics text.
 
 **Files:**
-- `dungeoncrawler_content_registry/default_registry_examples.json` - 728 spell definitions (appended to items + creatures)
-- **Total Registry Entries: 1,232** (431 items + 73 creatures + 728 spells)
+- `dungeoncrawler_content_registry/default_registry_examples.json` - 728 spell definitions (appended to items)
+- **Total Registry Entries: 1,167** (435 items + 728 spells + 2 locations + 1 hazard + 1 encounter)
 
 ### Production Deployment
 

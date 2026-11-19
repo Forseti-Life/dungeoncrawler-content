@@ -54,7 +54,7 @@ final class PlanDungeonCommandsTool implements EditorGmToolInterface {
     return new EditorGmToolDefinition(
       'plan_dungeon_commands',
       EditorGmToolDefinition::FAMILY_PLANNING,
-      'Turn a structured authoring goal into an ordered, previewable dungeon command plan. Goals: ' . implode(', ', self::GOALS) . '. For sealed adjacency use plan_room_placement and plan_port_links.',
+      'Turn a structured authoring goal into an ordered, previewable dungeon command plan. Goals: ' . implode(', ', self::GOALS) . '. To rotate a placed room use arrange_placements with rotation_steps 0-5 (absolute, 60 degrees clockwise per step). To connect rooms use plan_port_links; linked rooms do not need to touch. To butt a new room against an exit use plan_room_placement.',
       FALSE,
       'planning only; execution requires apply_dungeon_commands',
       [

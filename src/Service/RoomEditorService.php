@@ -508,6 +508,31 @@ class RoomEditorService {
       }
       $result['dungeons'] = array_values($result['dungeons']);
     }
+    // Each definition placed in the room, once, with how many times it appears.
+    $contents = [];
+    foreach ($list('placements') as $placement) {
+      $family = is_array($placement) ? ($placement['definition_ref']['family'] ?? NULL) : NULL;
+      $definition_id = is_array($placement) ? ($placement['definition_ref']['definition_id'] ?? NULL) : NULL;
+      if (!is_string($family) || !is_string($definition_id) || !in_array($family, CanonicalDefinitionService::FAMILIES, TRUE)) {
+        continue;
+      }
+      $key = $family . ':' . $definition_id;
+      if (!isset($contents[$key])) {
+        $entry = $this->definitions->catalogEntry($family, $definition_id);
+        $contents[$key] = [
+          'family' => $family,
+          'definition_id' => $definition_id,
+          // An id the library does not hold is listed by id; validation reports it.
+          'name' => (string) ($entry['label'] ?? $definition_id),
+          'category' => (string) ($entry['category'] ?? ''),
+          'description' => (string) ($entry['description'] ?? ''),
+          'count' => 0,
+        ];
+      }
+      $contents[$key]['count']++;
+    }
+    usort($contents, static fn(array $a, array $b): int => [$a['family'], $a['name']] <=> [$b['family'], $b['name']]);
+    $result['contents'] = $contents;
     $result['next_steps'] = self::recommendNextAuthoringAction($result);
     return $result;
   }
@@ -1097,7 +1122,7 @@ class RoomEditorService {
         $errors[] = $this->finding('placement_footprint_invalid', "/placements/{$index}/footprint", 'Placement footprint must contain 1 through 25 coordinates.');
       }
       $family = (string) ($placement['definition_ref']['family'] ?? '');
-      if (in_array($family, ['actor', 'creature', 'obstacle'], TRUE)) {
+      if (in_array($family, ['actor', 'obstacle'], TRUE)) {
         if (isset($solid_occupancy[$key])) {
           $errors[] = $this->finding('placement_collision', "/placements/{$index}/anchor_hex", 'Solid placements cannot share a room hex.');
         }
@@ -1580,7 +1605,7 @@ class RoomEditorService {
   }
 
   private function assertNoSolidPlacementCollision(array $room, string $family, int $q, int $r, ?string $ignored_instance_id = NULL): void {
-    if (!in_array($family, ['actor', 'creature', 'obstacle'], TRUE)) {
+    if (!in_array($family, ['actor', 'obstacle'], TRUE)) {
       return;
     }
     foreach ((array) ($room['placements'] ?? []) as $placement) {
@@ -1590,7 +1615,7 @@ class RoomEditorService {
       $placed_family = $placement['definition_ref']['family'] ?? '';
       if (($placement['anchor_hex']['q'] ?? NULL) === $q
         && ($placement['anchor_hex']['r'] ?? NULL) === $r
-        && in_array($placed_family, ['actor', 'creature', 'obstacle'], TRUE)) {
+        && in_array($placed_family, ['actor', 'obstacle'], TRUE)) {
         throw new \DomainException('placement_collision');
       }
     }
@@ -1662,15 +1687,14 @@ class RoomEditorService {
     ];
     foreach ($room['placements'] as $placement) {
       $family = $placement['definition_ref']['family'];
+      $definition_id = (string) ($placement['definition_ref']['definition_id'] ?? '');
       $bucket = match ($family) {
-        'actor' => 'npcs',
-        'creature' => 'creatures',
+        'actor' => $this->definitions->isCreature($definition_id) ? 'creatures' : 'npcs',
         'item' => 'items',
         'obstacle' => 'obstacles',
         'trap' => 'traps',
         'hazard' => 'hazards',
       };
-      $definition_id = (string) ($placement['definition_ref']['definition_id'] ?? '');
       $entry = [
         'instance_id' => $placement['instance_id'],
         'content_id' => $definition_id,

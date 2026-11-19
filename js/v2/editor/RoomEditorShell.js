@@ -32,9 +32,9 @@
 
 /* global PIXI */
 
-import { GameEventBus } from '../GameEventBus.js?v=20260908g1';
-import { HexCanvas } from '../canvas/HexCanvas.js?v=20261009-module-background-1';
-import { SpriteService } from '../../SpriteService.js?v=20260908g1';
+import { GameEventBus } from '../GameEventBus.js?v=20261119-creature-fold-1';
+import { HexCanvas } from '../canvas/HexCanvas.js?v=20261119-creature-fold-1';
+import { SpriteService } from '../../SpriteService.js?v=20261119-creature-fold-1';
 import {
   appendEditorGmMessage,
   bindEditorGmPrompts,
@@ -48,14 +48,13 @@ import {
   restoreEditorGmConversation,
   selectEditorGmTool,
   shouldSubmitEditorGmKey,
-} from './EditorGmChatClient.js?v=20261118-format-5';
-import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261118-format-5';
+} from './EditorGmChatClient.js?v=20261119-creature-fold-1';
+import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261119-creature-fold-1';
 
-const FAMILIES = ['creature', 'actor', 'item', 'obstacle', 'trap', 'hazard'];
-const SOLID_FAMILIES = ['actor', 'creature', 'obstacle'];
+const FAMILIES = ['actor', 'item', 'obstacle', 'trap', 'hazard'];
+const SOLID_FAMILIES = ['actor', 'obstacle'];
 
 const FAMILY_COLORS = {
-  creature: 0xef4444,
   actor: 0x22c55e,
   item: 0xf59e0b,
   obstacle: 0x6b7280,
@@ -746,6 +745,9 @@ export class RoomEditorShell {
       return;
     }
     objectContainer.removeChildren();
+    // A redraw replaces every token; the card follows the one still hovered.
+    const hovered = this._hoverKey;
+    this._hideObjectHover();
     if (!window.PIXI || !this.draft?.room) {
       return;
     }
@@ -814,11 +816,16 @@ export class RoomEditorShell {
         token.addChild(label);
       }
 
+      token.on('pointerover', () => this._showPlacementHover(placement, token));
+      token.on('pointerout', () => this._hideObjectHover());
       token.on('pointerdown', (event) => {
         event.stopPropagation();
         this._selectPlacement(placement.instance_id);
         this._beginPlacementDrag(placement, token, event);
       });
+      if (hovered === `placement:${placement.instance_id}`) {
+        this._showPlacementHover(placement, token);
+      }
 
       objectContainer.addChild(token);
     });
@@ -849,14 +856,109 @@ export class RoomEditorShell {
         }
         body.endFill();
         marker.addChild(body);
+        marker.on('pointerover', () => this._showPortHover(port, family, marker));
+        marker.on('pointerout', () => this._hideObjectHover());
         marker.on('pointerdown', (event) => {
           event.stopPropagation();
           this._selectPort(family, port.port_id);
           this._beginPortDrag(port, family, marker, event);
         });
+        if (hovered === `port:${family}:${port.port_id}`) {
+          this._showPortHover(port, family, marker);
+        }
         objectContainer.addChild(marker);
       });
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Hover card: what the object under the pointer is
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Shows the card beside a token or port marker. Never shown mid-drag.
+   *
+   * @param {string} key  Identity of the hovered object, kept across redraws.
+   * @param {object} target  The PIXI display object to anchor to.
+   * @param {string} title
+   * @param {string[]} lines  Empty lines are dropped.
+   */
+  _showObjectHover(key, target, title, lines) {
+    if (this._dragState || !this._dom.canvasContainer || typeof target?.getGlobalPosition !== 'function') {
+      return;
+    }
+    this._hoverKey = key;
+    if (!this._hoverCard) {
+      this._hoverCard = document.createElement('div');
+      this._hoverCard.className = 'room-editor__hover-card';
+      this._hoverCard.setAttribute('role', 'tooltip');
+      this._dom.canvasContainer.appendChild(this._hoverCard);
+    }
+    const card = this._hoverCard;
+    const heading = document.createElement('strong');
+    heading.textContent = title;
+    card.replaceChildren(heading, ...lines.filter(Boolean).map((line) => {
+      const row = document.createElement('span');
+      row.textContent = line;
+      return row;
+    }));
+    const point = target.getGlobalPosition();
+    const offset = this.hexCanvas.config.hexSize * 0.5 * (this.hexCanvas.hexContainer?.scale?.x || 1);
+    // Flip to the left of the object when it sits in the right half of the map.
+    const flip = point.x > this._dom.canvasContainer.clientWidth / 2;
+    card.style.left = flip ? '' : `${point.x + offset}px`;
+    card.style.right = flip ? `${this._dom.canvasContainer.clientWidth - point.x + offset}px` : '';
+    card.style.top = `${Math.max(4, point.y - offset)}px`;
+    card.hidden = false;
+  }
+
+  _hideObjectHover() {
+    this._hoverKey = null;
+    if (this._hoverCard) {
+      this._hoverCard.hidden = true;
+    }
+  }
+
+  _showPlacementHover(placement, token) {
+    const family = String(placement.definition_ref?.family || '');
+    const definitionId = String(placement.definition_ref?.definition_id || '');
+    const key = `placement:${placement.instance_id}`;
+    const cacheKey = `${family}:${definitionId}`;
+    const entry = this._catalogEntryCache.get(cacheKey) || null;
+    const description = String(entry?.description || '').trim();
+    const overrides = placement.overrides && typeof placement.overrides === 'object' ? placement.overrides : {};
+    this._showObjectHover(key, token, entry?.label || definitionId || 'Unknown object', [
+      [family ? family[0].toUpperCase() + family.slice(1) : 'Object', entry?.category && entry.category !== family ? entry.category : '']
+        .filter(Boolean).join(' · '),
+      description.length > 160 ? `${description.slice(0, 157)}…` : description,
+      Array.isArray(entry?.tags) && entry.tags.length ? `Tags: ${entry.tags.slice(0, 6).join(', ')}` : '',
+      `Hex (${placement.anchor_hex?.q}, ${placement.anchor_hex?.r}) · elevation ${Number(placement.elevation_ft || 0)} ft`,
+      overrides.hidden ? 'Hidden from players until found' : '',
+      `Library id: ${definitionId}${placement.definition_ref?.version ? ` v${placement.definition_ref.version}` : ''}`,
+      this.selection?.type === 'placement' && this.selection.instanceId === placement.instance_id
+        ? 'Selected: details are in Author Tools › Inspector'
+        : 'Click to select, drag to move',
+    ]);
+    if (!this._catalogEntryCache.has(cacheKey)) {
+      // The name and description arrive from the library; refresh if still hovered.
+      this._fetchCatalogEntry(family, definitionId).then(() => {
+        if (this._hoverKey === key) {
+          this._showPlacementHover(placement, token);
+        }
+      });
+    }
+  }
+
+  _showPortHover(port, family, marker) {
+    const selected = this.selection?.type === 'port' && this.selection.family === family && this.selection.portId === port.port_id;
+    this._showObjectHover(`port:${family}:${port.port_id}`, marker, `${family === 'entry' ? 'Entry port' : 'Exit port'} "${port.port_id}"`, [
+      family === 'entry' ? 'A way into this room' : 'A way out of this room',
+      `Hex (${port.hex?.q}, ${port.hex?.r}) · edge ${Number(port.edge || 0)}`,
+      port.kind ? `Kind: ${String(port.kind).replace(/_/g, ' ')}` : '',
+      port.is_default ? 'Default entry for this room' : '',
+      String(port.description || '').trim(),
+      selected ? 'Selected: details are in Author Tools › Inspector' : 'Click to select, drag to move',
+    ]);
   }
 
   // ---------------------------------------------------------------------------
@@ -982,6 +1084,7 @@ export class RoomEditorShell {
       return;
     }
     dragState.moved = true;
+    this._hideObjectHover();
     dragState.currentQ = axial.q;
     dragState.currentR = axial.r;
     const valid = Boolean(this._findRoomHex(axial.q, axial.r))
@@ -1016,6 +1119,7 @@ export class RoomEditorShell {
       return;
     }
     dragState.moved = true;
+    this._hideObjectHover();
     dragState.currentQ = axial.q;
     dragState.currentR = axial.r;
     const valid = Boolean(this._findRoomHex(axial.q, axial.r));
@@ -1040,6 +1144,7 @@ export class RoomEditorShell {
         dragState.currentQ = axial.q;
         dragState.currentR = axial.r;
         dragState.moved = true;
+    this._hideObjectHover();
       }
     }
 
@@ -1066,6 +1171,7 @@ export class RoomEditorShell {
         dragState.currentQ = axial.q;
         dragState.currentR = axial.r;
         dragState.moved = true;
+    this._hideObjectHover();
       }
     }
 
@@ -2723,7 +2829,7 @@ export class RoomEditorShell {
         } else if (['simple', 'complex'].includes(subtype)) {
           args.complexity = subtype;
         }
-      } else if (family === 'creature' || family === 'actor') {
+      } else if (family === 'actor') {
         args.role = subtype;
       }
     }

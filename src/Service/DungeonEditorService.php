@@ -83,7 +83,6 @@ class DungeonEditorService {
     'placement_version_unresolved' => 'room_editor',
     'port_link_endpoint_missing' => 'draft_command',
     'port_link_direction_invalid' => 'draft_command',
-    'port_link_not_adjacent' => 'draft_command',
     'port_already_linked' => 'draft_command',
     'port_link_self_reference' => 'draft_command',
     'dungeon_entrance_missing' => 'draft_command',
@@ -837,7 +836,7 @@ class DungeonEditorService {
         $room['placements'] ?? [],
       );
       $with_contents += $families !== [] ? 1 : 0;
-      $with_encounter += array_intersect($families, ['creature', 'actor']) !== [] ? 1 : 0;
+      $with_encounter += in_array('actor', $families, TRUE) ? 1 : 0;
     }
     $entrances = count(array_filter($placements, static fn(array $placement): bool => $placement['is_level_entrance']));
     $finding_codes = array_count_values(array_column($validation['findings'], 'code'));
@@ -880,7 +879,7 @@ class DungeonEditorService {
       $item('exits_linked', 'Every exit is linked', $is['exits'], sprintf('%d open', $open_exits)),
       $item('contents_present', 'At least one placed room has contents', $is['contents'], sprintf('%d/%d', $with_contents, count($placements))),
       // A level without creatures is legitimate, so this never blocks.
-      $item('encounter_present', 'At least one placed room has a creature or actor', $with_encounter > 0, sprintf('%d/%d', $with_encounter, count($placements)), 'optional'),
+      $item('encounter_present', 'At least one placed room has an actor', $with_encounter > 0, sprintf('%d/%d', $with_encounter, count($placements)), 'optional'),
       $item('canonical_validation', 'Validation passes', $is['valid'], sprintf('%d errors, %d warnings', $validation['counts']['error'], $validation['counts']['warning']), 'validation'),
     ];
     $result = EditorDraftStatusProjection::project('dungeon-draft-status-v1', $draft, $validation, $checklist, [
@@ -1880,7 +1879,8 @@ class DungeonEditorService {
       ), array_map(static fn(string $id): array => ['placement_id' => $id], $ids), ['q' => $q, 'r' => $r]);
     }
 
-    // Links: endpoints, direction, self reference, arity, sealed adjacency.
+    // Links: endpoints, direction, self reference, arity. A link joins an exit
+    // port to an entry port wherever the two rooms sit on the level.
     $exit_use = [];
     $edges = [];
     foreach ($dungeon['port_links'] as $link) {
@@ -1914,15 +1914,6 @@ class DungeonEditorService {
       }
       $exit_key = $from_id . ':' . $link['from']['port_id'];
       $exit_use[$exit_key][] = $link_id;
-      $expected_hex = RoomPlacementTransformer::neighbor(['q' => $a['q'], 'r' => $a['r']], $a['edge']);
-      $expected_edge = RoomPlacementTransformer::opposite($a['edge']);
-      if ($expected_hex['q'] !== $b['q'] || $expected_hex['r'] !== $b['r'] || $expected_edge !== $b['edge']) {
-        $findings[] = $this->finding('error', 'port_link_not_adjacent', sprintf(
-          'Link %s is not sealed: exit port at (%d, %d) faces edge %d, so the entry port must be at (%d, %d) facing edge %d; it is at (%d, %d) facing edge %d.',
-          $link_id, $a['q'], $a['r'], $a['edge'], $expected_hex['q'], $expected_hex['r'], $expected_edge, $b['q'], $b['r'], $b['edge']
-        ), $subject, ['q' => $a['q'], 'r' => $a['r']]);
-        continue;
-      }
       $edges[$from_id][] = $to_id;
       if ($link['direction'] === 'bidirectional') {
         $edges[$to_id][] = $from_id;
@@ -1954,7 +1945,7 @@ class DungeonEditorService {
       ), array_map(static fn(string $id): array => ['placement_id' => $id], $entrances));
     }
 
-    // Reachability from the single entrance over sealed links.
+    // Reachability from the single entrance over links.
     if (count($entrances) === 1) {
       $seen = [$entrances[0] => TRUE];
       $queue = [$entrances[0]];

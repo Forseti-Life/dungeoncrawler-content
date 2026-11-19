@@ -90,7 +90,7 @@ class DashboardController extends ControllerBase {
       ],
       [
         'title' => $this->t('Canonical Library'),
-        'description' => $this->t('Manage actor, creature, item, obstacle, trap, and hazard definitions.'),
+        'description' => $this->t('Manage actor, item, obstacle, trap, and hazard definitions.'),
         'route' => 'dungeoncrawler_content.definition_index',
       ],
       [

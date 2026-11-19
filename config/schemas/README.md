@@ -43,7 +43,6 @@ This schema directory primarily defines JSON payload contracts used in **Fact** 
 | `character.schema.json` | Complete PF2e character | ✓ | 564 | `dc_campaign_characters.character_data` |
 | `character_options_step[1-8].json` | Character creation wizard | Partial | 298-525 | Character creation UI |
 | `campaign.schema.json` | Campaign state & progress | ✓ | 137 | `dc_campaigns.campaign_data` |
-| `creature.schema.json` | Monsters, NPCs, beasts | ✓ | 1101 | Entity spawning |
 | `dungeon_level.schema.json` | Complete dungeon floor | ✓ | 329 | Level generation |
 | `encounter.schema.json` | Combat & initiative | ✓ | 568 | Combat engine |
 | `entity_instance.schema.json` | Placed entities (runtime) | ✓ | 289 | Runtime entity management |
@@ -117,26 +116,10 @@ Campaign state payload stored in `dc_campaigns.campaign_data`.
 - `level_up`, `character_death`
 - `milestone_reached`
 
-#### `creature.schema.json`
-Monsters, NPCs, and beasts with PF2e stats and AI personality.
-
-**Defines:**
-- Base creature stats (level, size, rarity, perception)
-- PF2e attributes (abilities, AC, saves, HP)
-- Movement speeds (land, fly, swim, climb, burrow)
-- Skills with modifiers
-- Attacks and special abilities
-- Spells and spellcasting
-- AI behavior (personality, tactics, patrol routes)
-- Loot tables and XP rewards
-
-**Key Features:**
-- Comprehensive validation with 50+ targeted constraints
-- Strict validation with `additionalProperties: false` throughout
-- Support for unique items in arrays (traits, immunities, senses, languages)
-- String length validation to prevent empty values
-- PF2e-aligned numeric ranges (levels -1 to 30, DCs 0-50)
-- Backward compatible with existing creature data
+#### Creatures
+There is no creature schema. A creature is a canonical actor definition
+(`canonical_actor.schema.json`) of type `npc` whose `state_data.class` is
+`creature`; its stat block lives in the actor's `state_data`.
 
 #### `dungeon_level.schema.json`
 Entire dungeon floor with hexmap, rooms, and encounters.
@@ -170,7 +153,7 @@ Canonical runtime placement in this schema is `entities[]` via `entity_instance.
 
 **Key Features**:
 - **Unified Entity Model**: Single schema handles creatures, items, and obstacles
-- **Content Reference System**: `entity_ref` links to base definitions (creature.schema.json, item.schema.json, etc.)
+- **Content Reference System**: `entity_ref` links to base definitions (canonical_actor.schema.json, item.schema.json, etc.)
 - **Runtime State Tracking**: Mutable `state` object tracks lifecycle, combat, and gameplay changes
 - **Hex Placement**: Axial coordinate system for precise dungeon map positioning
 - **Inventory Support**: Creatures can carry items via inventory references
@@ -553,10 +536,6 @@ Add to `.vscode/settings.json` in your workspace:
     {
       "fileMatch": ["**/campaign_data/*.json"],
       "url": "./config/schemas/campaign.schema.json"
-    },
-    {
-      "fileMatch": ["**/creatures/*.json"],
-      "url": "./config/schemas/creature.schema.json"
     }
   ]
 }
@@ -577,7 +556,6 @@ This directory previously contained historical completion/summary markdown files
 All production schemas now have `schema_version` field (migration-ready):
 - ✓ `campaign.schema.json`
 - ✓ `character.schema.json`
-- ✓ `creature.schema.json`
 - ✓ `dungeon_level.schema.json`
 - ✓ `encounter.schema.json`
 - ✓ `entity_instance.schema.json`

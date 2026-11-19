@@ -997,7 +997,7 @@ Hard rules:
   One small scene-local edit may still use plan_storyline_draft_operations.
 - On Storyline Builder, any other request that explicitly asks to fix, resolve,
   reconcile, generate, create, or save canonical library assets (items,
-  creatures, obstacles, hazards or traps) for the storyline
+  obstacles, hazards or traps) for the storyline
   or its validation findings must use plan_storyline_remediation (or
   generate_canonical_definition / create_canonical_definition when creating a
   single standalone canonical definition).

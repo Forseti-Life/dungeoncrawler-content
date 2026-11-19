@@ -2344,34 +2344,25 @@ class StorylineManagerService {
      */
     protected function validateReferencedNpcLikeEntityContractStub(string $entity_type, string $entity_id, array $context): array {
       $errors = [];
-      if ($this->canonicalDefinitions !== NULL) {
-        $families = $entity_type === 'creature' ? ['creature'] : ['actor'];
-        foreach ($families as $family) {
-          if ($this->canonicalDefinitions->catalogEntry($family, $entity_id) === NULL) {
-            continue;
-          }
-
-          $entry = $this->canonicalDefinitions->loadCanonicalEntry($family, $entity_id);
-          $definition = $entry['schema_data'];
-          if ($family === 'actor') {
-            $definition = [
-              'actor_id' => $entry['definition_id'],
-              'version' => $entry['version'],
-              'actor_type' => $entry['category'],
-              'display_name' => $entry['name'],
-              'source_module' => $entry['source_module'],
-              'state_data' => $entry['schema_data'],
-            ];
-            if (is_array($entry['metadata'] ?? NULL)) {
-              $definition['metadata'] = $entry['metadata'];
-            }
-          }
-          foreach ($this->canonicalDefinitions->validateDefinition($family, $definition) as $finding) {
-            $message = trim((string) ($finding['message'] ?? $finding['code'] ?? "Canonical {$family} definition is invalid."));
-            $errors[] = $this->formatEntityTypeContractError($entity_type, $entity_id, $context, $message);
-          }
-          return $errors;
+      // Every NPC-like reference, creatures included, is an actor definition.
+      if ($this->canonicalDefinitions !== NULL && $this->canonicalDefinitions->catalogEntry('actor', $entity_id) !== NULL) {
+        $entry = $this->canonicalDefinitions->loadCanonicalEntry('actor', $entity_id);
+        $definition = [
+          'actor_id' => $entry['definition_id'],
+          'version' => $entry['version'],
+          'actor_type' => $entry['category'],
+          'display_name' => $entry['name'],
+          'source_module' => $entry['source_module'],
+          'state_data' => $entry['schema_data'],
+        ];
+        if (is_array($entry['metadata'] ?? NULL)) {
+          $definition['metadata'] = $entry['metadata'];
         }
+        foreach ($this->canonicalDefinitions->validateDefinition('actor', $definition) as $finding) {
+          $message = trim((string) ($finding['message'] ?? $finding['code'] ?? 'Canonical actor definition is invalid.'));
+          $errors[] = $this->formatEntityTypeContractError($entity_type, $entity_id, $context, $message);
+        }
+        return $errors;
       }
 
       $character_row = $this->loadCanonicalCharacterEntityByInstanceId($entity_id);
@@ -2408,15 +2399,6 @@ class StorylineManagerService {
           if ($registry_name === '') {
             $errors[] = $this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'registry NPC contract requires name.');
           }
-          if ((string) ($registry_row['content_type'] ?? '') === 'creature') {
-            $errors = array_merge($errors, $this->validateRegistryContractWithExistingValidator(
-              'creature',
-              $schema_data,
-              $entity_type,
-              $entity_id,
-              $context
-            ));
-          }
         }
       }
 
@@ -2431,7 +2413,6 @@ class StorylineManagerService {
      */
     protected function resolveNpcLikeRegistryTypes(string $entity_type): array {
       return match ($entity_type) {
-        'creature' => ['creature'],
         'character', 'character_group', 'campaign_npc', 'npc' => ['npc'],
         default => ['npc'],
       };

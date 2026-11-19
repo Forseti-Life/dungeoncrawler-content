@@ -13,7 +13,7 @@
       "additionalProperties": false,
       "required": ["family", "definition_id", "version"],
       "properties": {
-        "family": {"enum": ["creature", "actor", "item", "obstacle", "trap", "hazard"]},
+        "family": {"enum": ["actor", "item", "obstacle", "trap", "hazard"]},
         "definition_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,99}$"},
         "version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$"}
       }

@@ -95,20 +95,18 @@ final class Pf2eGenerationRules {
     ];
   }
 
-  public static function abilityScore(int $score): array {
-    $score = max(1, min(30, $score));
-    return ['score' => $score, 'modifier' => (int) floor(($score - 10) / 2)];
-  }
-
-  public static function baselineCreaturePf2eStats(int $level, string $role = ''): array {
-    $level = max(-1, min(25, $level));
-    $hp = max(6, 12 + (max(0, $level) * 8));
-    $ac = 14 + max(0, $level);
+  /**
+   * Baseline stat block for a creature of a level, in actor definition fields.
+   *
+   * @return array{max_hp: int, ac: int, perception: int, saves: array<string, int>, abilities: array<string, int>, speed: int, attacks: array<int, array<string, mixed>>}
+   *   Values for the matching `state_data` keys of a canonical actor.
+   */
+  public static function baselineCreatureStats(int $level, string $role = ''): array {
+    $level = max(-1, min(30, $level));
     $attack = 6 + max(0, $level);
     $save = 4 + max(0, $level);
-    $perception = 5 + max(0, $level);
     $role = strtolower($role);
-    $scores = [
+    $abilities = [
       'strength' => 12,
       'dexterity' => 12,
       'constitution' => 12,
@@ -117,26 +115,22 @@ final class Pf2eGenerationRules {
       'charisma' => 8,
     ];
     if (in_array($role, ['skirmisher', 'ambusher'], TRUE)) {
-      $scores['dexterity'] = 16;
+      $abilities['dexterity'] = 16;
     }
     elseif (in_array($role, ['guardian', 'brute', 'leader'], TRUE)) {
-      $scores['strength'] = 16;
-      $scores['constitution'] = 14;
+      $abilities['strength'] = 16;
+      $abilities['constitution'] = 14;
     }
 
     return [
-      'ability_scores' => array_map([self::class, 'abilityScore'], $scores),
-      'hp' => ['max' => $hp, 'current' => $hp, 'temporary' => 0, 'hardness' => 0, 'immunities' => [], 'resistances' => [], 'weaknesses' => []],
-      'ac' => $ac,
-      'saves' => [
-        'fortitude' => ['modifier' => $save],
-        'reflex' => ['modifier' => $save],
-        'will' => ['modifier' => $save],
-      ],
-      'perception' => ['modifier' => $perception, 'senses' => []],
-      'speed' => ['land' => 25, 'fly' => NULL, 'swim' => NULL, 'climb' => NULL, 'burrow' => NULL],
+      'max_hp' => max(6, 12 + (max(0, $level) * 8)),
+      'ac' => 14 + max(0, $level),
+      'perception' => 5 + max(0, $level),
+      'saves' => ['fortitude' => $save, 'reflex' => $save, 'will' => $save],
+      'abilities' => $abilities,
+      'speed' => 25,
       'attacks' => [
-        ['name' => 'Strike', 'type' => 'melee', 'attack_bonus' => $attack, 'damage' => max(1, $level) . 'd6+' . max(1, $level), 'damage_type' => 'bludgeoning'],
+        ['name' => 'Strike', 'type' => 'melee', 'bonus' => $attack, 'damage' => max(1, $level) . 'd6+' . max(1, $level) . ' bludgeoning'],
       ],
     ];
   }

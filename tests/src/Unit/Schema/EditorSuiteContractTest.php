@@ -86,7 +86,7 @@ class EditorSuiteContractTest extends TestCase {
     $dungeon_editor->method('listDungeons')->willReturn($dungeons);
     $dungeon_editor->method('listDrafts')->willReturn($dungeon_drafts);
     $definitions = $this->createMock(CanonicalDefinitionService::class);
-    $definitions->method('families')->willReturn(['creature', 'item']);
+    $definitions->method('families')->willReturn(['actor', 'item']);
     $definitions->method('catalog')->willReturn(['total' => 3]);
     $flags = $this->createMock(EditorReviewFlagService::class);
     $flags->method('count')->willReturnCallback(static fn(string $flag): array => $flag_counts[$flag] ?? ['rows' => 0, 'subjects' => 0]);
@@ -155,7 +155,6 @@ class EditorSuiteContractTest extends TestCase {
       'dungeoncrawler_content.menu.explorer_hub_dungeon_authoring',
       'dungeoncrawler_content.menu.explorer_hub_definition_index',
       'dungeoncrawler_content.menu.explorer_hub_definition_actors',
-      'dungeoncrawler_content.menu.explorer_hub_definition_creatures',
       'dungeoncrawler_content.menu.explorer_hub_definition_items',
       'dungeoncrawler_content.menu.explorer_hub_definition_obstacles',
       'dungeoncrawler_content.menu.explorer_hub_definition_traps',
@@ -170,7 +169,6 @@ class EditorSuiteContractTest extends TestCase {
     $this->assertSame('dungeoncrawler_content.menu.storyline_explorer', $to_editors['dungeoncrawler_content.menu.explorer_hub_definition_index']['parent']);
     foreach ([
       'dungeoncrawler_content.menu.explorer_hub_definition_actors' => 'actor',
-      'dungeoncrawler_content.menu.explorer_hub_definition_creatures' => 'creature',
       'dungeoncrawler_content.menu.explorer_hub_definition_items' => 'item',
       'dungeoncrawler_content.menu.explorer_hub_definition_obstacles' => 'obstacle',
       'dungeoncrawler_content.menu.explorer_hub_definition_traps' => 'trap',

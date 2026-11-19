@@ -45,10 +45,12 @@ class RoomEditorController extends ControllerBase {
     $placeholder = '00000000-0000-4000-8000-000000000000';
     // Route "family" is constrained to a fixed enum, so the placeholder must
     // be one of the valid values for Url::fromRoute() to generate a path.
-    $family_placeholder = 'creature';
+    $family_placeholder = 'hazard';
     $definition_placeholder = 'placeholder-definition-id';
     return [
       '#theme' => 'room_editor',
+      // Carries a session-bound CSRF token, so it must never be cached.
+      '#cache' => ['max-age' => 0],
       '#rooms' => $this->roomEditor->listRooms(),
       '#selected_room_id' => $room_id,
       '#attached' => [

@@ -21,8 +21,11 @@
  *   canvas:hex-hovered  — { q, r }
  *   canvas:hex-out      — { q, r }
  *   canvas:hex-clicked  — { q, r, button }
+ *   canvas:hex-released — { q, r } (pointer released over a hex)
  *   canvas:port-clicked — { placementId, portId, kind, q, r, edge, button }
  *                         (level-map port markers only, see _renderMapAggregate)
+ *   canvas:port-released — { placementId, portId } (pointer released over a
+ *                         level-map port marker)
  *   canvas:zoom-changed — { scale }
  *
  * Subscribes to bus events:
@@ -168,6 +171,11 @@ export class HexCanvas {
       this.bus.on('map:ghost', (ghost = null) => {
         this._renderMapGhost(ghost);
       }),
+      // map:link-preview — a transient line while a link is being dragged:
+      // { from: {q,r}, to: {q,r} } draws, null clears.
+      this.bus.on('map:link-preview', (preview = null) => {
+        this._renderMapLinkPreview(preview);
+      }),
       this.bus.on('canvas:coordinates-toggled', ({ enabled } = {}) => {
         this.config.showCoordinates = Boolean(enabled);
         this.generateHexGrid();
@@ -233,6 +241,20 @@ export class HexCanvas {
     for (const layer of this._worldLayers()) {
       layer.scale.set(scale);
     }
+    this._scaleMapRoomLabels(scale);
+  }
+
+  /**
+   * Keeps level-map room names readable when zoomed out: a label grows as the
+   * map shrinks, up to four times its drawn size.
+   */
+  _scaleMapRoomLabels(scale) {
+    const size = Math.min(4, Math.max(1, 1 / (Number(scale) || 1)));
+    (this.propsContainer?.children || []).forEach((child) => {
+      if (child.name === 'mapRoomLabel') {
+        child.scale.set(size);
+      }
+    });
   }
 
   setPanEnabled(enabled) {
@@ -479,15 +501,23 @@ export class HexCanvas {
    */
   _renderMapAggregate(map, hexSize) {
     const occupancy = map.occupancy || {};
+    const placementLabelAnchors = [];
     map.placements.forEach((placement, index) => {
       const tint = _placementTint(placement, index);
       const hexes = Array.isArray(placement?.hexes) ? placement.hexes : [];
+      let sumX = 0;
+      let sumY = 0;
+      let count = 0;
       hexes.forEach((hex) => {
         const q = Number(hex?.q);
         const r = Number(hex?.r);
         if (!Number.isInteger(q) || !Number.isInteger(r)) {
           return;
         }
+        const center = this.axialToPixel(q, r, hexSize);
+        sumX += center.x;
+        sumY += center.y;
+        count += 1;
         const claimants = occupancy[`${q}:${r}`];
         const overlapping = Array.isArray(claimants) && claimants.length > 1;
         const terrainStyle = _resolveRoomHexStyle(hex);
@@ -498,11 +528,28 @@ export class HexCanvas {
           ...hex,
           hex_id: `${placement.placementId || placement.placement_id || index}:${q}:${r}`,
           placement_id: placement.placementId || placement.placement_id || null,
-          placement_label: placement.label || null,
+          placement_label: placement.displayLabel || placement.roomName || placement.label || null,
         };
         const graphic = this._createHex(q, r, hexSize, _resolveHexStyleForCanvas(style, this.config), mapHex);
         graphic.mapHexData = mapHex;
       });
+      if (count > 0) {
+        const rawLabel = String(
+          placement?.displayLabel
+          || placement?.roomName
+          || placement?.label
+          || placement?.placementId
+          || placement?.placement_id
+          || `Room ${index + 1}`,
+        ).trim();
+        const label = rawLabel.length > 48 ? `${rawLabel.slice(0, 45)}…` : rawLabel;
+        placementLabelAnchors.push({
+          text: label || `Room ${index + 1}`,
+          x: sumX / count,
+          y: sumY / count,
+          tint,
+        });
+      }
     });
 
     if (!this.propsContainer) {
@@ -524,6 +571,39 @@ export class HexCanvas {
       overlay.lineTo(b.x, b.y);
     });
     this.propsContainer.addChild(overlay);
+
+    placementLabelAnchors.forEach((anchor) => {
+      const wrap = new PIXI.Container();
+      wrap.name = 'mapRoomLabel';
+      wrap.eventMode = 'none';
+      wrap.position.set(anchor.x, anchor.y);
+
+      const text = new PIXI.Text(anchor.text, {
+        fontFamily: 'Arial',
+        fontSize: 12,
+        fill: 0xf8fafc,
+        fontWeight: 'bold',
+        align: 'center',
+      });
+      if (text.anchor && typeof text.anchor.set === 'function') {
+        text.anchor.set(0.5);
+      }
+
+      const padX = 8;
+      const padY = 4;
+      const width = text.width + (padX * 2);
+      const height = text.height + (padY * 2);
+      const bg = new PIXI.Graphics();
+      bg.lineStyle(1, anchor.tint, 0.95);
+      bg.beginFill(0x0f172a, 0.82);
+      bg.drawRoundedRect(-width / 2, -height / 2, width, height, 6);
+      bg.endFill();
+
+      wrap.addChild(bg);
+      wrap.addChild(text);
+      this.propsContainer.addChild(wrap);
+    });
+    this._scaleMapRoomLabels(this.propsContainer.scale.x);
 
     // Each port marker is its own hit target so the shell can drive the
     // click-to-link gesture without hit-testing geometry itself.
@@ -570,8 +650,39 @@ export class HexCanvas {
           button: event.data?.button ?? 0,
         });
       });
+      marker.on('pointerup', () => {
+        this.bus.emit('canvas:port-released', { placementId: port.placementId, portId: port.portId });
+      });
       this.propsContainer.addChild(marker);
     });
+  }
+
+  /**
+   * Draws or clears the link rubber-band in the fx layer.
+   */
+  _renderMapLinkPreview(preview) {
+    if (this._linkPreviewOverlay) {
+      this._linkPreviewOverlay.destroy();
+      this._linkPreviewOverlay = null;
+    }
+    const from = preview?.from;
+    const to = preview?.to;
+    if (!from || !to || !this.fxContainer || !window.PIXI) {
+      return;
+    }
+    const hexSize = this.config.hexSize;
+    const a = this.axialToPixel(Number(from.q), Number(from.r), hexSize);
+    const b = this.axialToPixel(Number(to.q), Number(to.r), hexSize);
+    const overlay = new PIXI.Graphics();
+    overlay.eventMode = 'none';
+    overlay.lineStyle(3, 0xfacc15, 0.9);
+    overlay.moveTo(a.x, a.y);
+    overlay.lineTo(b.x, b.y);
+    overlay.beginFill(0xfacc15, 0.9);
+    overlay.drawCircle(b.x, b.y, hexSize * 0.2);
+    overlay.endFill();
+    this._linkPreviewOverlay = overlay;
+    this.fxContainer.addChild(overlay);
   }
 
   /**
@@ -999,6 +1110,9 @@ export class HexCanvas {
         clientX: Number.isFinite(clientX) ? clientX : null,
         clientY: Number.isFinite(clientY) ? clientY : null,
       });
+    });
+    hex.on('pointerup', () => {
+      this.bus.emit('canvas:hex-released', { q, r });
     });
 
     this.hexContainer.addChild(hex);

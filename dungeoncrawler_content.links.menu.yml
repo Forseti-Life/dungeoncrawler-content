@@ -200,7 +200,7 @@ dungeoncrawler_content.menu.explorer_hub_module_explorer:
 
 dungeoncrawler_content.menu.explorer_hub_definition_index:
   title: 'Canonical Library'
-  description: 'Edit canonical actors, creatures, items, obstacles, traps, and hazards.'
+  description: 'Edit canonical actors, items, obstacles, traps, and hazards.'
   route_name: dungeoncrawler_content.definition_index
   parent: dungeoncrawler_content.menu.storyline_explorer
   weight: 23
@@ -213,15 +213,6 @@ dungeoncrawler_content.menu.explorer_hub_definition_actors:
     family: actor
   parent: dungeoncrawler_content.menu.storyline_explorer
   weight: 24
-
-dungeoncrawler_content.menu.explorer_hub_definition_creatures:
-  title: 'Creature Definitions'
-  description: 'Edit canonical creature definitions.'
-  route_name: dungeoncrawler_content.definition_family
-  route_parameters:
-    family: creature
-  parent: dungeoncrawler_content.menu.storyline_explorer
-  weight: 25
 
 dungeoncrawler_content.menu.explorer_hub_definition_items:
   title: 'Item Definitions'

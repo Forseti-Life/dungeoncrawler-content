@@ -678,3 +678,175 @@ body.room-editor__body--dragging {
     max-height: none;
   }
 }
+
+/* Map legend (editor-map-legend.html.twig), shared by both map editors. */
+.editor-map-legend {
+  margin: 0;
+  padding: var(--space-3, 12px);
+  border: 1px solid var(--panel-border, rgba(148, 163, 184, 0.24));
+  border-radius: var(--radius-lg, 8px);
+  font-size: var(--text-sm, 0.85em);
+}
+
+.editor-map-legend__title {
+  margin: 0 0 var(--space-2, 8px);
+  font-weight: 700;
+}
+
+.editor-map-legend__group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 12px;
+  padding: 4px 0;
+}
+
+.editor-map-legend__group-title {
+  flex: 0 0 7.5em;
+  color: var(--text-muted, #94a3b8);
+}
+
+.editor-map-legend__items {
+  display: flex;
+  flex: 1 1 0;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.editor-map-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+
+.editor-map-legend__symbol {
+  --legend-fill: transparent;
+  --legend-line: #0f172a;
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  box-sizing: border-box;
+  color: #f8fafc;
+  font: 700 10px/1 Arial, sans-serif;
+}
+
+.editor-map-legend__symbol--hex {
+  width: 20px;
+  background: var(--legend-line);
+  clip-path: polygon(25% 3%, 75% 3%, 100% 50%, 75% 97%, 25% 97%, 0 50%);
+}
+
+.editor-map-legend__symbol--hex::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  background: var(--legend-fill);
+  clip-path: polygon(25% 3%, 75% 3%, 100% 50%, 75% 97%, 25% 97%, 0 50%);
+}
+
+.editor-map-legend__symbol--token,
+.editor-map-legend__symbol--dot,
+.editor-map-legend__symbol--ring {
+  border: 2px solid var(--legend-line);
+  border-radius: 50%;
+  background: var(--legend-fill);
+}
+
+.editor-map-legend__symbol--dot,
+.editor-map-legend__symbol--ring {
+  width: 12px;
+  height: 12px;
+}
+
+.editor-map-legend__symbol--triangle {
+  background: var(--legend-fill);
+  clip-path: polygon(50% 5%, 100% 95%, 0 95%);
+}
+
+.editor-map-legend__symbol--square {
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--legend-line);
+  background: var(--legend-fill);
+}
+
+.editor-map-legend__symbol--line {
+  width: 22px;
+  height: 3px;
+  background: var(--legend-fill);
+}
+
+.editor-map-legend__symbol--badge {
+  width: auto;
+  height: auto;
+  padding: 2px 6px;
+  border: 1px solid var(--legend-line);
+  border-radius: 6px;
+  background: var(--legend-fill);
+  font-size: 9px;
+}
+
+.editor-map-legend__symbol--text {
+  width: auto;
+  font-size: 10px;
+  color: #e2e8f0;
+}
+
+.room-editor__center > .room-editor__hint {
+  margin: 0;
+}
+
+/* What an object is: on the map (hover card) and in the sidebar contents list. */
+.room-editor__hover-card,
+.editor-page__content-card {
+  position: absolute;
+  z-index: var(--z-overlay, 40);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: max-content;
+  max-width: 280px;
+  padding: 8px 10px;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  border-radius: var(--radius-md, 6px);
+  background: rgba(11, 16, 32, 0.96);
+  color: #e2e8f0;
+  font: 400 12px/1.4 Arial, sans-serif;
+  text-align: left;
+  white-space: normal;
+  pointer-events: none;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+
+.room-editor__hover-card[hidden] {
+  display: none;
+}
+
+.room-editor__hover-card strong,
+.editor-page__content-card strong {
+  font-size: 13px;
+  color: #f8fafc;
+}
+
+[data-editor-status-contents] li {
+  position: relative;
+}
+
+.editor-page__content-card {
+  top: 100%;
+  left: 0;
+  display: none;
+}
+
+[data-editor-status-contents] li:hover > .editor-page__content-card,
+[data-editor-status-contents] li:focus-within > .editor-page__content-card {
+  display: flex;
+}

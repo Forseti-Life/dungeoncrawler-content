@@ -122,7 +122,7 @@
           "creature_id": {
             "type": ["string", "null"],
             "format": "uuid",
-            "description": "Ref to creature.schema if enemy/ally."
+            "description": "Ref to the creature (an actor definition of class creature) if enemy/ally."
           },
           "character_id": {
             "type": ["string", "null"],

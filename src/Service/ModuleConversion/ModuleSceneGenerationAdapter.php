@@ -70,7 +70,7 @@ final class ModuleSceneGenerationAdapter {
       throw new \InvalidArgumentException('module_scene_original_placements_required');
     }
     foreach ($originalDefinitionRefs as $ref) {
-      if (!is_array($ref) || !in_array($ref['family'] ?? NULL, ['creature', 'actor', 'item', 'obstacle', 'trap', 'hazard'], TRUE)
+      if (!is_array($ref) || !in_array($ref['family'] ?? NULL, ['actor', 'item', 'obstacle', 'trap', 'hazard'], TRUE)
         || !is_string($ref['definition_id'] ?? NULL) || $ref['definition_id'] === ''
         || !is_string($ref['version'] ?? NULL) || $ref['version'] === ''
         || ($ref['rights_status'] ?? NULL) !== 'project_original'

@@ -44,6 +44,8 @@ class DungeonEditorController extends ControllerBase {
     $dungeons = $this->dungeonEditor->listDungeons();
     return [
       '#theme' => 'dungeon_editor',
+      // Carries a session-bound CSRF token, so it must never be cached.
+      '#cache' => ['max-age' => 0],
       '#dungeons' => $dungeons,
       '#selected_dungeon_id' => $dungeon_id,
       '#attached' => [

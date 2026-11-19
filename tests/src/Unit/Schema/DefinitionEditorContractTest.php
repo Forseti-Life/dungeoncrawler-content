@@ -21,7 +21,6 @@ use PHPUnit\Framework\TestCase;
 class DefinitionEditorContractTest extends TestCase {
 
   private const FAMILY_SCHEMAS = [
-    'creature' => 'creature.schema.json',
     'actor' => 'canonical_actor.schema.json',
     'item' => 'item.schema.json',
     'obstacle' => 'obstacle.schema.json',
@@ -136,13 +135,13 @@ class DefinitionEditorContractTest extends TestCase {
   }
 
   /**
-   * Freeze amendment: generated item/creature/actor definitions may carry provenance.
+   * Freeze amendment: generated item/actor definitions may carry provenance.
    */
   public function testGeneratedByMetadataAmendmentShapeIsAcceptedOnlyForKnownFields(): void {
     $validator = new DefinitionSchemaValidator();
     foreach ([
       'item' => [$this->schema('item.schema.json'), $this->validGeneratedItem()],
-      'creature' => [$this->schema('creature.schema.json'), $this->validGeneratedCreature()],
+      'creature actor' => [$this->schema('canonical_actor.schema.json'), $this->validGeneratedCreature()],
       'actor' => [$this->schema('canonical_actor.schema.json'), $this->validGeneratedActor()],
     ] as $family => [$schema, $payload]) {
       $this->assertSame([], $validator->validate($schema, $payload), $family . ' generated_by metadata must validate.');
@@ -213,25 +212,30 @@ class DefinitionEditorContractTest extends TestCase {
     ];
   }
 
+  /**
+   * A creature folded into the actor family keeps its stored provenance tool.
+   */
   private function validGeneratedCreature(): array {
+    $stats = Pf2eGenerationRules::baselineCreatureStats(1, 'skirmisher');
     return [
-      'schema_version' => '1.0.0',
-      'creature_id' => '11111111-1111-4111-8111-111111111111',
-      'name' => 'Bloated Sewer Leech Swarm',
-      'level' => 1,
-      'creature_type' => 'animal',
-      'rarity' => 'common',
-      'traits' => ['swarm', 'aquatic', 'gen-evidence'],
-      'size' => 'tiny',
-      'hex_footprint' => 1,
-      'pf2e_stats' => Pf2eGenerationRules::baselineCreaturePf2eStats(1, 'skirmisher'),
-      'ai_personality' => [
-        'disposition' => 'hostile',
-        'personality_traits' => ['hungry'],
-        'goals' => ['primary' => 'Feed in the sewer dark.'],
-      ],
-      'lifecycle' => ['spawn_type' => 'permanent', 'is_alive' => TRUE],
-      'description' => 'A crawling mass of pallid leeches bred in cistern sludge.',
+      'actor_id' => 'bloated-sewer-leech-swarm',
+      'version' => '1.0.0',
+      'actor_type' => 'npc',
+      'display_name' => 'Bloated Sewer Leech Swarm',
+      'state_data' => [
+        'name' => 'Bloated Sewer Leech Swarm',
+        'class' => 'creature',
+        'species' => 'animal',
+        'level' => 1,
+        'rarity' => 'common',
+        'traits' => ['swarm', 'aquatic', 'gen-evidence'],
+        'size' => 'Tiny',
+        'hex_footprint' => 1,
+        'attitude' => 'hostile',
+        'hp_current' => $stats['max_hp'],
+        'description' => 'A crawling mass of pallid leeches bred in cistern sludge.',
+        'conditions' => [],
+      ] + $stats,
       'metadata' => ['generated_by' => $this->generatedBy('generate_creature_definition')],
     ];
   }

@@ -471,7 +471,7 @@ class GameCoordinatorService {
         $phase
       );
       if ($published_interaction && ($action_result['success'] ?? TRUE)
-        && in_array($published_placement['definition_ref']['family'] ?? NULL, ['item', 'actor', 'creature'], TRUE)) {
+        && in_array($published_placement['definition_ref']['family'] ?? NULL, ['item', 'actor'], TRUE)) {
         if ($this->questTouchpointService === NULL) {
           throw new \LogicException('Published item interaction requires the quest touchpoint service.');
         }

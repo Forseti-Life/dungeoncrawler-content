@@ -262,34 +262,33 @@ class EncounterGeneratorService {
     $difficulty = (string) ($context['difficulty'] ?? 'moderate');
     $level_band = EncounterGenerationRules::creatureLevelRange((int) $party_level, $difficulty);
     $tags_tried = $this->tagsTried($theme, $context);
-    $creatures = $this->definitions->publishedDefinitions('creature', [
+    // A creature is an actor definition of class `creature`.
+    $criteria = [
+      'class' => CanonicalDefinitionService::CREATURE_CLASS,
       'level_min' => $level_band['min'],
       'level_max' => $level_band['max'],
       'tags_any' => $tags_tried,
       'limit' => 100,
-    ]);
+    ];
+    $creatures = $this->definitions->publishedDefinitions('actor', $criteria);
     if ($creatures === [] && !empty($context['canonical_generation_wait'])) {
       $this->generateRuntimeCreatureDefinition($context, $tags_tried, (int) $party_level);
-      $creatures = $this->definitions->publishedDefinitions('creature', [
-        'level_min' => $level_band['min'],
-        'level_max' => $level_band['max'],
-        'tags_any' => $tags_tried,
-        'limit' => 100,
-      ]);
+      $creatures = $this->definitions->publishedDefinitions('actor', $criteria);
     }
     if ($creatures === []) {
-      throw $this->selectionFailed($context, $this->calculateXpBudget((int) $party_level, (int) ($context['party_size'] ?? 4), $difficulty), $level_band, $tags_tried, 'No schema-valid published canonical creature definitions matched the encounter criteria.');
+      throw $this->selectionFailed($context, $this->calculateXpBudget((int) $party_level, (int) ($context['party_size'] ?? 4), $difficulty), $level_band, $tags_tried, 'No schema-valid published canonical creature actor definitions matched the encounter criteria.');
     }
 
     return array_map(static function (array $definition): array {
-      $payload = is_array($definition['payload'] ?? NULL) ? $definition['payload'] : [];
+      $state = $definition['payload']['state_data'];
       return [
         'creature_id' => (string) $definition['definition_id'],
         'definition_id' => (string) $definition['definition_id'],
         'definition_version' => (string) $definition['version'],
         'name' => (string) ($definition['label'] ?? $definition['definition_id']),
         'level' => (int) ($definition['level'] ?? 0),
-        'max_hp' => (int) ($payload['pf2e_stats']['hp']['max'] ?? 20),
+        // A definition that records no maximum starts at its maximum.
+        'max_hp' => (int) ($state['max_hp'] ?? $state['hp_current']),
         'tags' => (array) ($definition['tags'] ?? []),
       ];
     }, $creatures);
@@ -540,9 +539,10 @@ class EncounterGeneratorService {
       if ($prompt === '') {
         $prompt = sprintf('Create a level %d creature suitable for tags: %s.', $party_level, implode(', ', $tags_tried));
       }
-      $this->definitionGeneration->generateRuntimeDefinitionAndSave('creature', [
+      $this->definitionGeneration->generateRuntimeDefinitionAndSave('actor', [
         'prompt' => $prompt,
         'level' => $party_level,
+        'class' => CanonicalDefinitionService::CREATURE_CLASS,
         'role' => (string) ($context['role'] ?? 'encounter'),
         'seed' => isset($context['seed']) && is_int($context['seed']) ? $context['seed'] : NULL,
       ], (int) ($context['requested_by_uid'] ?? 0));
@@ -553,7 +553,7 @@ class EncounterGeneratorService {
     catch (\Throwable $e) {
       throw new RuntimeGenerationException('runtime_generation_failed', [[
         'code' => 'runtime_generation_failed',
-        'pointer' => '/canonical_definition_generation/creature',
+        'pointer' => '/canonical_definition_generation/actor',
         'message' => $e->getMessage(),
         'severity' => 'error',
       ]], 500, $e);

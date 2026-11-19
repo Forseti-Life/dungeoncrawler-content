@@ -9,7 +9,7 @@ use Drupal\Core\Logger\LoggerChannelFactoryInterface;
  * Service for loading and managing game content from JSON schemas.
  *
  * This service handles importing, validating, and updating game content
- * (creatures, items, traps, hazards) from JSON files into the database.
+ * (items, traps, hazards) from JSON files into the database.
  *
  * @see docs/dungeoncrawler/issues/issue-3-game-content-system-design.md
  *   Section: Service Layer Design > ContentRegistry Service
@@ -75,11 +75,7 @@ class ContentRegistry {
    * Should be run during module installation/update.
    *
    * @param string|null $content_type
-   *   Load specific type ('creature', 'item', 'trap', 'hazard') or all if NULL.
-   * @param string|null $source_filter
-   *   When set, only records whose normalized bestiary_source matches this
-   *   value (e.g. 'b3') are upserted. Records with a different source are
-   *   silently skipped. NULL means import all sources.
+   *   Load specific type ('item', 'trap', 'hazard') or all if NULL.
    *
    * @return int
    *   Number of items loaded.
@@ -87,7 +83,7 @@ class ContentRegistry {
    * @see docs/dungeoncrawler/issues/issue-3-game-content-system-design.md
    *   Line 133: importContentFromJson method specification
    */
-  public function importContentFromJson(?string $content_type = NULL, ?string $source_filter = NULL): int {
+  public function importContentFromJson(?string $content_type = NULL): int {
     $logger = $this->loggerFactory->get('dungeoncrawler_content');
     $count = 0;
     
@@ -106,7 +102,7 @@ class ContentRegistry {
       }
 
       foreach ($generated_records as $record) {
-        if ($this->importPreparedRecord($type, $record, $source_filter, '[generated]')) {
+        if ($this->importPreparedRecord($type, $record, '[generated]')) {
           $count++;
         }
       }
@@ -120,7 +116,7 @@ class ContentRegistry {
             $records = $this->prepareRegistryRecords($type, $payload, $file);
 
             foreach ($records as $record) {
-              if ($this->importPreparedRecord($type, $record, $source_filter, $file)) {
+              if ($this->importPreparedRecord($type, $record, $file)) {
                 $count++;
               }
             }
@@ -140,21 +136,19 @@ class ContentRegistry {
   }
 
   /**
-   * Imports a prepared registry record after source filtering and validation.
+   * Imports a prepared registry record after validation.
    *
    * @param string $content_type
    *   Registry content type.
    * @param array<string, mixed> $record
    *   Prepared registry record.
-   * @param string|null $source_filter
-   *   Optional creature-source filter.
    * @param string $source_label
    *   Human-readable source label for logging.
    *
    * @return bool
    *   TRUE when the record was imported; FALSE when skipped.
    */
-  protected function importPreparedRecord(string $content_type, array $record, ?string $source_filter, string $source_label): bool {
+  protected function importPreparedRecord(string $content_type, array $record, string $source_label): bool {
     $logger = $this->loggerFactory->get('dungeoncrawler_content');
 
     if ($content_type === 'spell') {
@@ -177,13 +171,6 @@ class ContentRegistry {
     if (empty($record['content_id']) || empty($record['name'])) {
       $logger->error('Invalid content in @source: missing id or name', ['@source' => $source_label]);
       return FALSE;
-    }
-
-    if ($source_filter !== NULL) {
-      $record_source = $record['schema_data']['bestiary_source'] ?? NULL;
-      if ($record_source !== $source_filter) {
-        return FALSE;
-      }
     }
 
     $validation = $this->validateContent($content_type, $record['schema_data']);
@@ -513,7 +500,7 @@ class ContentRegistry {
    * Get content by ID and type.
    *
    * @param string $content_type
-   *   Content type: 'creature', 'item', 'trap', 'hazard'.
+   *   Content type: 'item', 'trap', 'hazard'.
    * @param string $content_id
    *   Unique identifier (e.g., 'goblin_warrior').
    *
@@ -576,7 +563,6 @@ class ContentRegistry {
     }
     
     $type_field = match ($content_type) {
-      'creature' => 'creature_type',
       'item' => 'item_type',
       'spell' => 'spell_type',
       'hazard' => 'complexity',
@@ -593,10 +579,6 @@ class ContentRegistry {
     
     // Type-specific validation
     switch ($content_type) {
-      case 'creature':
-        $errors = array_merge($errors, $this->validateCreature($content_data));
-        break;
-        
       case 'item':
         $validation = $this->stateValidationService->validateItemDefinition($content_data);
         $errors = array_merge($errors, array_values(array_filter(array_map('strval', (array) ($validation['errors'] ?? [])))));
@@ -645,79 +627,6 @@ class ContentRegistry {
       'valid' => empty($errors),
       'errors' => $errors,
     ];
-  }
-  
-  /**
-   * Validate creature-specific fields.
-   *
-   * @param array $data
-   *   Creature data.
-   *
-   * @return array
-   *   Array of validation errors.
-   */
-  protected function validateCreature(array $data): array {
-    $errors = [];
-    
-    // Level validation
-    if (!isset($data['level']) || !is_numeric($data['level'])) {
-      $errors[] = 'Creature must have a numeric level';
-    } elseif ($data['level'] < -1 || $data['level'] > 25) {
-      $errors[] = 'Creature level must be between -1 and 25';
-    }
-    
-    // Support both old schema (abilities) and new schema (pf2e_stats.ability_scores)
-    $has_old_abilities = !empty($data['abilities']) && is_array($data['abilities']);
-    $has_new_abilities = !empty($data['pf2e_stats']['ability_scores']) && is_array($data['pf2e_stats']['ability_scores']);
-    
-    if (!$has_old_abilities && !$has_new_abilities) {
-      $errors[] = 'Creature must have abilities or pf2e_stats.ability_scores';
-    } elseif ($has_old_abilities) {
-      // Validate old schema
-      $required_abilities = ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'];
-      foreach ($required_abilities as $ability) {
-        if (!isset($data['abilities'][$ability])) {
-          $errors[] = "Missing ability: {$ability}";
-        }
-      }
-    } elseif ($has_new_abilities) {
-      // Validate new schema
-      $required_abilities = ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma'];
-      foreach ($required_abilities as $ability) {
-        if (!isset($data['pf2e_stats']['ability_scores'][$ability])) {
-          $errors[] = "Missing ability score: {$ability}";
-        }
-      }
-    }
-    
-    // Support both old schema (stats) and new schema (pf2e_stats)
-    $has_old_stats = !empty($data['stats']) && is_array($data['stats']);
-    $has_new_stats = !empty($data['pf2e_stats']) && is_array($data['pf2e_stats']);
-    
-    if (!$has_old_stats && !$has_new_stats) {
-      $errors[] = 'Creature must have stats or pf2e_stats';
-    } elseif ($has_old_stats) {
-      // Validate old schema
-      $required_stats = ['ac', 'hp', 'fortitude', 'reflex', 'will'];
-      foreach ($required_stats as $stat) {
-        if (!isset($data['stats'][$stat])) {
-          $errors[] = "Missing stat: {$stat}";
-        }
-      }
-    } elseif ($has_new_stats) {
-      // Validate new schema
-      if (!isset($data['pf2e_stats']['ac'])) {
-        $errors[] = "Missing pf2e_stats.ac";
-      }
-      if (!isset($data['pf2e_stats']['hp'])) {
-        $errors[] = "Missing pf2e_stats.hp";
-      }
-      if (empty($data['pf2e_stats']['saves'])) {
-        $errors[] = "Missing pf2e_stats.saves";
-      }
-    }
-    
-    return $errors;
   }
   
   /**
@@ -1018,7 +927,7 @@ class ContentRegistry {
    * Sanitize text fields in content data to prevent unsafe markup injection.
    *
    * Strips HTML tags and normalizes whitespace from string scalar fields
-   * that contain creature flavor text, names, descriptions, and ability text.
+   * that contain flavor text, names, descriptions, and ability text.
    * Nested arrays are recursively sanitized.
    *
    * @param array $data
@@ -1030,7 +939,7 @@ class ContentRegistry {
   protected function sanitizeTextFields(array $data): array {
     // Fields whose values must be preserved as-is (IDs, versions, numbers).
     static $skip_fields = [
-      'content_id', 'creature_id', 'item_id', 'trap_id', 'hazard_id',
+      'content_id', 'item_id', 'trap_id', 'hazard_id',
       'level', 'rarity', 'size', 'hex_footprint', 'schema_version', 'version',
     ];
 
@@ -1050,9 +959,6 @@ class ContentRegistry {
 
   /**
    * Normalizes content data before validation and persistence.
-   *
-   * Ensures legacy creature imports that only carry source_book/tag metadata
-   * still land with a canonical bestiary_source value in stored schema_data.
    */
   public function normalizeContentData(string $content_type, array $content_data): array {
     if ($content_type === 'spell') {
@@ -1118,36 +1024,6 @@ class ContentRegistry {
       return $content_data;
     }
 
-    if ($content_type !== 'creature') {
-      return $content_data;
-    }
-
-    if (!empty($content_data['bestiary_source']) && is_string($content_data['bestiary_source'])) {
-      return $content_data;
-    }
-
-    $source_map = [
-      'bestiary_1' => 'b1',
-      'bestiary_2' => 'b2',
-      'bestiary_3' => 'b3',
-    ];
-
-    $source_book = $content_data['source_book'] ?? NULL;
-    if (is_string($source_book) && isset($source_map[$source_book])) {
-      $content_data['bestiary_source'] = $source_map[$source_book];
-      return $content_data;
-    }
-
-    $tags = $content_data['tags'] ?? $content_data['traits'] ?? [];
-    if (is_array($tags)) {
-      foreach ($tags as $tag) {
-        if (is_string($tag) && isset($source_map[$tag])) {
-          $content_data['bestiary_source'] = $source_map[$tag];
-          return $content_data;
-        }
-      }
-    }
-
     return $content_data;
   }
 
@@ -1180,7 +1056,7 @@ class ContentRegistry {
    *   Array of content type names.
    */
   public function getContentTypes(): array {
-    return ['creature', 'item', 'trap', 'hazard', 'obstacle_object', 'spell', 'feat'];
+    return ['item', 'trap', 'hazard', 'obstacle_object', 'spell', 'feat'];
   }
 
   /**

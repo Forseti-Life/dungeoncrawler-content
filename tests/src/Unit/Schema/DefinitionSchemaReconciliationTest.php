@@ -57,11 +57,10 @@ class DefinitionSchemaReconciliationTest extends TestCase {
   }
 
   /**
-   * Creature/obstacle/trap/hazard ids are slugs, not uuids.
+   * Obstacle/trap/hazard ids are slugs, not uuids.
    */
   public function testDefinitionIdsAreSlugsNotUuids(): void {
     $map = [
-      'creature.schema.json' => 'creature_id',
       'obstacle.schema.json' => 'object_id',
       'trap.schema.json' => 'trap_id',
       'hazard.schema.json' => 'hazard_id',
@@ -74,14 +73,12 @@ class DefinitionSchemaReconciliationTest extends TestCase {
   }
 
   /**
-   * Third-party provenance is not a schema field on creature or item.
+   * Third-party provenance is not a schema field on item.
    */
   public function testThirdPartyProvenanceIsStrippedFromSchemas(): void {
-    foreach (['creature.schema.json', 'item.schema.json'] as $file) {
-      $props = $this->schema($file)['properties'];
-      foreach (['source', 'source_book', 'bestiary_source', 'url'] as $key) {
-        $this->assertArrayNotHasKey($key, $props, $file . ' must not carry ' . $key . '.');
-      }
+    $props = $this->schema('item.schema.json')['properties'];
+    foreach (['source', 'source_book', 'bestiary_source', 'url'] as $key) {
+      $this->assertArrayNotHasKey($key, $props, 'item.schema.json must not carry ' . $key . '.');
     }
   }
 
@@ -173,23 +170,6 @@ class DefinitionSchemaReconciliationTest extends TestCase {
     $stub_findings = $validator->validate($schema, $stub);
     $this->assertNotEmpty($stub_findings);
     $this->assertSame('foreign_quest_touchpoint', _dungeoncrawler_content_quarantine_reason($stub_findings));
-  }
-
-  /**
-   * A creature missing substantive model fields is quarantined for authoring.
-   */
-  public function testCreatureMissingModelFieldsIsMissingSubstantive(): void {
-    $validator = new DefinitionSchemaValidator();
-    $schema = $this->schema('creature.schema.json');
-    $findings = $validator->validate($schema, [
-      'schema_version' => '1.0.0',
-      'creature_id' => 'army_ant_swarm',
-      'name' => 'Army Ant Swarm',
-      'level' => 5,
-      'creature_type' => 'animal',
-    ]);
-    $this->assertNotEmpty($findings);
-    $this->assertSame('missing_substantive', _dungeoncrawler_content_quarantine_reason($findings));
   }
 
   /**

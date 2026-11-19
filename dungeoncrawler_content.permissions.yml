@@ -56,7 +56,7 @@ publish canonical dungeoncrawler storylines:
 
 edit canonical dungeoncrawler definitions:
   title: 'Edit Canonical Dungeon Crawler Object Definitions'
-  description: 'Create and edit canonical item, actor, obstacle, creature, trap, and hazard definitions.'
+  description: 'Create and edit canonical item, actor, obstacle, trap, and hazard definitions.'
   restrict access: true
 
 access dungeoncrawler editor suite:

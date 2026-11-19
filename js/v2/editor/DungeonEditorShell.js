@@ -22,14 +22,14 @@
  *   - the shell never does placement math outside placementTransform.js;
  *   - HexCanvas knows nothing about dungeons, drafts, or commands.
  *
- * Link legality is decided by the server; the shell only pre-computes the
- * legal targets for highlighting with the same sealed-link geometry
- * (10-placement-transform-spec.md §5: Hb == neighbor(Ha, Ea), Eb == opposite(Ea)).
+ * Link legality is decided by the server. A link joins an exit port to an
+ * entry port on another placement; the rooms may sit anywhere on the level.
+ * The shell only pre-computes which ports a gesture may end on.
  * Publication is available only through the server readiness and publish routes.
  */
 
-import { GameEventBus } from '../GameEventBus.js?v=20260908g1';
-import { HexCanvas } from '../canvas/HexCanvas.js?v=20261009-module-background-1';
+import { GameEventBus } from '../GameEventBus.js?v=20261119-creature-fold-1';
+import { HexCanvas } from '../canvas/HexCanvas.js?v=20261119-creature-fold-1';
 import './placementTransform.js?v=20260908g1';
 import {
   appendEditorGmMessage,
@@ -44,8 +44,8 @@ import {
   restoreEditorGmConversation,
   selectEditorGmTool,
   shouldSubmitEditorGmKey,
-} from './EditorGmChatClient.js?v=20261118-format-5';
-import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261118-format-5';
+} from './EditorGmChatClient.js?v=20261119-creature-fold-1';
+import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261119-creature-fold-1';
 
 const transform = globalThis.DungeonCrawlerPlacementTransform;
 if (!transform) {
@@ -139,9 +139,10 @@ export class DungeonEditorShell {
     /** @type {string|null} Selected region_id (exclusive with the others). */
     this.selectedRegionId = null;
     /**
-     * Click-to-link gesture. from = the level-space exit port; legal = keys
-     * ("placementId:portId") of entry ports that satisfy the sealed-link
-     * rule; to = the chosen legal entry, awaiting kind/direction/state.
+     * Link gesture (click-click or press-drag-release). from = the level-space
+     * port it started on, exit or entry; legal = keys ("placementId:portId")
+     * of free ports of the other kind on other placements; to = the chosen
+     * port, awaiting kind/direction/state.
      * @type {{from: object, legal: Set<string>, to: object|null}|null}
      */
     this._linking = null;
@@ -164,6 +165,9 @@ export class DungeonEditorShell {
     this._windowMove = (event) => this._onDragMove(event);
     this._windowUp = (event) => this._onDragEnd(event);
     this._keydown = (event) => this._onKeydown(event);
+    this._linkMove = (event) => this._onLinkPointerMove(event);
+    /** Kind, direction and state of the last link this author created. */
+    this._lastLinkChoice = {};
   }
 
   // ---------------------------------------------------------------------------
@@ -197,6 +201,7 @@ export class DungeonEditorShell {
     window.removeEventListener('pointerup', this._windowUp);
     window.removeEventListener('pointercancel', this._windowUp);
     document.removeEventListener('keydown', this._keydown);
+    window.removeEventListener('pointermove', this._linkMove);
     if (this._resizeObserver) {
       this._resizeObserver.disconnect();
       this._resizeObserver = null;
@@ -387,6 +392,9 @@ export class DungeonEditorShell {
       recenterBtn: q('[data-dungeon-editor-action="recenter"]'),
       undoBtn: q('[data-dungeon-editor-action="undo"]'),
       redoBtn: q('[data-dungeon-editor-action="redo"]'),
+      selectionBar: q('[data-dungeon-editor-selection-bar]'),
+      selectionName: q('[data-dungeon-editor-selection-name]'),
+      selectionRoomLink: q('[data-dungeon-editor-selection-room-link]'),
       metadataForm: q('[data-dungeon-editor-metadata-form]'),
       workspace: q('[data-dungeon-editor-workspace]'),
       authorDrawer: q('[data-dungeon-editor-author-drawer]'),
@@ -568,13 +576,13 @@ export class DungeonEditorShell {
       });
     });
 
-    this._dom.inspectorBody?.addEventListener('click', (event) => {
+    [this._dom.inspectorBody, this._dom.selectionBar].forEach((el) => el?.addEventListener('click', (event) => {
       const button = event.target.closest('[data-inspector-action]');
       if (!button) {
         return;
       }
       this._runInspectorAction(button.getAttribute('data-inspector-action'));
-    });
+    }));
     this._dom.inspectorBody?.addEventListener('change', (event) => {
       const field = event.target.closest('[data-inspector-field]');
       if (!field) {
@@ -785,6 +793,14 @@ export class DungeonEditorShell {
     if (event.type === 'pointercancel') {
       return;
     }
+    // A press and release in place is a click, whatever the page did under
+    // the pointer in between: it selects and never moves.
+    const start = drag.kind === 'move' ? drag.startClient : null;
+    if (start && Number.isFinite(start.x) && Number.isFinite(start.y)
+      && Math.hypot(event.clientX - start.x, event.clientY - start.y) < 6) {
+      this._selectPlacement(drag.placementId);
+      return;
+    }
     const axial = this._pointerToAxial(event.clientX, event.clientY);
     const origin = axial ? this._candidateOrigin(drag, axial) : drag.candidate;
     if (!origin) {
@@ -875,6 +891,21 @@ export class DungeonEditorShell {
     this.hexCanvas.init();
     this.bus.on('canvas:hex-clicked', ({ q, r, button, clientX, clientY }) => this._handleHexClick(q, r, button, clientX, clientY));
     this.bus.on('canvas:port-clicked', (port) => this._handlePortClick(port));
+    this.bus.on('canvas:port-released', (port) => {
+      const key = `${port.placementId}:${port.portId}`;
+      const level = this._linking && !this._linking.to && this._linking.legal.has(key)
+        ? this._levelPorts().find((p) => p.key === key)
+        : null;
+      if (level) {
+        this._chooseLinkTarget(level);
+      }
+    });
+    this.bus.on('canvas:hex-released', ({ q, r }) => {
+      if (this._linking && !this._linking.to) {
+        this._linkToHex(Number(q), Number(r));
+      }
+    });
+    window.addEventListener('pointermove', this._linkMove);
 
     if (typeof ResizeObserver !== 'undefined') {
       this._resizeObserver = new ResizeObserver(() => {
@@ -889,7 +920,9 @@ export class DungeonEditorShell {
 
   _handleHexClick(q, r, button = 0, clientX = null, clientY = null) {
     if (this._linking) {
-      this._cancelLinking('Linking cancelled - click a highlighted entry port to link, Esc to cancel.');
+      if (this._linking.to || !this._linkToHex(Number(q), Number(r))) {
+        this._cancelLinking('Linking cancelled.');
+      }
       return;
     }
     const axial = { q: Number(q), r: Number(r) };
@@ -943,6 +976,8 @@ export class DungeonEditorShell {
     this.model.placements.forEach((placement, index) => {
       const tint = PLACEMENT_TINTS[index % PLACEMENT_TINTS.length];
       const spec = { origin: placement.origin, rotation_steps: placement.rotation_steps };
+      const roomName = placement.resolved ? String(placement?.room?.name || '').trim() : '';
+      const displayLabel = roomName || String(placement?.label || placement?.placement_id || '').trim();
       const hexes = placement.resolved
         ? placement.room.hexes.map((hex) => ({
           ...hex,
@@ -952,6 +987,8 @@ export class DungeonEditorShell {
       placements.push({
         placementId: placement.placement_id,
         label: placement.label,
+        roomName,
+        displayLabel,
         tint,
         hexes,
       });
@@ -967,7 +1004,7 @@ export class DungeonEditorShell {
             r: level.r,
             edge: level.edge,
             linked: port.kind === 'exit' && linkedExitPorts.has(key),
-            highlight: this._portHighlight(key, port.kind),
+            highlight: this._portHighlight(key),
           };
           ports.push(entry);
           portIndex.set(`${placement.placement_id}:${port.port_id}`, entry);
@@ -1093,9 +1130,10 @@ export class DungeonEditorShell {
     }
     if (this._linking) {
       // Geometry may have changed underneath the gesture; recompute or drop.
-      const from = this._levelPorts().find((p) => p.key === this._linking.from.key && p.kind === 'exit' && !p.linked);
-      this._linking = from ? { from, legal: this._legalEntryTargets(from), to: null } : null;
+      const from = this._levelPorts().find((p) => p.key === this._linking.from.key && !p.linked);
+      this._linking = from ? { from, legal: this._linkTargets(from), to: null } : null;
       this.container.toggleAttribute('data-linking', !!this._linking);
+      this.bus.emit('map:link-preview', null);
     }
     if (this._dom.revision) {
       this._dom.revision.textContent = `rev ${model.revision} · ${model.placements.length} rooms · ${(model.port_links || []).length} links`;
@@ -1110,6 +1148,7 @@ export class DungeonEditorShell {
     this._renderLinkList();
     this._renderRegionList();
     this._renderInspector();
+    this._renderSelectionBar();
     this._renderValidation(model.validation);
     this._renderPublicationReadiness();
     this.refreshPublicationReadiness();
@@ -1164,6 +1203,42 @@ export class DungeonEditorShell {
     this._renderLinkList();
     this._renderRegionList();
     this._renderInspector();
+    this._renderSelectionBar();
+  }
+
+  /**
+   * The always-visible controls for the selected room: rotate, entrance,
+   * remove, and the way into the Room Editor.
+   */
+  _renderSelectionBar() {
+    const bar = this._dom.selectionBar;
+    if (!bar) {
+      return;
+    }
+    const placement = this._selectedPlacement();
+    if (this._dom.selectionName) {
+      this._dom.selectionName.textContent = placement
+        ? `Selected: ${this._placementName(placement)}${placement.is_level_entrance ? ' (entrance)' : ''} · rotated ${placement.rotation_steps * 60}°`
+        : 'No room selected. Click a room on the map.';
+    }
+    bar.querySelectorAll('[data-inspector-action]').forEach((button) => {
+      button.disabled = !placement || this._busy;
+      if (button.getAttribute('data-inspector-action') === 'toggle-entrance') {
+        button.textContent = placement?.is_level_entrance ? 'Unset entrance' : 'Set as entrance';
+      }
+    });
+    const link = this._dom.selectionRoomLink;
+    if (link) {
+      // Hidden without leaving the layout, so selecting never moves the map.
+      link.style.visibility = placement ? 'visible' : 'hidden';
+      link.href = placement
+        ? String(this.urls.roomEditor || '#').replace('{room_id}', encodeURIComponent(placement.room_id))
+        : '#';
+    }
+  }
+
+  _placementName(placement) {
+    return (placement.resolved && String(placement.room?.name || '').trim()) || placement.label || placement.placement_id;
   }
 
   _selectedLink() {
@@ -1175,7 +1250,8 @@ export class DungeonEditorShell {
   }
 
   _placementLabel(placementId) {
-    return (this.model?.placements || []).find((p) => p.placement_id === placementId)?.label || placementId;
+    const placement = (this.model?.placements || []).find((p) => p.placement_id === placementId);
+    return placement ? this._placementName(placement) : placementId;
   }
 
   // ---------------------------------------------------------------------------
@@ -1200,7 +1276,7 @@ export class DungeonEditorShell {
           key,
           placementId: placement.placement_id,
           portId: port.port_id,
-          label: placement.label,
+          label: this._placementName(placement),
           kind: port.kind,
           q: level.q,
           r: level.r,
@@ -1213,31 +1289,36 @@ export class DungeonEditorShell {
   }
 
   /**
-   * Entry ports across the exit's shared edge: the sealed-link rule.
+   * Ports a link from this port may end on: free ports of the other kind on
+   * any other placement, wherever that room sits. An exit carries one link.
    */
-  _legalEntryTargets(from) {
-    const target = transform.neighbor({ q: from.q, r: from.r }, from.edge);
-    const facing = transform.opposite(from.edge);
+  _linkTargets(from) {
+    const wanted = from.kind === 'exit' ? 'entry' : 'exit';
     const legal = new Set();
     this._levelPorts().forEach((port) => {
-      if (port.kind === 'entry' && port.placementId !== from.placementId && port.q === target.q && port.r === target.r && port.edge === facing) {
+      if (port.kind === wanted && port.placementId !== from.placementId && !port.linked) {
         legal.add(port.key);
       }
     });
     return legal;
   }
 
-  _portHighlight(key, kind) {
+  _portHighlight(key) {
     if (!this._linking) {
       return null;
     }
     if (key === this._linking.from.key) {
       return 'source';
     }
-    if (kind !== 'entry') {
-      return null;
-    }
-    return this._linking.legal.has(key) ? 'legal' : 'illegal';
+    return this._linking.legal.has(key) ? 'legal' : null;
+  }
+
+  /**
+   * The pending link's ends in command order: exit first, entry second.
+   */
+  _linkEnds() {
+    const { from, to } = this._linking;
+    return from.kind === 'exit' ? { exit: from, entry: to } : { exit: to, entry: from };
   }
 
   _handlePortClick(port) {
@@ -1250,24 +1331,20 @@ export class DungeonEditorShell {
       return;
     }
     if (!this._linking) {
-      if (level.kind !== 'exit') {
-        this._selectPlacement(level.placementId);
-        this._setStatus(`"${level.portId}" is an entry port. Start a link from an exit port.`, 'warning');
-        return;
-      }
       if (level.linked) {
         const link = (this.model.port_links || []).find((l) => l.from.placement_id === level.placementId && l.from.port_id === level.portId);
         this._selectLink(link?.link_id || null);
         return;
       }
-      this._linking = { from: level, legal: this._legalEntryTargets(level), to: null };
+      this._linking = { from: level, legal: this._linkTargets(level), to: null };
       this.container.setAttribute('data-linking', 'true');
       this._emitMap();
+      const wanted = level.kind === 'exit' ? 'entry' : 'exit';
       const count = this._linking.legal.size;
       this._setStatus(
         count
-          ? `Linking from "${level.portId}" on ${level.label}: click one of ${count} highlighted entry port(s). Esc cancels.`
-          : `Linking from "${level.portId}" on ${level.label}: no entry port faces it. Move a room so its entry sits at (${transform.neighbor(level, level.edge).q}, ${transform.neighbor(level, level.edge).r}) facing edge ${transform.opposite(level.edge)}. Esc cancels.`,
+          ? `Connecting ${level.kind} "${level.portId}" on ${level.label}: drag or click onto another room, or onto one of its ${count} highlighted ${wanted} port(s). The rooms do not need to touch. Esc cancels.`
+          : `No other room has a free ${wanted} port to connect ${level.kind} "${level.portId}" on ${level.label} to. Ports are added in the Room Editor. Esc cancels.`,
         count ? 'info' : 'warning',
       );
       return;
@@ -1276,25 +1353,69 @@ export class DungeonEditorShell {
       this._cancelLinking('Linking cancelled.');
       return;
     }
-    if (level.kind !== 'entry') {
-      this._setStatus(`"${level.portId}" is an exit port; a link ends on an entry port.`, 'error');
-      return;
-    }
     if (!this._linking.legal.has(key)) {
       const from = this._linking.from;
-      const need = transform.neighbor({ q: from.q, r: from.r }, from.edge);
-      this._setStatus(
-        `"${level.portId}" on ${level.label} is at (${level.q}, ${level.r}) facing edge ${level.edge}; a link from "${from.portId}" must land at (${need.q}, ${need.r}) facing edge ${transform.opposite(from.edge)}.`,
-        'error',
-      );
+      let reason = `"${level.portId}" on ${level.label} already has a connection.`;
+      if (level.placementId === from.placementId) {
+        reason = 'A connection joins two different rooms.';
+      } else if (level.kind === from.kind) {
+        reason = `"${level.portId}" on ${level.label} is also an ${level.kind} port; a connection joins an exit to an entry.`;
+      }
+      this._setStatus(reason, 'error');
       return;
     }
-    this._linking.to = level;
+    this._chooseLinkTarget(level);
+  }
+
+  /**
+   * Ends the gesture on a room rather than a port: the free port of the
+   * wanted kind nearest the hex. True when the hex belonged to another room.
+   */
+  _linkToHex(q, r) {
+    const from = this._linking.from;
+    const claimants = this.model?.occupancy?.[transform.hexKey({ q, r })];
+    const others = (Array.isArray(claimants) ? claimants : []).filter((id) => id !== from.placementId);
+    if (!others.length) {
+      return false;
+    }
+    const distance = (p) => (Math.abs(p.q - q) + Math.abs(p.r - r) + Math.abs((p.q + p.r) - (q + r))) / 2;
+    const ports = this._levelPorts()
+      .filter((p) => others.includes(p.placementId) && this._linking.legal.has(p.key))
+      .sort((a, b) => distance(a) - distance(b));
+    if (ports.length) {
+      this._chooseLinkTarget(ports[0]);
+    } else {
+      this._setStatus(
+        `${this._placementLabel(others[0])} has no free ${from.kind === 'exit' ? 'entry' : 'exit'} port to connect to. Ports are added in the Room Editor.`,
+        'warning',
+      );
+    }
+    return true;
+  }
+
+  _chooseLinkTarget(target) {
+    this._linking.to = target;
+    this.bus.emit('map:link-preview', null);
     this.selectedPlacementId = null;
     this.selectedLinkId = null;
     this.selectedRegionId = null;
+    this._setAuthorDrawerOpen(true);
     this._renderSelection();
-    this._setStatus('Choose the link kind, direction and default state, then create it.', 'info');
+    this._dom.inspectorBody?.scrollIntoView({ block: 'nearest' });
+    const { exit, entry } = this._linkEnds();
+    this._setStatus(`Connecting ${exit.label} to ${entry.label}: choose the kind, direction and default state in the Inspector, then press Create link.`, 'info');
+  }
+
+  /**
+   * Rubber-band from the starting port to the hex under the pointer.
+   */
+  _onLinkPointerMove(event) {
+    if (!this._linking || this._linking.to) {
+      return;
+    }
+    const axial = this._pointerToAxial(event.clientX, event.clientY);
+    const from = this._linking.from;
+    this.bus.emit('map:link-preview', axial ? { from: { q: from.q, r: from.r }, to: axial } : null);
   }
 
   _cancelLinking(message) {
@@ -1303,6 +1424,7 @@ export class DungeonEditorShell {
     }
     this._linking = null;
     this.container.removeAttribute('data-linking');
+    this.bus.emit('map:link-preview', null);
     this._emitMap();
     this._renderInspector();
     if (message) {
@@ -1328,17 +1450,19 @@ export class DungeonEditorShell {
         this._setStatus('Kind, direction and default state are all required; nothing is assumed.', 'error');
         return;
       }
+      const { exit, entry } = this._linkEnds();
       this.applyCommand('link_ports', {
-        from: { placement_id: pending.from.placementId, port_id: pending.from.portId },
-        to: { placement_id: pending.to.placementId, port_id: pending.to.portId },
+        from: { placement_id: exit.placementId, port_id: exit.portId },
+        to: { placement_id: entry.placementId, port_id: entry.portId },
         kind,
         direction,
         default_state: defaultState,
       }).then((result) => {
         if (result) {
+          this._lastLinkChoice = { kind, direction, default_state: defaultState };
           this._linking = null;
           this.container.removeAttribute('data-linking');
-          const created = (result.model.port_links || []).find((l) => l.from.placement_id === pending.from.placementId && l.from.port_id === pending.from.portId);
+          const created = (result.model.port_links || []).find((l) => l.from.placement_id === exit.placementId && l.from.port_id === exit.portId);
           this._selectLink(created?.link_id || null);
           this._emitMap();
         }
@@ -1491,7 +1615,7 @@ export class DungeonEditorShell {
         'span',
         'dungeon-editor__item-meta',
         placement.resolved
-          ? `(${placement.origin.q}, ${placement.origin.r}) r${placement.rotation_steps}`
+          ? `(${placement.origin.q}, ${placement.origin.r}) · ${placement.rotation_steps * 60}°`
           : 'unresolved version',
       );
       item.append(swatch, label, meta);
@@ -1697,7 +1821,8 @@ export class DungeonEditorShell {
    * no defaults; the form starts empty and the server refuses guesses.
    */
   _renderPendingLinkInspector(body) {
-    const { from, to } = this._linking;
+    const { exit: from, entry: to } = this._linkEnds();
+    const last = this._lastLinkChoice;
     body.appendChild(makeEl('p', 'room-editor__eyebrow', 'New link'));
     const dl = makeEl('dl', 'dungeon-editor__inspector-grid');
     [
@@ -1708,9 +1833,9 @@ export class DungeonEditorShell {
       dl.appendChild(makeEl('dd', null, value));
     });
     body.appendChild(dl);
-    body.appendChild(this._inspectorField('Kind', this._inspectorSelect('data-link-new', 'kind', LINK_KINDS, null, '- choose -')));
-    body.appendChild(this._inspectorField('Direction', this._inspectorSelect('data-link-new', 'direction', LINK_DIRECTIONS, null, '- choose -')));
-    body.appendChild(this._inspectorField('Default state', this._inspectorSelect('data-link-new', 'default_state', LINK_STATES, null, '- choose -')));
+    body.appendChild(this._inspectorField('Kind', this._inspectorSelect('data-link-new', 'kind', LINK_KINDS, last.kind, last.kind ? null : '- choose -')));
+    body.appendChild(this._inspectorField('Direction', this._inspectorSelect('data-link-new', 'direction', LINK_DIRECTIONS, last.direction, last.direction ? null : '- choose -')));
+    body.appendChild(this._inspectorField('Default state', this._inspectorSelect('data-link-new', 'default_state', LINK_STATES, last.default_state, last.default_state ? null : '- choose -')));
     const actions = makeEl('div', 'dungeon-editor__inspector-actions');
     actions.append(this._inspectorButton('link-create', 'Create link'), this._inspectorButton('link-cancel', 'Cancel'));
     body.appendChild(actions);
@@ -2218,6 +2343,7 @@ export class DungeonEditorShell {
       this._dom.generateBtn.textContent = busy && this._waitingOnGenerator ? 'Waiting on generator (LLM)…' : 'Generate dungeon plan';
     }
     this._updateHistoryButtons();
+    this._renderSelectionBar();
     this._renderPublicationReadiness();
   }
 

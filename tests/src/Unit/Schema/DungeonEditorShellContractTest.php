@@ -561,25 +561,18 @@ class DungeonEditorShellContractTest extends TestCase {
       $this->assertSame('port_link_endpoint_missing', $exception->getMessage());
     }
 
-    // Move B one hex away: the sealed link is broken and the move is refused
-    // with the exact geometry named. Nothing is nudged.
-    try {
-      $this->transition($service, $linked, 'move_room_placement', ['placement_id' => self::uuid(2), 'origin' => ['q' => 5, 'r' => 5]]);
-      $this->fail('port_link_not_adjacent expected.');
-    }
-    catch (DungeonCommandRejectedException $exception) {
-      $this->assertSame('port_link_not_adjacent', $exception->getMessage());
-      $this->assertStringContainsString('must be at (1, 0) facing edge 3', $exception->getFindings()[0]['message']);
-    }
+    // Linked rooms need not touch: moving or rotating B keeps the link valid
+    // for editing and for publication, and B stays reachable through it.
+    $moved = $this->transition($service, $linked, 'move_room_placement', ['placement_id' => self::uuid(2), 'origin' => ['q' => 5, 'r' => 5]]);
+    $this->assertSame([], $service->validateAggregate($this->draft($moved))['findings']);
+    $this->assertTrue($service->validateAggregate($this->draft($moved), 'publication')['is_valid']);
+    $rotated = $this->transition($service, $moved, 'rotate_room_placement', ['placement_id' => self::uuid(2), 'rotation_steps' => 1]);
+    $this->assertSame([], $service->validateAggregate($this->draft($rotated), 'publication')['findings']);
 
-    // Rotating B breaks the facing edge even though the hex still touches.
-    try {
-      $this->transition($service, $linked, 'rotate_room_placement', ['placement_id' => self::uuid(2), 'rotation_steps' => 1]);
-      $this->fail('port_link_not_adjacent expected.');
-    }
-    catch (DungeonCommandRejectedException $exception) {
-      $this->assertSame('port_link_not_adjacent', $exception->getMessage());
-    }
+    // A link may also be created between rooms that are apart.
+    $apart = $this->transition($service, $dungeon, 'move_room_placement', ['placement_id' => self::uuid(2), 'origin' => ['q' => 9, 'r' => -4]]);
+    $far_link = $this->transition($service, $apart, 'link_ports', $this->link($a, $b));
+    $this->assertTrue($service->validateAggregate($this->draft($far_link), 'publication')['is_valid']);
 
     // One-way link away from the entrance still reaches B; removing the link
     // leaves B unreachable again.

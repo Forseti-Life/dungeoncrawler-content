@@ -100,8 +100,7 @@ class LibraryReferenceAuditTest extends UnitTestCase {
         || isset($assets['rooms'][$target])
         || isset($assets['locations'][$target])
         || isset($assets['items'][$target])
-        || isset($assets['registry'][$target])
-        || isset($assets['creatures'][$target]);
+        || isset($assets['registry'][$target]);
       if (!$target_exists && in_array($type, ['interact', 'investigate', 'kill'], TRUE)) {
         $missing[] = "{$quest_id}:target:{$target}";
       }
@@ -170,22 +169,12 @@ class LibraryReferenceAuditTest extends UnitTestCase {
       }
     }
 
-    $creatures = [];
-    foreach (glob($base . '/content/creatures/*.json') as $file) {
-      $decoded = json_decode((string) file_get_contents($file), TRUE);
-      $id = (string) ($decoded['creature_id'] ?? pathinfo($file, PATHINFO_FILENAME));
-      if ($id !== '') {
-        $creatures[$id] = TRUE;
-      }
-    }
-
     return [
       'characters' => $characters,
       'rooms' => $rooms,
       'registry' => $registry,
       'locations' => $locations,
       'items' => $items,
-      'creatures' => $creatures,
     ];
   }
 

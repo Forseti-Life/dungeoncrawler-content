@@ -31,7 +31,6 @@ final class DefinitionEditorGmContractTest extends TestCase {
     'describe_definition_schema',
     'validate_definition',
     'generate_item_definition',
-    'generate_creature_definition',
     'generate_npc_definition',
     'generate_obstacle_definition',
     'generate_hazard_definition',
@@ -67,37 +66,37 @@ final class DefinitionEditorGmContractTest extends TestCase {
 
   private function definitions(): CanonicalDefinitionService {
     $definitions = $this->createMock(CanonicalDefinitionService::class);
-    $definitions->method('families')->willReturn(['creature', 'actor', 'item', 'obstacle', 'trap', 'hazard']);
+    $definitions->method('families')->willReturn(['actor', 'item', 'obstacle', 'trap', 'hazard']);
     $definitions->method('currentVersion')->willReturnCallback(static fn(string $family, string $id): ?string => $id === 'goblin' ? '1.0.0' : NULL);
     $definitions->method('catalog')->willReturn([
-      'definitions' => [['family' => 'creature', 'definition_id' => 'goblin', 'label' => 'Goblin']],
+      'definitions' => [['family' => 'item', 'definition_id' => 'goblin', 'label' => 'Goblin']],
       'total' => 1,
       'limit' => 40,
       'offset' => 0,
       'catalog_version' => 'catalog-probe',
-      'families' => ['creature', 'actor', 'item', 'obstacle', 'trap', 'hazard'],
+      'families' => ['actor', 'item', 'obstacle', 'trap', 'hazard'],
     ]);
-    $definitions->method('idProperty')->willReturn('creature_id');
+    $definitions->method('idProperty')->willReturn('item_id');
     $definitions->method('nameProperty')->willReturn('name');
     $definitions->method('schemaForFamily')->willReturn([
       'type' => 'object',
-      'required' => ['creature_id', 'name'],
+      'required' => ['item_id', 'name'],
       'properties' => [
-        'creature_id' => ['type' => 'string'],
+        'item_id' => ['type' => 'string'],
         'name' => ['type' => 'string'],
       ],
       'additionalProperties' => FALSE,
     ]);
     $definitions->method('loadCanonicalEntry')->willReturn([
-      'family' => 'creature',
+      'family' => 'item',
       'definition_id' => 'goblin',
       'name' => 'Goblin',
-      'category' => 'creature',
+      'category' => 'item',
       'version' => '1.0.0',
-      'schema_data' => ['creature_id' => 'goblin', 'name' => 'Goblin'],
+      'schema_data' => ['item_id' => 'goblin', 'name' => 'Goblin'],
       'source_table' => 'dungeoncrawler_content_registry',
     ]);
-    $definitions->method('definitionPayload')->willReturn(['creature_id' => 'goblin', 'name' => 'Goblin']);
+    $definitions->method('definitionPayload')->willReturn(['item_id' => 'goblin', 'name' => 'Goblin']);
     $definitions->method('validateDefinition')->willReturn([]);
     $definitions->method('publishedRoomsReferencing')->willReturn([]);
     $definitions->method('normalizeSemanticVersion')->willReturnArgument(0);
@@ -128,7 +127,7 @@ final class DefinitionEditorGmContractTest extends TestCase {
   public function testDefinitionGmToolsetMatchesApiParity(): void {
     $harness = $this->harness();
     $manifest = $harness->manifest('definition_editor');
-    $this->assertSame(16, $manifest['tool_count']);
+    $this->assertSame(15, $manifest['tool_count']);
     $this->assertSame([], $manifest['supported_command_types']);
     $this->assertSame([], $manifest['command_payload_contracts']);
 
@@ -163,15 +162,15 @@ final class DefinitionEditorGmContractTest extends TestCase {
    */
   public function testDefinitionScopeHardFails(): void {
     $harness = $this->harness();
-    $snapshot = $harness->describe('definition_editor', NULL, 'editing', ['family' => 'creature', 'definition_id' => 'goblin']);
+    $snapshot = $harness->describe('definition_editor', NULL, 'editing', ['family' => 'item', 'definition_id' => 'goblin']);
     $this->assertSame('definition_editor', $snapshot['tool_id']);
-    $this->assertSame('creature', $snapshot['context_snapshot']['scope']['family']);
+    $this->assertSame('item', $snapshot['context_snapshot']['scope']['family']);
     $this->assertSame('goblin', $snapshot['context_snapshot']['scope']['definition_id']);
 
     foreach ([
       ['editor_gm_definition_scope_invalid:family', static fn() => $harness->describe('definition_editor', NULL, 'editing', ['family' => 'spell'])],
-      ['editor_gm_definition_scope_invalid:definition_not_found', static fn() => $harness->describe('definition_editor', NULL, 'editing', ['family' => 'creature', 'definition_id' => 'missing'])],
-      ['editor_gm_draft_not_applicable:definition_editor', static fn() => $harness->describe('definition_editor', '11111111-1111-4111-8111-111111111111', 'editing', ['family' => 'creature'])],
+      ['editor_gm_definition_scope_invalid:definition_not_found', static fn() => $harness->describe('definition_editor', NULL, 'editing', ['family' => 'item', 'definition_id' => 'missing'])],
+      ['editor_gm_draft_not_applicable:definition_editor', static fn() => $harness->describe('definition_editor', '11111111-1111-4111-8111-111111111111', 'editing', ['family' => 'item'])],
     ] as [$code, $call]) {
       try {
         $call();
@@ -190,7 +189,7 @@ final class DefinitionEditorGmContractTest extends TestCase {
     $harness = $this->harness();
     $request = [
       'schema_version' => EditorGmHarnessService::REQUEST_CONTRACT_VERSION,
-      'tool_context' => ['tool_id' => 'definition_editor', 'validation_profile' => 'editing', 'scope' => ['family' => 'creature', 'definition_id' => 'goblin']],
+      'tool_context' => ['tool_id' => 'definition_editor', 'validation_profile' => 'editing', 'scope' => ['family' => 'item', 'definition_id' => 'goblin']],
       'intent' => ['type' => 'natural_language', 'utterance' => 'rename this goblin'],
     ];
     try {
@@ -294,7 +293,7 @@ final class DefinitionEditorGmContractTest extends TestCase {
       $this->assertStringNotContainsString('RoomEditorService', $source, basename($path));
       $this->assertStringNotContainsString('DungeonEditorService', $source, basename($path));
     }
-    $this->assertSame('definition_editor', (new DefinitionEditorGmToolContext('editing', $this->definitions(), 'creature'))->surfaceId());
+    $this->assertSame('definition_editor', (new DefinitionEditorGmToolContext('editing', $this->definitions(), 'item'))->surfaceId());
   }
 
 }

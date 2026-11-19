@@ -16,11 +16,11 @@ final class DescribeCanonicalDefinitionSchemaTool implements EditorGmToolInterfa
     return new EditorGmToolDefinition(
       'describe_canonical_definition_schema',
       EditorGmToolDefinition::FAMILY_DEFINITION,
-      'Return the JSON Schema and flattened field list for a placeable family (obstacle, hazard, trap, item, creature, actor).',
+      'Return the JSON Schema and flattened field list for a placeable family (obstacle, hazard, trap, item, actor).',
       FALSE,
       'CanonicalDefinitionService::schemaForFamily()',
       [
-        EditorGmToolDefinition::argument('family', 'string', TRUE, 'Placeable family: obstacle|hazard|trap|item|creature|actor.'),
+        EditorGmToolDefinition::argument('family', 'string', TRUE, 'Placeable family: obstacle|hazard|trap|item|actor.'),
       ],
     );
   }

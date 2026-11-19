@@ -28,6 +28,29 @@ function link(href, text) {
   return anchor;
 }
 
+/**
+ * The card shown when a placed definition's entry is hovered or focused.
+ */
+function contentCard(entry) {
+  const card = document.createElement('span');
+  card.className = 'editor-page__content-card';
+  card.setAttribute('role', 'tooltip');
+  const description = String(entry.description || '').trim();
+  [
+    [entry.name, 'strong'],
+    [[entry.family, entry.category && entry.category !== entry.family ? entry.category : ''].filter(Boolean).join(' · '), 'span'],
+    [description.length > 220 ? `${description.slice(0, 217)}…` : description, 'span'],
+    [`Placed ${entry.count} time${entry.count === 1 ? '' : 's'} in this room`, 'span'],
+    [`Library id: ${entry.definition_id}`, 'span'],
+  ].forEach(([text, tag]) => {
+    if (!text) return;
+    const row = document.createElement(tag);
+    row.textContent = text;
+    card.appendChild(row);
+  });
+  return card;
+}
+
 function stageRow(stage, current) {
   const state = stage.complete ? 'Done' : (stage.stage === current ? 'Now' : 'Open');
   const row = document.createElement('li');
@@ -71,6 +94,7 @@ export function renderEditorDraftStatus(card, status) {
     listItems(part('stages'), [], `Load or create a ${thing} to see its stages.`);
     listItems(part('missing'), ['Create or load a draft.'], '');
     listItems(part('links'), [], `Load a ${thing} to see what it links to.`);
+    listItems(part('contents'), [], 'Load a room to see what is placed in it.');
     listItems(part('storylines'), [], 'No storyline uses this yet.');
     return;
   }
@@ -93,6 +117,16 @@ export function renderEditorDraftStatus(card, status) {
       ? status.rooms.map((room) => link(`/dungeoncrawler/room-editor/${encodeURIComponent(room.room_id)}`, room.name))
       : status.dungeons.map((dungeon) => link(`/dungeoncrawler/dungeon-editor/${encodeURIComponent(dungeon.dungeon_id)}`, dungeon.name)),
     status.rooms ? 'No room is placed yet.' : 'No dungeon uses this room yet.',
+  );
+  // A room also lists what is placed in it; each opens in the library editor.
+  listItems(
+    part('contents'),
+    (status.contents || []).map((entry) => [
+      link(`/dungeoncrawler/canonical-library/${encodeURIComponent(entry.family)}/${encodeURIComponent(entry.definition_id)}`, entry.name),
+      ` (${entry.family}${entry.count > 1 ? ` ×${entry.count}` : ''})`,
+      contentCard(entry),
+    ]),
+    'Nothing is placed in this room yet.',
   );
   listItems(
     part('storylines'),

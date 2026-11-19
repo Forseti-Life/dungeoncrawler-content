@@ -208,7 +208,6 @@ class DungeonEditorContractTest extends TestCase {
       'placement_version_unresolved',
       'port_link_endpoint_missing',
       'port_link_direction_invalid',
-      'port_link_not_adjacent',
       'port_already_linked',
       'port_link_self_reference',
       'dungeon_entrance_missing',
