@@ -2370,7 +2370,7 @@ class StorylineManagerService {
           => $this->validateReferencedNpcLikeEntityContractStub($entity_type, $entity_id, $context),
         'hazard' => $this->validateReferencedHazardEntityContractStub($entity_type, $entity_id, $context),
         'item' => $this->validateReferencedItemEntityContractStub($entity_type, $entity_id, $context, $findings),
-        'room', 'location' => $this->validateReferencedLocationEntityContractStub($entity_type, $entity_id, $context),
+        'room', 'location' => $this->validateReferencedLocationEntityContractStub($entity_type, $entity_id, $context, $findings),
         'dungeon' => $this->validateReferencedDungeonEntityContractStub($entity_type, $entity_id, $context),
         'faction', 'institution'
           => $this->validateReferencedFactionEntityContractStub($entity_type, $entity_id, $context),
@@ -2569,11 +2569,20 @@ class StorylineManagerService {
      * @return array<int, string>
      *   Validation errors.
      */
-    protected function validateReferencedLocationEntityContractStub(string $entity_type, string $entity_id, array $context): array {
+    protected function validateReferencedLocationEntityContractStub(string $entity_type, string $entity_id, array $context, array &$findings = []): array {
       if ($entity_type === 'room') {
         $row = $this->loadCanonicalRoomEntity($entity_id);
         if ($row === NULL) {
-          return [$this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'referenced room is missing from canonical room templates.')];
+          $message = $this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'referenced room is missing from canonical room templates.');
+          $findings[] = [
+            'severity' => 'warning',
+            'code' => 'DCV_CANONICAL_ROOM_MISSING',
+            'message' => $message,
+            'entity_type' => 'room',
+            'entity_id' => $entity_id,
+            'owner' => 'room_editor',
+          ];
+          return [$message];
         }
         $layout_data = $this->decodeJsonArrayValue($row['layout_data'] ?? NULL);
         $contents_data = $this->decodeJsonArrayValue($row['contents_data'] ?? NULL);
@@ -6674,7 +6683,32 @@ class StorylineManagerService {
       }
       $typed = TRUE;
       foreach ($task_rows as $row) {
-        $errors = array_merge($errors, $builder->rowErrors($row));
+        $row_errors = $builder->rowErrors($row);
+        foreach ($row_errors as $row_error) {
+          $field = NULL;
+          $code = 'storyline_objective_contract_invalid';
+          if (preg_match("/has type '[^']+' but sets '([^']+)'/", $row_error, $field_match) === 1) {
+            $field = $field_match[1];
+            $code = 'DCV_OBJECTIVE_TYPE_FIELD_CONFLICT';
+          }
+          elseif (str_contains($row_error, 'completes when achieved') || str_contains($row_error, 'Remove required')) {
+            $field = 'required';
+            $code = 'DCV_OBJECTIVE_NONCOUNT_REQUIRED';
+          }
+          $findings[] = [
+            'severity' => 'error',
+            'code' => $code,
+            'message' => $row_error,
+            'entity_type' => 'storyline_quest_objective',
+            'entity_id' => (string) $task_id,
+            'objective_id' => (string) ($row['objective_id'] ?? ''),
+            'phase_index' => 0,
+            'objective_index' => array_search($row, $task_rows, TRUE),
+            'field' => $field,
+            'owner' => 'storyline_draft',
+          ];
+        }
+        $errors = array_merge($errors, $row_errors);
         $request_target = trim((string) ($row['target'] ?? ''));
         if (trim((string) ($row['requires_check'] ?? '')) !== '' && $request_target !== '' && !isset($actor_ids[$request_target])) {
           $report(

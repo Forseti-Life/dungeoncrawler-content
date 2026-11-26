@@ -56,10 +56,67 @@ final class StorylineValidationTroubleshootingGuide {
         array_values((array) ($entry['fields'] ?? [])),
       );
     }
+    if (($entry['resolver'] ?? 'generic') === 'editor_route') {
+      $route_finding = $finding;
+      $prerequisite = [];
+      if (($finding['code'] ?? '') === 'DCV_AUTHORED_ROOM_NOT_IN_DUNGEON') {
+        $missing_room = self::findRelatedFinding(
+          $validation,
+          'DCV_CANONICAL_ROOM_MISSING',
+          (string) ($finding['room_id'] ?? ''),
+        );
+        if ($missing_room !== []) {
+          $route_finding = $missing_room;
+          $prerequisite = [
+            'selected_error' => $finding['message'],
+            'reason' => 'The room must exist canonically before the Dungeon Editor can place it.',
+          ];
+        }
+      }
+      $packet['object'] = [
+        'type' => (string) ($route_finding['entity_type'] ?? 'object'),
+        'id' => (string) ($route_finding['entity_id'] ?? ''),
+      ];
+      $packet['prerequisite'] = $prerequisite;
+      $packet['editor_route'] = [
+        'tool' => 'route_to_editor',
+        'arguments' => [
+          'kind' => (string) ($route_finding['entity_type'] ?? ''),
+          'id' => (string) ($route_finding['entity_id'] ?? ''),
+        ],
+      ];
+      $packet['user_action'] = 'Open the owning editor and have its GM create or update this canonical object, then return to revalidate.';
+    }
     return $packet;
   }
 
+  private static function findRelatedFinding(array $validation, string $code, string $entity_id): array {
+    foreach ((array) ($validation['stages'] ?? []) as $stage) {
+      foreach ((array) ($stage['findings'] ?? []) as $finding) {
+        if (is_array($finding)
+          && ($finding['code'] ?? '') === $code
+          && ($finding['entity_id'] ?? '') === $entity_id) {
+          return $finding + ['route' => (string) ($stage['route'] ?? '')];
+        }
+      }
+    }
+    return [];
+  }
+
   private static function selectedFinding(array $validation, string $message): array {
+    foreach ((array) ($validation['stages'] ?? []) as $stage) {
+      if (!is_array($stage) || (array) ($stage['errors'] ?? []) === []) {
+        continue;
+      }
+      $errors = (array) $stage['errors'];
+      $selected = (string) reset($errors);
+      foreach ((array) ($stage['findings'] ?? []) as $finding) {
+        if (is_array($finding) && ($finding['message'] ?? '') === $selected) {
+          return [$stage, $finding];
+        }
+      }
+      return [$stage, []];
+    }
     foreach ((array) ($validation['stages'] ?? []) as $stage) {
       if (!is_array($stage)) {
         continue;
@@ -120,6 +177,13 @@ final class StorylineValidationTroubleshootingGuide {
       $fields = array_filter([(string) ($finding['field'] ?? '')]);
     }
     $fields = array_values(array_intersect(array_unique($fields), $configured_fields));
+    $replacement_value = [];
+    if (($finding['code'] ?? '') === 'DCV_OBJECTIVE_TYPE_FIELD_CONFLICT' && $objective !== []) {
+      $replacement_value = $objective;
+      foreach ($fields as $field) {
+        unset($replacement_value[$field]);
+      }
+    }
     $needs_input = $objective === [] || (
       in_array('target_label', $fields, TRUE) && !isset($suggested['target_label'])
     ) || in_array('target_label', $fields, TRUE) && $display_name === '';
@@ -148,6 +212,7 @@ final class StorylineValidationTroubleshootingGuide {
         'tool' => 'plan_storyline_draft_operations',
       ],
       'suggested_values' => $suggested,
+      'replacement_value' => $replacement_value,
       'user_question' => $question,
       'verification_codes' => array_values(array_unique(array_map(
         static fn(array $item): string => (string) ($item['code'] ?? ''),
@@ -207,14 +272,14 @@ final class StorylineValidationTroubleshootingGuide {
     foreach ($registry['stages'] as $stage => $entry) {
       if (!is_array($entry)
         || !isset($registry['routes'][$entry['route'] ?? ''])
-        || !in_array($entry['resolver'] ?? '', ['generic', 'storyline_quest_objective'], TRUE)) {
+        || !in_array($entry['resolver'] ?? '', ['generic', 'storyline_quest_objective', 'editor_route'], TRUE)) {
         throw new \UnexpectedValueException('storyline_validation_troubleshooting_stage_invalid:' . $stage);
       }
     }
     foreach ($registry['findings'] as $code => $entry) {
       if (!is_array($entry)
         || !isset($registry['routes'][$entry['route'] ?? ''])
-        || !in_array($entry['resolver'] ?? '', ['generic', 'storyline_quest_objective'], TRUE)) {
+        || !in_array($entry['resolver'] ?? '', ['generic', 'storyline_quest_objective', 'editor_route'], TRUE)) {
         throw new \UnexpectedValueException('storyline_validation_troubleshooting_entry_invalid:' . $code);
       }
     }

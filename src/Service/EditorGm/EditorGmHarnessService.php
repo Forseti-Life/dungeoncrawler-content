@@ -240,6 +240,22 @@ class EditorGmHarnessService implements AgentHarnessInterface {
           $author_message,
         );
       }
+      if (in_array($scope['storyline_request_mode'], ['mutation', 'approval'], TRUE)
+        && is_array($troubleshooting['editor_route'] ?? NULL)
+        && ($troubleshooting['editor_route']['tool'] ?? '') === 'route_to_editor') {
+        return $this->executeTool(
+          $surface,
+          $draft_id,
+          $profile,
+          'route_to_editor',
+          (array) $troubleshooting['editor_route']['arguments'],
+          FALSE,
+          'Open the owning editor for the selected validation prerequisite.',
+          $scope,
+          [],
+          $author_message,
+        );
+      }
       $repair = $this->resolveOfferedStorylineNavigationWarning(
         $utterance,
         StorylineBuilderGmToolContext::of($context),

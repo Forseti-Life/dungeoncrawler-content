@@ -107,6 +107,9 @@ Current resolvers:
 - `storyline_quest_objective`: resolves one draft objective by quest/task ID
   and objective index, exposes configured fields only, and can ground
   target labels and aliases from the authored actor.
+- `editor_route`: routes a missing canonical object or placement binding to
+  its owning Room or Dungeon Editor. It does not turn a room/dungeon problem
+  into a code-defect backlog item.
 
 Warnings that share one owning row may be handled together only when their
 registry entries permit the same fields. Unrelated warnings must not appear

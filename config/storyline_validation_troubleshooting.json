@@ -63,6 +63,30 @@
       "route": "draft_operation",
       "fields": ["target", "location", "destination"],
       "verification": "selected_code"
+    },
+    "DCV_OBJECTIVE_TYPE_FIELD_CONFLICT": {
+      "resolver": "storyline_quest_objective",
+      "route": "draft_operation",
+      "fields": ["target", "item", "location", "destination", "required"],
+      "verification": "same_object"
+    },
+    "DCV_OBJECTIVE_NONCOUNT_REQUIRED": {
+      "resolver": "storyline_quest_objective",
+      "route": "draft_operation",
+      "fields": ["required"],
+      "verification": "same_object"
+    },
+    "DCV_CANONICAL_ROOM_MISSING": {
+      "resolver": "editor_route",
+      "route": "room_editor",
+      "fields": [],
+      "verification": "selected_code"
+    },
+    "DCV_AUTHORED_ROOM_NOT_IN_DUNGEON": {
+      "resolver": "editor_route",
+      "route": "dungeon_editor",
+      "fields": [],
+      "verification": "selected_code"
     }
   },
   "default": {

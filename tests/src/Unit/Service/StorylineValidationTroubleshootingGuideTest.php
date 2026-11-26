@@ -3,6 +3,7 @@
 namespace Drupal\Tests\dungeoncrawler_content\Unit\Service;
 
 use Drupal\dungeoncrawler_content\Service\EditorGm\StorylineValidationTroubleshootingGuide;
+use Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessManagementService;
 use Drupal\Tests\UnitTestCase;
 
 /**
@@ -81,6 +82,93 @@ class StorylineValidationTroubleshootingGuideTest extends UnitTestCase {
     $this->assertTrue($packet['code_change_required']);
     $this->assertSame('submit_backlog_suggestion', $packet['coding_handoff']['defect_tool']);
     $this->assertStringContainsString('Do not alter storyline data', $packet['coding_handoff']['scope']);
+  }
+
+  public function testBlockingObjectiveErrorPrecedesWarningsAndProvidesAReplacement(): void {
+    $error = "Objective 'collect_resonance_samples' has type 'interact' but sets 'item', which that type does not use. Use 'target'.";
+    $warning = '[DCV_OBJ_PLAYABILITY_MISSING_TARGET_LABEL] quest.other.phase[0].objective[0]: missing label.';
+    $packet = StorylineValidationTroubleshootingGuide::packet([
+      'process_flow' => [
+        'tasks' => [['task_id' => 'stabilize_arcane_resonance']],
+        'objective_completion_criteria' => [[
+          'objective_id' => 'collect_resonance_samples',
+          'task_id' => 'stabilize_arcane_resonance',
+          'type' => 'interact',
+          'target' => 'scholar_npc',
+          'item' => 'resonance_sample',
+          'required' => '',
+        ]],
+      ],
+    ], [
+      'stages' => [[
+        'stage' => 'objective_control_chain',
+        'route' => 'draft_operation',
+        'errors' => [$error],
+        'warnings' => [],
+        'findings' => [[
+          'severity' => 'error',
+          'code' => 'DCV_OBJECTIVE_TYPE_FIELD_CONFLICT',
+          'message' => $error,
+          'entity_type' => 'storyline_quest_objective',
+          'entity_id' => 'stabilize_arcane_resonance',
+          'objective_id' => 'collect_resonance_samples',
+          'phase_index' => 0,
+          'objective_index' => 0,
+          'field' => 'item',
+        ]],
+      ], [
+        'stage' => 'objective_playability',
+        'route' => 'draft_operation',
+        'errors' => [],
+        'warnings' => [$warning],
+        'findings' => [],
+      ]],
+    ], ['first_open_warning' => $warning]);
+
+    $this->assertSame($error, $packet['finding']['message']);
+    $this->assertSame('interact', $packet['replacement_value']['type']);
+    $this->assertArrayNotHasKey('item', $packet['replacement_value']);
+    $this->assertFalse($packet['code_change_required']);
+  }
+
+  public function testMissingCanonicalRoomRoutesToRoomEditor(): void {
+    $warning = "[entity_type_contracts:room] asset_references[8] (cellar): referenced room is missing from canonical room templates.";
+    $packet = StorylineValidationTroubleshootingGuide::packet([], [
+      'stages' => [[
+        'stage' => 'entity_type_contracts',
+        'route' => 'canonical_definition',
+        'warnings' => [$warning],
+        'findings' => [[
+          'severity' => 'warning',
+          'code' => 'DCV_CANONICAL_ROOM_MISSING',
+          'message' => $warning,
+          'entity_type' => 'room',
+          'entity_id' => 'cellar',
+        ]],
+      ]],
+    ], ['first_open_warning' => $warning]);
+    $this->assertSame('room_editor', $packet['route']);
+    $this->assertSame(['kind' => 'room', 'id' => 'cellar'], $packet['editor_route']['arguments']);
+    $this->assertFalse($packet['code_change_required']);
+  }
+
+  public function testEditorRouteResponseKeepsRoomCreationAndDungeonPlacementSeparate(): void {
+    $harness = new AgentHarnessManagementService();
+    $room = $harness->synthesizeDeterministicMutationResponse('route_to_editor', [
+      'kind' => 'room',
+      'id' => 'cellar',
+      'route' => '/dungeoncrawler/room-editor/cellar',
+    ], [], 'Storyline Builder');
+    $this->assertStringContainsString('Create and save the canonical room', $room['answer']);
+    $this->assertStringNotContainsString('Dungeon', $room['answer']);
+
+    $dungeon = $harness->synthesizeDeterministicMutationResponse('route_to_editor', [
+      'kind' => 'dungeon',
+      'id' => 'city',
+      'route' => '/dungeoncrawler/dungeon-editor/city',
+    ], ['troubleshooting' => ['finding' => ['room_id' => 'cellar']]], 'Storyline Builder');
+    $this->assertStringContainsString("Place room 'cellar' in dungeon 'city'", $dungeon['answer']);
+    $this->assertStringNotContainsString('Create and save', $dungeon['answer']);
   }
 
 }

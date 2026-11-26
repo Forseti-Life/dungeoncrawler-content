@@ -699,6 +699,29 @@ class AgentHarnessManagementService {
     array $context_snapshot,
     string $surface_label,
   ): ?array {
+    if ($tool_name === 'route_to_editor') {
+      $kind = (string) ($tool_result['kind'] ?? '');
+      $id = (string) ($tool_result['id'] ?? '');
+      $route = (string) ($tool_result['route'] ?? '');
+      if ($kind === 'room') {
+        return [
+          'answer' => "Room Editor Required\nCreate and save the canonical room '{$id}' in the Room Editor. This must happen before the storyline can place it in a dungeon.",
+          'next_steps' => [$route !== ''
+            ? "Open {$route} and create the room '{$id}'. Then return here to revalidate."
+            : "Open the Room Editor and create the room '{$id}'. Then return here to revalidate."],
+        ];
+      }
+      if ($kind === 'dungeon') {
+        $room_id = (string) ($context_snapshot['troubleshooting']['finding']['room_id'] ?? '');
+        $placement = $room_id !== '' ? "Place room '{$room_id}' in dungeon '{$id}'." : "Open dungeon '{$id}' and save the required placement.";
+        return [
+          'answer' => "Dungeon Editor Required\n{$placement} The storyline will not recreate or bypass that placement.",
+          'next_steps' => [$route !== ''
+            ? "Open {$route} and save the room placement. Then return here to revalidate."
+            : "Open the Dungeon Editor and save the room placement. Then return here to revalidate."],
+        ];
+      }
+    }
     if ($tool_name === self::TOOL_SUBMIT_BACKLOG_SUGGESTION) {
       $response = $this->buildBacklogSuggestionSummary($tool_result, $context_snapshot);
       if ($surface_label === 'Storyline Builder') {

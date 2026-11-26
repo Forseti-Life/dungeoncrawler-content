@@ -1207,10 +1207,25 @@ class StorylineAuthoringDraftService {
     $room_bindings = (array) ($draft['payload']['objects']['rooms']['generation_specs'] ?? []);
     $binding_errors = $this->storylineManager->validateAuthoredRoomDungeonBindings($room_bindings);
     $scene_findings = self::roomSceneFindings($draft['payload'] ?? [], $definition);
+    $binding_findings = [];
+    foreach ($binding_errors as $binding_error) {
+      if (preg_match("/room '([^']+)' is not placed in declared dungeon '([^']+)'/", $binding_error, $match) !== 1) {
+        continue;
+      }
+      $binding_findings[] = [
+        'severity' => 'error',
+        'code' => 'DCV_AUTHORED_ROOM_NOT_IN_DUNGEON',
+        'message' => $binding_error,
+        'entity_type' => 'dungeon',
+        'entity_id' => $match[2],
+        'room_id' => $match[1],
+        'owner' => 'dungeon_editor',
+      ];
+    }
     $validation['stages']['authored_room_dungeon_bindings'] = [
       'valid' => $binding_errors === [] && $scene_findings === [],
       'errors' => array_merge(array_column($scene_findings, 'message'), $binding_errors),
-      'findings' => $scene_findings,
+      'findings' => array_merge($scene_findings, $binding_findings),
     ];
     $stages = is_array($validation['stages'] ?? NULL) ? $validation['stages'] : [];
     $choice_findings = $this->authoredChoiceFindings($draft['payload'] ?? []);
