@@ -948,6 +948,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         $profile,
         $author_message,
         $evidence,
+        (string) ($scope['conversation_context'] ?? ''),
       );
       if ($furnishing_plan !== NULL) {
         if (($furnishing_plan['no_changes'] ?? FALSE) === TRUE) {
@@ -988,22 +989,38 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         );
         $placed = array_values((array) ($furnishing_plan['placed_labels'] ?? []));
         $missing = array_values((array) ($furnishing_plan['missing_concepts'] ?? []));
-        $execution['tool_result']['assistant_response'] = sprintf(
-          'Placed %d catalog-backed object%s in the room: %s. The draft is saved at revision %d.',
-          count($placed),
-          count($placed) === 1 ? '' : 's',
-          implode(', ', $placed),
-          (int) ($execution['tool_result']['final_revision'] ?? 0),
+        $label_counts = array_count_values($placed);
+        $labels = array_map(
+          static fn(string $label): string => $label_counts[$label] > 1
+            ? sprintf('%d x %s', $label_counts[$label], $label)
+            : $label,
+          array_keys($label_counts),
         );
+        $execution['tool_result']['assistant_response'] = $dry_run
+          ? sprintf(
+            'Preview only: would place %d catalog-backed object%s in the room: %s. No draft changes were saved.',
+            count($placed),
+            count($placed) === 1 ? '' : 's',
+            implode(', ', $labels),
+          )
+          : sprintf(
+            'Placed %d catalog-backed object%s in the room: %s. The draft is saved at revision %d.',
+            count($placed),
+            count($placed) === 1 ? '' : 's',
+            implode(', ', $labels),
+            (int) ($execution['tool_result']['final_revision'] ?? 0),
+          );
         if ($missing !== []) {
           $execution['tool_result']['assistant_response'] .= sprintf(
             ' No catalog definitions were available for: %s.',
             implode(', ', $missing),
           );
         }
-        $execution['tool_result']['next_steps'] = $missing === []
+        $execution['tool_result']['next_steps'] = $dry_run
+          ? ['Turn off Dry Run and repeat the same furnishing request to apply the validated placement plan.']
+          : ($missing === []
           ? []
-          : ['Add or select an available catalog definition for the unmatched request before publishing.'];
+          : ['Add or select an available catalog definition for the unmatched request before publishing.']);
         return $execution;
       }
       $room_route = $this->missingPublishedRoomEditorRoute($surface, $author_message, $evidence);
@@ -1199,13 +1216,14 @@ class EditorGmHarnessService implements AgentHarnessInterface {
       string $profile,
       string $author_message,
       array $evidence,
+      string $conversation_context = '',
     ): ?array {
       if ($surface->id() !== RoomEditorGmSurface::ID
         || $draft_id === NULL
         || !$this->isDirectEditorMutationDirective($author_message)) {
         return NULL;
       }
-      $text = mb_strtolower($author_message);
+      $text = mb_strtolower(trim($conversation_context . ' ' . $author_message));
       $definitions = [];
       foreach ($evidence as $lookup) {
         foreach ((array) ($lookup['result']['definitions'] ?? []) as $definition) {
@@ -1215,16 +1233,25 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         }
       }
       $concepts = [
-        'fallen pillar' => ['fallen pillar', 'pillar'],
+        'broken column' => ['fallen pillar'],
+        'unbroken column' => ['stone pillar'],
         'wheel' => ['wheel', 'rimmed oak wheels'],
         'tool' => ['tool rack', 'tool belt', 'tool (long)', 'tool (short)'],
         'metal strip' => ['metal strip', 'iron strip'],
       ];
       $wanted = [];
       $missing = [];
+      $mentions_broken_column = preg_match('/\b(?:broken|fallen|collapsed|ruined)\s+(?:columns?|pillars?)\b/u', $text) === 1;
+      $mentions_unbroken_column = preg_match('/\b(?:unbroken|standing|upright|intact)\s+(?:columns?|pillars?)\b/u', $text) === 1;
+      $mentions_column = preg_match('/\b(?:columns?|pillars?)\b/u', $text) === 1;
       foreach ($concepts as $requested => $aliases) {
-        if (!str_contains($text, $requested)
-          && !array_filter($aliases, static fn(string $alias): bool => str_contains($text, $alias))) {
+        $column_match = match ($requested) {
+          'broken column' => $mentions_broken_column,
+          'unbroken column' => $mentions_unbroken_column || ($mentions_column && !$mentions_broken_column),
+          default => str_contains($text, $requested)
+            || !empty(array_filter($aliases, static fn(string $alias): bool => str_contains($text, $alias))),
+        };
+        if (!$column_match) {
           continue;
         }
         $matches = array_values(array_filter(
@@ -1248,17 +1275,17 @@ class EditorGmHarnessService implements AgentHarnessInterface {
           return $rank($a) <=> $rank($b);
         });
         if ($matches !== []) {
-          $wanted[] = $matches[0];
+          $wanted[] = [
+            'definition' => $matches[0],
+            'quantity' => $this->requestedFurnishingQuantity($text, $requested, $aliases),
+          ];
         }
         else {
           $missing[] = $requested;
         }
       }
       if ($wanted === []) {
-        return [
-          'no_changes' => TRUE,
-          'missing_concepts' => $missing,
-        ];
+        return NULL;
       }
       $context = $surface->createContext($draft_id, $profile);
       $room_context = RoomEditorGmToolContext::of($context);
@@ -1298,21 +1325,43 @@ class EditorGmHarnessService implements AgentHarnessInterface {
       }
       $placements = [];
       $placed_labels = [];
-      foreach ($wanted as $index => $definition) {
+      $placement_index = 0;
+      $is_additive = preg_match('/\b(?:add|more)\b/u', $text) === 1;
+      $placement_count = 0;
+      foreach ($wanted as $specification) {
+        $definition = (array) $specification['definition'];
         $definition_key = (string) ($definition['family'] ?? '') . ':' . (string) ($definition['definition_id'] ?? '');
-        if (isset($occupied_definitions[$definition_key])) {
+        if ($is_additive || !isset($occupied_definitions[$definition_key])) {
+          $placement_count += max(1, (int) $specification['quantity']);
+        }
+      }
+      $placement_hexes = $this->furnishingPlacementHexes(
+        $available,
+        $placement_count,
+        preg_match('/\b(?:spread|scatter(?:ed)?|around|evenly)\b/u', $text) === 1,
+      );
+      foreach ($wanted as $specification) {
+        $definition = (array) $specification['definition'];
+        $quantity = max(1, (int) $specification['quantity']);
+        $definition_key = (string) ($definition['family'] ?? '') . ':' . (string) ($definition['definition_id'] ?? '');
+        if (!$is_additive && isset($occupied_definitions[$definition_key])) {
           continue;
         }
-        $version = trim((string) ($definition['definition_version'] ?? $definition['version'] ?? ''));
-        $hex = $available[$index * max(1, intdiv(count($available), count($wanted)))];
-        $placements[] = [
-          'family' => (string) $definition['family'],
-          'definition_id' => (string) $definition['definition_id'],
-          'version' => $version !== '' ? $version : '1.0.0',
-          'anchor_hex' => ['q' => (int) $hex['q'], 'r' => (int) $hex['r']],
-          'facing' => 0,
-        ];
-        $placed_labels[] = (string) ($definition['label'] ?? $definition['definition_id']);
+        for ($copy = 0; $copy < $quantity; $copy++) {
+          if (!isset($placement_hexes[$placement_index])) {
+            return NULL;
+          }
+          $version = trim((string) ($definition['definition_version'] ?? $definition['version'] ?? ''));
+          $hex = $placement_hexes[$placement_index++];
+          $placements[] = [
+            'family' => (string) $definition['family'],
+            'definition_id' => (string) $definition['definition_id'],
+            'version' => $version !== '' ? $version : '1.0.0',
+            'anchor_hex' => ['q' => (int) $hex['q'], 'r' => (int) $hex['r']],
+            'facing' => 0,
+          ];
+          $placed_labels[] = (string) ($definition['label'] ?? $definition['definition_id']);
+        }
       }
       if ($placements === []) {
         return [
@@ -1320,6 +1369,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
           'missing_concepts' => $missing,
         ];
       }
+
       $plan = $surface->registry()->get('plan_room_commands')->execute(
         [
           'goal' => 'place_objects',
@@ -1342,6 +1392,74 @@ class EditorGmHarnessService implements AgentHarnessInterface {
       ];
     }
 
+  private function requestedFurnishingQuantity(string $text, string $requested, array $aliases): int {
+    $numbers = [
+      'one' => 1, 'two' => 2, 'three' => 3, 'four' => 4, 'five' => 5,
+      'six' => 6, 'seven' => 7, 'eight' => 8, 'nine' => 9, 'ten' => 10,
+      'eleven' => 11, 'twelve' => 12,
+    ];
+    $terms = array_values(array_unique(array_merge([$requested], $aliases)));
+    $patterns = array_map(
+      static fn(string $term): string => str_replace('\ ', '\s+', preg_quote($term, '/')),
+      $terms,
+    );
+    if (str_contains($requested, 'column')) {
+      $patterns[] = 'columns?';
+      $patterns[] = 'pillars?';
+    }
+    $concept_pattern = implode('|', $patterns);
+    if ($concept_pattern !== '' && preg_match(
+      '/\b(\d+|' . implode('|', array_keys($numbers)) . ')\s+(?:more\s+)?(?:broken\s+|fallen\s+|collapsed\s+|ruined\s+|unbroken\s+|standing\s+|upright\s+|intact\s+)?(?:' . $concept_pattern . ')\b/iu',
+      $text,
+      $matches,
+    ) === 1) {
+      return $numbers[strtolower($matches[1])] ?? (int) $matches[1];
+    }
+    if (preg_match('/\badd\s+(\d+|' . implode('|', array_keys($numbers)) . ')\s+more\b/iu', $text, $matches) === 1) {
+      return $numbers[strtolower($matches[1])] ?? (int) $matches[1];
+    }
+    return 1;
+  }
+
+  private function furnishingPlacementHexes(array $available, int $count, bool $spread): array {
+    if ($count <= 0 || count($available) < $count) {
+      return [];
+    }
+    if (!$spread || $count === 1) {
+      return array_slice($available, 0, $count);
+    }
+    $center_q = array_sum(array_column($available, 'q')) / count($available);
+    $center_r = array_sum(array_column($available, 'r')) / count($available);
+    $points = array_map(static fn(array $hex): array => [
+      'hex' => $hex,
+      'x' => (float) ($hex['q'] - $center_q) + 0.5 * (float) ($hex['r'] - $center_r),
+      'y' => sqrt(3) * 0.5 * (float) ($hex['r'] - $center_r),
+    ], $available);
+    $max_radius = max(array_map(
+      static fn(array $point): float => hypot($point['x'], $point['y']),
+      $points,
+    ));
+    $target_radius = $max_radius * 0.7;
+    $selected = [];
+    $remaining = $points;
+    for ($index = 0; $index < $count; $index++) {
+      $target_angle = -M_PI + (2 * M_PI * $index / $count);
+      usort($remaining, static function (array $a, array $b) use ($target_angle, $target_radius, $max_radius): int {
+        $score = static function (array $point) use ($target_angle, $target_radius, $max_radius): float {
+          $angle = atan2($point['y'], $point['x']);
+          $delta = abs($angle - $target_angle);
+          $angle_delta = min($delta, (2 * M_PI) - $delta);
+          return abs(hypot($point['x'], $point['y']) - $target_radius) / max($max_radius, 1.0)
+            + ($angle_delta / M_PI);
+        };
+        return $score($a) <=> $score($b);
+      });
+      $choice = array_shift($remaining);
+      $selected[] = $choice['hex'];
+    }
+    return $selected;
+  }
+
   private function roomFurnishingLookupTasks(
     EditorGmSurfaceInterface $surface,
     string $author_message,
@@ -1353,18 +1471,27 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     $text = mb_strtolower($author_message);
     $searches = [
       'fallen pillar' => 'pillar',
+      'column' => 'pillar',
       'wheel' => 'wheel',
       'tool' => 'tool',
       'metal strip' => 'metal strip',
     ];
     $tasks = [];
+    $seen_searches = [];
     foreach ($searches as $concept => $search) {
       if ($concept === 'wheel' && !preg_match('/\\bwheels?\\b/u', $text)) {
         continue;
       }
-      if ($concept !== 'wheel' && !str_contains($text, $concept)) {
+      if ($concept === 'column' && !preg_match('/\b(?:columns?|pillars?)\b/u', $text)) {
         continue;
       }
+      if (!in_array($concept, ['wheel', 'column'], TRUE) && !str_contains($text, $concept)) {
+        continue;
+      }
+      if (isset($seen_searches[$search])) {
+        continue;
+      }
+      $seen_searches[$search] = TRUE;
       $tasks[] = [
         'tool_name' => 'list_catalog_definitions',
         'arguments' => ['search' => $search, 'limit' => 250],

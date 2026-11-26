@@ -49,6 +49,22 @@ class EditorGmHarnessServiceTest extends UnitTestCase {
       array_values(array_unique(array_column($tasks, 'tool_name'))),
     );
     $this->assertSame([], $method->invoke($harness, $surface, 'Describe the workshop furnishings.'));
+
+    $column_tasks = $method->invoke($harness, $surface, 'Add 6 unbroken columns around the room.');
+    $this->assertSame(['pillar'], array_column(array_column($column_tasks, 'arguments'), 'search'));
+    $quantity = new \ReflectionMethod($harness, 'requestedFurnishingQuantity');
+    $this->assertSame(6, $quantity->invoke(
+      $harness,
+      'Add 6 columns unbroken spread around the room.',
+      'unbroken column',
+      ['stone pillar'],
+    ));
+    $this->assertSame(6, $quantity->invoke(
+      $harness,
+      'Add six more.',
+      'unbroken column',
+      ['stone pillar'],
+    ));
   }
 
   /**
