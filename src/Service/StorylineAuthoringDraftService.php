@@ -5425,6 +5425,27 @@ class StorylineAuthoringDraftService {
    */
   private function projectOwnership(array $draft): array {
     $uid = (int) $this->currentUser->id();
+    $payload = is_array($draft['payload'] ?? NULL) ? $draft['payload'] : [];
+    if ($this->characters !== NULL) {
+      $generation_specs = (array) ($payload['objects']['actors']['generation_specs'] ?? []);
+      foreach ($generation_specs as &$actor) {
+        if (!is_array($actor) || (int) ($actor['character_id'] ?? 0) <= 0) {
+          continue;
+        }
+        $sheet = $this->characters->getDraft((int) $actor['character_id']);
+        $actor['display_name'] = (string) ($sheet['payload']['name'] ?? $actor['display_name'] ?? '');
+        foreach (['class', 'ancestry', 'level', 'alignment'] as $field) {
+          if (array_key_exists($field, (array) ($sheet['payload'] ?? []))) {
+            $actor[$field] = $sheet['payload'][$field];
+          }
+        }
+        $actor['character_sheet_revision'] = (int) ($sheet['revision'] ?? 0);
+        $actor['character_sheet_spec_hash'] = self::actorSpecHash($actor);
+      }
+      unset($actor);
+      $payload['objects']['actors']['generation_specs'] = $generation_specs;
+      $draft['payload'] = $payload;
+    }
     $is_owner = $uid > 0 && (int) ($draft['owner_uid'] ?? 0) === $uid;
     $draft['is_owner'] = $is_owner;
     $draft['can_edit'] = $uid > 0 && (string) ($draft['status'] ?? '') === 'editing';
