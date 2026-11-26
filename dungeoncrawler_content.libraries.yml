@@ -339,7 +339,7 @@ module-explorer:
     - core/once
 
 dungeon-editor:
-  version: 20261126-place-image-fullsize-1
+  version: 20261126-district-layering-1
   js:
     https://cdn.jsdelivr.net/npm/pixi.js@7.3.2/dist/pixi.min.js: { type: external, minified: true }
     js/dungeon-editor.js: { attributes: { type: module } }

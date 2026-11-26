@@ -11,7 +11,7 @@
  * placement transform via ES modules. It does not fork the renderer.
  */
 
-import { DungeonEditorShell } from './v2/editor/DungeonEditorShell.js?v=20261126-place-image-fullsize-1';
+import { DungeonEditorShell } from './v2/editor/DungeonEditorShell.js?v=20261126-district-layering-1';
 
 (function (Drupal, drupalSettings, once) {
   'use strict';

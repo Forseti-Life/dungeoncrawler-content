@@ -502,7 +502,9 @@ export class HexCanvas {
   _renderMapAggregate(map, hexSize) {
     const occupancy = map.occupancy || {};
     const placementLabelAnchors = [];
-    map.placements.forEach((placement, index) => {
+    const orderedPlacements = [...map.placements].sort((a, b) =>
+      Number(b?.baseLayer === true) - Number(a?.baseLayer === true));
+    orderedPlacements.forEach((placement, index) => {
       const tint = _placementTint(placement, index);
       const hexes = Array.isArray(placement?.hexes) ? placement.hexes : [];
       let sumX = 0;

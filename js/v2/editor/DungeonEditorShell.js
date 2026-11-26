@@ -29,7 +29,7 @@
  */
 
 import { GameEventBus } from '../GameEventBus.js?v=20261119-room-unfreeze-1';
-import { HexCanvas } from '../canvas/HexCanvas.js?v=20261119-room-unfreeze-1';
+import { HexCanvas } from '../canvas/HexCanvas.js?v=20261126-district-layering-1';
 import './placementTransform.js?v=20260908g1';
 import {
   appendEditorGmMessage,
@@ -1039,6 +1039,7 @@ export class DungeonEditorShell {
         : [];
       placements.push({
         placementId: placement.placement_id,
+        baseLayer: this._isDistrictStreet(placement.placement_id),
         label: placement.label,
         roomName,
         displayLabel,
