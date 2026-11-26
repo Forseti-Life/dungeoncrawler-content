@@ -46,6 +46,10 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     'publish_room_version',
     'publish_dungeon_version',
   ];
+  private const DIRECT_EDITOR_COMMANDS = [
+    'apply_room_command',
+    'apply_room_commands',
+  ];
 
   private const ROUTE_FAMILY_BY_TOOL_FAMILY = [
     EditorGmToolDefinition::FAMILY_CONTEXT => 'deterministic_editor_tool',
@@ -348,6 +352,19 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         && (int) $expected_revision !== (int) ($snapshot['draft']['revision'] ?? -1)) {
         throw new \DomainException('The draft changed after this proposal. Review a new proposal before applying it.');
       }
+      $preflight = $this->preflightRoomMutation($surface, $tool_name, $arguments, $context);
+      if ($preflight !== NULL) {
+        return $this->envelope(
+          $surface,
+          'editor_validation_blocked',
+          $snapshot,
+          $preflight,
+          $context->validation(),
+          [['level' => 'error', 'text' => $preflight['assistant_response']]],
+          [],
+          [],
+        );
+      }
       return $this->executeTool(
         $surface,
         $draft_id,
@@ -435,6 +452,24 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     }
 
     $definition = $surface->registry()->get($intent['tool_name'])->definition();
+    $preflight = $this->preflightRoomMutation(
+      $surface,
+      $definition->name,
+      (array) $intent['arguments'],
+      $context,
+    );
+    if ($preflight !== NULL) {
+      return $this->envelope(
+        $surface,
+        'editor_validation_blocked',
+        $snapshot,
+        $preflight,
+        $context->validation(),
+        [['level' => 'error', 'text' => $preflight['assistant_response']]],
+        [],
+        [],
+      );
+    }
     if (in_array($surface->id(), [StorylineBuilderGmSurface::ID, DungeonEditorGmSurface::ID], TRUE)
       && !$definition->mutating && $definition->family === EditorGmToolDefinition::FAMILY_CONTEXT) {
       return $this->continueStorylineLookups($surface, $draft_id, $profile, [$intent], $utterance, $author_message, $scope, $dry_run);
@@ -563,6 +598,21 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         $author_message,
       );
     }
+    if (in_array($definition->name, self::DIRECT_EDITOR_COMMANDS, TRUE)
+      && $this->isDirectEditorMutationDirective($author_message)) {
+      return $this->executeTool(
+        $surface,
+        $draft_id,
+        $profile,
+        $definition->name,
+        $intent['arguments'],
+        $dry_run,
+        $intent['reasoning'],
+        $scope,
+        array_values((array) ($intent['next_steps'] ?? [])),
+        $author_message,
+      );
+    }
 
     $tool_calls = [$this->describeToolCall($definition->name, $intent['arguments'])];
     $proposal_result = [
@@ -645,8 +695,70 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     if ($message === '') {
       return FALSE;
     }
+
     return preg_match(
       '/^(?:apply\\b.*|(?:yes,?\\s*)?(?:go ahead|confirm|execute it|do it))(?:[.!])?$/u',
+      $message,
+    ) === 1;
+  }
+
+  private function preflightRoomMutation(
+    EditorGmSurfaceInterface $surface,
+    string $tool_name,
+    array $arguments,
+    EditorGmToolContext $context,
+  ): ?array {
+    if ($surface->id() !== RoomEditorGmSurface::ID) {
+      return NULL;
+    }
+    $commands = match ($tool_name) {
+      'apply_room_command' => [[
+        'type' => (string) ($arguments['type'] ?? ''),
+        'payload' => is_array($arguments['payload'] ?? NULL) ? $arguments['payload'] : [],
+      ]],
+      'apply_room_commands' => is_array($arguments['commands'] ?? NULL) ? $arguments['commands'] : [],
+      default => NULL,
+    };
+    if ($commands === NULL || $commands === []) {
+      return NULL;
+    }
+    $room_context = RoomEditorGmToolContext::of($context);
+    $simulation = $room_context->roomEditor->simulateCommands(
+      $room_context->draftId,
+      $commands,
+      $room_context->validationProfile,
+    );
+    if (($simulation['applies_cleanly'] ?? FALSE) === TRUE) {
+      return NULL;
+    }
+    $failed = array_values(array_filter(
+      (array) ($simulation['steps'] ?? []),
+      static fn(array $step): bool => ($step['applies'] ?? TRUE) === FALSE,
+    ));
+    $error = (string) ($failed[0]['error'] ?? 'room_command_preflight_failed');
+    return [
+      'intent' => 'validation_blocked',
+      'assistant_response' => sprintf(
+        'I did not save this room change because the command is invalid in the current draft: %s. The draft is unchanged.',
+        $error,
+      ),
+      'next_steps' => [
+        'Ask for a new plan that uses a boundary edge, valid target, and current draft revision.',
+      ],
+      'validation' => $simulation['validation'] ?? [],
+      'command_preflight' => $simulation,
+      'tool' => $tool_name,
+      'changed' => FALSE,
+    ];
+  }
+
+  private function isDirectEditorMutationDirective(string $author_message): bool {
+    $message = mb_strtolower(trim($author_message));
+    if ($message === '') {
+      return FALSE;
+    }
+    return preg_match(
+      '/\\b(?:fix|move|place|add|remove|delete|rotate|set|update|change|create|generate|apply|go ahead|do it)\\b/u',
       $message,
     ) === 1;
   }
