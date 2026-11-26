@@ -398,7 +398,33 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     if ($conversation_context !== '') {
       $snapshot['conversation_context'] = $conversation_context;
     }
-    $intent = $this->intentParser->parse($utterance, $snapshot, $surface->registry(), $surface->label());
+    $intent = $this->roomCanonicalDefinitionRequest($surface, $author_message, $context)
+      ?? $this->intentParser->parse($utterance, $snapshot, $surface->registry(), $surface->label());
+
+    if (($intent['existing_definition'] ?? FALSE) === TRUE) {
+      $load = $this->executeTool(
+        $surface,
+        $draft_id,
+        $profile,
+        'load_canonical_definition',
+        (array) $intent['arguments'],
+        FALSE,
+        (string) ($intent['reasoning'] ?? ''),
+        $scope,
+        [],
+        '',
+      );
+      $entry = (array) ($load['tool_result']['entry'] ?? []);
+      $name = trim((string) ($entry['label'] ?? $entry['name'] ?? $intent['arguments']['definition_id']));
+      $load['tool_result']['assistant_response'] = sprintf(
+        "%s already exists\nThe %s definition '%s' is already present in the canonical catalog, so no duplicate was created. It is ready to place in this room.",
+        $name,
+        (string) $intent['arguments']['family'],
+        (string) $intent['arguments']['definition_id'],
+      );
+      $load['tool_result']['next_steps'] = ['Place the existing definition in the current room, or ask the Room GM to choose an available hex.'];
+      return $load;
+    }
 
     if ($intent['type'] === 'clarification') {
       $tool_calls = [$this->describeToolCall('clarification')];
@@ -1105,6 +1131,66 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     return $tools !== [] && array_diff($tools, [
       'plan_storyline_draft_operations', 'plan_storyline_work', 'plan_storyline_remediation',
     ]) === [];
+  }
+
+  private function roomCanonicalDefinitionRequest(
+    EditorGmSurfaceInterface $surface,
+    string $author_message,
+    ?EditorGmToolContext $context = NULL,
+  ): ?array {
+    if ($surface->id() !== RoomEditorGmSurface::ID) {
+      return NULL;
+    }
+    $message = trim((string) preg_replace('/\s+/', ' ', $author_message));
+    if (preg_match(
+      '/^(?:please\s+)?(?:create|generate|build|make)\s+(?:an?\s+|the\s+)?(.+?)(?:\s+as\s+(?:an?\s+)?(obstacle|item|hazard|trap|actor|object))?[.!]?$/iu',
+      $message,
+      $matches,
+    ) !== 1) {
+      return NULL;
+    }
+    $object_name = trim((string) $matches[1]);
+    $explicit_family = strtolower((string) ($matches[2] ?? ''));
+    if ($object_name === ''
+      || ($explicit_family === '' && preg_match('/\b(?:room|chamber|hall|dungeon|corridor|tunnel|site)\b/iu', $object_name) === 1)) {
+      return NULL;
+    }
+    $family = match (TRUE) {
+      in_array($explicit_family, ['obstacle', 'item', 'hazard', 'trap', 'actor'], TRUE) => $explicit_family,
+      str_contains($explicit_family, 'object') => 'obstacle',
+      preg_match('/\b(?:hazard|fissure|lava|fire|lightning|poison gas|radiation)\b/iu', $object_name) === 1 => 'hazard',
+      preg_match('/\b(?:trap|snare|pressure plate|dart|tripwire)\b/iu', $object_name) === 1 => 'trap',
+      preg_match('/\b(?:nest|ledge|perch|wall|hoard|cage|trophy|bed|bench|table|frame|rack|pillar|obelisk)\b/iu', $object_name) === 1 => 'obstacle',
+      preg_match('/\b(?:creature|dragon|monster|npc|keeper|merchant|guard|villager)\b/iu', $object_name) === 1 => 'actor',
+      preg_match('/\b(?:item|sword|shield|potion|scroll|ring|amulet|armor|armour|cup|coin|key|tool)\b/iu', $object_name) === 1 => 'item',
+      default => 'obstacle',
+    };
+    $definition_id = strtolower(trim(preg_replace('/[^a-z0-9]+/i', '_', $object_name), '_'));
+    if ($context !== NULL && $context->definitions->currentVersion($family, $definition_id) !== NULL) {
+      return [
+        'type' => 'tool_call',
+        'tool_name' => 'load_canonical_definition',
+        'arguments' => [
+          'family' => $family,
+          'definition_id' => $definition_id,
+        ],
+        'reasoning' => 'Load the canonical definition that already exists instead of creating a duplicate.',
+        'next_steps' => [],
+        'existing_definition' => TRUE,
+      ];
+    }
+    return [
+      'type' => 'tool_call',
+      'tool_name' => 'generate_canonical_definition',
+      'arguments' => [
+        'family' => $family,
+        'definition_id' => $definition_id,
+        'prompt' => $object_name . ' for the current room.',
+      ],
+      'reasoning' => sprintf('Generate and create the explicitly requested %s definition.', $family),
+      'next_steps' => [],
+      'authorizes_changes' => TRUE,
+    ];
   }
 
   private function roomFurnishingCommandPlan(
@@ -2107,6 +2193,25 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         $surface, self::ROUTE_FAMILY_BY_TOOL_FAMILY[$definition->family],
         $snapshot, $result, $context->validation(),
         [['level' => 'info', 'text' => $result['assistant_response']]], [], $tool_calls,
+      );
+    }
+    if ($surface->id() === RoomEditorGmSurface::ID
+      && $definition->name === 'generate_canonical_definition'
+      && ($proposed_execution['tool_name'] ?? '') === 'create_canonical_definition'
+      && is_array($proposed_execution['arguments'] ?? NULL)
+      && $this->isDirectEditorMutationDirective($utterance)) {
+      return $this->executeTool(
+        $surface,
+        $draft_id,
+        $profile,
+        'create_canonical_definition',
+        (array) $proposed_execution['arguments'],
+        $dry_run,
+        $reasoning !== '' ? $reasoning : 'Create the requested canonical room object.',
+        $scope,
+        [],
+        $utterance,
+        $tool_calls,
       );
     }
     if (

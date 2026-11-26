@@ -11,6 +11,23 @@ use Drupal\Tests\UnitTestCase;
  */
 class EditorGmHarnessServiceTest extends UnitTestCase {
 
+  public function testRoomObjectCreationIsDeterministic(): void {
+    $surface = $this->createMock(\Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmSurfaceInterface::class);
+    $surface->method('id')->willReturn('room_editor');
+    $harness = (new \ReflectionClass(EditorGmHarnessService::class))->newInstanceWithoutConstructor();
+    $method = new \ReflectionMethod($harness, 'roomCanonicalDefinitionRequest');
+
+    $intent = $method->invoke($harness, $surface, 'create the storm glass nest');
+    $this->assertSame('generate_canonical_definition', $intent['tool_name']);
+    $this->assertSame('obstacle', $intent['arguments']['family']);
+    $this->assertSame('storm_glass_nest', $intent['arguments']['definition_id']);
+    $this->assertTrue($intent['authorizes_changes']);
+
+    $hazard = $method->invoke($harness, $surface, 'create charged glass as a hazard');
+    $this->assertSame('hazard', $hazard['arguments']['family']);
+    $this->assertNull($method->invoke($harness, $surface, 'create a new room'));
+  }
+
   public function testRoomFurnishingDirectiveBuildsCatalogLookups(): void {
     $surface = $this->createMock(\Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmSurfaceInterface::class);
     $surface->method('id')->willReturn('room_editor');
@@ -1231,6 +1248,21 @@ class EditorGmHarnessServiceTest extends UnitTestCase {
     $this->assertStringContainsString('Applied Draft Updates', $summary['answer']);
     $this->assertStringContainsString("Updated process_flow → chapters → 0 → scenes → 1 'Aftermath'", $summary['answer']);
     $this->assertStringContainsString('Revision 5 is at 0% completion with 0 validation error(s) and 0 warning(s).', $summary['answer']);
+
+    $definition_summary = $manager->synthesizeDeterministicMutationResponse(
+      'create_canonical_definition',
+      [
+        'family' => 'obstacle',
+        'definition_id' => 'storm_glass_nest',
+        'version' => '1.0.0',
+        'created' => TRUE,
+        'payload' => ['name' => 'Storm-Glass Nest'],
+      ],
+      [],
+      'Room Editor',
+    );
+    $this->assertStringContainsString('Storm-Glass Nest created', $definition_summary['answer']);
+    $this->assertStringContainsString('canonical obstacle catalog', $definition_summary['answer']);
 
     // 6. Operation-to-profile mapping covers runtime, psychology, validation, and generation operations.
     $this->assertSame(

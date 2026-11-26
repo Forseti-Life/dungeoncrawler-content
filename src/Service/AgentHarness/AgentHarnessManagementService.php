@@ -729,6 +729,27 @@ class AgentHarnessManagementService {
       }
       return $response;
     }
+    if ($tool_name === 'create_canonical_definition') {
+      $family = trim((string) ($tool_result['family'] ?? ''));
+      $definition_id = trim((string) ($tool_result['definition_id'] ?? ''));
+      $payload = is_array($tool_result['payload'] ?? NULL) ? $tool_result['payload'] : [];
+      $name = trim((string) ($payload['name'] ?? $payload['label'] ?? $payload['display_name'] ?? $definition_id));
+      $version = trim((string) ($tool_result['version'] ?? '1.0.0'));
+      $answer = sprintf(
+        "%s created\nThe %s definition '%s' is now available in the canonical %s catalog at version %s and passed canonical validation.",
+        $name,
+        $family !== '' ? $family : 'object',
+        $definition_id,
+        $family !== '' ? $family : 'definition',
+        $version,
+      );
+      return [
+        'answer' => $answer,
+        'next_steps' => $surface_label === 'Room Editor'
+          ? ['Place the new definition in the current room, or ask the Room GM to choose an available hex.']
+          : [],
+      ];
+    }
 
     if ($surface_label !== 'Storyline Builder') {
       return NULL;
