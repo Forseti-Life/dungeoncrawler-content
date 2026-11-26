@@ -3012,6 +3012,52 @@ class StorylineManagerServiceTest extends UnitTestCase {
   /**
    * @covers ::validateQuestlineProgressionFlow
    */
+  public function testPrimaryChapterMismatchHasStructuredRepairFinding(): void {
+    $service = $this->buildService();
+    $method = new \ReflectionMethod(StorylineManagerService::class, 'validateQuestlineProgressionFlow');
+    $method->setAccessible(TRUE);
+    $storyline = [
+      'questline' => [
+        'primary_quest_id' => 'follow_the_whispers',
+        'ordered_quest_ids' => ['follow_the_whispers'],
+        'quest_nodes' => [[
+          'quest_id' => 'follow_the_whispers',
+          'chapter_id' => 'intro-mechanics',
+          'scene_id' => 'tavern-foundations',
+          'unlocks_after' => [],
+          'unlocks_to' => [],
+          'choices' => [],
+        ]],
+      ],
+      'chapters' => [[
+        'chapter_id' => 'intro-mechanics',
+        'scenes' => [[
+          'scene_id' => 'tavern-foundations',
+          'quest_ids' => ['follow_the_whispers'],
+        ]],
+      ]],
+      'metadata' => [
+        'generated_outline' => [
+          'entry_point' => [
+            'primary_scene_id' => 'tavern-foundations',
+            'primary_chapter_id' => 'introduction-to-game-mechanics-chapter',
+          ],
+        ],
+      ],
+    ];
+    $findings = [];
+
+    $errors = $method->invokeArgs($service, [$storyline, 'definition', &$findings]);
+
+    $this->assertCount(1, $errors);
+    $this->assertSame('DCV_STORYLINE_PRIMARY_CHAPTER_MISMATCH', $findings[0]['code']);
+    $this->assertSame('intro-mechanics', $findings[0]['canonical_chapter_id']);
+    $this->assertSame('introduction-to-game-mechanics-chapter', $findings[0]['chapter_id']);
+  }
+
+  /**
+   * @covers ::validateQuestlineProgressionFlow
+   */
   public function testDecisionWithOneChoiceIsAFixedOutcomeNotAnError(): void {
     $service = $this->buildService();
     $method = new \ReflectionMethod(StorylineManagerService::class, 'validateQuestlineProgressionFlow');

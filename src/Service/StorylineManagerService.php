@@ -758,10 +758,12 @@ class StorylineManagerService {
       'errors' => $completeness_errors,
     ];
 
-    $cross_reference_errors = $this->validateStorylineCrossReferences($storyline_data);
+    $cross_reference_findings = [];
+    $cross_reference_errors = $this->validateStorylineCrossReferences($storyline_data, $cross_reference_findings);
     $stages['cross_references'] = [
       'valid' => $cross_reference_errors === [],
       'errors' => $cross_reference_errors,
+      'findings' => $cross_reference_findings,
     ];
 
     $questline_progression_findings = [];
@@ -6123,7 +6125,17 @@ class StorylineManagerService {
       && $primary_node_chapter_id !== ''
       && $entry_chapter_id !== $primary_node_chapter_id
     ) {
-      $errors[] = "Questline primary quest '{$primary_quest_id}' is anchored to chapter '{$primary_node_chapter_id}', which does not match entry_point.primary_chapter_id '{$entry_chapter_id}'.";
+      $message = "Questline primary quest '{$primary_quest_id}' is anchored to chapter '{$primary_node_chapter_id}', which does not match entry_point.primary_chapter_id '{$entry_chapter_id}'.";
+      $errors[] = $message;
+      $findings[] = [
+        'severity' => 'error',
+        'code' => 'DCV_STORYLINE_PRIMARY_CHAPTER_MISMATCH',
+        'message' => $message,
+        'entity_type' => 'storyline_chapter_reference',
+        'entity_id' => $primary_quest_id,
+        'canonical_chapter_id' => $primary_node_chapter_id,
+        'chapter_id' => $entry_chapter_id,
+      ];
     }
 
     return array_values(array_unique($errors));
@@ -7782,8 +7794,12 @@ class StorylineManagerService {
    * @return array<int, string>
    *   Validation error messages.
    */
-  protected function validateStorylineCrossReferences(array $definition): array {
+  protected function validateStorylineCrossReferences(array $definition, array &$findings = []): array {
     $errors = [];
+    $report = static function (string $code, string $message, array $subject) use (&$errors, &$findings): void {
+      $errors[] = $message;
+      $findings[] = ['severity' => 'warning', 'code' => $code, 'message' => $message] + $subject;
+    };
     $storyline_template_id = trim((string) ($definition['template_id'] ?? ''));
     $chapters = array_values(array_filter(is_array($definition['chapters'] ?? NULL) ? $definition['chapters'] : [], 'is_array'));
     $chapter_ids = [];
@@ -7865,7 +7881,16 @@ class StorylineManagerService {
       $relationship_chapter_id = trim((string) ($relationship_state['chapter_id'] ?? ''));
       $relationship_scene_id = trim((string) ($relationship_state['scene_id'] ?? ''));
       if ($relationship_chapter_id !== '' && !isset($chapter_ids[$relationship_chapter_id])) {
-        $errors[] = "Contact '{$entity_id}' references unknown chapter '{$relationship_chapter_id}'.";
+        $report(
+          'DCV_STORYLINE_CONTACT_CHAPTER_UNKNOWN',
+          "Contact '{$entity_id}' references unknown chapter '{$relationship_chapter_id}'.",
+          [
+            'entity_type' => 'storyline_contact',
+            'entity_id' => $entity_id,
+            'field' => 'chapter_id',
+            'chapter_id' => $relationship_chapter_id,
+          ],
+        );
       }
       if ($relationship_scene_id !== '' && !isset($scene_ids[$relationship_scene_id])) {
         $errors[] = "Contact '{$entity_id}' references unknown scene '{$relationship_scene_id}'.";
@@ -7918,7 +7943,17 @@ class StorylineManagerService {
       $chapter_id = trim((string) ($reference['chapter_id'] ?? ''));
       $scene_id = trim((string) ($reference['scene_id'] ?? ''));
       if ($chapter_id !== '' && !isset($chapter_ids[$chapter_id])) {
-        $errors[] = "Asset reference '{$reference['asset_id']}' points to unknown chapter '{$chapter_id}'.";
+        $report(
+          'DCV_STORYLINE_ASSET_CHAPTER_UNKNOWN',
+          "Asset reference '{$reference['asset_id']}' points to unknown chapter '{$chapter_id}'.",
+          [
+            'entity_type' => 'storyline_asset_reference',
+            'entity_id' => $asset_id,
+            'asset_type' => $asset_type,
+            'field' => 'chapter_id',
+            'chapter_id' => $chapter_id,
+          ],
+        );
       }
       if ($scene_id !== '' && !isset($scene_ids[$scene_id])) {
         $errors[] = "Asset reference '{$reference['asset_id']}' points to unknown scene '{$scene_id}'.";
@@ -8054,7 +8089,16 @@ class StorylineManagerService {
         $errors[] = "Storyline entry_point primary quest giver '{$primary_quest_giver_id}' must use role quest_giver.";
       }
       if ($primary_chapter_id !== '' && !isset($chapter_ids[$primary_chapter_id])) {
-        $errors[] = "Storyline entry_point chapter '{$primary_chapter_id}' is not defined by the storyline.";
+        $report(
+          'DCV_STORYLINE_ENTRY_CHAPTER_UNKNOWN',
+          "Storyline entry_point chapter '{$primary_chapter_id}' is not defined by the storyline.",
+          [
+            'entity_type' => 'storyline_entry_point',
+            'entity_id' => 'entry_point',
+            'field' => 'primary_chapter_id',
+            'chapter_id' => $primary_chapter_id,
+          ],
+        );
       }
       if ($primary_scene_id !== '' && !isset($scene_ids[$primary_scene_id])) {
         $errors[] = "Storyline entry_point scene '{$primary_scene_id}' is not defined by the storyline.";
@@ -8065,7 +8109,17 @@ class StorylineManagerService {
         && isset($scene_chapter_map[$primary_scene_id])
         && $scene_chapter_map[$primary_scene_id] !== $primary_chapter_id
       ) {
-        $errors[] = "Storyline entry_point scene '{$primary_scene_id}' does not belong to chapter '{$primary_chapter_id}'.";
+        $report(
+          'DCV_STORYLINE_ENTRY_SCENE_CHAPTER_MISMATCH',
+          "Storyline entry_point scene '{$primary_scene_id}' does not belong to chapter '{$primary_chapter_id}'.",
+          [
+            'entity_type' => 'storyline_entry_point',
+            'entity_id' => 'entry_point',
+            'field' => 'primary_scene_id',
+            'chapter_id' => $primary_chapter_id,
+            'scene_id' => $primary_scene_id,
+          ],
+        );
       }
       if ($primary_location_id !== '') {
         if (!isset($location_asset_anchors[$primary_location_id])) {
@@ -8080,7 +8134,17 @@ class StorylineManagerService {
             && $location_chapter_id !== ''
             && $location_chapter_id !== $primary_chapter_id
           ) {
-            $errors[] = "Storyline entry_point primary location '{$primary_location_id}' does not belong to chapter '{$primary_chapter_id}'.";
+            $report(
+              'DCV_STORYLINE_ENTRY_LOCATION_CHAPTER_MISMATCH',
+              "Storyline entry_point primary location '{$primary_location_id}' does not belong to chapter '{$primary_chapter_id}'.",
+              [
+                'entity_type' => 'storyline_entry_point',
+                'entity_id' => 'entry_point',
+                'field' => 'primary_location_id',
+                'chapter_id' => $primary_chapter_id,
+                'location_id' => $primary_location_id,
+              ],
+            );
           }
           if (
             $primary_scene_id !== ''

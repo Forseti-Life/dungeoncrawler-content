@@ -58,6 +58,12 @@ class StorylineAuthoringDraftService {
     'institution_leader_not_member' => 'draft_operation',
     'institution_seat_unknown' => 'draft_operation',
     'actor_home_missing' => 'draft_operation',
+    'DCV_STORYLINE_PRIMARY_CHAPTER_MISMATCH' => 'draft_operation',
+    'DCV_STORYLINE_CONTACT_CHAPTER_UNKNOWN' => 'draft_operation',
+    'DCV_STORYLINE_ASSET_CHAPTER_UNKNOWN' => 'draft_operation',
+    'DCV_STORYLINE_ENTRY_CHAPTER_UNKNOWN' => 'draft_operation',
+    'DCV_STORYLINE_ENTRY_SCENE_CHAPTER_MISMATCH' => 'draft_operation',
+    'DCV_STORYLINE_ENTRY_LOCATION_CHAPTER_MISMATCH' => 'draft_operation',
   ];
   /**
    * Library roles whose characters hand out work to the party.

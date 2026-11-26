@@ -80,3 +80,10 @@ field, or a native tool cannot represent the operation, the agent must:
 
 This boundary lets the same troubleshooting discipline apply to different
 problem types without forcing them through one creative or technical flow.
+
+Chapter-reference findings are registered under
+`storyline_chapter_reference`. When the primary quest points at a canonical
+chapter and other authored references use an unknown chapter ID, the resolver
+proposes exact JSON-pointer operations for every grounded `chapter_id`. The
+GM must preview those operations and revalidate after application; the
+resolver never changes canonical definitions or publishes the draft.

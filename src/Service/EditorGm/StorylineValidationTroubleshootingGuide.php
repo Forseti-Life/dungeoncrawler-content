@@ -109,7 +109,148 @@ final class StorylineValidationTroubleshootingGuide {
         'verification_codes' => ['actor_home_missing'],
       ];
     }
+    if (($entry['resolver'] ?? 'generic') === 'storyline_chapter_reference') {
+      $packet += self::chapterReferencePacket($payload, $validation, $finding);
+    }
     return $packet;
+  }
+
+  private static function chapterReferencePacket(array $payload, array $validation, array $finding): array {
+    $unknown_chapter_id = trim((string) ($finding['chapter_id'] ?? ''));
+    $canonical_chapter_id = trim((string) ($finding['canonical_chapter_id'] ?? ''));
+    $related = self::chapterReferenceFindings($validation);
+    foreach ($related as $related_finding) {
+      if ($unknown_chapter_id === '') {
+        $unknown_chapter_id = trim((string) ($related_finding['chapter_id'] ?? ''));
+      }
+      if (
+        $canonical_chapter_id === ''
+        && trim((string) ($related_finding['chapter_id'] ?? '')) === $unknown_chapter_id
+      ) {
+        $canonical_chapter_id = trim((string) ($related_finding['canonical_chapter_id'] ?? ''));
+      }
+      if ($canonical_chapter_id !== '' && $unknown_chapter_id !== '') {
+        break;
+      }
+    }
+    if ($unknown_chapter_id === '' || $canonical_chapter_id === '' || $unknown_chapter_id === $canonical_chapter_id) {
+      return [
+        'code_change_required' => TRUE,
+        'coding_handoff' => [
+          'required' => TRUE,
+          'reason' => 'The chapter-reference family does not provide one canonical chapter and one invalid reference value.',
+          'scope' => 'Expose an explicit canonical_chapter_id and chapter_id on the validation finding; do not guess or mutate draft data.',
+          'defect_tool' => 'submit_backlog_suggestion',
+        ],
+      ];
+    }
+    $operations = self::chapterReferenceOperations(
+      $payload,
+      '',
+      $unknown_chapter_id,
+      $canonical_chapter_id,
+    );
+    if ($operations === []) {
+      return [
+        'code_change_required' => TRUE,
+        'coding_handoff' => [
+          'required' => TRUE,
+          'reason' => 'The invalid chapter is derived but has no patchable chapter_id field in the grounded draft payload.',
+          'scope' => 'Expose the owning authored chapter reference path; do not alter derived storyline data.',
+          'defect_tool' => 'submit_backlog_suggestion',
+        ],
+      ];
+    }
+    return [
+      'object' => [
+        'type' => 'storyline_chapter_reference_family',
+        'id' => $canonical_chapter_id,
+        'invalid_chapter_id' => $unknown_chapter_id,
+      ],
+      'editable' => [
+        'tool' => 'plan_storyline_draft_operations',
+        'fields' => ['chapter_id'],
+        'operation_count' => count($operations),
+      ],
+      'suggested_values' => [
+        'chapter_id' => $canonical_chapter_id,
+      ],
+      'suggested_operations' => $operations,
+      'evidence' => [
+        'related_findings' => array_values(array_filter(
+          $related,
+          static fn(array $item): bool =>
+            (string) ($item['chapter_id'] ?? '') === $unknown_chapter_id,
+        )),
+      ],
+      'verification_codes' => array_values(array_unique(array_map(
+        static fn(array $item): string => (string) ($item['code'] ?? ''),
+        $related,
+      ))),
+      'user_question' => NULL,
+      'code_change_required' => FALSE,
+      'coding_handoff' => [],
+    ];
+  }
+
+  private static function chapterReferenceFindings(array $validation): array {
+    $codes = [
+      'DCV_STORYLINE_PRIMARY_CHAPTER_MISMATCH',
+      'DCV_STORYLINE_CONTACT_CHAPTER_UNKNOWN',
+      'DCV_STORYLINE_ASSET_CHAPTER_UNKNOWN',
+      'DCV_STORYLINE_ENTRY_CHAPTER_UNKNOWN',
+      'DCV_STORYLINE_ENTRY_SCENE_CHAPTER_MISMATCH',
+      'DCV_STORYLINE_ENTRY_LOCATION_CHAPTER_MISMATCH',
+    ];
+    $findings = [];
+    foreach ((array) ($validation['stages'] ?? []) as $stage) {
+      foreach ((array) ($stage['findings'] ?? []) as $finding) {
+        if (is_array($finding) && in_array((string) ($finding['code'] ?? ''), $codes, TRUE)) {
+          $findings[] = $finding;
+        }
+      }
+    }
+    return $findings;
+  }
+
+  private static function chapterReferenceOperations(
+    mixed $value,
+    string $path,
+    string $unknown_chapter_id,
+    string $canonical_chapter_id,
+  ): array {
+    $operations = [];
+    if (!is_array($value)) {
+      return $operations;
+    }
+    foreach ($value as $key => $child) {
+      $token = str_replace(['~', '/'], ['~0', '~1'], (string) $key);
+      $child_path = $path . '/' . $token;
+      if (
+        in_array((string) $key, ['chapter_id', 'primary_chapter_id'], TRUE)
+        && is_string($child)
+        && $child === $unknown_chapter_id
+      ) {
+        $operations[] = [
+          'type' => 'set',
+          'path' => $child_path,
+          'value' => $canonical_chapter_id,
+        ];
+        continue;
+      }
+      if (is_array($child)) {
+        $operations = array_merge(
+          $operations,
+          self::chapterReferenceOperations(
+            $child,
+            $child_path,
+            $unknown_chapter_id,
+            $canonical_chapter_id,
+          ),
+        );
+      }
+    }
+    return $operations;
   }
 
   private static function actorMaterializationPacket(array $payload, array $finding, array $entry): array {
@@ -347,14 +488,14 @@ final class StorylineValidationTroubleshootingGuide {
     foreach ($registry['stages'] as $stage => $entry) {
       if (!is_array($entry)
         || !isset($registry['routes'][$entry['route'] ?? ''])
-        || !in_array($entry['resolver'] ?? '', ['generic', 'storyline_quest_objective', 'storyline_actor_materialization', 'storyline_actor_home', 'editor_route'], TRUE)) {
+        || !in_array($entry['resolver'] ?? '', ['generic', 'storyline_quest_objective', 'storyline_actor_materialization', 'storyline_actor_home', 'storyline_chapter_reference', 'editor_route'], TRUE)) {
         throw new \UnexpectedValueException('storyline_validation_troubleshooting_stage_invalid:' . $stage);
       }
     }
     foreach ($registry['findings'] as $code => $entry) {
       if (!is_array($entry)
         || !isset($registry['routes'][$entry['route'] ?? ''])
-        || !in_array($entry['resolver'] ?? '', ['generic', 'storyline_quest_objective', 'storyline_actor_materialization', 'storyline_actor_home', 'editor_route'], TRUE)) {
+        || !in_array($entry['resolver'] ?? '', ['generic', 'storyline_quest_objective', 'storyline_actor_materialization', 'storyline_actor_home', 'storyline_chapter_reference', 'editor_route'], TRUE)) {
         throw new \UnexpectedValueException('storyline_validation_troubleshooting_entry_invalid:' . $code);
       }
     }

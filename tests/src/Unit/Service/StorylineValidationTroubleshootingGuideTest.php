@@ -198,6 +198,74 @@ class StorylineValidationTroubleshootingGuideTest extends UnitTestCase {
     $this->assertFalse($packet['code_change_required']);
   }
 
+  public function testChapterMismatchPlansAllGroundedReferenceRepairs(): void {
+    $error = "Questline primary quest 'follow_the_whispers' is anchored to chapter 'intro-mechanics', which does not match entry_point.primary_chapter_id 'introduction-to-game-mechanics-chapter'.";
+    $packet = StorylineValidationTroubleshootingGuide::packet([
+      'objects' => [
+        'actors' => ['generation_specs' => [[
+          'actor_id' => 'tavern_keeper',
+          'chapter_id' => 'introduction-to-game-mechanics-chapter',
+        ]]],
+        'rooms' => ['generation_specs' => [[
+          'room_id' => 'tavern_entrance',
+          'chapter_id' => 'introduction-to-game-mechanics-chapter',
+        ]]],
+      ],
+      'process_flow' => [
+        'tasks' => [[
+          'task_id' => 'follow_the_whispers',
+          'chapter_id' => 'intro-mechanics',
+        ]],
+      ],
+    ], [
+      'stages' => [[
+        'stage' => 'cross_references',
+        'route' => 'canonical_definition',
+        'warnings' => [
+          "Contact 'tavern_keeper' references unknown chapter 'introduction-to-game-mechanics-chapter'.",
+        ],
+        'findings' => [[
+          'severity' => 'warning',
+          'code' => 'DCV_STORYLINE_CONTACT_CHAPTER_UNKNOWN',
+          'message' => "Contact 'tavern_keeper' references unknown chapter 'introduction-to-game-mechanics-chapter'.",
+          'entity_type' => 'storyline_contact',
+          'entity_id' => 'tavern_keeper',
+          'field' => 'chapter_id',
+          'chapter_id' => 'introduction-to-game-mechanics-chapter',
+        ]],
+      ], [
+        'stage' => 'questline_progression',
+        'route' => 'draft_operation',
+        'errors' => [$error],
+        'findings' => [[
+          'severity' => 'error',
+          'code' => 'DCV_STORYLINE_PRIMARY_CHAPTER_MISMATCH',
+          'message' => $error,
+          'entity_type' => 'storyline_chapter_reference',
+          'entity_id' => 'follow_the_whispers',
+          'canonical_chapter_id' => 'intro-mechanics',
+          'chapter_id' => 'introduction-to-game-mechanics-chapter',
+        ]],
+      ]],
+    ], ['first_open_warning' => '']);
+
+    $this->assertSame('storyline_chapter_reference', $packet['resolver']);
+    $this->assertFalse($packet['code_change_required']);
+    $this->assertSame('intro-mechanics', $packet['suggested_values']['chapter_id']);
+    $this->assertSame([
+      [
+        'type' => 'set',
+        'path' => '/objects/actors/generation_specs/0/chapter_id',
+        'value' => 'intro-mechanics',
+      ],
+      [
+        'type' => 'set',
+        'path' => '/objects/rooms/generation_specs/0/chapter_id',
+        'value' => 'intro-mechanics',
+      ],
+    ], $packet['suggested_operations']);
+  }
+
   public function testMissingCanonicalRoomRoutesToRoomEditor(): void {
     $warning = "[entity_type_contracts:room] asset_references[8] (cellar): referenced room is missing from canonical room templates.";
     $packet = StorylineValidationTroubleshootingGuide::packet([], [

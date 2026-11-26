@@ -76,6 +76,42 @@
       "fields": ["required"],
       "verification": "same_object"
     },
+    "DCV_STORYLINE_PRIMARY_CHAPTER_MISMATCH": {
+      "resolver": "storyline_chapter_reference",
+      "route": "draft_operation",
+      "fields": ["chapter_id"],
+      "verification": "same_object"
+    },
+    "DCV_STORYLINE_CONTACT_CHAPTER_UNKNOWN": {
+      "resolver": "storyline_chapter_reference",
+      "route": "draft_operation",
+      "fields": ["chapter_id"],
+      "verification": "same_object"
+    },
+    "DCV_STORYLINE_ASSET_CHAPTER_UNKNOWN": {
+      "resolver": "storyline_chapter_reference",
+      "route": "draft_operation",
+      "fields": ["chapter_id"],
+      "verification": "same_object"
+    },
+    "DCV_STORYLINE_ENTRY_CHAPTER_UNKNOWN": {
+      "resolver": "storyline_chapter_reference",
+      "route": "draft_operation",
+      "fields": ["chapter_id"],
+      "verification": "same_object"
+    },
+    "DCV_STORYLINE_ENTRY_SCENE_CHAPTER_MISMATCH": {
+      "resolver": "storyline_chapter_reference",
+      "route": "draft_operation",
+      "fields": ["chapter_id"],
+      "verification": "same_object"
+    },
+    "DCV_STORYLINE_ENTRY_LOCATION_CHAPTER_MISMATCH": {
+      "resolver": "storyline_chapter_reference",
+      "route": "draft_operation",
+      "fields": ["chapter_id"],
+      "verification": "same_object"
+    },
     "DCV_CANONICAL_ROOM_MISSING": {
       "resolver": "editor_route",
       "route": "room_editor",
