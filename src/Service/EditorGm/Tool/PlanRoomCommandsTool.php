@@ -29,6 +29,11 @@ final class PlanRoomCommandsTool implements EditorGmToolInterface {
     'update_object_overrides',
     'duplicate_objects',
     'clear_placements',
+    'bulk_place_objects',
+    'bulk_move_objects',
+    'bulk_remove_objects',
+    'bulk_replace_objects',
+    'dismiss_placement_gaps',
     'add_entry_ports',
     'update_entry_ports',
     'remove_entry_ports',
@@ -46,7 +51,7 @@ final class PlanRoomCommandsTool implements EditorGmToolInterface {
    * instead of guessing it.
    */
   public const GOAL_PARAMETERS = [
-    'set_metadata' => 'at least one of room_id, name, description, room_type, size_category',
+    'set_metadata' => 'at least one of room_id, name, description, room_type (use street for a district street), size_category, background {url, width, height, alt} (the street art the party walks on; required for a street)',
     'expand_footprint' => 'hexes: [{q, r}] (required), terrain_type (optional)',
     'shrink_footprint' => 'hexes: [{q, r}] (required; must not contain placements or ports)',
     'retheme_terrain' => 'terrain_type (required), from_terrain_type (optional), hexes: [{q, r}] (optional)',
@@ -57,6 +62,11 @@ final class PlanRoomCommandsTool implements EditorGmToolInterface {
     'update_object_overrides' => 'updates: [{instance_id, overrides: {...}}] (required)',
     'duplicate_objects' => 'duplicates: [{instance_id, anchor_hex: {q, r}}] (required)',
     'clear_placements' => 'instance_ids: [string] (optional), family (optional), definition_id (optional) — at least one required',
+    'bulk_place_objects' => 'family (obstacle or item), definition_id, version (optional), hexes: [{q, r}] up to 5000 (required), facing (optional 0-5), operation (optional label, e.g. place_ring), keep_clear: [{q, r}] (optional), keep_ports_clear (default true). A hex that cannot take the object is skipped and recorded as a placement gap, not an error. A gap item may carry gap_id to retry that gap',
+    'bulk_move_objects' => 'moves: [{instance_id, anchor_hex: {q, r}, gap_id (optional)}] up to 5000 (required), operation (optional), keep_clear (optional), keep_ports_clear (default true). A refused move leaves the object in place and records a gap',
+    'bulk_remove_objects' => 'instance_ids: [string] up to 5000 (required)',
+    'bulk_replace_objects' => 'instance_ids: [string] (required), family (obstacle or item), definition_id, version (optional): the new definition for all of them',
+    'dismiss_placement_gaps' => 'gap_ids: [string] (required), reason (required): why the skipped placements are accepted',
     'add_entry_ports' => 'ports: [{port_id, hex: {q, r}, edge (0-5), label, arrival_facing (0-5, default 0), is_default (bool, default false), tags (optional)}] (required)',
     'update_entry_ports' => 'ports: [{port_id, changes: {hex, edge, label, arrival_facing, is_default, tags}}] (required)',
     'remove_entry_ports' => 'port_ids: [string] (required; default entry port cannot be removed)',
@@ -112,6 +122,11 @@ final class PlanRoomCommandsTool implements EditorGmToolInterface {
       'update_object_overrides' => $this->planUpdateObjectOverrides($parameters, $room),
       'duplicate_objects' => $this->planDuplicateObjects($parameters, $room),
       'clear_placements' => $this->planClearPlacements($parameters, $room),
+      'bulk_place_objects' => $this->planBulkPlace($parameters),
+      'bulk_move_objects' => $this->planBulkMove($parameters),
+      'bulk_remove_objects' => $this->planBulkIds('remove_objects_bulk', $parameters, 'Remove %d placements.'),
+      'bulk_replace_objects' => $this->planBulkReplace($parameters),
+      'dismiss_placement_gaps' => $this->planDismissGaps($parameters),
       'add_entry_ports' => $this->planAddPorts($parameters, $room, TRUE),
       'update_entry_ports' => $this->planUpdatePorts($parameters, $room, TRUE),
       'remove_entry_ports' => $this->planRemovePorts($parameters, $room, TRUE),
@@ -143,6 +158,12 @@ final class PlanRoomCommandsTool implements EditorGmToolInterface {
       if (array_key_exists($field, $parameters)) {
         $changes[$field] = $parameters[$field];
       }
+    }
+    if (array_key_exists('background', $parameters)) {
+      if (!is_array($parameters['background']) || array_is_list($parameters['background'])) {
+        throw new \InvalidArgumentException('background_must_be_object');
+      }
+      $changes['metadata'] = ['background' => $parameters['background']];
     }
     if ($changes === []) {
       throw new \InvalidArgumentException('metadata_changes_required');
@@ -224,6 +245,7 @@ final class PlanRoomCommandsTool implements EditorGmToolInterface {
     $target_keys = $targets === NULL ? NULL : array_flip(array_map(fn(array $h): string => $this->key($h), $targets));
 
     $steps = [];
+    $changed = [];
     foreach ((array) ($room['hexes'] ?? []) as $hex) {
       if (!is_array($hex)) {
         continue;
@@ -238,12 +260,13 @@ final class PlanRoomCommandsTool implements EditorGmToolInterface {
       if ($target_keys !== NULL && !isset($target_keys[$this->key($hex)])) {
         continue;
       }
-      $steps[] = $this->step(
-        count($steps) + 1,
-        'set_hex_terrain',
-        ['hex' => ['q' => (int) $hex['q'], 'r' => (int) $hex['r']], 'terrain_type' => $terrain],
-        sprintf('Retheme hex (%d, %d) from %s to %s.', (int) $hex['q'], (int) $hex['r'], $current ?: 'unset', $terrain),
-      );
+      $changed[] = ['q' => (int) $hex['q'], 'r' => (int) $hex['r']];
+    }
+    if (count($changed) === 1) {
+      $steps[] = $this->step(1, 'set_hex_terrain', ['hex' => $changed[0], 'terrain_type' => $terrain], sprintf('Retheme hex (%d, %d) to %s.', $changed[0]['q'], $changed[0]['r'], $terrain));
+    }
+    foreach (count($changed) > 1 ? array_chunk($changed, 5000) : [] as $chunk) {
+      $steps[] = $this->step(count($steps) + 1, 'set_hexes_terrain', ['hexes' => $chunk, 'terrain_type' => $terrain], sprintf('Retheme %d hexes to %s.', count($chunk), $terrain));
     }
     if ($steps === []) {
       throw new \DomainException('no_hexes_match_retheme_goal');
@@ -437,6 +460,118 @@ final class PlanRoomCommandsTool implements EditorGmToolInterface {
       );
     }
     return $steps;
+  }
+
+  private const BULK_LIMIT = 5000;
+
+  private function planBulkPlace(array $parameters): array {
+    $family = EditorGmToolContext::requireString($parameters, 'family');
+    $definition_id = EditorGmToolContext::requireString($parameters, 'definition_id');
+    $definition = [
+      'family' => $family,
+      'definition_id' => $definition_id,
+      'version' => isset($parameters['version']) && trim((string) $parameters['version']) !== '' ? (string) $parameters['version'] : '1.0.0',
+    ];
+    $facing = isset($parameters['facing']) ? max(0, min(5, (int) $parameters['facing'])) : 0;
+    $operation = isset($parameters['operation']) ? (string) $parameters['operation'] : 'place_objects';
+    $items = [];
+    foreach ($this->requireHexList($parameters) as $hex) {
+      $items[] = ['definition_ref' => $definition, 'anchor_hex' => $hex, 'facing' => $facing];
+    }
+    return self::bulkPlaceSteps($items, $operation, $parameters);
+  }
+
+  /**
+   * Chunks placement items into bulk-place steps.
+   *
+   * The one place that shapes a place_objects_bulk step; area tools call it
+   * with the items they computed.
+   *
+   * @param list<array{definition_ref: array, anchor_hex: array, facing?: int}> $items
+   */
+  public static function bulkPlaceSteps(array $items, string $operation, array $options = []): array {
+    if ($items === []) {
+      throw new \DomainException('shape_produced_no_hexes');
+    }
+    $steps = [];
+    foreach (array_chunk($items, self::BULK_LIMIT) as $chunk) {
+      $payload = ['operation' => $operation, 'items' => $chunk];
+      foreach (['keep_clear', 'keep_ports_clear', 'operation_id'] as $key) {
+        if (isset($options[$key])) {
+          $payload[$key] = $options[$key];
+        }
+      }
+      $steps[] = self::stepOf(count($steps) + 1, 'place_objects_bulk', $payload, sprintf('Place %d objects (%s); blocked hexes become gaps.', count($chunk), $operation));
+    }
+    return $steps;
+  }
+
+  public static function stepOf(int $number, string $type, array $payload, string $rationale): array {
+    return ['step' => $number, 'command_type' => $type, 'payload' => $payload, 'rationale' => $rationale];
+  }
+
+  private function planBulkMove(array $parameters): array {
+    $moves = $parameters['moves'] ?? NULL;
+    if (!is_array($moves) || $moves === [] || !array_is_list($moves)) {
+      throw new \InvalidArgumentException('moves_list_required');
+    }
+    $items = [];
+    foreach ($moves as $index => $move) {
+      $anchor = is_array($move) ? ($move['anchor_hex'] ?? NULL) : NULL;
+      if (!is_array($move) || !is_string($move['instance_id'] ?? NULL) || !is_array($anchor) || !is_int($anchor['q'] ?? NULL) || !is_int($anchor['r'] ?? NULL)) {
+        throw new \InvalidArgumentException(sprintf('move_spec_invalid:%d', $index + 1));
+      }
+      $item = ['instance_id' => $move['instance_id'], 'anchor_hex' => ['q' => $anchor['q'], 'r' => $anchor['r']]];
+      if (isset($move['gap_id'])) {
+        $item['gap_id'] = (string) $move['gap_id'];
+      }
+      $items[] = $item;
+    }
+    $steps = [];
+    foreach (array_chunk($items, self::BULK_LIMIT) as $chunk) {
+      $payload = ['operation' => isset($parameters['operation']) ? (string) $parameters['operation'] : 'move_objects', 'items' => $chunk];
+      foreach (['keep_clear', 'keep_ports_clear', 'operation_id'] as $key) {
+        if (isset($parameters[$key])) {
+          $payload[$key] = $parameters[$key];
+        }
+      }
+      $steps[] = $this->step(count($steps) + 1, 'move_objects_bulk', $payload, sprintf('Move %d placements; refused moves become gaps.', count($chunk)));
+    }
+    return $steps;
+  }
+
+  private function planBulkIds(string $type, array $parameters, string $rationale): array {
+    $ids = $parameters['instance_ids'] ?? NULL;
+    if (!is_array($ids) || $ids === [] || !array_is_list($ids)) {
+      throw new \InvalidArgumentException('instance_ids_required');
+    }
+    $steps = [];
+    foreach (array_chunk(array_map('strval', $ids), self::BULK_LIMIT) as $chunk) {
+      $steps[] = $this->step(count($steps) + 1, $type, ['instance_ids' => $chunk], sprintf($rationale, count($chunk)));
+    }
+    return $steps;
+  }
+
+  private function planBulkReplace(array $parameters): array {
+    $steps = $this->planBulkIds('replace_objects_bulk', $parameters, 'Replace %d placements.');
+    $definition = [
+      'family' => EditorGmToolContext::requireString($parameters, 'family'),
+      'definition_id' => EditorGmToolContext::requireString($parameters, 'definition_id'),
+      'version' => isset($parameters['version']) && trim((string) $parameters['version']) !== '' ? (string) $parameters['version'] : '1.0.0',
+    ];
+    foreach ($steps as $i => $step) {
+      $steps[$i]['payload']['definition_ref'] = $definition;
+    }
+    return $steps;
+  }
+
+  private function planDismissGaps(array $parameters): array {
+    $ids = $parameters['gap_ids'] ?? NULL;
+    if (!is_array($ids) || $ids === [] || !array_is_list($ids)) {
+      throw new \InvalidArgumentException('gap_ids_required');
+    }
+    $reason = EditorGmToolContext::requireString($parameters, 'reason');
+    return [$this->step(1, 'dismiss_placement_gaps', ['gap_ids' => array_map('strval', $ids), 'reason' => $reason], sprintf('Accept %d skipped placements: %s', count($ids), $reason))];
   }
 
   private function planClearPlacements(array $parameters, array $room): array {
@@ -687,12 +822,7 @@ final class PlanRoomCommandsTool implements EditorGmToolInterface {
   }
 
   private function step(int $number, string $type, array $payload, string $rationale): array {
-    return [
-      'step' => $number,
-      'command_type' => $type,
-      'payload' => $payload,
-      'rationale' => $rationale,
-    ];
+    return self::stepOf($number, $type, $payload, $rationale);
   }
 
 }

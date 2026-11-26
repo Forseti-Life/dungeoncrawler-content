@@ -29,12 +29,14 @@ class WorldGameFlowControllerTest extends BrowserTestBase {
     $this->drupalGet('/world/game-flow');
     $this->assertSession()->statusCodeEquals(200);
 
-    $this->assertSession()->pageTextContains('How a campaign run moves from tavern entry to exploration, chat, combat, and back again.');
+    $this->assertSession()->pageTextContains('How players move, talk, and fight within a persistent campaign.');
     $this->assertSession()->pageTextContains('End-to-end run lifecycle');
     $this->assertSession()->pageTextContains('How the run boots into the first room');
-    $this->assertSession()->pageTextContains('Movement, investigation, and room-state updates');
+    $this->assertSession()->pageTextContains('Movement, investigation, turn order, and room-state updates');
     $this->assertSession()->pageTextContains('Conversation inside the current room');
-    $this->assertSession()->pageTextContains('Encounter phase from initiation through resolution');
+    $this->assertSession()->pageTextContains('Turn-based combat from initiation through resolution');
+    $this->assertSession()->pageTextContains('POST /api/game/{campaign_id}/action');
+    $this->assertSession()->pageTextContains('exploring is not a separate active phase');
     $this->assertSession()->pageTextContains('How client actions become canonical state');
     $this->assertSession()->elementsCount('css', '[data-mermaid-diagram]', 6);
     $this->assertSession()->linkExists('Back to World');

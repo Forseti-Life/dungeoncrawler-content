@@ -18,7 +18,7 @@ final class EditorDraftStatusProjection {
    *   Validation in the editor result shape: profile, is_valid, counts.
    * @param array<int, array{id: string, label: string, complete: bool, group: string, detail: string}> $checklist
    *   Items in group minimum_content feed missing_content.
-   * @param array<int, array{label: string, checks: bool[], metrics: array}> $stages
+   * @param array<int, array{label: string, checks: array<bool|float>, metrics: array}> $stages
    *   Keyed by stage number from 1; the last stage is publication.
    */
   public static function project(string $schema_version, array $draft, array $validation, array $checklist, array $stages, array $counts): array {
@@ -26,7 +26,7 @@ final class EditorDraftStatusProjection {
     $current_stage = $last_stage;
     $stage_rows = [];
     foreach ($stages as $number => $stage) {
-      $done = count(array_filter($stage['checks']));
+      $done = self::completeChecks($stage['checks']);
       $total = count($stage['checks']);
       if ($current_stage === $last_stage && $number < $last_stage && $done !== $total) {
         $current_stage = $number;
@@ -34,7 +34,7 @@ final class EditorDraftStatusProjection {
       $stage_rows[] = [
         'stage' => $number,
         'label' => $stage['label'],
-        'completion_percent' => (int) round(($done / $total) * 100),
+        'completion_percent' => self::stagePercent($stage['checks']),
         'complete' => $done === $total,
         'complete_checks' => $done,
         'total_checks' => $total,
@@ -63,6 +63,19 @@ final class EditorDraftStatusProjection {
       )),
       'checklist' => $checklist,
     ];
+  }
+
+  public static function completeChecks(array $checks): int {
+    return count(array_filter($checks, static fn(bool|float $check): bool => (float) $check === 1.0));
+  }
+
+  public static function stagePercent(array $checks): int {
+    $percent = (int) round(100 * array_sum($checks) / count($checks));
+    return self::completeChecks($checks) === count($checks) ? 100 : min(99, $percent);
+  }
+
+  public static function validationChecks(bool $valid, array $review): array {
+    return isset($review['warning_review_fraction']) ? [$valid, $review['warning_review_fraction']] : [$valid];
   }
 
 }

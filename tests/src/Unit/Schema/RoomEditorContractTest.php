@@ -59,8 +59,10 @@ class RoomEditorContractTest extends UnitTestCase {
     $placement = json_decode((string) file_get_contents($schema_root . 'room_placement_instance.schema.json'), TRUE, 512, JSON_THROW_ON_ERROR);
 
     $this->assertSame(1, $room['properties']['hexes']['minItems']);
-    $this->assertSame(10000, $room['properties']['hexes']['maxItems']);
-    $this->assertSame(250, $room['properties']['placements']['maxItems']);
+    $this->assertSame('street', $room['if']['properties']['room_type']['const']);
+    $this->assertSame(50000, $room['then']['properties']['hexes']['maxItems']);
+    $this->assertSame(10000, $room['else']['properties']['hexes']['maxItems']);
+    $this->assertSame(2500, $room['properties']['placements']['maxItems']);
     $this->assertSame(20, $room['properties']['entry_ports']['maxItems']);
     $this->assertSame(50, $room['properties']['exit_ports']['maxItems']);
     $this->assertSame(
@@ -526,6 +528,7 @@ class RoomEditorContractTest extends UnitTestCase {
       ['goal' => 'expand_footprint', 'parameters' => ['hexes' => [['q' => 3, 'r' => 0]]], 'expected' => 'add_hex'],
       ['goal' => 'shrink_footprint', 'parameters' => ['hexes' => [['q' => 2, 'r' => 0]]], 'expected' => 'remove_hex'],
       ['goal' => 'retheme_terrain', 'parameters' => ['terrain_type' => 'rough_stone', 'hexes' => [['q' => 2, 'r' => 0]]], 'expected' => 'set_hex_terrain'],
+      ['goal' => 'retheme_terrain', 'parameters' => ['terrain_type' => 'rough_stone'], 'expected' => 'set_hexes_terrain'],
       ['goal' => 'level_elevation', 'parameters' => ['elevation_ft' => 10, 'hexes' => [['q' => 2, 'r' => 0]]], 'expected' => 'set_hex_elevation'],
       ['goal' => 'place_objects', 'parameters' => ['placements' => [['family' => 'item', 'definition_id' => 'torch', 'version' => '1.0.0', 'anchor_hex' => ['q' => 2, 'r' => 0], 'facing' => 2]]], 'expected' => 'place_object'],
       ['goal' => 'move_objects', 'parameters' => ['moves' => [['instance_id' => '22222222-2222-4222-8222-222222222222', 'anchor_hex' => ['q' => 2, 'r' => 0]]]], 'expected' => 'move_object'],
@@ -533,6 +536,11 @@ class RoomEditorContractTest extends UnitTestCase {
       ['goal' => 'update_object_overrides', 'parameters' => ['updates' => [['instance_id' => '22222222-2222-4222-8222-222222222222', 'overrides' => ['display_name' => 'Eldric']]]], 'expected' => 'update_object_overrides'],
       ['goal' => 'duplicate_objects', 'parameters' => ['duplicates' => [['instance_id' => '22222222-2222-4222-8222-222222222222', 'anchor_hex' => ['q' => 2, 'r' => 0]]]], 'expected' => 'duplicate_object'],
       ['goal' => 'clear_placements', 'parameters' => ['instance_ids' => ['22222222-2222-4222-8222-222222222222']], 'expected' => 'remove_object'],
+      ['goal' => 'bulk_place_objects', 'parameters' => ['family' => 'obstacle', 'definition_id' => 'overgrown_hedge', 'hexes' => [['q' => 2, 'r' => 0]]], 'expected' => 'place_objects_bulk'],
+      ['goal' => 'bulk_move_objects', 'parameters' => ['moves' => [['instance_id' => '22222222-2222-4222-8222-222222222222', 'anchor_hex' => ['q' => 2, 'r' => 0]]]], 'expected' => 'move_objects_bulk'],
+      ['goal' => 'bulk_remove_objects', 'parameters' => ['instance_ids' => ['22222222-2222-4222-8222-222222222222']], 'expected' => 'remove_objects_bulk'],
+      ['goal' => 'bulk_replace_objects', 'parameters' => ['instance_ids' => ['22222222-2222-4222-8222-222222222222'], 'family' => 'obstacle', 'definition_id' => 'stone_pillar'], 'expected' => 'replace_objects_bulk'],
+      ['goal' => 'dismiss_placement_gaps', 'parameters' => ['gap_ids' => ['44444444-4444-4444-8444-444444444444'], 'reason' => 'accepted'], 'expected' => 'dismiss_placement_gaps'],
       ['goal' => 'add_entry_ports', 'parameters' => ['ports' => [['port_id' => 'entry-north', 'hex' => ['q' => 2, 'r' => 0], 'edge' => 1, 'label' => 'North Entry']]], 'expected' => 'add_entry_port'],
       ['goal' => 'update_entry_ports', 'parameters' => ['ports' => [['port_id' => 'entry-secondary', 'changes' => ['label' => 'Updated Side Entry']]]], 'expected' => 'update_entry_port'],
       ['goal' => 'remove_entry_ports', 'parameters' => ['port_ids' => ['entry-secondary']], 'expected' => 'remove_entry_port'],

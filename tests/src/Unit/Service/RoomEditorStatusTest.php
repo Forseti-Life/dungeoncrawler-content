@@ -101,6 +101,19 @@ class RoomEditorStatusTest extends TestCase {
     RoomEditorService::finding('rule_nobody_declared', '/name', 'Unrouted.');
   }
 
+  public function testOnlyStreetRoomsCanExceedTheRegularHexBudget(): void {
+    $hexes = [];
+    for ($i = 0; $i <= 10000; $i++) {
+      $hexes[] = ['q' => $i % 100, 'r' => intdiv($i, 100), 'terrain_type' => 'stone_floor', 'elevation_ft' => 0];
+    }
+    $room = $this->draft(['hexes' => $hexes])['room'];
+    $service = $this->service();
+
+    $this->assertContains('room_hex_count_invalid', array_column($service->validateAggregate($room)['findings'], 'code'));
+    $room['room_type'] = 'street';
+    $this->assertNotContains('room_hex_count_invalid', array_column($service->validateAggregate($room)['findings'], 'code'));
+  }
+
   public function testStatusOfANewRoomStartsAtIdentity(): void {
     $service = $this->service();
     $draft = $this->draft([]);

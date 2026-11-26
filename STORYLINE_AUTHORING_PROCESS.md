@@ -111,6 +111,14 @@ Current resolvers:
   its owning Room or Dungeon Editor. It does not turn a room/dungeon problem
   into a code-defect backlog item.
 
+Dungeon and Room editors use the same scoped evidence contract but not the
+same problem workflow. Dungeon troubleshooting covers district ground first,
+street capacity, canonical room existence, building placement, port links and
+published-version repinning. Room troubleshooting covers identity, footprint,
+ports, contents, validation and publication. A Dungeon finding must not be
+recast as a Room objective warning, and a Room finding must not be rewritten
+as a dungeon placement command.
+
 Warnings that share one owning row may be handled together only when their
 registry entries permit the same fields. Unrelated warnings must not appear
 in the same work packet. A schema/validator mismatch is a system contract

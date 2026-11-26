@@ -360,11 +360,11 @@ class QuestTrackerController extends ControllerBase {
         $character_id
       );
 
-      if (empty($result)) {
+      if (empty($result['success'])) {
         return new JsonResponse([
           'success' => FALSE,
-          'error' => 'Failed to update quest progress',
-        ], 500);
+          'error' => $result['error'] ?? 'Failed to update quest progress',
+        ], 409);
       }
 
       // The caller gets only the objectives its view of the goal includes.
@@ -375,7 +375,7 @@ class QuestTrackerController extends ControllerBase {
         ->execute()
         ->fetchAssoc();
       $goal = is_array($quest_row) ? $this->questTracker->loadQuestGoal($quest_row) : NULL;
-      if ($goal !== NULL && is_array($result['objective_states'] ?? NULL)) {
+      if (is_array($result['objective_states'] ?? NULL)) {
         $result['objective_states'] = $this->questGenerator->projectObjectivePhases(
           $result['objective_states'],
           $goal,

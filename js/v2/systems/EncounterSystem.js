@@ -197,29 +197,23 @@ export class EncounterSystem {
     try {
       const context = this._getActionRailContext();
       const hexmap = context.hexmap;
-      const runtimeContext = context.runtimeContext || {};
       const phaseSnapshot = context.phaseSnapshot
         || hexmap?.gameCoordinator?.phaseManager?.getSnapshot?.()
         || {};
-      let actorRef = String(
+      const actorRef = String(
         context.actorRef
         || phaseSnapshot?.actionContract?.actor_id
         || phaseSnapshot?.turn?.entity
         || ''
       ).trim();
       const coordinator = hexmap?.gameCoordinator || null;
-      if (!hexmap || !coordinator?.api) {
-        this._appendChatLine('System', 'Search requires an active campaign room.', 'system');
+      if (!hexmap || !coordinator?.api || !actorRef) {
+        this._appendChatLine('System', 'Search requires an active campaign room and a current actor.', 'system');
         return;
       }
 
-      const characterId = Number.parseInt(
-        String(context.characterId || runtimeContext.characterId || ''),
-        10
-      );
       const data = await this._sendCoordinatorActionWithResync(coordinator, 'search', actorRef, {
         search_mode: 'explicit',
-        ...(Number.isFinite(characterId) && characterId > 0 ? { character_id: characterId } : {}),
       });
       if (!data?.success) {
         this._appendChatLine('System', data?.error || data?.result?.error || 'Unable to search this room.', 'system');
@@ -237,7 +231,7 @@ export class EncounterSystem {
         ? data.result.discoveries
         : (Array.isArray(data?.discoveries) ? data.discoveries : []);
       if (searchDiscoveries.length > 0) {
-        await hexmap.loadCharacterFromApi?.(context.characterId);
+        await hexmap.loadCharacterFromApi?.(hexmap.launchContext?.character_id);
         await hexmap.refreshQuestJournalFromApi?.();
       }
       this._refreshActionRail();

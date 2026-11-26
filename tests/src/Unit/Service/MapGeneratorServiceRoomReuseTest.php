@@ -2,6 +2,9 @@
 
 namespace Drupal\Tests\dungeoncrawler_content\Unit\Service;
 
+use Drupal\Core\Database\Connection;
+use Drupal\Core\Database\Query\SelectInterface;
+use Drupal\Core\Database\StatementInterface;
 use Drupal\dungeoncrawler_content\Service\MapGeneratorService;
 use Drupal\Tests\UnitTestCase;
 use Psr\Log\NullLogger;
@@ -13,6 +16,49 @@ use Psr\Log\NullLogger;
  * @coversDefaultClass \Drupal\dungeoncrawler_content\Service\MapGeneratorService
  */
 class MapGeneratorServiceRoomReuseTest extends UnitTestCase {
+
+  /**
+   * @covers ::mergeCampaignRoomRowsIntoDungeonData
+   */
+  public function testExistingRoomReferenceReceivesGeometryWithoutLosingRuntimeState(): void {
+    $hexes = [['q' => -2, 'r' => 0, 'terrain_type' => 'floor']];
+    $statement = $this->createMock(StatementInterface::class);
+    $statement->expects($this->once())->method('fetchAllAssoc')->with('room_id')->willReturn([
+      'tavern_entrance' => (object) [
+        'room_id' => 'tavern_entrance',
+        'name' => 'The Gilded Tankard',
+        'layout_data' => json_encode(['hexes' => $hexes], JSON_THROW_ON_ERROR),
+      ],
+    ]);
+    $select = $this->createMock(SelectInterface::class);
+    $select->method('fields')->willReturnSelf();
+    $select->method('condition')->with('campaign_id', 1159)->willReturnSelf();
+    $select->method('execute')->willReturn($statement);
+    $database = $this->createMock(Connection::class);
+    $database->method('select')->with('dc_campaign_rooms', 'r')->willReturn($select);
+    $service = new class($database) extends MapGeneratorService {
+      public function __construct(Connection $database) {
+        $this->database = $database;
+        $this->logger = new NullLogger();
+      }
+
+      public function match(array &$dungeon_data): ?array {
+        return $this->findExistingCampaignRoomMatch(1159, $dungeon_data, 'The Gilded Tankard', 'parlor');
+      }
+    };
+    $chat = [['speaker' => 'Eldric', 'message' => 'Welcome back.']];
+    $data = ['rooms' => [
+      ['room_id' => 'tavern_entrance', 'name' => 'The Gilded Tankard', 'hexes' => [], 'chat' => $chat],
+      ['room_id' => 'parlor', 'name' => 'Parlor'],
+    ]];
+
+    $match = $service->match($data);
+
+    $this->assertSame(0, $match['room_index']);
+    $this->assertSame($hexes, $match['room']['hexes']);
+    $this->assertSame($chat, $match['room']['chat']);
+    $this->assertCount(2, $data['rooms']);
+  }
 
   /**
    * Tests existing named rooms are reused before generating duplicates.

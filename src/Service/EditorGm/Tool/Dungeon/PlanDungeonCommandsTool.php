@@ -34,7 +34,7 @@ final class PlanDungeonCommandsTool implements EditorGmToolInterface {
   ];
 
   public const GOAL_PARAMETERS = [
-    'set_metadata' => 'at least one of name, description, depth, theme',
+    'set_metadata' => 'at least one of name, description, depth, theme, kind (dungeon|district; a district has one street room and buildings whose entry ports stand on its hexes)',
     'place_rooms' => 'placements: [{room_id, origin: {q, r}, rotation_steps (0-5), label (optional)}] (required); version resolves to the published version',
     'arrange_placements' => 'moves: [{placement_id, origin: {q, r} (optional), rotation_steps (optional)}] (required, each needs at least one of origin/rotation_steps)',
     'remove_placements' => 'placement_ids: [string] (required)',
@@ -54,7 +54,7 @@ final class PlanDungeonCommandsTool implements EditorGmToolInterface {
     return new EditorGmToolDefinition(
       'plan_dungeon_commands',
       EditorGmToolDefinition::FAMILY_PLANNING,
-      'Turn a structured authoring goal into an ordered, previewable dungeon command plan. Goals: ' . implode(', ', self::GOALS) . '. To rotate a placed room use arrange_placements with rotation_steps 0-5 (absolute, 60 degrees clockwise per step). To connect rooms use plan_port_links; linked rooms do not need to touch. To butt a new room against an exit use plan_room_placement.',
+      'Turn a structured authoring goal into an ordered, previewable dungeon command plan. Goals: ' . implode(', ', self::GOALS) . '. To rotate a placed room use arrange_placements with rotation_steps 0-5 (absolute, 60 degrees clockwise per step). To connect rooms use plan_port_links; linked rooms do not need to touch. To butt a new room against an exit use plan_room_placement; in a district use plan_district_building so the building entry sits directly beside the street door.',
       FALSE,
       'planning only; execution requires apply_dungeon_commands',
       [
@@ -107,7 +107,7 @@ final class PlanDungeonCommandsTool implements EditorGmToolInterface {
 
   private function planSetMetadata(array $parameters): array {
     $changes = [];
-    foreach (['name', 'description', 'depth', 'theme'] as $field) {
+    foreach (['name', 'description', 'depth', 'theme', 'kind'] as $field) {
       if (array_key_exists($field, $parameters)) {
         $changes[$field] = $parameters[$field];
       }

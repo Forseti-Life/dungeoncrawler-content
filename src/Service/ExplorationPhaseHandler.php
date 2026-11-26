@@ -2568,7 +2568,7 @@ class ExplorationPhaseHandler implements MutationContextPhaseHandlerInterface {
   }
 
   /**
-   * Process a search action for quest-item discovery in the current room.
+   * Search the current room for quest items and authored clues.
    */
   public function processSearch(string $actor_id, array $params, array &$game_state, array &$dungeon_data, int $campaign_id): array {
     $requested_mode = strtolower(trim((string) ($params['search_mode'] ?? self::SEARCH_MODE_EXPLICIT)));
@@ -2585,8 +2585,11 @@ class ExplorationPhaseHandler implements MutationContextPhaseHandlerInterface {
     $room = $this->getActiveRoom($dungeon_data);
     $search_dc = $room['gameplay_state']['search_dc'] ?? 15;
 
+    $clue_notes = $requested_mode === self::SEARCH_MODE_EXPLICIT && $campaign_id > 0
+      ? $this->resolveAuthoredSearchClues($campaign_id, $actor_id, $params, $dungeon_data)
+      : [];
     $manual_guaranteed_discovery = $requested_mode === self::SEARCH_MODE_EXPLICIT
-      && $this->hasPendingQuestSearchDiscovery($campaign_id, $actor_id, $params, $dungeon_data);
+      && ($clue_notes !== [] || $this->hasPendingQuestSearchDiscovery($campaign_id, $actor_id, $params, $dungeon_data));
     if ($manual_guaranteed_discovery && $total < $search_dc) {
       $total = (int) $search_dc;
     }
@@ -2625,7 +2628,7 @@ class ExplorationPhaseHandler implements MutationContextPhaseHandlerInterface {
         return sprintf('You notice %s.', (string) ($resolved_discovery['item_name'] ?? 'something useful'));
       }, $quest_discoveries));
     }
-    $quest_narrator_notes = [];
+    $quest_narrator_notes = $clue_notes;
     foreach ($quest_discoveries as $resolved_discovery) {
       foreach ((array) ($resolved_discovery['narrator_notes'] ?? []) as $note) {
         if (is_string($note) && trim($note) !== '') {
@@ -2665,6 +2668,63 @@ class ExplorationPhaseHandler implements MutationContextPhaseHandlerInterface {
       'mutations'    => [],
       'narration' => $narration,
     ];
+  }
+
+  /**
+   * Completes authored clues from an explicit Search in the active room.
+   */
+  protected function resolveAuthoredSearchClues(int $campaign_id, string $actor_id, array $params, array $dungeon_data): array {
+    $room_id = trim((string) ($dungeon_data['active_room_id'] ?? ''));
+    if ($room_id === '' || $this->questTracker === NULL) {
+      return [];
+    }
+    $character_id = $this->resolveSearchCampaignCharacterId($campaign_id, $actor_id, $params, $dungeon_data);
+    if ($character_id <= 0) {
+      return [];
+    }
+    $room_ids = $this->resolveSearchObjectiveRoomIds($campaign_id, $room_id);
+    $notes = [];
+    foreach ($this->questTracker->getCharacterQuestTracking($campaign_id, $character_id) as $quest) {
+      if ($quest['status'] !== 'active' || empty($quest['character_id']) || !empty($quest['completed_at'])) {
+        continue;
+      }
+      $phases = json_decode($quest['objective_states'], TRUE, 512, JSON_THROW_ON_ERROR);
+      $phase = max(1, (int) $quest['current_phase']);
+      $completed = $this->collectSearchCompletedObjectiveIdsThroughPhase($phases, $phase);
+      foreach ($phases as $entry) {
+        if ((int) $entry['phase'] !== $phase) {
+          continue;
+        }
+        foreach ($this->matchingAuthoredSearchClues($entry['objectives'], $room_ids, $completed) as $objective_id => $note) {
+          $result = $this->questTracker->updateObjectiveProgress($campaign_id, $quest['quest_id'], $objective_id, 1, $character_id, explicit_search: TRUE);
+          if (empty($result['success'])) {
+            throw new \RuntimeException(sprintf('Search clue progress failed for quest %s objective %s: %s', $quest['quest_id'], $objective_id, $result['error'] ?? 'unknown error'));
+          }
+          if (!empty($result['objective_completed'])) {
+            $notes[] = $note;
+          }
+        }
+      }
+    }
+    return $notes;
+  }
+
+  protected function matchingAuthoredSearchClues(array $objectives, array $room_ids, array $completed): array {
+    $matches = [];
+    foreach ($objectives as $objective) {
+      if (!is_array($objective)) {
+        continue;
+      }
+      $note = trim((string) ($objective['search_narration'] ?? ''));
+      if (($objective['type'] ?? '') === 'explore' && $note !== '' && empty($objective['completed'])
+        && $this->isSearchObjectiveCurrentlyRevealed($objective)
+        && !$this->searchObjectiveHasUnmetDependencies($objective, $completed)
+        && in_array($objective['location_id'] ?? $objective['location'] ?? '', $room_ids, TRUE)) {
+        $matches[$objective['objective_id']] = $note;
+      }
+      $matches += $this->matchingAuthoredSearchClues($objective['children'] ?? [], $room_ids, $completed);
+    }
+    return $matches;
   }
 
   /**
@@ -3386,6 +3446,7 @@ class ExplorationPhaseHandler implements MutationContextPhaseHandlerInterface {
       if (
         $objective_id !== ''
         && empty($objective['completed'])
+        && empty($objective['search_narration'])
         && $this->isSearchObjectiveCurrentlyRevealed($objective)
         && ($metric === 'discovered' || $type === 'explore')
         && $location !== ''

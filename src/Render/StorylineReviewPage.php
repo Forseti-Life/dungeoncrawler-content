@@ -8,7 +8,7 @@ use Drupal\Core\Render\Markup;
 use Drupal\Core\Url;
 
 /**
- * Puts a read-only page about one storyline draft inside the shared page.
+ * Puts a page about one storyline draft inside the shared editor page.
  *
  * Used by the scene, actor-graph and institution review pages and by the
  * page of one actor of a draft.
@@ -24,7 +24,7 @@ final class StorylineReviewPage {
    * @param string $active
    *   Which page this is: scenes, actors or institutions.
    */
-  public static function wrap(array $page, array $draft, string $active): array {
+  public static function wrap(array $page, array $draft, string $active, string $gm_markup = '', string $status_markup = ''): array {
     $payload = is_array($draft['payload'] ?? NULL) ? $draft['payload'] : [];
     $query = ['query' => ['draft_id' => (string) $draft['draft_id']]];
     $count = static fn(mixed $rows): string => (string) count(array_filter((array) $rows, 'is_array'));
@@ -36,6 +36,13 @@ final class StorylineReviewPage {
     ];
     $shell = EditorPageShell::split('@dungeoncrawler_content/storyline-review-page.html.twig', [
       'storyline_title' => trim((string) ($payload['title'] ?? '')),
+      'scene_editor' => $active === 'scenes' && $gm_markup !== '',
+      'gm_markup' => $gm_markup,
+      'status_markup' => $status_markup,
+      'scene_pages' => array_values(array_map(
+        static fn(array $scene): string => trim((string) ($scene['title'] ?? '')) ?: (string) ($scene['scene_id'] ?? ''),
+        array_filter((array) ($payload['process_flow']['journal_entries'] ?? []), 'is_array'),
+      )),
       'builder_url' => Url::fromRoute('dungeoncrawler_content.gm_storyline_builder', [], $query)->toString(),
       'pages' => [
         $link('draft', 'Storyline draft', 'Edit with the Game Master Agent.', 'dungeoncrawler_content.gm_storyline_builder'),

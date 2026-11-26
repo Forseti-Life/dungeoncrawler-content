@@ -140,11 +140,10 @@ assert(
 );
 assert(
   encounterSystemSource.includes("search_mode: 'explicit'")
-    && encounterSystemSource.includes('character_id: characterId')
     && encounterSystemSource.includes("this._sendCoordinatorActionWithResync(coordinator, 'search', actorRef, {")
     && encounterSystemSource.includes('|| phaseSnapshot?.actionContract?.actor_id')
     && encounterSystemSource.includes('|| phaseSnapshot?.turn?.entity')
-    && encounterSystemSource.includes('await hexmap.loadCharacterFromApi?.(context.characterId);')
+    && encounterSystemSource.includes('await hexmap.loadCharacterFromApi?.(hexmap.launchContext?.character_id);')
     && encounterSystemSource.includes('await hexmap.refreshQuestJournalFromApi?.();')
     && !encounterSystemSource.includes('await coordinator.api.getState()')
     && !encounterSystemSource.includes('explicit_search: true')

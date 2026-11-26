@@ -54,9 +54,54 @@ assert(
   'legacy shared combat action helper refreshes system-log for successful encounter actions'
 );
 
-console.log(`\nPassed: ${passed}`);
-console.log(`Failed: ${failed}`);
+(async () => {
+  const { EncounterSystem } = await import('../js/v2/systems/EncounterSystem.js');
+  const system = Object.create(EncounterSystem.prototype);
+  const calls = [];
+  const coordinator = { api: {}, applyAuthoritativeUpdate() {} };
+  const hexmap = {
+    gameCoordinator: coordinator,
+    launchContext: { character_id: 8172 },
+    loadCharacterFromApi: async (id) => calls.push(['refresh', id]),
+    refreshQuestJournalFromApi: async () => calls.push(['journal']),
+  };
+  const context = {
+    hexmap,
+    characterId: 5689,
+    runtimeContext: { campaignId: 1159, characterId: 5689 },
+    phaseSnapshot: { actionContract: { actor_id: 'pc-1159-1033' } },
+  };
+  system._getActionRailContext = () => context;
+  system._beginActionRailRequest = () => true;
+  system._endActionRailRequest = () => calls.push(['release']);
+  system._appendChatLine = (...args) => calls.push(args);
+  system._refreshActionRail = () => {};
+  system.announceGameState = () => {};
+  system._sendCoordinatorActionWithResync = async (_coordinator, type, actor, params) => {
+    calls.push([type, actor, params]);
+    return { success: true, result: { discoveries: [{ name: 'Clue' }] } };
+  };
 
-if (failed > 0) {
-  process.exit(1);
-}
+  await system.executeDirectSearch({});
+  assert(
+    JSON.stringify(calls) === JSON.stringify([
+      ['search', 'pc-1159-1033', { search_mode: 'explicit' }],
+      ['refresh', 8172], ['journal'], ['release'],
+    ]),
+    'Search ignores a foreign sheet row, submits the turn actor, and refreshes the current campaign character',
+  );
+  calls.length = 0;
+  context.phaseSnapshot = {};
+  await system.executeDirectSearch({});
+  assert(
+    calls.length === 2 && calls[0][0] === 'System' && calls[1][0] === 'release',
+    'Search without a current actor explains the problem and sends no action',
+  );
+
+  console.log(`\nPassed: ${passed}`);
+  console.log(`Failed: ${failed}`);
+  process.exitCode = failed > 0 ? 1 : 0;
+})().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

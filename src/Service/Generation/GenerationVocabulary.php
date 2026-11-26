@@ -14,7 +14,7 @@ final class GenerationVocabulary {
     'workshop', 'library', 'prison', 'throne_room', 'armory', 'pantry', 'garden',
     'pool', 'mine', 'crypt', 'laboratory', 'barracks', 'marketplace', 'arena',
     'boss_chamber', 'entrance', 'exit', 'stairwell', 'crossroads', 'dead_end',
-    'trap_room', 'puzzle_room', 'vault_room', 'safe_room',
+    'trap_room', 'puzzle_room', 'vault_room', 'safe_room', 'street',
   ];
 
   public const SIZE_CATEGORIES = ['tiny', 'small', 'medium', 'large', 'huge', 'gargantuan'];
@@ -22,7 +22,7 @@ final class GenerationVocabulary {
   public const CANONICAL_TERRAIN_TYPES = [
     'stone_floor', 'rough_stone', 'smooth_stone', 'dirt', 'mud', 'sand',
     'water_shallow', 'water_deep', 'ice', 'lava', 'fungal_growth', 'bone',
-    'crystal', 'metal_grate', 'wooden_floor', 'carpet', 'rubble', 'void',
+    'crystal', 'metal_grate', 'wooden_floor', 'carpet', 'rubble', 'void', 'wall',
   ];
 
   public const LIGHTING_LEVELS = ['bright_light', 'dim_light', 'darkness', 'magical_darkness'];

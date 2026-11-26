@@ -270,7 +270,7 @@ class ExplorationQuestProgressSubscriber implements EventSubscriberInterface {
         continue;
       }
       $type = (string) ($objective['type'] ?? '');
-      if (in_array($type, ['explore', 'investigate'], TRUE) && empty($objective['completed']) && $this->isObjectiveCurrentlyRevealed($objective) && $this->discoveryObjectiveMatchesRoom($objective, $event)) {
+      if (in_array($type, ['explore', 'investigate'], TRUE) && empty($objective['search_narration']) && empty($objective['completed']) && $this->isObjectiveCurrentlyRevealed($objective) && $this->discoveryObjectiveMatchesRoom($objective, $event)) {
         $objective_id = trim((string) ($objective['objective_id'] ?? ''));
         if ($objective_id !== '') {
           $matches[] = $objective_id;

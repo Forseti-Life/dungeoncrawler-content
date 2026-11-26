@@ -1102,21 +1102,21 @@ class MapGeneratorService {
   }
 
   /**
-   * Hydrate missing campaign room rows into dungeon_data.rooms for stable reuse matching.
+   * Hydrate campaign rooms that are absent or stored as geometry-free snapshots.
    */
   protected function mergeCampaignRoomRowsIntoDungeonData(int $campaign_id, array &$dungeon_data): void {
     if (!isset($dungeon_data['rooms']) || !is_array($dungeon_data['rooms'])) {
       $dungeon_data['rooms'] = [];
     }
 
-    $known_room_ids = [];
-    foreach ($dungeon_data['rooms'] as $room) {
+    $known_room_indexes = [];
+    foreach ($dungeon_data['rooms'] as $index => $room) {
       if (!is_array($room)) {
         continue;
       }
       $room_id = trim((string) ($room['room_id'] ?? ''));
       if ($room_id !== '') {
-        $known_room_ids[$room_id] = TRUE;
+        $known_room_indexes[$room_id] = $index;
       }
     }
 
@@ -1131,7 +1131,9 @@ class MapGeneratorService {
 
     $pending = [];
     foreach ($rows as $room_id => $row) {
-      if (isset($known_room_ids[$room_id])) {
+      $known_index = $known_room_indexes[$room_id] ?? NULL;
+      $snapshot_room = $known_index !== NULL ? $dungeon_data['rooms'][$known_index] : NULL;
+      if (!empty($snapshot_room['hexes'])) {
         continue;
       }
       $layout_data = json_decode((string) ($row->layout_data ?? '{}'), TRUE);
@@ -1145,25 +1147,32 @@ class MapGeneratorService {
         ));
       }
       $room_connections = $this->mapLayoutExitsToRoomConnections($layout_data);
+      $room = [
+        'room_id' => (string) ($row->room_id ?? ''),
+        'name' => (string) ($row->name ?? ''),
+        'description' => (string) ($row->description ?? ''),
+        'source_room_id' => (string) ($row->source_room_id ?? ''),
+        'hexes' => $room_hexes,
+        'entry_points' => is_array($layout_data['entry_points'] ?? NULL) ? $layout_data['entry_points'] : [],
+        'exit_points' => is_array($layout_data['exit_points'] ?? NULL) ? $layout_data['exit_points'] : [],
+        'exits' => is_array($layout_data['exits'] ?? NULL) ? $layout_data['exits'] : [],
+        'terrain' => is_array($layout_data['terrain'] ?? NULL) ? $layout_data['terrain'] : [],
+        'lighting' => is_string($layout_data['lighting'] ?? NULL)
+          ? $layout_data['lighting']
+          : (is_array($layout_data['lighting'] ?? NULL) && isset($layout_data['lighting']['level']) ? (string) $layout_data['lighting']['level'] : 'normal'),
+        'room_type' => (string) ($layout_data['room_type'] ?? 'unknown'),
+        'size_category' => (string) ($layout_data['size_category'] ?? 'medium'),
+        'gameplay_state' => [],
+        'connections' => $room_connections,
+      ];
+      if ($known_index !== NULL) {
+        // Retain live state and chat but take geometry from the campaign room row.
+        $dungeon_data['rooms'][$known_index] = array_replace($room, $snapshot_room, ['hexes' => $room_hexes]);
+        continue;
+      }
+
       $pending[(string) $room_id] = [
-        'room' => [
-          'room_id' => (string) ($row->room_id ?? ''),
-          'name' => (string) ($row->name ?? ''),
-          'description' => (string) ($row->description ?? ''),
-          'source_room_id' => (string) ($row->source_room_id ?? ''),
-          'hexes' => $room_hexes,
-          'entry_points' => is_array($layout_data['entry_points'] ?? NULL) ? $layout_data['entry_points'] : [],
-          'exit_points' => is_array($layout_data['exit_points'] ?? NULL) ? $layout_data['exit_points'] : [],
-          'exits' => is_array($layout_data['exits'] ?? NULL) ? $layout_data['exits'] : [],
-          'terrain' => is_array($layout_data['terrain'] ?? NULL) ? $layout_data['terrain'] : [],
-          'lighting' => is_string($layout_data['lighting'] ?? NULL)
-            ? $layout_data['lighting']
-            : (is_array($layout_data['lighting'] ?? NULL) && isset($layout_data['lighting']['level']) ? (string) $layout_data['lighting']['level'] : 'normal'),
-          'room_type' => (string) ($layout_data['room_type'] ?? 'unknown'),
-          'size_category' => (string) ($layout_data['size_category'] ?? 'medium'),
-          'gameplay_state' => [],
-          'connections' => $room_connections,
-        ],
+        'room' => $room,
         'connections' => $room_connections,
       ];
     }
@@ -1177,18 +1186,18 @@ class MapGeneratorService {
         )));
         $bridges_known_graph = FALSE;
         foreach ($connection_targets as $target_room_id) {
-          if (isset($known_room_ids[$target_room_id])) {
+          if (isset($known_room_indexes[$target_room_id])) {
             $bridges_known_graph = TRUE;
             break;
           }
         }
 
-        if ($known_room_ids !== [] && !$bridges_known_graph) {
+        if ($known_room_indexes !== [] && !$bridges_known_graph) {
           continue;
         }
 
         $dungeon_data['rooms'][] = $candidate['room'];
-        $known_room_ids[$room_id] = TRUE;
+        $known_room_indexes[$room_id] = array_key_last($dungeon_data['rooms']);
         unset($pending[$room_id]);
         $progressed = TRUE;
       }

@@ -530,17 +530,27 @@ class QuestGeneratorService {
   /**
    * Removes from objective phases what an audience may not yet see.
    */
-  public function projectObjectivePhases(array $phases, array $goal, string $audience): array {
+  public function projectObjectivePhases(array $phases, ?array $goal, string $audience): array {
     foreach ($phases as &$phase) {
       $phase['objectives'] = array_values(array_filter(
         (array) ($phase['objectives'] ?? []),
         static fn($objective): bool => is_array($objective)
-          && QuestGoalContract::showsObjective($goal, (string) ($objective['objective_id'] ?? ''), $audience)
+          && ($goal === NULL || QuestGoalContract::showsObjective($goal, (string) ($objective['objective_id'] ?? ''), $audience))
       ));
+      $this->removeSearchNarration($phase['objectives']);
     }
     unset($phase);
 
     return $phases;
+  }
+
+  private function removeSearchNarration(array &$objectives): void {
+    foreach ($objectives as &$objective) {
+      unset($objective['search_narration']);
+      if (!empty($objective['children'])) {
+        $this->removeSearchNarration($objective['children']);
+      }
+    }
   }
 
   /**
@@ -1896,6 +1906,9 @@ class QuestGeneratorService {
       case 'explore':
         $generated_obj['location'] = $this->resolveVariables((string) ($objective_schema['location'] ?? ''), $variables);
         $generated_obj['discovered'] = FALSE;
+        if (isset($objective_schema['search_narration'])) {
+          $generated_obj['search_narration'] = $objective_schema['search_narration'];
+        }
         break;
 
       case 'escort':

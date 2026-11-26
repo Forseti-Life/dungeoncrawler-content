@@ -15,7 +15,7 @@
  * During Phase 10 parallel testing it runs alongside the old hexmap library.
  */
 
-import { GameShell } from './v2/GameShell.js?v=20261115-quest-goals-4';
+import { GameShell } from './v2/GameShell.js?v=20261124-search-actor-1';
 
 const HEXMAP_V2_ENTRY_VERSION = '20260828-v5-map-actor-portraits-1';
 

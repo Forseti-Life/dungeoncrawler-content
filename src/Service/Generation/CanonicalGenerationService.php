@@ -90,6 +90,9 @@ class CanonicalGenerationService {
         throw $this->exception('generation_provider_failed', [$this->finding('generation_provider_failed', '/provider', $message)], 500);
       }
       $response = (string) ($result['response'] ?? '');
+      if (in_array($result['finish_reason'] ?? NULL, ['length', 'max_tokens'], TRUE)) {
+        throw $this->exception('generation_response_truncated', [$this->finding('generation_response_truncated', '/', 'Completion reached the ' . $max_tokens . ' token budget before the JSON object ended.')]);
+      }
       $decoded = $this->extractSingleJsonObject($response);
       $model = is_scalar($result['model_id'] ?? NULL) ? trim((string) $result['model_id']) : '';
       if ($model === '') {

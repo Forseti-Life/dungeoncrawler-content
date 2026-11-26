@@ -57,13 +57,13 @@ class WorldGameFlowController extends ControllerBase {
             '#type' => 'html_tag',
             '#tag' => 'h1',
             '#attributes' => ['class' => ['display-5', 'mb-3']],
-            '#value' => 'How a shard campaign run moves from tavern entry to exploration, chat, combat, and back again.',
+            '#value' => 'How players move, talk, and fight within a persistent campaign.',
           ],
           'summary' => [
             '#type' => 'html_tag',
             '#tag' => 'p',
             '#attributes' => ['class' => ['lead', 'mb-4']],
-            '#value' => 'This page documents the live runtime loop: a shard campaign launches through the tavern, the hexmap enters exploration, room chat stays active inside that loop, combat interrupts through a phase transition, and resolved encounters return the run to exploration with continuity state still intact.',
+            '#value' => 'The Hexmap loads the campaign’s saved state into the encounter framework. Players can explore and talk outside combat; when combat starts, the same framework enforces turn order. When combat ends, play continues in the same campaign.',
           ],
           'actions' => [
             '#type' => 'container',
@@ -93,12 +93,12 @@ class WorldGameFlowController extends ControllerBase {
         '#attributes' => ['class' => ['col-lg-6']],
         'card' => $this->buildTextCard(
           'Player-facing loop',
-          'Think of the run as one persistent shard cycle. Tavern entry sets the stage, exploration handles movement and discovery, chat covers in-room conversation, encounter mode takes over when danger commits, and the run returns to exploration when the fight resolves.',
+          'A campaign is one persistent run. Moving, discovering rooms, talking to actors, and fighting all use the same encounter framework.',
           [
             'A shard campaign and selected character define the launch context.',
-            'Startup narration and room state are delivered before free exploration begins.',
-            'Chat is part of exploration, not a separate world map or menu mode.',
-            'Combat is a temporary phase shift, not a separate campaign instance.',
+            'The client loads saved room and campaign state at startup.',
+            'Players can use room chat without leaving the current room.',
+            'Combat changes the action and turn rules, not the campaign instance.',
           ]
         ),
       ],
@@ -111,7 +111,7 @@ class WorldGameFlowController extends ControllerBase {
           [
             'HexMapController hydrates launch context and dungeon payload.',
             'GameCoordinatorService ensures game_state, campaign_clock, and initial startup events exist.',
-            'PhaseManager merges server state so exploration and encounter data stay in sync.',
+            'PhaseManager merges authoritative server state so the client reflects the current turn and room.',
             'Narration, chat, world mutations, and combat state all flow back through the same runtime shell.',
           ]
         ),
@@ -134,24 +134,24 @@ flowchart TD
   C --> D[Launch hexmap runtime]
   D --> E[Load canonical game state]
   E --> F[Startup room_entered event and narration]
-  F --> G[Exploration phase]
+  F --> G[Encounter framework: noncombat room play]
   G --> H[Movement, search, rest, inspect]
   G --> I[Room chat with NPCs or GM]
   H --> J{Threat committed or hostile action?}
   I --> G
   J -- No --> G
-  J -- Yes --> K[Transition to encounter]
+  J -- Yes --> K[Start turn-based combat]
   K --> L[Combat loop]
-  L --> M{Encounter resolved?}
+  L --> M{Combat resolved?}
   M -- No --> L
-  M -- Yes --> N[Return to exploration]
+  M -- Yes --> N[Resume noncombat room play]
   N --> O{Continue run or leave session?}
   O -- Continue --> G
   O -- Leave --> P[Persist campaign state for next session]
 MERMAID,
       [
         'The tavern is the first in-world location for a campaign run.',
-        'Exploration is the default phase after startup state has been applied.',
+        'The encounter framework is the default; exploring is not a separate active phase.',
         'Combat returns to the same persistent campaign state instead of forking a new run.',
       ]
     );
@@ -162,8 +162,8 @@ MERMAID,
       'The launch path starts before the player can move: route selection, state hydration, startup narration, and the first encounter-ready room view.',
       <<<'MERMAID'
 flowchart LR
-  A[/campaigns/{campaign_id}/tavernentrance/] --> B[Select character]
-  B --> C[/hexmap with campaign and character context/]
+  A["/campaigns/{campaign_id}/tavernentrance"] --> B[Select character]
+  B --> C["/hexmap with campaign and character context"]
   C --> D[HexMapController hydrates launch context]
   D --> E[Load dungeon payload and room entities]
   E --> F[GameCoordinatorService getFullState]
@@ -171,8 +171,8 @@ flowchart LR
   G --> H[Bootstrap startup room_entered event if missing]
   H --> I[Return initial events, round, turn, actions, and phase]
   I --> J[GameCoordinator applies initial state]
-  J --> K[Narration overlay and MP3 playback]
-  K --> L[Encounter begins in the tavern]
+  J --> K[Show startup narration and play audio when available]
+  K --> L[Render the active room in the encounter framework]
 MERMAID,
       [
         'Startup narration is delivered as a real room_entered event.',
@@ -181,7 +181,7 @@ MERMAID,
       ]
     );
 
-    $build['diagrams']['exploration_flow'] = $this->buildDiagramCard(
+    $build['diagrams']['encounter_room_flow'] = $this->buildDiagramCard(
       'Encounter room loop',
       'Movement, investigation, turn order, and room-state updates',
       'Encounter is the default runtime loop on the hexmap. Room actions, movement, and conversation stay in this one framework.',
@@ -326,29 +326,29 @@ MERMAID,
 
     $build['diagrams']['combat_flow'] = $this->buildDiagramCard(
       'Combat loop',
-      'Encounter phase from initiation through resolution',
-      'Combat takes over when the run commits to a hostile encounter, then hands control back after the encounter ends.',
+      'Turn-based combat from initiation through resolution',
+      'Hostile encounters enable turn-based combat inside the same runtime. Noncombat room play can resume after the fight.',
       <<<'MERMAID'
 flowchart TD
-  A[Encounter phase starts] --> B[Create or sync combat encounter]
+  A[Hostilities trigger combat] --> B[Create or sync combat state]
   B --> C[Roll initiative and build turn order]
   C --> D[Active combatant turn]
   D --> E{Whose turn?}
   E -->|Player| F[Choose strike, stride, spell, skill, interact, end turn]
-  E -->|NPC| G[Auto-play algorithm or fallback turn]
-  F --> H[Combat API validates and resolves action]
+  E -->|NPC| G[Server autoplay selects an action]
+  F --> H[Encounter handler validates and resolves action]
   G --> H
   H --> I[Update HP, conditions, positions, logs, and world delta]
   I --> J{Encounter over?}
   J -- No --> K[Advance turn and round]
   K --> D
-  J -- Yes --> L[End encounter and emit narration]
-  L --> M[Transition back to exploration]
+  J -- Yes --> L[Resolve combat and emit events]
+  L --> M[Resume noncombat room play]
 MERMAID,
       [
-        'Encounter state stays server-authoritative through combat APIs and services.',
-        'NPC turns can auto-play through algorithmic or fallback logic.',
-        'Resolved encounters transition back to exploration instead of trapping the run in combat mode.',
+        'Player actions enter through POST /api/game/{campaign_id}/action, not the legacy combat mutation routes.',
+        'NPC autoplay uses server rules or, when configured, a validated model recommendation.',
+        'Resolved combat returns to noncombat play inside the encounter framework.',
       ]
     );
 
@@ -367,9 +367,9 @@ flowchart LR
   G --> H[Hexmap UI, action rail, chat, and narration refresh]
 MERMAID,
       [
-        'Phase handlers own the rules for exploration, encounter, and downtime transitions.',
+        'The encounter handler owns the active rules for movement, interaction, and combat.',
         'The action rail, narration overlay, and current phase all refresh from returned state.',
-        'This is why campaign time, room narration, and combat phase changes must stay aligned with server responses.',
+        'Campaign time, room narration, and turn state must stay aligned with server responses.',
       ]
     );
 

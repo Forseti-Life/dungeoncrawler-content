@@ -200,7 +200,11 @@ trait RoomChatServiceIntentAndDeterminismTrait {
       return TRUE;
     }
 
-    return FALSE;
+    return $this->looksLikeMapLocationQuery($normalized_message);
+  }
+
+  protected function looksLikeMapLocationQuery(string $normalized_message): bool {
+    return (bool) preg_match('/\b(?:is\s+.{1,55}|(?:it|that|this)\s+(?:is|s)|its|thats)\s+on\s+(?:this|the)\s+map\b/u', $normalized_message);
   }
 
   /**
@@ -913,7 +917,7 @@ trait RoomChatServiceIntentAndDeterminismTrait {
    * Build a grounded answer for nearby-room / exit questions.
    */
 
-  protected function buildDeterministicNavigationQueryNarrative(array $room_meta = [], string $room_id = '', array $dungeon_data = []): string {
+  protected function buildDeterministicNavigationQueryNarrative(array $room_meta = [], string $room_id = '', array $dungeon_data = [], bool $recommend_exit = TRUE): string {
     $current_room_id = $room_id !== '' ? $room_id : (string) ($room_meta['room_id'] ?? '');
     if ($current_room_id === '') {
       return '';
@@ -925,7 +929,7 @@ trait RoomChatServiceIntentAndDeterminismTrait {
     }
 
     $origin_name = trim((string) ($room_meta['name'] ?? 'this room'));
-    $preferred_exit = $this->resolvePreferredNavigationExit($room_meta, $room_id, $dungeon_data);
+    $preferred_exit = $recommend_exit ? $this->resolvePreferredNavigationExit($room_meta, $room_id, $dungeon_data) : NULL;
     $formatted_exits = array_map(function (array $exit): string {
       $name = trim((string) ($exit['name'] ?? 'Unknown passage'));
       $type = trim((string) ($exit['connection_type'] ?? 'passage'));
@@ -1462,11 +1466,13 @@ trait RoomChatServiceIntentAndDeterminismTrait {
     string $entity_ref,
     string $display_name,
     string $player_message,
-    string $gm_narrative
+    string $gm_narrative,
+    ?int $addressing_character_id = NULL
   ): ?array {
-    $deterministic_reply = $this->buildDeterministicNpcDialogue($campaign_id, $entity_ref, $display_name, $player_message, $room_id, $dungeon_data);
+    $report_reply = $this->buildQuestReportAcknowledgement($campaign_id, $addressing_character_id, $room_id, $entity_ref, $display_name, $player_message);
+    $deterministic_reply = $report_reply ?? $this->buildDeterministicNpcDialogue($campaign_id, $entity_ref, $display_name, $player_message, $room_id, $dungeon_data);
     $normalized_player_message = $this->normalizeNpcNameForMatch($this->encounterTranscriptPrefixService->stripPrefix($player_message));
-    $is_strict_mechanical_turn = $this->looksLikeQuestTurnInHandoff($normalized_player_message)
+    $is_strict_mechanical_turn = $report_reply !== NULL || $this->looksLikeQuestTurnInHandoff($normalized_player_message)
       || $this->looksLikeMerchantTransactionText($normalized_player_message);
     if ($deterministic_reply !== NULL && $is_strict_mechanical_turn) {
       $this->recordDebugStage('npc.deterministic_reply', hrtime(true), [
@@ -1485,7 +1491,7 @@ trait RoomChatServiceIntentAndDeterminismTrait {
         NULL,
         NULL,
         TRUE,
-        FALSE
+        $report_reply !== NULL
       );
     }
 

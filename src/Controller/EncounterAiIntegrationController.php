@@ -3,380 +3,202 @@
 namespace Drupal\dungeoncrawler_content\Controller;
 
 use Drupal\Component\Datetime\TimeInterface;
-use Drupal\Core\Database\Connection;
 use Drupal\Core\Controller\ControllerBase;
+use Drupal\Core\Database\Connection;
+use Drupal\Core\Url;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Documentation page for encounter algorithm integration architecture.
+ * Documents encounter AI and reports observed provider telemetry.
  */
 class EncounterAiIntegrationController extends ControllerBase {
 
-  /**
-   * Database connection.
-   */
-  protected Connection $database;
+  private const RECOMMENDATION = 'encounter_npc_recommendation';
+  private const NARRATION = 'encounter_narration';
+  private const WINDOWS = ['24h' => 86400, '7d' => 7 * 86400, '30d' => 30 * 86400];
 
-  /**
-   * Time service.
-   */
-  protected TimeInterface $time;
+  public function __construct(
+    protected Connection $database,
+    protected TimeInterface $time,
+  ) {}
 
-  /**
-   * Constructs controller.
-   */
-  public function __construct(Connection $database, TimeInterface $time) {
-    $this->database = $database;
-    $this->time = $time;
+  public static function create(ContainerInterface $container): static {
+    return new static($container->get('database'), $container->get('datetime.time'));
   }
 
-  /**
-   * {@inheritdoc}
-   */
-  public static function create(ContainerInterface $container) {
-    return new static(
-      $container->get('database'),
-      $container->get('datetime.time')
-    );
-  }
-
-  /**
-   * Render encounter algorithm integration overview and current implementation status.
-   */
-  public function overview(Request $request) {
-    $window = $this->resolveWindow((string) $request->query->get('window', '24h'));
-    $window_query = '?window=' . $window['key'];
-
-    $phaseStatus = [
-      'Phase 0 — Blueprint and route visibility' => 'Complete',
-      'Phase 1 — Read-only orchestration scaffold' => 'Complete',
-      'Phase 2 — Controlled NPC auto-play integration' => 'Started (config-gated)',
-      'Phase 3 — Encounter narration integration' => 'Started (config-gated)',
-      'Phase 4 — Hardening and observability' => 'Started (unit coverage)',
+  public function overview(Request $request): array {
+    $window = $this->window($request);
+    $metrics = $this->operationalMetrics(self::WINDOWS[$window]);
+    $config = $this->config('dungeoncrawler_content.settings');
+    $links = [
+      $this->routeLink($this->t('Architecture overview'), 'architecture'),
+      $this->routeLink($this->t('Controller architecture'), 'controller_architecture'),
+      $this->routeLink($this->t('Data lineage'), 'data_lineage_architecture'),
     ];
-
-    $integrationBoundaries = [
-      'Server-authoritative combat flow remains canonical; algorithm output is recommendation-only.',
-      'Encounter state and campaign ownership checks execute before provider calls.',
-      'Encounter generation provider calls are routed through the ai_conversation API integration layer.',
-      'Recommendation payloads must be validated against available actions and turn state.',
-      'Fallback behavior uses deterministic rules if provider fails or output is rejected.',
-    ];
-
-    $hierarchyRows = [
-      [
-        'level' => 'L0',
-        'parent' => 'Architecture Hub',
-        'surface' => '/architecture',
-        'controller' => 'ArchitectureController::index',
-        'relation' => 'Entry point for architecture governance and drill-down links.',
-        'tables' => 'HQ feature files + documentation render variables',
-      ],
-      [
-        'level' => 'L1',
-        'parent' => '/architecture',
-        'surface' => '/architecture/controllers',
-        'controller' => 'ControllerArchitectureController::overview',
-        'relation' => 'Controller/page/API/table hierarchy reference.',
-        'tables' => 'Documentation view (no direct writes)',
-      ],
-      [
-        'level' => 'L2',
-        'parent' => '/architecture/controllers',
-        'surface' => '/architecture/encounter-ai-integration',
-        'controller' => 'EncounterAiIntegrationController::overview',
-        'relation' => 'Encounter algorithm phase status, safeguards, and operational metrics.',
-        'tables' => 'ai_conversation_api_usage (read for metrics)',
-      ],
-      [
-        'level' => 'L3',
-        'parent' => '/hexmap',
-        'surface' => '/api/combat/start, /api/combat/action, /api/combat/end-turn, /api/combat/end, /api/combat/get',
-        'controller' => 'CombatEncounterApiController::*',
-        'relation' => 'Server-authoritative encounter lifecycle and action execution.',
-        'tables' => 'combat_encounters, combat_participants, combat_conditions, combat_actions, combat_damage_log',
-      ],
-      [
-        'level' => 'L4',
-        'parent' => '/api/combat/action',
-        'surface' => 'Algorithm orchestration call path',
-        'controller' => 'Encounter algorithm integration layer + EncounterAiPreviewController::preview',
-        'relation' => 'Recommendation generation, validation, and deterministic fallback.',
-        'tables' => 'ai_conversation_api_usage (telemetry and attempts)',
-      ],
-      [
-        'level' => 'L5',
-        'parent' => '/architecture/encounter-ai-integration',
-        'surface' => '/architecture/encounter-ai-integration/metrics.csv',
-        'controller' => 'EncounterAiIntegrationController::exportMetricsCsv',
-        'relation' => 'Operational metrics export for release evidence and audits.',
-        'tables' => 'ai_conversation_api_usage (aggregated read-only export)',
-      ],
-    ];
-
-    $build = [
-      '#type' => 'container',
-      '#attributes' => ['class' => ['encounter-ai-integration-doc']],
-      'header' => [
-        '#markup' => '<h2>Encounter Algorithm Integration Blueprint</h2><p>Design summary and implementation progress for algorithm-assisted encounter orchestration.</p><p>Blueprint source: encounter integration architecture document</p><p><strong>Window:</strong> <a href="/architecture/encounter-ai-integration?window=24h">24h</a> · <a href="/architecture/encounter-ai-integration?window=7d">7d</a> · <a href="/architecture/encounter-ai-integration?window=30d">30d</a></p><p><a href="/architecture/encounter-ai-integration' . $window_query . '">Refresh this status page</a> · <a href="/architecture/encounter-ai-integration/metrics.csv' . $window_query . '">Download metrics CSV</a></p>',
-      ],
-      '#attached' => [
-        'library' => [
-          'dungeoncrawler_content/architecture',
-        ],
-      ],
-      '#cache' => [
-        'max-age' => 0,
-      ],
-    ];
-
-    $build['boundaries'] = [
-      '#type' => 'details',
-      '#open' => TRUE,
-      '#title' => 'Integration boundaries',
-      'list' => [
-        '#theme' => 'item_list',
-        '#items' => $integrationBoundaries,
-      ],
-    ];
-
-    $build['hierarchy'] = [
-      '#type' => 'details',
-      '#open' => TRUE,
-      '#title' => 'Hierarchy map (Architecture → Combat → Algorithms → Metrics)',
-      'table' => [
-        '#type' => 'table',
-        '#header' => ['Level', 'Parent', 'Page/API Surface', 'Controller/Layer', 'Relationship', 'Primary Tables'],
-        '#rows' => array_map(static function (array $row): array {
-          return [
-            $row['level'],
-            $row['parent'],
-            $row['surface'],
-            $row['controller'],
-            $row['relation'],
-            $row['tables'],
-          ];
-        }, $hierarchyRows),
-      ],
-    ];
-
-    $build['phases'] = [
-      '#type' => 'details',
-      '#open' => TRUE,
-      '#title' => 'Implementation phases',
-      'table' => [
-        '#type' => 'table',
-        '#header' => ['Phase', 'Status'],
-      ],
-    ];
-
-    foreach ($phaseStatus as $phase => $status) {
-      $build['phases']['table'][] = [
-        'phase' => ['#plain_text' => $phase],
-        'status' => ['#plain_text' => $status],
-      ];
+    foreach (array_keys(self::WINDOWS) as $option) {
+      $links[] = $this->routeLink($option, 'encounter_ai_integration', ['window' => $option]);
     }
-
-    $metrics = $this->buildOperationalMetrics($window['seconds']);
-    if (!$metrics['available']) {
-      $build['metrics'] = [
-        '#type' => 'details',
-        '#open' => TRUE,
-        '#title' => sprintf('Operational metrics (%s)', $window['label']),
-        'notice' => [
-          '#markup' => '<p>Operational metrics are unavailable because ai_conversation usage table or required fields are missing in this environment.</p>',
-        ],
-      ];
-    }
-    else {
-      $build['metrics'] = [
-        '#type' => 'details',
-        '#open' => TRUE,
-        '#title' => sprintf('Operational metrics (%s)', $window['label']),
-        'table' => [
-          '#type' => 'table',
-          '#header' => ['Metric', 'Value'],
-          '#rows' => [
-            ['Tracked requests', (string) $metrics['tracked_requests']],
-            ['Tracked attempts', (string) $metrics['tracked_attempts']],
-            ['Average attempts/request', number_format($metrics['avg_attempts'], 2)],
-            ['Fallback requests', (string) $metrics['fallback_requests']],
-            ['Fallback rate', number_format($metrics['fallback_rate'], 2) . '%'],
-            ['Recommendation requests', (string) $metrics['recommendation_requests']],
-            ['Narration requests', (string) $metrics['narration_requests']],
-            ['Rows missing request_id', (string) $metrics['rows_missing_request_id']],
-          ],
-        ],
-      ];
-    }
-
-    $build['next'] = [
-      '#markup' => '<p><strong>Next implementation target:</strong> add functional coverage for ai_conversation recommendation/narration wiring, deterministic fallback behavior, and timeline persistence paths (requires working test DB configuration).</p>',
-    ];
-
-    return $build;
-  }
-
-  /**
-   * Export last-24h operational metrics as CSV.
-   */
-  public function exportMetricsCsv(Request $request): Response {
-    $window = $this->resolveWindow((string) $request->query->get('window', '24h'));
-    $metrics = $this->buildOperationalMetrics($window['seconds']);
-    $timestamp = gmdate('Y-m-d_H-i-s', $this->time->getCurrentTime());
-    $filename = sprintf('encounter-algorithm-metrics-%s-%s.csv', $window['key'], $timestamp);
-
-    $lines = [
-      ['metric', 'value'],
-    ];
-
-    if (empty($metrics['available'])) {
-      $lines[] = ['status', 'unavailable'];
-      $lines[] = ['reason', 'ai_conversation usage table or required fields missing'];
-    }
-    else {
-      $lines[] = ['window', $window['label']];
-      $lines[] = ['tracked_requests', (string) $metrics['tracked_requests']];
-      $lines[] = ['tracked_attempts', (string) $metrics['tracked_attempts']];
-      $lines[] = ['avg_attempts_per_request', number_format((float) $metrics['avg_attempts'], 4, '.', '')];
-      $lines[] = ['fallback_requests', (string) $metrics['fallback_requests']];
-      $lines[] = ['fallback_rate_percent', number_format((float) $metrics['fallback_rate'], 4, '.', '')];
-      $lines[] = ['recommendation_requests', (string) $metrics['recommendation_requests']];
-      $lines[] = ['narration_requests', (string) $metrics['narration_requests']];
-      $lines[] = ['rows_missing_request_id', (string) $metrics['rows_missing_request_id']];
-    }
-
-    $csv = '';
-    foreach ($lines as $line) {
-      $csv .= $this->formatCsvRow($line);
-    }
-
-    $response = new Response($csv);
-    $response->headers->set('Content-Type', 'text/csv; charset=UTF-8');
-    $response->headers->set('Content-Disposition', 'attachment; filename="' . $filename . '"');
-
-    return $response;
-  }
-
-  /**
-   * Build last-24h operational metrics from ai_conversation usage logs.
-   *
-   * @return array<string, mixed>
-   *   Metrics envelope.
-   */
-  private function buildOperationalMetrics(int $window_seconds): array {
-    $table = 'ai_conversation_api_usage';
-    if (!$this->database->schema()->tableExists($table)) {
-      return ['available' => FALSE];
-    }
-
-    if (!$this->database->schema()->fieldExists($table, 'success') || !$this->database->schema()->fieldExists($table, 'context_data')) {
-      return ['available' => FALSE];
-    }
-
-    $since = $this->time->getCurrentTime() - $window_seconds;
-    $rows = $this->database->select($table, 'u')
-      ->fields('u', ['operation', 'success', 'context_data'])
-      ->condition('module', 'dungeoncrawler_content')
-      ->condition('operation', ['encounter_npc_recommendation', 'encounter_narration'], 'IN')
-      ->condition('timestamp', $since, '>=')
-      ->execute()
-      ->fetchAll();
-
-    $requests = [];
-    $rows_missing_request_id = 0;
-
-    foreach ($rows as $row) {
-      $context = json_decode((string) ($row->context_data ?? ''), TRUE);
-      if (!is_array($context)) {
-        $rows_missing_request_id++;
-        continue;
-      }
-
-      $request_id = trim((string) ($context['request_id'] ?? ''));
-      if ($request_id === '') {
-        $rows_missing_request_id++;
-        continue;
-      }
-
-      if (!isset($requests[$request_id])) {
-        $requests[$request_id] = [
-          'attempts' => 0,
-          'success' => FALSE,
-          'operation' => (string) ($row->operation ?? ''),
-        ];
-      }
-
-      $requests[$request_id]['attempts']++;
-      if ((int) $row->success === 1) {
-        $requests[$request_id]['success'] = TRUE;
-      }
-    }
-
-    $tracked_requests = count($requests);
-    $tracked_attempts = 0;
-    $fallback_requests = 0;
-    $recommendation_requests = 0;
-    $narration_requests = 0;
-
-    foreach ($requests as $request) {
-      $tracked_attempts += (int) $request['attempts'];
-      if (empty($request['success'])) {
-        $fallback_requests++;
-      }
-
-      if (($request['operation'] ?? '') === 'encounter_npc_recommendation') {
-        $recommendation_requests++;
-      }
-      elseif (($request['operation'] ?? '') === 'encounter_narration') {
-        $narration_requests++;
-      }
-    }
-
-    $avg_attempts = $tracked_requests > 0 ? ($tracked_attempts / $tracked_requests) : 0.0;
-    $fallback_rate = $tracked_requests > 0 ? (($fallback_requests / $tracked_requests) * 100) : 0.0;
+    $links[] = $this->routeLink($this->t('Download metrics CSV'), 'encounter_ai_integration_metrics_csv', ['window' => $window]);
 
     return [
-      'available' => TRUE,
-      'tracked_requests' => $tracked_requests,
-      'tracked_attempts' => $tracked_attempts,
-      'avg_attempts' => $avg_attempts,
-      'fallback_requests' => $fallback_requests,
-      'fallback_rate' => $fallback_rate,
-      'recommendation_requests' => $recommendation_requests,
-      'narration_requests' => $narration_requests,
-      'rows_missing_request_id' => $rows_missing_request_id,
+      '#type' => 'container',
+      '#attributes' => ['class' => ['encounter-ai-integration-doc']],
+      'intro' => [
+        '#plain_text' => $this->t('Encounter recommendations and narration are separate from general room chat. The game coordinator and encounter engine own gameplay outcomes; the model does not commit state.'),
+      ],
+      'navigation' => ['#theme' => 'item_list', '#items' => $links],
+      'wiring' => [
+        '#type' => 'details',
+        '#open' => TRUE,
+        '#title' => $this->t('Runtime wiring and preview'),
+        'list' => [
+          '#theme' => 'item_list',
+          '#items' => [
+            $this->t('NPC model recommendations in live autoplay: @status. When enabled, recommendations are validated against the actor’s available actions; a missing or invalid recommendation is a contract error, not proof that a fallback turn ran.', ['@status' => $config->get('encounter_ai_npc_autoplay_enabled') ? $this->t('enabled') : $this->t('disabled')]),
+            $this->t('Encounter narration setting: @status. The encounter narration method is called by the admin preview; the setting does not establish live encounter narration or control general room chat.', ['@status' => $config->get('encounter_ai_narration_enabled') ? $this->t('enabled') : $this->t('disabled')]),
+            $this->t('Admin POST /api/combat/recommendation-preview can request a recommendation and optional narration. It does not execute a combat action, but can call a provider and record telemetry or session context.'),
+            $this->t('Live player actions use POST /api/game/{campaign_id}/action. Legacy combat mutation routes do not execute those actions.'),
+          ],
+        ],
+      ],
+      'metrics' => [
+        '#type' => 'details',
+        '#open' => TRUE,
+        '#title' => $this->t('Provider telemetry (last @window)', ['@window' => $window]),
+        'scope' => [
+          '#plain_text' => $this->t('Counts cover recorded encounter recommendation and narration calls, including previews. An attempt is a usage row. A correlated request groups rows by operation and request ID within this window. Provider success does not prove that output passed validation, that an action executed, or that a fallback ran.'),
+        ],
+        'table' => [
+          '#type' => 'table',
+          '#header' => [$this->t('Metric'), $this->t('Value')],
+          '#rows' => array_map(fn (string $key, string $value) => [$this->metricLabel($key), $value], array_keys($metrics), array_values($metrics)),
+        ],
+      ],
+      '#attached' => ['library' => ['dungeoncrawler_content/architecture']],
+      '#cache' => ['max-age' => 0],
     ];
   }
 
+  public function exportMetricsCsv(Request $request): Response {
+    $window = $this->window($request);
+    $metrics = ['window' => 'last ' . $window] + $this->operationalMetrics(self::WINDOWS[$window]);
+    $lines = ['"metric","value"'];
+    foreach ($metrics as $key => $value) {
+      $lines[] = '"' . $key . '","' . str_replace('"', '""', $value) . '"';
+    }
+    $filename = sprintf('encounter-algorithm-metrics-%s-%s.csv', $window, gmdate('Y-m-d_H-i-s', $this->time->getCurrentTime()));
+    return new Response(implode("\n", $lines) . "\n", 200, [
+      'Content-Type' => 'text/csv; charset=UTF-8',
+      'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+      'Cache-Control' => 'no-store, private',
+    ]);
+  }
+
   /**
-   * Resolve user-selected metrics window.
+   * Counts only what the usage table can establish in the selected window.
    *
-   * @return array{key:string,label:string,seconds:int}
-   *   Normalized window descriptor.
+   * @return array<string, string>
+   *   Metrics shared by the HTML and CSV views.
    */
-  private function resolveWindow(string $window): array {
-    return match ($window) {
-      '7d' => ['key' => '7d', 'label' => 'last 7d', 'seconds' => 7 * 86400],
-      '30d' => ['key' => '30d', 'label' => 'last 30d', 'seconds' => 30 * 86400],
-      default => ['key' => '24h', 'label' => 'last 24h', 'seconds' => 86400],
+  private function operationalMetrics(int $window_seconds): array {
+    $table = 'ai_conversation_api_usage';
+    $schema = $this->database->schema();
+    if (!$schema->tableExists($table)) {
+      return ['status' => 'unavailable', 'reason' => 'AI usage table is missing.'];
+    }
+    foreach (['module', 'operation', 'timestamp', 'context_data'] as $field) {
+      if (!$schema->fieldExists($table, $field)) {
+        return ['status' => 'unavailable', 'reason' => "AI usage field '$field' is missing."];
+      }
+    }
+
+    $has_success = $schema->fieldExists($table, 'success');
+    $fields = $has_success ? ['operation', 'context_data', 'success'] : ['operation', 'context_data'];
+    $rows = $this->database->select($table, 'u')
+      ->fields('u', $fields)
+      ->condition('module', 'dungeoncrawler_content')
+      ->condition('operation', [self::RECOMMENDATION, self::NARRATION], 'IN')
+      ->condition('timestamp', $this->time->getCurrentTime() - $window_seconds, '>=')
+      ->execute();
+
+    $attempts = $missing_ids = $unknown = $failed = 0;
+    $requests = [self::RECOMMENDATION => [], self::NARRATION => []];
+    foreach ($rows as $row) {
+      $attempts++;
+      $context = json_decode((string) $row->context_data, TRUE);
+      $id = $context['request_id'] ?? NULL;
+      if (!is_string($id) || trim($id) === '') {
+        $missing_ids++;
+        continue;
+      }
+      $result = &$requests[$row->operation][trim($id)];
+      $result ??= ['succeeded' => FALSE, 'unknown' => FALSE];
+      if ($has_success) {
+        $result['succeeded'] = $result['succeeded'] || in_array($row->success, [1, '1'], TRUE);
+        $result['unknown'] = $result['unknown'] || !in_array($row->success, [1, '1', 0, '0'], TRUE);
+      }
+      unset($result);
+    }
+    if ($has_success) {
+      foreach ($requests as $operation_requests) {
+        foreach ($operation_requests as $outcome) {
+          if ($outcome['succeeded']) {
+            continue;
+          }
+          if ($outcome['unknown']) {
+            $unknown++;
+          }
+          else {
+            $failed++;
+          }
+        }
+      }
+    }
+
+    $recommendations = count($requests[self::RECOMMENDATION]);
+    $narrations = count($requests[self::NARRATION]);
+    return [
+      'status' => $has_success ? 'available' : 'partial',
+      'tracked_requests' => (string) ($recommendations + $narrations),
+      'tracked_attempts' => (string) $attempts,
+      'recommendation_requests' => (string) $recommendations,
+      'narration_requests' => (string) $narrations,
+      'rows_missing_request_id' => (string) $missing_ids,
+    ] + ($has_success ? [
+      'requests_without_provider_success' => (string) $failed,
+      'requests_with_unknown_provider_outcome' => (string) $unknown,
+    ] : [
+      'reason' => 'AI usage field success is missing; provider outcomes are unavailable.',
+    ]);
+  }
+
+  private function metricLabel(string $key): string|\Stringable {
+    return match ($key) {
+      'tracked_requests' => $this->t('Correlated requests'),
+      'tracked_attempts' => $this->t('Recorded attempts'),
+      'recommendation_requests' => $this->t('Correlated recommendation requests'),
+      'narration_requests' => $this->t('Correlated narration requests'),
+      'rows_missing_request_id' => $this->t('Attempts without a request ID'),
+      'requests_without_provider_success' => $this->t('Correlated requests with only recorded failures'),
+      'requests_with_unknown_provider_outcome' => $this->t('Correlated requests with unknown outcome'),
+      'status' => $this->t('Status'),
+      'reason' => $this->t('Reason'),
     };
   }
 
-  /**
-   * Format values as a CSV row.
-   *
-   * @param array<int, string> $columns
-   *   Row columns.
-   */
-  private function formatCsvRow(array $columns): string {
-    $escaped = array_map(static function (string $value): string {
-      return '"' . str_replace('"', '""', $value) . '"';
-    }, $columns);
+  private function window(Request $request): string {
+    $window = $request->query->getString('window', '24h');
+    return isset(self::WINDOWS[$window]) ? $window : '24h';
+  }
 
-    return implode(',', $escaped) . "\n";
+  private function routeLink(string|\Stringable $label, string $id, array $query = []): array {
+    return [
+      '#type' => 'link',
+      '#title' => $label,
+      '#url' => Url::fromRoute('dungeoncrawler_content.' . $id, [], ['query' => $query]),
+    ];
   }
 
 }

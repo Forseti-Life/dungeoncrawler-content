@@ -215,6 +215,11 @@ class DungeonEditorContractTest extends TestCase {
       'placement_unreachable',
       'exit_port_dangling',
       'region_placement_unresolved',
+      'district_street_missing',
+      'district_street_ambiguous',
+      'district_street_background_missing',
+      'district_building_near_street_edge',
+      'district_building_no_street_access',
     ] as $code) {
       $this->assertContains($code, $finding['code']['enum'], $code . ' must be a declared finding code.');
     }

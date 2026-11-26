@@ -21,7 +21,7 @@ final class ModuleSceneHexTraceService {
   private const TERRAIN = [
     'stone_floor', 'rough_stone', 'smooth_stone', 'dirt', 'mud', 'sand',
     'water_shallow', 'water_deep', 'ice', 'lava', 'fungal_growth', 'bone',
-    'crystal', 'metal_grate', 'wooden_floor', 'carpet', 'rubble', 'void',
+    'crystal', 'metal_grate', 'wooden_floor', 'carpet', 'rubble', 'void', 'wall',
   ];
 
   /**

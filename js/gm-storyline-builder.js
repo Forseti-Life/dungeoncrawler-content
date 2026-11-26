@@ -704,7 +704,7 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
           let media = row.querySelector(':scope > .gm-storyline-wizard__object-media');
           if (!media) {
             media = document.createElement('div');
-            media.className = 'gm-storyline-wizard__object-media';
+            media.className = `gm-storyline-wizard__object-media gm-storyline-wizard__object-media--${kind}`;
             const preview = document.createElement('div');
             preview.className = 'gm-storyline-wizard__object-preview';
             const label = document.createElement('span');

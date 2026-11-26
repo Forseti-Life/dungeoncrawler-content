@@ -59,6 +59,12 @@ class ExplorationQuestProgressSubscriberTest extends UnitTestCase {
             'location' => 'watchtower',
             'completed' => FALSE,
           ],
+          [
+            'objective_id' => 'search_safehouse',
+            'type' => 'explore',
+            'location' => 'safehouse',
+            'search_narration' => 'A note is hidden under the floorboard.',
+          ],
         ],
       ],
     ], 1, new RoomDiscoveredEvent(85, 'safehouse', 'road', 'Safehouse', 'A secure room.'));

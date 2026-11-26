@@ -1,8 +1,7 @@
 {#
 /**
  * @file
- * A read-only review page of one storyline draft (scenes, actors and
- * relationships, institutions) in the shared editor page format.
+ * Storyline scene workspace and read-only review pages in the shared format.
  *
  * Rendered through Render\EditorPageShell::split(), so the page content (a
  * render array) sits where content_marker is printed.
@@ -19,13 +18,25 @@
 {% embed '@dungeoncrawler_content/editor-page-shell.html.twig' with {
   surface: '',
   title: 'GM Storyline Builder'|t,
-  intro: 'Read the storyline as it is saved: its scenes in order, its cast and their ties, and the institutions they belong to.'|t,
+  intro: scene_editor ? 'Review scenes, tasks and objectives, and ask the Game Master Agent to update the storyline.'|t : 'Read the storyline as it is saved: its scenes in order, its cast and their ties, and the institutions they belong to.'|t,
   back_url: builder_url,
   back_label: 'Back to the storyline draft'|t,
-  stages_title: 'Storyline pages'|t,
-  panel_meta: 'Read-only review. Changes are made in the storyline draft, by you or its Game Master Agent.'|t,
+  stages_title: scene_editor ? 'Scenes in order'|t : 'Storyline pages'|t,
+  panel_meta: scene_editor ? 'The Game Master Agent edits the shared storyline draft; the scene view shows saved changes.'|t : 'Read-only review. Changes are made in the storyline draft, by you or its Game Master Agent.'|t,
 } %}
   {% block stages %}
+    {% if scene_editor %}
+    <nav class="character-setup-page__tabs" aria-label="{{ 'Scenes in order'|t }}" data-scene-review-index>
+      {% for scene in scene_pages %}
+        <a href="#scene-{{ loop.index }}" class="character-setup-page__tab">
+          <span class="character-setup-page__tab-number">{{ loop.index }}</span>
+          <span class="character-setup-page__tab-copy"><span class="character-setup-page__tab-name">{{ scene ?: 'Untitled scene'|t }}</span></span>
+        </a>
+      {% else %}
+        <p>{{ 'No scenes yet.'|t }}</p>
+      {% endfor %}
+    </nav>
+    {% else %}
     <nav class="character-setup-page__tabs" aria-label="{{ 'Storyline pages'|t }}">
       {% for page in pages %}
         <a href="{{ page.url }}" class="character-setup-page__tab{{ page.active ? ' is-active' : '' }}"{% if page.active %} aria-current="page"{% endif %}>
@@ -37,9 +48,13 @@
         </a>
       {% endfor %}
     </nav>
+    {% endif %}
   {% endblock %}
 
   {% block state %}
+    {% if scene_editor %}
+      {{ status_markup|raw }}
+    {% else %}
     <section class="character-setup-page__sidebar-card gm-storyline-status" aria-labelledby="storyline-review-status-title">
       <h2 id="storyline-review-status-title" class="character-setup-page__sidebar-title">{{ 'Current state'|t }}</h2>
       <dl>
@@ -48,15 +63,30 @@
         {% endfor %}
       </dl>
     </section>
+    {% endif %}
   {% endblock %}
 
-  {% block links %}{% endblock %}
+  {% block links %}
+    {% if scene_editor %}
+      <h3 class="character-setup-page__sidebar-title">{{ 'In this storyline'|t }}</h3>
+      <ul class="character-setup-page__quick-links">
+        {% for page in pages %}<li><a href="{{ page.url }}">{{ page.label }}</a></li>{% endfor %}
+      </ul>
+    {% endif %}
+  {% endblock %}
 
   {% block heading %}
     <h2 class="character-setup-page__panel-title">{{ storyline_title ?: 'Untitled storyline'|t }}</h2>
   {% endblock %}
 
   {% block frame %}
+    {% if scene_editor %}
+    <div class="gm-storyline-wizard editor-page__frame" data-gm-storyline-wizard data-scene-review-editor>
+      {{ gm_markup|raw }}
+      <div class="editor-page__review">{{ content_marker|raw }}</div>
+    </div>
+    {% else %}
     <div class="editor-page__review">{{ content_marker|raw }}</div>
+    {% endif %}
   {% endblock %}
 {% endembed %}

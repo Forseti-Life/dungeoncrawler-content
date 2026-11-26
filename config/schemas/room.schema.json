@@ -129,7 +129,8 @@
         "trap_room",
         "puzzle_room",
         "vault_room",
-        "safe_room"
+        "safe_room",
+        "street"
       ],
       "description": "Functional room type. Affects AI generation parameters and procedural content generation."
     },
@@ -172,7 +173,8 @@
             "wooden_floor",
             "carpet",
             "rubble",
-            "void"
+            "void",
+            "wall"
           ]
         },
         "difficult_terrain": {

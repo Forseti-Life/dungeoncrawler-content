@@ -345,7 +345,8 @@ trait RoomChatServiceConversationStateAndQuestActivationTrait {
       return NULL;
     }
 
-    $dialogue = $this->buildDeterministicNpcDialogue(
+    $report_reply = $this->buildQuestReportAcknowledgement($campaign_id, $character_id, $room_id, $entity_ref, $display_name, $player_message);
+    $dialogue = $report_reply ?? $this->buildDeterministicNpcDialogue(
       $campaign_id,
       $entity_ref,
       $display_name,

@@ -46,7 +46,12 @@
             "exit_port_dangling",
             "region_placement_unresolved",
             "story_room_not_placed",
-            "story_entrance_differs"
+            "story_entrance_differs",
+            "district_street_missing",
+            "district_street_ambiguous",
+            "district_street_background_missing",
+            "district_building_near_street_edge",
+            "district_building_no_street_access"
           ]
         },
         "message": {"type": "string", "minLength": 1, "maxLength": 2000},

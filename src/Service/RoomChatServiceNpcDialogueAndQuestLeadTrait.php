@@ -296,12 +296,31 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
   }
 
   /**
+   * Acknowledge an addressed information report backed by a current objective.
+   */
+  protected function buildQuestReportAcknowledgement(int $campaign_id, ?int $character_id, string $room_id, string $npc_ref, string $npc_name, string $player_message): ?string {
+    if (!$character_id || !$this->questTouchpointService) {
+      return NULL;
+    }
+
+    $normalized = $this->normalizeNpcNameForMatch($this->encounterTranscriptPrefixService->stripPrefix($player_message));
+    if (!preg_match('/\b(?:(?:i|we)\s+(?:found|traced|verified|confirmed|identified|followed|discovered)|(?:here|came)\s+to\s+report)\b.*\b(?:route|trail|lead|clue|rumor|rumour|evidence|information)\b/u', $normalized)
+      || $this->looksLikeMerchantTransactionText($normalized)
+      || !$this->questTouchpointService->hasActiveDialogueObjective($campaign_id, $character_id, $room_id, $npc_ref, $npc_name)) {
+      return NULL;
+    }
+
+    return '"I hear you. Thank you for bringing me that report."';
+  }
+
+  /**
    * Check whether the player is clearly trying to buy or sell something.
    */
 
   protected function looksLikeMerchantTransactionText(string $normalized): bool {
     return (bool) preg_match('/\b(?:buy|purchase|sell|price|cost|quote|rent|tab|wares)\b/u', $normalized)
-      || (bool) preg_match('/\b(?:trade\s+in|looking\s+for|how much\s+(?:for|is))\b/u', $normalized)
+      || (bool) preg_match('/\b(?:trade\s+in|how much\s+(?:for|is))\b/u', $normalized)
+      || (bool) preg_match('/\blooking\s+for\s+\w/u', $normalized)
       || (bool) preg_match('/\b(?:pay|paid|change)\b.+\b(?:for|with)\b/u', $normalized)
       || (bool) preg_match('/\b(?:coin|gold|silver|copper)\b.+\b(?:for|price|cost|buy|sell)\b/u', $normalized)
       || (bool) preg_match('/\b(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred)\s+(?:gold|silver|copper|coin|coins|silvers|coppers|golds)\b/u', $normalized)

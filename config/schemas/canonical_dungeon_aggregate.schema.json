@@ -13,6 +13,7 @@
     "description": {"type": "string", "maxLength": 8000},
     "depth": {"type": "integer", "minimum": 0, "maximum": 100},
     "theme": {"type": "string", "maxLength": 100},
+    "kind": {"enum": ["dungeon", "district"], "description": "Absent means dungeon. A district has one walkable street room that buildings open onto at doors directly beside the street."},
     "hex_grid": {
       "type": "object",
       "additionalProperties": false,

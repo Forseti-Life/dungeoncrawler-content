@@ -8,7 +8,7 @@
   "properties": {
     "command_id": {"type": "string", "format": "uuid"},
     "expected_revision": {"type": "integer", "minimum": 0},
-    "type": {"enum": ["set_room_metadata", "add_hex", "remove_hex", "set_hex_terrain", "set_hex_elevation", "place_object", "move_object", "rotate_object", "update_object_overrides", "duplicate_object", "remove_object", "add_entry_port", "update_entry_port", "remove_entry_port", "add_exit_port", "update_exit_port", "remove_exit_port", "undo", "redo"]},
+    "type": {"enum": ["set_room_metadata", "add_hex", "remove_hex", "set_hex_terrain", "set_hexes_terrain", "set_hex_elevation", "place_object", "move_object", "rotate_object", "update_object_overrides", "duplicate_object", "remove_object", "place_objects_bulk", "move_objects_bulk", "remove_objects_bulk", "replace_objects_bulk", "dismiss_placement_gaps", "add_entry_port", "update_entry_port", "remove_entry_port", "add_exit_port", "update_exit_port", "remove_exit_port", "undo", "redo"]},
     "payload": {"type": "object"},
     "issued_at": {"type": "string", "format": "date-time"}
   },

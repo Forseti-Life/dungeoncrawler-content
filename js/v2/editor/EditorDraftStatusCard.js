@@ -79,11 +79,24 @@ function stageRow(stage, current) {
  * @param {Element} card   The element holding the data-editor-status-* parts.
  * @param {object|null} status  The status projection, or null with no draft.
  */
+export function renderWarningReview(link, status) {
+  if (!link) return;
+  const url = status?.warning_review_url;
+  link.hidden = !url;
+  if (url) {
+    link.href = url;
+    link.textContent = `Review warnings (${status.open_warning_count} open, ${status.accepted_warning_count} accepted)`;
+  } else {
+    link.removeAttribute('href');
+  }
+}
+
 export function renderEditorDraftStatus(card, status) {
   if (!card) return;
   const page = card.closest('.editor-page') || card;
   const part = (name) => page.querySelector(`[data-editor-status-${name}]`);
   const thing = page.classList.contains('editor-page--room-editor') ? 'room' : 'dungeon';
+  renderWarningReview(page.querySelector('[data-editor-warning-review]'), status);
 
   if (!status) {
     part('percent').textContent = '0%';

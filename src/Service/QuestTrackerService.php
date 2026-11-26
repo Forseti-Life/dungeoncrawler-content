@@ -340,6 +340,7 @@ class QuestTrackerService {
       }
       foreach ((array) ($phase['objectives'] ?? []) as $objective) {
         if (!is_array($objective) || ($objective['type'] ?? NULL) !== 'explore'
+          || !empty($objective['search_narration'])
           || !empty($objective['completed'])
           || (array_key_exists('revealed', $objective) && empty($objective['revealed']))
           || !empty($objective['depends_on'])) {
@@ -682,6 +683,8 @@ class QuestTrackerService {
    *   New progress value (increment for counters).
    * @param int|null $character_id
    *   Character ID.
+   * @param bool $explicit_search
+   *   Whether the Search handler matched this clue in the actor's room.
    *
    * @return array
    *   Updated quest state including completion status.
@@ -691,7 +694,8 @@ class QuestTrackerService {
     string $quest_id,
     string $objective_id,
     int $progress,
-    ?int $character_id = NULL
+    ?int $character_id = NULL,
+    bool $explicit_search = FALSE,
   ): array {
     try {
       // Load current progress
@@ -701,6 +705,10 @@ class QuestTrackerService {
       }
 
       $objective_states = json_decode($progress_record['objective_states'], TRUE);
+      $objective = $this->findObjectiveNodeById($objective_states, $objective_id);
+      if (!$explicit_search && !empty($objective['search_narration'])) {
+        return ['success' => FALSE, 'error' => 'This objective requires Search in its room.'];
+      }
       $current_phase = (int) $progress_record['current_phase'];
       $progress_character_id = !empty($progress_record['character_id']) ? (int) $progress_record['character_id'] : $character_id;
       $progress_party_id = !empty($progress_record['party_id']) ? (int) $progress_record['party_id'] : NULL;

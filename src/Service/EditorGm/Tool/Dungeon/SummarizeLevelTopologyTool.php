@@ -48,13 +48,12 @@ final class SummarizeLevelTopologyTool implements EditorGmToolInterface {
         'rotation_steps' => $placement['rotation_steps'],
         'is_level_entrance' => $placement['is_level_entrance'],
         'resolved' => $placement['resolved'],
-        'hex_count' => count((array) ($placement['level_hexes'] ?? [])),
-        'bounds' => NULL,
+        'hex_count' => $placement['room']['hex_count'] ?? 0,
+        'bounds' => $placement['level_bounds'],
         'ports' => [],
       ];
-      if ($placement['resolved']) {
-        $b = self::bounds((array) $placement['level_hexes']);
-        $entry['bounds'] = $b;
+      if ($entry['bounds'] !== NULL) {
+        $b = $entry['bounds'];
         $min_q = min($min_q, $b['min_q']);
         $max_q = max($max_q, $b['max_q']);
         $min_r = min($min_r, $b['min_r']);
@@ -101,15 +100,6 @@ final class SummarizeLevelTopologyTool implements EditorGmToolInterface {
       'regions' => $regions,
       'overlapping_hexes' => array_values(array_filter((array) ($model['occupancy'] ?? []), static fn(array $ids): bool => count($ids) > 1)),
     ];
-  }
-
-  /**
-   * @param array<int, array{q: int, r: int}> $hexes
-   */
-  private static function bounds(array $hexes): array {
-    $qs = array_column($hexes, 'q');
-    $rs = array_column($hexes, 'r');
-    return ['min_q' => min($qs), 'max_q' => max($qs), 'min_r' => min($rs), 'max_r' => max($rs)];
   }
 
 }

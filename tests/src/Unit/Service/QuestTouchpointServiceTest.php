@@ -568,6 +568,41 @@ class QuestTouchpointServiceTest extends UnitTestCase {
   }
 
   /**
+   * A report cannot receive a quest acknowledgement from an unrelated NPC.
+   *
+   * @covers ::hasActiveDialogueObjective
+   */
+  public function testDialogueAcknowledgementRequiresAnActiveMatchingObjective(): void {
+    $tracker = $this->createMock(QuestTrackerService::class);
+    $tracker->method('getActiveQuests')->with(1159, 8172)->willReturn([
+      [
+        'quest_id' => 'follow_the_whispers',
+        'current_phase' => 3,
+        'objective_states' => json_encode([
+          [
+            'phase' => 3,
+            'objectives' => [[
+              'objective_id' => 'report_whisper_route',
+              'type' => 'interact',
+              'target' => 'tavern_keeper',
+              'completed' => FALSE,
+            ]],
+          ],
+        ], JSON_THROW_ON_ERROR),
+      ],
+    ]);
+    $tracker->expects($this->never())->method('updateObjectiveProgress');
+    $factory = $this->createMock(KeyValueFactoryInterface::class);
+    $factory->method('get')->willReturn($this->createMock(KeyValueStoreInterface::class));
+    $time = $this->createMock(TimeInterface::class);
+    $time->method('getRequestTime')->willReturn(1795543823);
+    $service = new QuestTouchpointService($tracker, $this->createMock(QuestConfirmationService::class), $factory, $time);
+
+    $this->assertTrue($service->hasActiveDialogueObjective(1159, 8172, 'tavern_entrance', 'npc_tavern_keeper', 'Eldric'));
+    $this->assertFalse($service->hasActiveDialogueObjective(1159, 8172, 'tavern_entrance', 'npc_gribbles_rindsworth', 'Gribbles Rindsworth'));
+  }
+
+  /**
    * An objective that requires a granted Request completes on one only.
    *
    * @dataProvider requestGateProvider

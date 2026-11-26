@@ -5,9 +5,11 @@ namespace Drupal\Tests\dungeoncrawler_content\Unit\Service;
 use Drupal\ai_conversation\Service\AIApiService;
 use Drupal\ai_conversation\Service\PromptManager;
 use Drupal\Core\Database\Connection;
+use Drupal\Core\DependencyInjection\ContainerBuilder;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\dungeoncrawler_content\Service\AiSessionManager;
+use Drupal\dungeoncrawler_content\Service\CampaignMembershipService;
 use Drupal\dungeoncrawler_content\Service\CanonicalActionRegistryService;
 use Drupal\dungeoncrawler_content\Service\ChatChannelManager;
 use Drupal\dungeoncrawler_content\Service\ChatSessionManager;
@@ -44,6 +46,9 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
 
     $this->database = $this->createMock(Connection::class);
     $this->psychologyService = $this->createMock(NpcPsychologyService::class);
+    $container = new ContainerBuilder();
+    $container->set('dungeoncrawler_content.campaign_membership', $this->createMock(CampaignMembershipService::class));
+    \Drupal::setContainer($container);
 
     $logger = $this->createMock(LoggerInterface::class);
     $loggerFactory = $this->createMock(LoggerChannelFactoryInterface::class);
@@ -1778,6 +1783,40 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::classifyRoomTurnIntent
+   * @covers ::buildDeterministicGmResponse
+   */
+  public function testMapQuestionOverridesAmbiguousTravelAndDoesNotMoveThePlayer(): void {
+    $message = "OK, I'll head that way, its on this map I guess?";
+    $intent = $this->roomChatService->publicClassifyRoomTurnIntent($message);
+    $this->assertSame('navigation_query', $intent);
+
+    $processor = new \ReflectionClass(GameplayActionProcessor::class);
+    $this->roomChatService->setActionProcessor($processor->newInstanceWithoutConstructor());
+    $dungeon = [
+      'rooms' => [
+        ['room_id' => 'parlor', 'name' => "Grandma's House Parlor"],
+        ['room_id' => 'streets', 'name' => 'Absalom Streets'],
+        ['room_id' => 'tavern', 'name' => 'The Gilded Tankard'],
+      ],
+      'hex_map' => [
+        'regions' => [['room_ids' => ['parlor']], ['room_ids' => ['tavern']]],
+        'connections' => [
+          ['from_room' => 'tavern', 'to_room' => 'streets', 'type' => 'hallway'],
+          ['from_room' => 'parlor', 'to_room' => 'streets', 'type' => 'hallway'],
+        ],
+      ],
+    ];
+    $response = $this->roomChatService->publicBuildDeterministicGmResponse(
+      1159, $intent, [], NULL, $message, $dungeon['rooms'][0], 'parlor', $dungeon
+    );
+    $this->assertSame([], $response['actions']);
+    $this->assertStringContainsString('Absalom Streets', $response['narrative']);
+    $this->assertStringNotContainsString('The Gilded Tankard', $response['narrative']);
+    $this->assertStringNotContainsString('If you press forward', $response['narrative']);
+  }
+
+  /**
    * @covers ::extractNavigationDestination
    */
   public function testExtractNavigationDestinationUsesPreferredExitForGenericDoorPush(): void {
@@ -3146,6 +3185,32 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::generateNpcRoomDialogue
+   */
+  public function testAddressedQuestReportGetsAcknowledgementInsteadOfMerchantQuote(): void {
+    $touchpoint = $this->createMock(\Drupal\dungeoncrawler_content\Service\QuestTouchpointService::class);
+    $touchpoint->expects($this->once())
+      ->method('hasActiveDialogueObjective')
+      ->with(1159, 8172, 'tavern_entrance', 'npc_tavern_keeper', 'Eldric')
+      ->willReturn(TRUE);
+    $touchpoint->expects($this->never())->method('ingestEvent');
+    $property = new \ReflectionProperty(RoomChatService::class, 'questTouchpointService');
+    $property->setValue($this->roomChatService, $touchpoint);
+
+    $reply = new \ReflectionMethod(RoomChatService::class, 'generateNpcRoomDialogue');
+    $payload = $reply->invoke(
+      $this->roomChatService,
+      1159, 'tavern_entrance', 0, [], 'npc_tavern_keeper', 'Eldric',
+      'Round 0: Turn 1: Actor Burasco: Hey Eldric, I found that route you are looking for',
+      '', 8172
+    );
+
+    $this->assertSame('npc_tavern_keeper', $payload['entity_ref']);
+    $this->assertTrue($payload['flags']['direct_addressed']);
+    $this->assertStringContainsString('Thank you for bringing me that report', $payload['text']);
+  }
+
+  /**
    * @covers ::buildDeterministicNpcDialogue
    */
   public function testDeterministicNpcDialogueQuotesMerchantPurchase(): void {
@@ -3701,7 +3766,7 @@ class TestableRoomChatService extends RoomChatService {
     ?array $character_data = NULL,
     ?int $character_id = NULL
   ): ?array {
-    return $this->buildDeterministicGmResponse($campaign_id, $intent, $room_npcs, $directly_addressed_npc, $player_message, $room_meta, $room_id, $dungeon_data, $is_room_entry, $character_data, $character_id);
+    return $this->buildDeterministicGmResponse($campaign_id, $intent, $room_npcs, $directly_addressed_npc, 'room', $player_message, $room_meta, $room_id, $dungeon_data, $is_room_entry, $character_data, $character_id);
   }
 
   public function publicExtractNavigationDestination(string $player_message, array $room_meta = [], string $room_id = '', array $dungeon_data = []): ?string {

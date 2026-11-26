@@ -769,7 +769,8 @@ trait RoomChatServiceCoreFlowTrait {
             $raw_message,
             $interjection_gm_narrative,
             $char_data,
-            $encounter_prefix
+            $encounter_prefix,
+            $character_id
           );
           $turn_harness_result = $npc_turn_result;
           $npc_interjections = $npc_turn_result['messages'] ?? [];
@@ -1118,7 +1119,8 @@ trait RoomChatServiceCoreFlowTrait {
       $dungeon_data,
       $player_message,
       $gm_narrative,
-      $char_data
+      $char_data,
+      character_id: $character_id,
     );
 
     $deferred_messages = is_array($turn_result['messages'] ?? NULL) ? $turn_result['messages'] : [];

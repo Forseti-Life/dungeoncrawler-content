@@ -49,6 +49,26 @@ class QuestTouchpointService {
   }
 
   /**
+   * Check whether a direct NPC reply has a current interact objective to acknowledge.
+   *
+   * Quest progress is applied separately by the conversation touchpoint.
+   */
+  public function hasActiveDialogueObjective(int $campaign_id, int $character_id, string $room_id, string $npc_ref, string $npc_name): bool {
+    $touchpoint = [
+      'matching_mode' => 'direct_npc_dialogue',
+      'entity_ref' => $npc_ref,
+      'npc_ref' => $npc_name,
+      'room_id' => $room_id,
+    ];
+    return $this->findObjectiveCandidates(
+      $this->questTracker->getActiveQuests($campaign_id, $character_id),
+      $touchpoint,
+      'interact',
+      $this->time->getRequestTime(),
+    ) !== [];
+  }
+
+  /**
    * Ingest a canonical quest touchpoint event.
    */
   public function ingestEvent(int $campaign_id, array $payload): array {

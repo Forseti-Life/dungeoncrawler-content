@@ -39,6 +39,53 @@ it is fixed:
 
 A code with no declared route is a programming error and throws.
 
+## Districts
+
+A dungeon with `kind: district` is a street map with buildings beside it, in
+the style of the 80s Gold Box games. It holds one `street` room (a large room
+whose `metadata.background` carries the walkable art) and building rooms
+placed next to it.
+
+- A building overlays the street and overrides the street hexes it covers.
+  Buildings never overlap each other (`placement_overlap`). The door
+  belongs to the building room: a building's entry port on a street hex is
+  the way in. The street has no door ports and no door links are stored,
+  so moving a building needs nothing relinked.
+- Findings: `district_street_missing`, `district_street_ambiguous`,
+  `district_street_background_missing` (warning, fixed in the Room Editor),
+  `district_building_near_street_edge` (warning: a building is outside the
+  street or within 3 hexes of its edge) and
+  `district_building_no_street_access` (warning: no entry port of the
+  building is on a street hex).
+- GM: `plan_dungeon_commands` goal `set_metadata` with `kind` makes a
+  district; `plan_district_building` and `plan_district_buildings` place
+  published rooms with an entry port on a street hex (given, or the free
+  hex nearest the centre) and keep a one hex walkway. `inspect_district`
+  lists every overlapping hex, building without street access and building
+  near the street edge.
+- GM room changes: rooms are not definitions. `resize_room` (grow or
+  shrink, `area_percent` 25-1000) and `move_room_port` (put an entry or exit
+  port on the north, south, east or west side) each publish a new room
+  version and return a plan that repins this dungeon's placements. The
+  level entrance is a room; its arrival point is its default entry port, so
+  "entrance at the southern tip" is `move_room_port` on that room.
+- GM district ground: `paint_district_terrain` (a disk or hex list in
+  level coordinates) and `carve_district_corridor` (1-10 hexes wide, between
+  two placements' ways in or two level hexes) change the terrain of the
+  street room. Hexes under a building are skipped; each call publishes a new
+  street version and returns a plan that repins the street placement. A
+  paint that changes nothing fails with `canonical_room_terrain_unchanged`.
+  `wall` and `void` block movement: ring a district by painting `wall`, then
+  carve corridors through it for the openings.
+- GM district objects: `ring_district` rings the street ground's edge
+  with an obstacle (palisade, tree line, wall). The street's ports, every
+  building's way in, `keep_clear_terrain` (corridors), `keep_clear_hexes`,
+  hexes under buildings and already-blocked hexes stay clear and are
+  counted by reason in `skipped`. It publishes a new street version and
+  returns a plan that repins the street placement.
+- Not built yet: runtime travel. Stepping onto a door in play does not yet
+  load the building beside the street.
+
 ## Built for a storyline
 
 A site a storyline names is built from that storyline's brief.

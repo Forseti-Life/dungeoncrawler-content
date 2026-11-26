@@ -29,7 +29,7 @@ import { HexCanvas } from './canvas/HexCanvas.js?v=20261009-module-background-1'
 import { HexTokenRenderer } from './canvas/HexTokenRenderer.js';
 import { HexFogOfWar } from './canvas/HexFogOfWar.js';
 import { HexInputHandler } from './canvas/HexInputHandler.js';
-import { EncounterSystem } from './systems/EncounterSystem.js?v=20261115-marching-tab-1';
+import { EncounterSystem } from './systems/EncounterSystem.js?v=20261124-search-actor-1';
 import { NavigationSystem } from './systems/NavigationSystem.js?v=20261109-navigation-sync-1';
 import { PlayerAutomation } from './systems/PlayerAutomation.js?v=20260608-v2-chat-persistence-dev-1';
 import { QuestSystem } from './systems/QuestSystem.js?v=20260608-v2-quest-summary-merge-2';

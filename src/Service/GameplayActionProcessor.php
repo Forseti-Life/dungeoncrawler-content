@@ -947,8 +947,8 @@ ENTRY_NARRATION_RULES;
     $hex_connections = $dungeon_data['hex_map']['connections'] ?? [];
     foreach ($hex_connections as $conn) {
       // New-format connections from MapGeneratorService have from_room/to_room.
-      $from_room = $conn['from_room'] ?? NULL;
-      $to_room = $conn['to_room'] ?? NULL;
+      $from_room = $conn['from_room'] ?? $conn['from_room_id'] ?? NULL;
+      $to_room = $conn['to_room'] ?? $conn['to_room_id'] ?? NULL;
 
       $target_id = NULL;
       if ($from_room === $current_room_id) {
@@ -957,7 +957,7 @@ ENTRY_NARRATION_RULES;
       elseif ($to_room === $current_room_id) {
         $target_id = $from_room;
       }
-      else {
+      elseif ($from_room === NULL && $to_room === NULL) {
         // Old-format connections: match by hex coordinates via regions.
         $target_id = $this->resolveHexConnectionToRoom($conn, $current_room_id, $dungeon_data);
       }

@@ -9,10 +9,12 @@ use Drupal\Core\Database\StatementInterface;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\dungeoncrawler_content\Service\AiGmService;
 use Drupal\dungeoncrawler_content\Service\CharacterStateService;
+use Drupal\dungeoncrawler_content\Service\DungeonPayloadStatePersistenceService;
 use Drupal\dungeoncrawler_content\Service\DungeonStateService;
 use Drupal\dungeoncrawler_content\Service\ExplorationPhaseHandler;
 use Drupal\dungeoncrawler_content\Service\NarrationEngine;
 use Drupal\dungeoncrawler_content\Service\NumberGenerationService;
+use Drupal\dungeoncrawler_content\Service\QuestTrackerService;
 use Drupal\dungeoncrawler_content\Service\RoomChatService;
 use Drupal\dungeoncrawler_content\Service\StorylineQuestLifecycleService;
 use Drupal\Tests\UnitTestCase;
@@ -26,6 +28,77 @@ use Psr\Log\LoggerInterface;
  * @coversDefaultClass \Drupal\dungeoncrawler_content\Service\ExplorationPhaseHandler
  */
 class ExplorationPhaseHandlerRoomPerceptionTest extends UnitTestCase {
+
+  public function testExplicitSearchInTheObjectiveRoomRevealsFixedClueOnce(): void {
+    $clue = [
+      'objective_id' => 'trace-route',
+      'type' => 'explore',
+      'location' => 'street-template',
+      'search_narration' => 'Rats pull a bundle under the manhole cover.',
+    ];
+    $tracker = $this->createMock(QuestTrackerService::class);
+    $tracker->method('getCharacterQuestTracking')->with(42, 17)->willReturnCallback(static function () use (&$clue): array {
+      return [[
+        'quest_id' => 'whispers',
+        'status' => 'active',
+        'character_id' => 17,
+        'current_phase' => 2,
+        'objective_states' => json_encode([['phase' => 2, 'objectives' => [$clue]]], JSON_THROW_ON_ERROR),
+      ]];
+    });
+    $tracker->expects($this->once())->method('updateObjectiveProgress')->with(42, 'whispers', 'trace-route', 1, 17, TRUE)
+      ->willReturnCallback(static function () use (&$clue): array {
+        $clue['completed'] = TRUE;
+        return ['success' => TRUE, 'objective_completed' => TRUE];
+      });
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($this->createMock(LoggerInterface::class));
+    $roller = $this->createMock(NumberGenerationService::class);
+    $roller->method('rollPathfinderDie')->willReturn(1);
+    $handler = new class(
+      $this->createMock(Connection::class),
+      $logger_factory,
+      $this->createMock(RoomChatService::class),
+      $this->createMock(DungeonStateService::class),
+      $this->createMock(CharacterStateService::class),
+      $roller,
+      $this->createMock(AiGmService::class),
+      $this->createMock(StorylineQuestLifecycleService::class),
+      $this->createMock(DungeonPayloadStatePersistenceService::class),
+      quest_tracker: $tracker,
+    ) extends ExplorationPhaseHandler {
+      protected function resolveSearchCampaignCharacterId(int $campaign_id, string $actor_id, array $params, array $dungeon_data): int {
+        return 17;
+      }
+
+      protected function resolveSearchObjectiveRoomIds(int $campaign_id, string $room_id): array {
+        return $room_id === 'room-1' ? [$room_id, 'street-template'] : [$room_id];
+      }
+
+      protected function hasPendingQuestSearchDiscovery(int $campaign_id, string $actor_id, array $params, array $dungeon_data): bool {
+        return FALSE;
+      }
+
+      protected function resolveAllQuestSearchCollectibleDiscoveries(int $campaign_id, string $actor_id, array $params, array &$dungeon_data): array {
+        return [];
+      }
+    };
+    $state = $this->minimalGameState();
+    $dungeon = $this->buildDungeonData();
+    $explicit = ['search_mode' => 'explicit'];
+    $wrong_room = ['active_room_id' => 'tavern'] + $dungeon;
+    $this->assertStringNotContainsString($clue['search_narration'], $handler->processSearch('pc-1', $explicit, $state, $wrong_room, 42)['narration']);
+    $this->assertEmpty($handler->processSearch('pc-1', ['search_mode' => 'automatic'], $state, $dungeon, 42)['narration']);
+    $clue['revealed'] = FALSE;
+    $this->assertStringNotContainsString($clue['search_narration'], $handler->processSearch('pc-1', $explicit, $state, $dungeon, 42)['narration']);
+    $clue['revealed'] = TRUE;
+    $this->assertSame($clue['search_narration'], $handler->processIntent([
+      'type' => 'search',
+      'actor' => 'pc-1',
+      'params' => $explicit,
+    ], $state, $dungeon, 42)['narration']);
+    $this->assertStringNotContainsString($clue['search_narration'], $handler->processSearch('pc-1', $explicit, $state, $dungeon, 42)['narration']);
+  }
 
   /**
    * @covers ::processIntent

@@ -1320,7 +1320,8 @@ trait RoomChatServiceChannelAndSessionTrait {
     string $player_message,
     string $gm_narrative,
     ?array $active_character_data = NULL,
-    ?string $encounter_prefix = NULL
+    ?string $encounter_prefix = NULL,
+    ?int $character_id = NULL
   ): array {
     $game_state = is_array($dungeon_data['game_state'] ?? NULL) ? $dungeon_data['game_state'] : [];
     // Gather room NPCs with psychology profiles.
@@ -1524,7 +1525,8 @@ trait RoomChatServiceChannelAndSessionTrait {
           $current_speaker_ref,
           $npc['profile']['display_name'] ?? $current_speaker_ref,
           FALSE,
-          $npc_encounter_prefix
+          $npc_encounter_prefix,
+          addressing_character_id: ($directly_addressed_npc['entity_ref'] ?? NULL) === $current_speaker_ref ? $character_id : NULL,
         );
       }
       if (!$speaker_can_interject && is_array($flow_gate['summary'] ?? NULL) && $flow_gate['summary'] !== []) {

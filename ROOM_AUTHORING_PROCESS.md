@@ -30,6 +30,47 @@ Every finding has a severity, a code, a message and a route:
 `draft_command` (an edit here) or `definition_editor` (a placed object's
 definition is missing or invalid). A code with no declared route throws.
 
+## Placing objects in bulk
+
+Bulk commands: `place_objects_bulk`, `move_objects_bulk`,
+`remove_objects_bulk`, `replace_objects_bulk` and
+`dismiss_placement_gaps`; at most 5000 hexes per command, 2500 placements
+per room. Shapes place obstacles and items only. Ports and the hex outside
+each stay clear unless `keep_ports_clear` is false.
+
+A hex that cannot take an object (outside the room, kept clear, `void` or
+`wall` terrain, or already holding an actor or obstacle) is skipped, never
+fatal. The skip is a gap in `metadata.placement_gaps` (`gap_id`,
+`operation_id`, `reason`, `blocker`, `hex`). Open gaps give the
+`placement_gap_open` warning while editing and an error at publication;
+published rooms carry none. Re-running an item with its `gap_id` updates or
+closes that gap instead of adding another.
+
+GM tools (planning tools return a command plan for `apply_room_commands`):
+- Shapes: `place_line`, `place_ring`, `place_fill`, `place_scatter`,
+  `place_grid`, `place_along_edge`. A `seed` makes scatter and weighted
+  `choices` repeatable.
+- Gaps: `list_placement_gaps`, `retry_placement_gaps`,
+  `nudge_placement_gaps`, `resolve_placement_gaps` (dismiss with a reason,
+  or remove the blocker and place).
+- Selection edits (by `instance_ids` or a filter; obstacles and items only):
+  `move_selection`, `rotate_selection`, `mirror_selection`,
+  `copy_selection`, `remove_selection`, `replace_selection`.
+- Inspection: `list_placements`, `inspect_blocking`, `analyze_navigation`
+  (flood fill from the first entry port; lists unreachable hexes and ports,
+  and gaps whose blocker would reopen a route).
+
+## Street rooms
+
+A room with `room_type: street` is the walkable background of a district
+dungeon. It needs `metadata.background` (`url`, optional integer `width` and
+`height`, `alt`) and exit ports for its doors; an exit port hex is the door
+hex a building shares. Findings: `room_background_invalid`,
+`street_background_missing` (a warning while editing, an error at
+publication) and `street_has_no_doors`. GM: `plan_room_commands` goal
+`set_metadata` takes `room_type: street` and `background`; `add_exit_ports`
+adds the doors.
+
 ## Built for a storyline
 
 - The Room Manager (`/rooms`) lists the library, working drafts with the

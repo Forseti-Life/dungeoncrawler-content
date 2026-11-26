@@ -24,8 +24,9 @@ class EditorCanonicalGenerationPlanService {
 
   private const PLAN_VERSION = EditorGmHarnessService::COMMAND_PLAN_CONTRACT_VERSION;
   private const GENERATION_PLAN_VERSION = 'editor-generation-plan-v1';
-  private const ROOM_MAX_HEXES = 80;
-  private const ROOM_MAX_COMMANDS = 160;
+  private const ROOM_MAX_HEXES = 300;
+  // Up to three commands per hex (add, terrain, elevation), plus ports, placements and metadata.
+  private const ROOM_MAX_COMMANDS = 3 * self::ROOM_MAX_HEXES + 100;
   private const ROOM_MAX_PLACEMENTS = 20;
   private const DUNGEON_MAX_PLACEMENTS = CanonicalDungeonLayoutPlanService::DUNGEON_MAX_PLACEMENTS;
   private const DUNGEON_MAX_LINKS = 40;
@@ -77,7 +78,7 @@ class EditorCanonicalGenerationPlanService {
     $catalog = $this->placeableCatalog($input['placeable_families']);
     $operation = 'editor_generation_room_layout';
 
-    return $this->generation->completeJson('generate_room_layout', $operation, $input['seed'], 3000,
+    return $this->generation->completeJson('generate_room_layout', $operation, $input['seed'], 2000 + 30 * $input['max_hexes'],
       function (array $prior_findings) use ($input, $draft, $room, $catalog): string {
         return $this->roomPrompt($input, $draft, $room, $catalog, $prior_findings);
       },

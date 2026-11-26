@@ -126,6 +126,56 @@ class DungeonEditorStatusTest extends TestCase {
     $this->assertSame(['error' => 2, 'warning' => 1, 'info' => 0], $validation['counts']);
   }
 
+  private function districtDraft(string $kind, string $street_type = 'street', bool $on_street = TRUE): array {
+    $hex = static fn(int $q): array => ['q' => $q, 'r' => 0, 'terrain_type' => 'stone_floor', 'lighting' => 'bright_light', 'elevation_ft' => 0];
+    $street = ['room_id' => 'street', 'name' => 'Street', 'room_type' => $street_type, 'metadata' => [],
+      'hexes' => [$hex(0), $hex(1), $hex(2)], 'entry_ports' => [],
+      'exit_ports' => []];
+    $house = ['room_id' => 'house', 'name' => 'House', 'room_type' => 'chamber', 'metadata' => [],
+      'hexes' => [$hex(0), $hex(1)], 'exit_ports' => [],
+      'entry_ports' => [['port_id' => 'in', 'hex' => ['q' => 0, 'r' => 0], 'edge' => 3]]];
+    $v_street = self::uuid(101);
+    $v_house = self::uuid(102);
+    $service = $this->service([$v_street => $street, $v_house => $house]);
+    $placements = [
+      ['room_id' => 'street', 'version_id' => $v_street, 'origin' => ['q' => 0, 'r' => 0]] + $this->placement(1, $v_street, 0, TRUE),
+      ['origin' => ['q' => $on_street ? 2 : 4, 'r' => 0], 'room_id' => 'house'] + $this->placement(2, $v_house, 2, FALSE),
+    ];
+    $draft = $this->draft(['name' => 'Town', 'description' => 'A town.', 'theme' => 'town', 'kind' => $kind], $placements);
+    $draft['dungeon']['room_placements'][1]['origin'] = ['q' => $on_street ? 2 : 4, 'r' => 0];
+    return [$service, $draft];
+  }
+
+  public function testBuildingEntryOnAStreetHexIsTheWayIn(): void {
+    [$service, $draft] = $this->districtDraft('district');
+    $codes = array_column($service->validateAggregate($draft)['findings'], 'code');
+    $this->assertNotContains('placement_overlap', $codes);
+    $this->assertNotContains('district_building_no_street_access', $codes);
+    $this->assertNotContains('placement_unreachable', $codes);
+    $this->assertContains('district_street_background_missing', $codes);
+    $this->assertContains('district_building_near_street_edge', $codes);
+
+    [$service, $draft] = $this->districtDraft('district', 'street', FALSE);
+    $found = array_values(array_filter($service->validateAggregate($draft)['findings'], static fn(array $f): bool => $f['code'] === 'district_building_no_street_access'));
+    $this->assertSame('warning', $found[0]['severity'], 'a moved building is never rejected');
+  }
+
+  public function testInspectDistrictNamesTheBrokenDataPoints(): void {
+    [$service, $draft] = $this->districtDraft('district');
+    $report = $service->inspectDistrict($draft);
+    $this->assertSame([], $report['overlapping_hexes'], 'a building overlays the street');
+    $this->assertSame([], $report['buildings_without_street_access']);
+
+    [$service, $draft] = $this->districtDraft('district', 'street', FALSE);
+    $report = $service->inspectDistrict($draft);
+    $this->assertSame('no_entry_port_on_the_street', $report['buildings_without_street_access'][0]['problem']);
+  }
+
+  public function testDistrictNeedsAStreetRoom(): void {
+    [$service, $draft] = $this->districtDraft('district', 'chamber');
+    $this->assertContains('district_street_missing', array_column($service->validateAggregate($draft)['findings'], 'code'));
+  }
+
   public function testEveryContractCodeHasADeclaredRouteAndAnUndeclaredCodeThrows(): void {
     $schema = json_decode((string) file_get_contents(dirname(__DIR__, 4) . '/config/schemas/dungeon_editor_validation_result.schema.json'), TRUE, 512, JSON_THROW_ON_ERROR);
     foreach ($schema['definitions']['finding']['properties']['code']['enum'] as $code) {

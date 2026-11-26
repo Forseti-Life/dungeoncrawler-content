@@ -144,7 +144,8 @@ class QuestGeneratorServiceTest extends UnitTestCase {
       $this->createMock(Connection::class),
       $logger_factory,
       $number_generation,
-      $state_validation
+      $state_validation,
+      new \Drupal\dungeoncrawler_content\Service\ObjectiveTypeService(),
     ) extends QuestGeneratorService {
       public function exposedGenerateObjectiveNode(array $objective_schema, array $variables = [], array $context = []): array {
         return $this->generateObjectiveNode($objective_schema, $variables, $context);
@@ -166,6 +167,21 @@ class QuestGeneratorServiceTest extends UnitTestCase {
     ]);
 
     $this->assertSame('grandmas-house-library', $objective['location']);
+    $this->assertArrayNotHasKey('search_narration', $objective);
+
+    $clue = 'A loose stone hides a note.';
+    $search_objective = $service->exposedGenerateObjectiveNode([
+      'objective_id' => 'search-library',
+      'type' => 'explore',
+      'location' => 'grandmas-house-library',
+      'next_step' => 'Use Search in the library.',
+      'search_narration' => $clue,
+    ]);
+    $this->assertSame($clue, $search_objective['search_narration']);
+    $phases = [['phase' => 1, 'objectives' => [$search_objective]]];
+    $this->assertStringNotContainsString($clue, json_encode($service->buildQuestSummaryEntry(['generated_objectives' => $phases]), JSON_THROW_ON_ERROR));
+    $projected = $service->projectObjectivePhases($phases, NULL, 'player');
+    $this->assertArrayNotHasKey('search_narration', $projected[0]['objectives'][0]);
   }
 
   /**

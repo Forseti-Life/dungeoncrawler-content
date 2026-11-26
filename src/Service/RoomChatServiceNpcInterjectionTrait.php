@@ -692,7 +692,8 @@ PROMPT;
     string $speaker_name,
     bool $feed_room_sessions = TRUE,
     ?string $encounter_prefix = NULL,
-    ?string $consumption_key_override = NULL
+    ?string $consumption_key_override = NULL,
+    ?int $addressing_character_id = NULL
   ): array {
     $interjection_stage_started_at = hrtime(true);
     $normalized_consumption_key = trim((string) ($consumption_key_override ?? ''));
@@ -707,7 +708,7 @@ PROMPT;
     $stage_started_at = hrtime(true);
     $dialogue_payload = $this->generateNpcRoomDialogue(
       $campaign_id, $room_id, $room_index, $dungeon_data,
-      $speaker_ref, $speaker_name, $player_message, $gm_narrative
+      $speaker_ref, $speaker_name, $player_message, $gm_narrative, $addressing_character_id
     );
     $this->recordDebugStage('npc.interjection_generate_dialogue', $stage_started_at, [
       'npc_entity' => $speaker_ref,
@@ -1494,7 +1495,12 @@ PROMPT;
     }
 
     if ($intent === 'navigation_query') {
-      $navigation_narrative = $this->buildDeterministicNavigationQueryNarrative($room_meta, $room_id, $dungeon_data);
+      $navigation_narrative = $this->buildDeterministicNavigationQueryNarrative(
+        $room_meta,
+        $room_id,
+        $dungeon_data,
+        recommend_exit: !$this->looksLikeMapLocationQuery($this->normalizeNpcNameForMatch($player_message)),
+      );
       if ($navigation_narrative !== '') {
         return [
           'narrative' => $navigation_narrative,

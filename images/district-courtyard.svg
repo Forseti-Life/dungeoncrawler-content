@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <pattern id="flagstones" width="128" height="96" patternUnits="userSpaceOnUse">
+      <path fill="#414843" d="M0 0h128v96H0z"/>
+      <path fill="#575c52" d="M2 2h60v43H2zM66 2h60v43H66z"/>
+      <path fill="#50564d" d="M0 49h30v45H0zM34 49h60v45H34zM98 49h30v45H98z"/>
+      <path d="M35 3l9 15-3 12 7 11m51 9-7 11 4 14-7 18M12 63l12 6 7-2m82-63-4 12 6 7" fill="none" stroke="#414843" stroke-width="2"/>
+    </pattern>
+    <radialGradient id="shade">
+      <stop offset="45%" stop-color="#161c19" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#161c19" stop-opacity=".55"/>
+    </radialGradient>
+  </defs>
+  <path fill="url(#flagstones)" d="M0 0h1024v1024H0z"/>
+  <path fill="url(#shade)" d="M0 0h1024v1024H0z"/>
+</svg>
