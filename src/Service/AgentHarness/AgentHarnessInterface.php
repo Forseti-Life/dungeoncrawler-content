@@ -15,6 +15,7 @@ interface AgentHarnessInterface {
   public const SCOPE_CAMPAIGN_ROOM = 'campaign_room';
   public const SCOPE_ENCOUNTER = 'encounter';
   public const SCOPE_CHARACTER_DRAFT = 'character_draft';
+  public const SCOPE_SITE_SESSION = 'site_session';
 
   /**
    * Stable machine identifier for the agent harness.

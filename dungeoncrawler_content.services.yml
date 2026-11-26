@@ -632,6 +632,44 @@ services:
       - - '@dungeoncrawler_content.editor_gm_harness'
         - '@dungeoncrawler_content.gm_actor_harness'
         - '@dungeoncrawler_content.player_agent_harness'
+        - '@dungeoncrawler_content.site_guide_harness'
+
+  dungeoncrawler_content.site_guide_providers:
+    class: Drupal\dungeoncrawler_content\Service\SiteGuide\SiteGuideProviderRegistry
+    arguments:
+      - !tagged_iterator dungeoncrawler.site_guide_provider
+
+  dungeoncrawler_content.site_guide_provider:
+    class: Drupal\dungeoncrawler_content\Service\SiteGuide\DungeonCrawlerSiteGuideProvider
+    tags:
+      - { name: dungeoncrawler.site_guide_provider }
+
+  dungeoncrawler_content.site_guide_personas:
+    class: Drupal\dungeoncrawler_content\Service\SiteGuide\SiteGuidePersonaResolver
+    arguments:
+      - '@current_user'
+      - '@dungeoncrawler_content.site_guide_providers'
+      - '@dungeoncrawler_content.campaign_authorization'
+
+  dungeoncrawler_content.site_guide_service:
+    class: Drupal\dungeoncrawler_content\Service\SiteGuide\SiteGuideService
+    arguments:
+      - '@dungeoncrawler_content.site_guide_personas'
+      - '@dungeoncrawler_content.agent_harness_management'
+      - '@?ai_conversation.ai_api_service'
+
+  dungeoncrawler_content.site_guide_harness:
+    class: Drupal\dungeoncrawler_content\Service\SiteGuide\SiteGuideHarnessService
+    arguments:
+      - '@dungeoncrawler_content.site_guide_service'
+      - '@dungeoncrawler_content.agent_harness_management'
+
+  dungeoncrawler_content.site_guide_mcp:
+    class: Drupal\dungeoncrawler_content\Service\SiteGuide\SiteGuideMcpGatewayService
+    arguments:
+      - '@current_user'
+      - '@dungeoncrawler_content.site_guide_personas'
+      - '@logger.factory'
 
   # Editor-embedded GM harness. Sibling of the runtime GM stack: it must never
   # depend on game_master_subsystem or gm_tool_execution, and RoomEditorService

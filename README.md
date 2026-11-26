@@ -7,6 +7,9 @@
 
 This module is the game runtime for DungeonCrawler: campaign orchestration, room/campaign state, encounter/combat flow, chat/narration, procedural generation, quest/storyline systems, and PF2e character/inventory services.
 
+For the repository inventory, deployed stack, agent boundaries, gaps, and
+cleanup candidates, see the [architecture review](ARCHITECTURE_REVIEW.md).
+
 ## 1. Current Architecture Snapshot
 
 The current implementation is an **encounter-first runtime** with a unified coordinator entry point:
@@ -632,9 +635,22 @@ Canonical architecture references in this repository:
 - `DETERMINISTIC_GM_ORCHESTRATION_ARCHITECTURE.md` — deterministic GM orchestration direction
 - `docs/README.md` — docs index for implementation/contract documents
 
+## Site Guide and MCP boundary
+
+`site_guide` is the fourth registered agent harness. It supplies the
+homepage navigator and permission-filtered MCP discovery endpoint at
+`/api/site-guide/mcp`. The guide may describe routes, resources, personas,
+agent scopes, and handoff receipts; it does not publish or mutate product
+objects. Runtime and editor targets must receive an explicit authorized scope
+and revalidate all mutation authority.
+
 ## 7. Development Notes
 
-- Module dependency: `drupal/ai_conversation` (see `composer.json` and `dungeoncrawler_content.info.yml`).
+- Module dependencies: `drupal/ai_conversation` and `mcp/sdk` (see `composer.json` and `dungeoncrawler_content.info.yml`).
+- Drupal project installations must include the module package through Composer;
+  for the live root project, install `mcp/sdk` in that root with
+  `composer require mcp/sdk:^0.10 --with-all-dependencies` and commit its
+  `composer.lock`.
 - Use targeted PHPUnit/Node contract tests for changed subsystem surfaces.
 - Prefer updating subsystem-specific architecture docs together with behavior changes.
 

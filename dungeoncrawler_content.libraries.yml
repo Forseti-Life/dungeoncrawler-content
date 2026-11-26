@@ -4,7 +4,6 @@ style:
       css/dungeoncrawler-content.css: {}
   dependencies:
     - core/drupal
-
 game-cards:
   css:
     theme:
@@ -153,7 +152,6 @@ ability-widget:
       css/character-ability-widget.css: {}
   dependencies:
     - core/drupal
-
 # Individual step libraries - now depend on character-step-base
 character-step-1:
   js:
@@ -440,3 +438,12 @@ player-setup:
     - core/drupal
     - core/once
     - core/drupalSettings
+site_guide:
+  version: 1.1
+  css:
+    theme:
+      css/site-guide.css: {}
+  js:
+    js/site-guide.js: {}
+  dependencies:
+    - core/drupal

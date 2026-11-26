@@ -23,6 +23,18 @@ The Storyline GM resolves one authored row or canonical reference. It never
 creates a room or edits a dungeon. When the owning object is another editor's
 authority, it routes or delegates there.
 
+## Site Guide boundary
+
+The Site Guide is the read-only discovery layer above the editor harnesses.
+It may explain an editor finding, identify the owning agent, and provide a
+permission-filtered route or scoped handoff receipt. It must not call editor
+tools, change draft data, or imply that a delegated mutation was completed.
+
+The MCP gateway exposes only discovery resources and handoff receipts. An
+editor handoff must include a draft scope; a runtime handoff must include an
+authorized campaign scope. The target editor or GM remains responsible for
+revalidating identity, object access, revision, and mutation authority.
+
 ## Dungeon workflow
 
 The Dungeon GM owns district/dungeon topology:

@@ -1,72 +1,454 @@
-<div class="dc-architecture dc-architecture--hub">
+<div class="dc-architecture dc-architecture--hub d-flex flex-column">
   <header class="dc-architecture__header">
-    <h2>System Architecture Hub</h2>
-    <p>{{ intro }}</p>
+    <h2>{{ 'DungeonCrawler architecture'|t }}</h2>
+    <p>{{ 'A browser-based RPG with a server-authoritative game engine, AI-assisted play and authoring, and a persistent world for each campaign.'|t }}</p>
+    <p>{{ 'Review snapshot:'|t }} <time datetime="2026-11-24">2026-11-24</time></p>
   </header>
 
-  <section class="dc-architecture__section">
-    <h3>Architecture and Runtime Map</h3>
-    <table class="dc-architecture__table">
-      <thead>
-        <tr>
-          <th>Domain</th>
-          <th>Owner</th>
-          <th>Entry Route</th>
-          <th>Source of Truth</th>
-          <th>Flow</th>
-          <th>Sequence</th>
-          <th>Controller/API Mapping</th>
-          <th>Guardrails</th>
-          <th>Drill-Down</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in architecture_map %}
-          <tr>
-            <td>{{ row.domain }}</td>
-            <td>{{ row.owner }}</td>
-            <td><a href="{{ row.entry_route }}">{{ row.entry_route }}</a></td>
-            <td>{{ row.source_of_truth }}</td>
-            <td>{{ row.flow }}</td>
-            <td>{{ row.sequence }}</td>
-            <td>{{ row.controllers_apis }}</td>
-            <td>{{ row.guardrails }}</td>
-            <td>
-              <a href="{{ row.drill_url }}">{{ row.drill_label }}</a>
-              <span>{{ row.drill_description }}</span>
-            </td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  {% set tabs = {
+    'tech': 'Tech Stack'|t,
+    'player': 'Player Game Flow and Tools'|t,
+    'creator': 'Creator Game Flow and Tools'|t,
+    'ai': 'AI Integrations and Harnesses'|t,
+    'agents': 'Agentic Architecture'|t,
+    'objects': 'Data Objects'|t,
+  } %}
+  <div class="dc-architecture__section nav nav-tabs gap-2" role="tablist" aria-label="{{ 'Architecture views'|t }}">
+    {% for id, label in tabs %}
+      <button id="architecture-tab-{{ id }}" class="nav-link{{ loop.first ? ' active' }}" type="button" role="tab" data-bs-toggle="tab" data-bs-target="#architecture-panel-{{ id }}" aria-controls="architecture-panel-{{ id }}" aria-selected="{{ loop.first ? 'true' : 'false' }}"{% if not loop.first %} tabindex="-1"{% endif %}>{{ label }}</button>
+    {% endfor %}
+  </div>
+
+  <div class="tab-content">
+  <div class="tab-pane active" id="architecture-panel-tech" role="tabpanel" aria-labelledby="architecture-tab-tech" tabindex="0">
+  <div class="d-flex flex-column gap-3">
+  <section class="dc-architecture__section" id="system-topology" aria-labelledby="system-topology-title">
+    <h3 id="system-topology-title">{{ 'Client, server, and storage'|t }}</h3>
+    <figure class="mb-3">
+      <div class="row g-3 mb-3">
+        <div class="col-12 col-lg-3 d-flex">
+          <article class="dc-architecture__card w-100" id="topology-client">
+            <h4>{{ 'Game client'|t }}</h4>
+            <p>{{ 'The browser game uses the Hexmap v2 GameShell: an interactive tactical map alongside a tabbed interface for play. Players act on the map and use panels for actions, combat, chat, character sheets, inventory, and quests.'|t }}</p>
+            <h5>{{ 'Client technology'|t }}</h5>
+            <ul>
+              <li>{{ 'Native JavaScript modules, GameShell, and tab controls.'|t }}</li>
+              <li>{{ 'PixiJS and shared entity-component-system (ECS) code for the map, tokens, and overlays.'|t }}</li>
+              <li>{{ 'An event bus connects the canvas and panels; HTML and CSS render the controls.'|t }}</li>
+              <li>{{ 'HTTPS requests read game state and submit actions; streamed replies update chat.'|t }}</li>
+            </ul>
+          </article>
+        </div>
+        <div class="col-12 col-lg-9 dc-architecture__stack">
+          <article class="dc-architecture__card" id="topology-web-interface">
+            <h4>{{ 'Web interface'|t }}</h4>
+            <p>{{ 'Drupal pages and forms are the browser workspace for campaign creation, character creation, and data object management. Players and authors use them to create and manage campaigns, characters, storylines, dungeons, rooms, and library definitions, subject to their permissions.'|t }}</p>
+          </article>
+          <article class="dc-architecture__card" id="topology-web-services">
+            <h4>{{ 'Web services'|t }}</h4>
+            <p>{{ 'HTTPS APIs let the game client interact with the system: load state, submit actions, and stream chat. Drupal controllers invoke PHP services that check access, resolve game rules, coordinate GM and NPC behavior, and apply validated changes.'|t }}</p>
+          </article>
+          <article class="dc-architecture__card" id="topology-database">
+            <h4>{{ 'Database'|t }}</h4>
+            <p>{{ 'MySQL stores the data objects and their relationships: canonical content, drafts and versions, live campaign state, actor and quest records, chat and events, and file metadata. Application services own reads and writes; the browser never connects to MySQL.'|t }}</p>
+          </article>
+          <article class="dc-architecture__card" id="topology-file-storage">
+            <h4>{{ 'File storage'|t }}</h4>
+            <p>{{ 'Drupal file storage holds file artifacts such as uploaded source maps, generated portraits, and room images. Database records link those files to the corresponding data objects without storing the file bytes in those records.'|t }}</p>
+          </article>
+        </div>
+      </div>
+      <figcaption>
+        {{ 'Players use the game client for play and the web interface for setup and management. Both enter the same Drupal application over HTTPS. The application uses the database for structured records and file storage for artifacts.'|t }}
+      </figcaption>
+    </figure>
+    <p><strong>{{ 'External services:'|t }}</strong> {{ 'The application server calls text and image providers when needed. Model responses go back through application services; providers do not commit game state directly.'|t }}</p>
+    <p><strong>{{ 'Example:'|t }}</strong> {{ 'When a player clicks an action, the browser submits it to the game coordinator. The server resolves and persists the outcome; the browser then refreshes the game view from server state.'|t }}</p>
+    <ul>
+      <li><code class="text-break">POST /api/game/{campaign_id}/action</code> &mdash; {{ 'Submit a gameplay action.'|t }}</li>
+      <li><code class="text-break">GET /api/game/{campaign_id}/state</code> &mdash; {{ 'Read server-owned gameplay state.'|t }}</li>
+      <li><code class="text-break">POST /api/campaign/{campaign_id}/room/{room_id}/chat</code> &mdash; {{ 'Send a room message and stream the reply.'|t }}</li>
+    </ul>
   </section>
 
-  <section class="dc-architecture__section">
-    <h3>Live Feature Index (HQ Sync)</h3>
-    <table class="dc-architecture__table">
-      <thead>
-        <tr>
-          <th>Feature ID</th>
-          <th>Status</th>
-          <th>Priority</th>
-          <th>Release</th>
-          <th>Acceptance Criteria</th>
-          <th>Implementation Notes</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for feature in feature_index %}
+  <section class="dc-architecture__section" id="technology-stack">
+    <h3>{{ 'Technology stack and storage'|t }}</h3>
+    <ul>
+      <li><strong>{{ 'Application:'|t }}</strong> {{ 'AWS EC2 runs Ubuntu, Apache, PHP 8.3, and Drupal 11. Drupal supplies routing, permissions, forms, configuration, cache, and file handling. Composer manages PHP dependencies; Drush handles administration.'|t }}</li>
+      <li><strong>{{ 'Storage:'|t }}</strong> {{ 'MySQL 8.0 handles structured data. Drupal file streams store local media. A successful provider reply does not by itself mean an image was stored.'|t }}</li>
+      <li><strong>{{ 'Client:'|t }}</strong> {{ 'Twig, Bootstrap, CSS, and native JavaScript modules build the site. PixiJS renders the tactical map; Mermaid renders documentation diagrams. The DungeonCrawler theme is separate from the gameplay module.'|t }}</li>
+      <li><strong>{{ 'Import and verification:'|t }}</strong> {{ 'Node and LevelDB support pack import, not live game storage. PHPUnit, JavaScript contract tests, Playwright, and Bash/Python tools cover isolated verification and operations.'|t }}</li>
+    </ul>
+    <ul class="dc-architecture__links">
+      <li><a href="{{ path('dungeoncrawler_content.data_lineage_architecture') }}">{{ 'Data lineage'|t }}</a></li>
+      <li><a href="{{ path('dungeoncrawler_content.controller_architecture') }}">{{ 'Controller architecture'|t }}</a></li>
+    </ul>
+  </section>
+  </div>
+  </div>
+
+  <div class="tab-pane" id="architecture-panel-player" role="tabpanel" aria-labelledby="architecture-tab-player" tabindex="0">
+  <section class="dc-architecture__section" id="current-state">
+    <h3>{{ 'Player game flow and tools'|t }}</h3>
+    <ol>
+      <li>{{ 'Create or join a campaign, create or choose a character, and enter the campaign world.'|t }}</li>
+      <li>{{ 'Read the map and the scene, talk to actors, or choose a move, search, interaction, spell, or attack.'|t }}</li>
+      <li>{{ 'The game coordinator checks access, turn, and action rules, then resolves and records the outcome.'|t }}</li>
+      <li>{{ 'Review the outcome in the map, chat, character sheet, or quest log and decide what to do next.'|t }}</li>
+    </ol>
+    <div class="dc-architecture__grid">
+      <article class="dc-architecture__card">
+        <h4>{{ 'Map, actions, and combat'|t }}</h4>
+        <p>{{ 'Move, investigate, and fight in the same encounter framework. The tactical map and action rail show available actions and turn order when combat is active; the server resolves movement, dice, spells, and effects.'|t }}</p>
+      </article>
+      <article class="dc-architecture__card">
+        <h4>{{ 'Chat, scene, and party'|t }}</h4>
+        <p>{{ 'Talk to the GM or nearby actors, view the current room, and check party information. Chat streams narration and dialogue; structured actions still go through server validation. Discord voice is optional.'|t }}</p>
+      </article>
+      <article class="dc-architecture__card">
+        <h4>{{ 'Sheets, inventory, and trade'|t }}</h4>
+        <p>{{ 'Inspect character statistics, resources, and effects; manage gear and interact with merchants. Panels read server-owned state instead of keeping independent versions of the same objects.'|t }}</p>
+      </article>
+      <article class="dc-architecture__card">
+        <h4>{{ 'Quests and progression'|t }}</h4>
+        <p>{{ 'Follow objectives and their outcomes. The quest tracker advances live progress from validated events; institution and relationship services track memberships and attitudes.'|t }}</p>
+      </article>
+    </div>
+    <ul class="dc-architecture__links">
+      <li><a href="{{ path('dungeoncrawler_content.campaigns') }}">{{ 'Campaigns'|t }}</a></li>
+      <li><a href="{{ path('dungeoncrawler_content.character_setup') }}">{{ 'Character Setup'|t }}</a> {{ '(sign-in and character creation permission required to start a new character)'|t }}</li>
+      <li><a href="{{ path('dungeoncrawler_content.world_game_flow') }}">{{ 'World and game flow'|t }}</a></li>
+    </ul>
+  </section>
+  </div>
+
+  <div class="tab-pane" id="architecture-panel-creator" role="tabpanel" aria-labelledby="architecture-tab-creator" tabindex="0">
+  <section class="dc-architecture__section" id="creator-flow">
+    <h3>{{ 'Creator game flow and tools'|t }}</h3>
+    <p>{{ 'Authoring tools require sign-in; which drafts you can edit or publish depends on your permissions.'|t }}</p>
+    <ol>
+      <li>{{ 'Draft a storyline and define its scenes, objectives, starting cast, and playable sites.'|t }}</li>
+      <li>{{ 'Build rooms and dungeons against the story brief. Use the Definition Editor to create or update reusable objects as needed.'|t }}</li>
+      <li>{{ 'Validate geometry, links, placements, and content references; publish room and dungeon versions through their editor services.'|t }}</li>
+      <li>{{ 'Publish the storyline and use its content in a campaign. Live campaign changes stay separate from shared content.'|t }}</li>
+    </ol>
+    <div class="dc-architecture__grid">
+      <article class="dc-architecture__card">
+        <h4>{{ 'Storyline Builder'|t }}</h4>
+        <p>{{ 'Author scenes, cast, institutions, quests, and choices. Review validation findings and hand off room or dungeon work to the owning editor.'|t }}</p>
+      </article>
+      <article class="dc-architecture__card">
+        <h4>{{ 'Dungeon Editor'|t }}</h4>
+        <p>{{ 'Place rooms, link their ports, define entrances, inspect the site, and validate and publish a dungeon version.'|t }}</p>
+      </article>
+      <article class="dc-architecture__card">
+        <h4>{{ 'Room Editor'|t }}</h4>
+        <p>{{ 'Edit room hexes, terrain, ports, and object placements. Inspect or revise the draft before publishing a version.'|t }}</p>
+      </article>
+      <article class="dc-architecture__card">
+        <h4><a href="{{ path('dungeoncrawler_content.definition_index') }}">{{ 'Definition Editor'|t }}</a></h4>
+        <p>{{ 'The Game Master workspace for creating and editing the reusable library objects that rooms, storylines, and campaigns build on.'|t }}</p>
+        <h5>{{ 'Definition families'|t }}</h5>
+        <ul class="dc-architecture__links">
+          <li><a href="{{ path('dungeoncrawler_content.definition_family', {'family': 'actor'}) }}">{{ 'Actors'|t }}</a> &mdash; {{ 'NPCs and creatures'|t }}</li>
+          <li><a href="{{ path('dungeoncrawler_content.definition_family', {'family': 'item'}) }}">{{ 'Items'|t }}</a></li>
+          <li><a href="{{ path('dungeoncrawler_content.definition_family', {'family': 'obstacle'}) }}">{{ 'Obstacles'|t }}</a></li>
+          <li><a href="{{ path('dungeoncrawler_content.definition_family', {'family': 'trap'}) }}">{{ 'Traps'|t }}</a></li>
+          <li><a href="{{ path('dungeoncrawler_content.definition_family', {'family': 'hazard'}) }}">{{ 'Hazards'|t }}</a></li>
+        </ul>
+      </article>
+    </div>
+    <ul class="dc-architecture__links">
+      <li><a href="{{ path('dungeoncrawler_content.storyline_management') }}">{{ 'Storyline Manager'|t }}</a></li>
+      <li><a href="{{ path('dungeoncrawler_content.dungeon_management') }}">{{ 'Dungeon Manager'|t }}</a></li>
+      <li><a href="{{ path('dungeoncrawler_content.room_management') }}">{{ 'Room Manager'|t }}</a></li>
+    </ul>
+  </section>
+  </div>
+
+  <div class="tab-pane" id="architecture-panel-ai" role="tabpanel" aria-labelledby="architecture-tab-ai" tabindex="0">
+  <section class="dc-architecture__section" id="agents-and-harnesses">
+    <h3>{{ 'AI integrations and harnesses'|t }}</h3>
+    <p>{{ 'The Drupal AI client supports DeepSeek and AWS Bedrock for text. The inspected DeepSeek adapter supports typed tool calls; the Bedrock adapter does not support them on that path. Gemini and Vertex are image integration options, and a text-to-speech bridge is optional. Application services validate model outputs; providers do not commit game state or publish content.'|t }}</p>
+    <p>{{ 'Four PHP harnesses are registered. A model profile controls how the model is called; permissions, tool contracts, and domain services control what it can change.'|t }}</p>
+    <dl>
+      <dt>{{ 'Site Guide'|t }}</dt>
+      <dd>{{ 'A read-only site-session navigator. It resolves visitor personas from permissions and route context, searches curated routes and docs, explains agent boundaries, and creates scoped handoff receipts. It never owns campaign or editor mutations.'|t }}</dd>
+      <dt>{{ 'Editor GM'|t }}</dt>
+      <dd>{{ 'One harness serves Storyline, Dungeon, Room, Definition, Character Creation, and Editor Suite. Tools are scoped to each surface. Storyline hands the author off to Dungeon or Room rather than changing their maps; Editor Suite routes and inspects.'|t }}</dd>
+      <dt>{{ 'Runtime GM'|t }}</dt>
+      <dd>{{ 'Interprets game requests and narrates from campaign state. Privileged tools are validated against the resolved GM actor and their mutation domain. This harness does not publish editor drafts.'|t }}</dd>
+      <dt>{{ 'Player automation'|t }}</dt>
+      <dd>{{ 'Reads a scoped snapshot, chooses an action, and submits it through the runtime adapter. It does not own dice, turns, or persisted campaign state.'|t }}</dd>
+      <dt>{{ 'NPC decisions and QA'|t }}</dt>
+      <dd>{{ 'NPC dialogue and tactics run in the live actor flow; the room-turn response envelope is a contract, not another registered harness. The Burasco LangGraph runner is a separate scripted QA lane, not the player or NPC runtime.'|t }}</dd>
+    </dl>
+    <ul class="dc-architecture__links">
+      <li><a href="{{ path('dungeoncrawler_content.encounter_ai_integration') }}">{{ 'Encounter AI integration'|t }}</a></li>
+    </ul>
+  </section>
+  </div>
+
+  <div class="tab-pane" id="architecture-panel-agents" role="tabpanel" aria-labelledby="architecture-tab-agents" tabindex="0">
+  <section class="dc-architecture__section" id="agentic-architecture">
+    <h3>{{ 'Agent hierarchy, scope, and communication'|t }}</h3>
+    <p>{{ 'The registered harnesses are the security boundaries. Editor agents are surfaces of one draft harness; campaign GM and player automation are separate runtime harnesses. NPC dialogue and the Burasco runner are workflows below a harness, not additional top-level agents.'|t }}</p>
+
+    <article class="dc-architecture__card mb-3">
+      <h4>{{ 'Live Site Guide MCP gateway'|t }}</h4>
+      <p><strong>{{ agent_architecture.mcp.status|t }}</strong></p>
+      <p>{{ agent_architecture.mcp.broker|t }}</p>
+      <ul>
+        <li><strong>{{ 'Actor/player boundary:'|t }}</strong> {{ agent_architecture.mcp.actor_rule|t }}</li>
+        <li><strong>{{ 'Editor boundary:'|t }}</strong> {{ agent_architecture.mcp.editor_rule|t }}</li>
+      </ul>
+    </article>
+
+    <div class="row g-3">
+      <div class="col-12 col-xl-3">
+        <article class="dc-architecture__card h-100">
+          <h4>{{ 'Site Guide hierarchy'|t }}</h4>
+          <p><code>site_guide</code> &rarr; {{ 'scope:'|t }} <code>{{ agent_architecture.site_guide.scope }}</code></p>
+          <ol class="dc-architecture__stack">
+            <li><strong>{{ 'Persona and route discovery'|t }}</strong><br>{{ 'Resolves permission-filtered visitor context.'|t }}</li>
+            <li><strong>{{ 'Curated product providers'|t }}</strong><br>{{ 'Contribute routes, resources, prompts, and handoff targets.'|t }}</li>
+            <li><strong>{{ 'Read-only tools'|t }}</strong><br>{{ 'Discovery tool count:'|t }} {{ agent_architecture.site_guide.tool_count }}</li>
+          </ol>
+          <p><strong>{{ 'Hard restriction:'|t }}</strong> {{ 'The Site Guide can explain, link, and issue a scoped receipt, but it cannot mutate campaigns, characters, or editor drafts.'|t }}</p>
+        </article>
+      </div>
+
+      <div class="col-12 col-xl-3">
+        <article class="dc-architecture__card h-100">
+          <h4>{{ 'Editor GM hierarchy'|t }}</h4>
+          <p><code>editor_gm</code> &rarr; {{ 'scope:'|t }} <code>draft</code></p>
+          <ol class="dc-architecture__stack">
+            {% for child in agent_architecture.editor_children %}
+              <li>
+                <strong>{{ child.label }}</strong>
+                <br>{{ 'Scope:'|t }} {{ child.scope }}
+                <br>{{ 'Tools:'|t }} {{ child.tool_count }}
+              </li>
+            {% endfor %}
+          </ol>
+          <p>{{ 'Sibling editor agents delegate to the editor that owns the data. Storyline does not directly edit Dungeon or Room state; Dungeon delegates missing or changed rooms to the Room GM.'|t }}</p>
+        </article>
+      </div>
+
+      <div class="col-12 col-xl-3">
+        <article class="dc-architecture__card h-100">
+          <h4>{{ 'Runtime GM hierarchy'|t }}</h4>
+          <p><code>runtime_gm_actor</code> &rarr; {{ 'scope:'|t }} <code>{{ agent_architecture.runtime.scope }}</code></p>
+          <ol class="dc-architecture__stack">
+            <li><strong>{{ 'Campaign GM / narrator'|t }}</strong><br>{{ 'Owns room narration and privileged campaign coordination.'|t }}</li>
+            <li><strong>{{ 'NPC dialogue and tactics'|t }}</strong><br>{{ 'Runtime workflows beneath the GM boundary; not separate registered harnesses.'|t }}</li>
+            <li><strong>{{ 'GM action tools'|t }}</strong><br>{{ 'Privileged tool count:'|t }} {{ agent_architecture.runtime.tool_count }}</li>
+          </ol>
+          <p>{{ 'MCP callers may ask this agent to inspect or adjudicate campaign state. The GM harness still validates the resolved GM actor, campaign, room, and ownership domain before any mutation.'|t }}</p>
+        </article>
+      </div>
+
+      <div class="col-12 col-xl-3">
+        <article class="dc-architecture__card h-100">
+          <h4>{{ 'Player / actor hierarchy'|t }}</h4>
+          <p><code>player_automation_actor</code> &rarr; {{ 'scope:'|t }} <code>{{ agent_architecture.player.scope }}</code></p>
+          <ol class="dc-architecture__stack">
+            <li><strong>{{ 'Player automation actor'|t }}</strong><br>{{ 'Chooses one scoped gameplay action from'|t }} {{ agent_architecture.player.action_count }} {{ 'supported action types.'|t }}</li>
+            <li><strong>{{ 'NPC actor workflow'|t }}</strong><br>{{ 'Uses its actor/room context; cannot inherit player identity or GM privileges.'|t }}</li>
+            <li><strong>{{ 'Burasco QA lane'|t }}</strong><br>{{ 'Automation/testing only; not a campaign participant or registered player harness.'|t }}</li>
+          </ol>
+          <p><strong>{{ 'Hard restriction:'|t }}</strong> {{ 'Actor/player agents may send a request to the runtime GM and may use shared read/feedback services, but they never receive GM privileged tools, editor tools, campaign database mutation tools, or publication authority.'|t }}</p>
+        </article>
+      </div>
+    </div>
+
+    <h4 class="mt-4">{{ 'Registered harness summary'|t }}</h4>
+    <div class="table-responsive">
+      <table class="table table-sm table-striped align-middle">
+        <thead>
           <tr>
-            <td>{{ feature.feature_id }}</td>
-            <td>{{ feature.status }}</td>
-            <td>{{ feature.priority }}</td>
-            <td>{{ feature.release }}</td>
-            <td>{{ feature.acceptance }}</td>
-            <td>{{ feature.implementation }}</td>
+            <th>{{ 'Agent ID'|t }}</th>
+            <th>{{ 'Label'|t }}</th>
+            <th>{{ 'Scope'|t }}</th>
+            <th>{{ 'Default profile'|t }}</th>
           </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {% for harness in agent_architecture.harnesses %}
+            <tr>
+              <td><code>{{ harness.agent_id }}</code></td>
+              <td>{{ harness.label }}</td>
+              <td><code>{{ harness.scope }}</code></td>
+              <td><code>{{ harness.profile }}</code></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <h4 class="mt-4">{{ 'Live MCP communication rules'|t }}</h4>
+    <ol>
+      <li>{{ 'Request envelopes carry caller agent ID, target agent ID, campaign or draft ID, purpose, correlation ID, and the smallest required context.'|t }}</li>
+      <li>{{ 'The broker authenticates the caller and confirms the target scope before exposing a capability manifest.'|t }}</li>
+      <li>{{ 'A request grants no inherited tool permissions. The target agent selects only its own registered tools and re-runs authority validation.'|t }}</li>
+      <li>{{ 'Editor-to-editor delegation returns a structured result and owning-editor route; it does not transfer draft write authority.'|t }}</li>
+      <li>{{ 'Actor/player to GM communication is request/response only. GM decisions may call runtime tools; the caller never receives those tools or secrets.'|t }}</li>
+      <li>{{ 'Responses include agent, scope, tool calls, resulting receipt, and errors. Raw prompts, credentials, provider tokens, and unrelated campaign data are never forwarded.'|t }}</li>
+    </ol>
+  </section>
+  </div>
+
+  <div class="tab-pane" id="architecture-panel-objects" role="tabpanel" aria-labelledby="architecture-tab-objects" tabindex="0">
+    <section class="dc-architecture__section" id="data-objects">
+      <h3>{{ 'Data objects'|t }}</h3>
+      <p>{{ 'Management links may require sign-in. Tools marked admin require additional permissions.'|t }}</p>
+      <p>{{ 'DungeonCrawler separates reusable definitions, editor drafts, published versions, and live campaign objects. A published room describes reusable geometry and placements; a campaign room tracks what happened in that campaign. Changes during play do not edit the source room.'|t }}</p>
+      <div class="row row-cols-1 row-cols-md-2 g-3">
+        <div class="col d-flex">
+          <article class="dc-architecture__card w-100">
+            <h4>{{ 'World and navigation'|t }}</h4>
+            <p>{{ 'Locations and dungeons organize the world. Dungeons place and link rooms; rooms define hexes, terrain, ports, and object placements. Campaign room and connection state track what is present, reachable, or changed during play.'|t }}</p>
+            <ul class="dc-architecture__links">
+              <li><a href="{{ path('dungeoncrawler_content.dungeon_management') }}">{{ 'Dungeon Manager'|t }}</a></li>
+              <li><a href="{{ path('dungeoncrawler_content.room_management') }}">{{ 'Room Manager'|t }}</a></li>
+            </ul>
+          </article>
+        </div>
+        <div class="col d-flex">
+          <article class="dc-architecture__card w-100">
+            <h4>{{ 'Actors, parties, and encounters'|t }}</h4>
+            <p>{{ 'Character sheets and actor definitions describe players, NPCs, and creatures. Campaign actor records track participation and runtime state. Encounter records track participants, turns, and combat state; effects record temporary changes.'|t }}</p>
+            <ul class="dc-architecture__links">
+              <li><a href="{{ path('dungeoncrawler_content.characters_roster') }}">{{ 'My Characters'|t }}</a></li>
+              <li><a href="{{ path('dungeoncrawler_content.definition_family', {'family': 'actor'}) }}">{{ 'Actor definitions'|t }}</a></li>
+              <li><a href="{{ path('dungeoncrawler_content.campaigns') }}">{{ 'My Campaigns'|t }}</a></li>
+            </ul>
+          </article>
+        </div>
+        <div class="col d-flex">
+          <article class="dc-architecture__card w-100">
+            <h4>{{ 'Items and placeable objects'|t }}</h4>
+            <p>{{ 'The library defines reusable equipment, items, obstacles, traps, and hazards. Placements reference definitions; campaign item instances and inventories track the actual copies players can carry, use, or trade.'|t }}</p>
+            <ul class="dc-architecture__links">
+              <li><a href="{{ path('dungeoncrawler_content.definition_family', {'family': 'item'}) }}">{{ 'Item definitions'|t }}</a></li>
+              <li><a href="{{ path('dungeoncrawler_content.definition_family', {'family': 'obstacle'}) }}">{{ 'Obstacle definitions'|t }}</a></li>
+              <li><a href="{{ path('dungeoncrawler_content.definition_family', {'family': 'trap'}) }}">{{ 'Trap definitions'|t }}</a></li>
+              <li><a href="{{ path('dungeoncrawler_content.definition_family', {'family': 'hazard'}) }}">{{ 'Hazard definitions'|t }}</a></li>
+            </ul>
+          </article>
+        </div>
+        <div class="col d-flex">
+          <article class="dc-architecture__card w-100">
+            <h4>{{ 'Storylines, quests, and relationships'|t }}</h4>
+            <p>{{ 'Storylines define scenes, the starting cast, objectives, and choices. Campaign quest records track progress and outcomes. Institution and relationship objects track affiliations, memberships, and attitudes.'|t }}</p>
+            <ul class="dc-architecture__links">
+              <li><a href="{{ path('dungeoncrawler_content.storyline_management') }}">{{ 'Storyline Manager'|t }}</a></li>
+              <li><a href="{{ path('dungeoncrawler_content.institution_review_browser') }}">{{ 'Institution Review Queue (admin)'|t }}</a></li>
+            </ul>
+          </article>
+        </div>
+        <div class="col d-flex">
+          <article class="dc-architecture__card w-100">
+            <h4>{{ 'Drafts, commands, and versions'|t }}</h4>
+            <p>{{ 'The editors save draft revisions and changes before publication. Versioned room and dungeon records describe published content; editor commands and validation are separate from runtime events.'|t }}</p>
+            <ul class="dc-architecture__links">
+              <li><a href="{{ path('dungeoncrawler_content.dungeon_editor') }}">{{ 'Dungeon Editor'|t }}</a></li>
+              <li><a href="{{ path('dungeoncrawler_content.room_editor') }}">{{ 'Room Editor'|t }}</a></li>
+              <li><a href="{{ path('dungeoncrawler_content.storyline_management') }}">{{ 'Storyline drafts'|t }}</a></li>
+            </ul>
+          </article>
+        </div>
+        <div class="col d-flex">
+          <article class="dc-architecture__card w-100">
+            <h4>{{ 'Events, conversation, and media'|t }}</h4>
+            <p>{{ 'Game events, chat sessions, and messages record what happened or was said; they do not replace authoritative state. MySQL stores file metadata and links, while Drupal file storage holds artifacts such as portraits and room images.'|t }}</p>
+            <ul class="dc-architecture__links">
+              <li><a href="{{ path('dungeoncrawler_content.campaigns') }}">{{ 'My Campaigns (in-game chat and events)'|t }}</a></li>
+              <li><a href="{{ path('dungeoncrawler_content.generated_image_browser') }}">{{ 'Generated Images (admin)'|t }}</a></li>
+            </ul>
+          </article>
+        </div>
+      </div>
+      <ul class="dc-architecture__links">
+        <li><a href="{{ path('dungeoncrawler_content.data_lineage_architecture') }}">{{ 'Data lineage'|t }}</a></li>
+        <li><a href="{{ path('dungeoncrawler_content.definition_index') }}">{{ 'Definition library'|t }}</a></li>
+        <li><a href="{{ path('dungeoncrawler_content.game_objects') }}">{{ 'Game Object Manager (admin)'|t }}</a></li>
+      </ul>
+    </section>
+  </div>
+  </div>
+
+  <details class="dc-architecture__section">
+    <summary>{{ 'Engineering review: inventory, gaps, and cleanup candidates'|t }}</summary>
+    <div class="d-flex flex-column gap-3 mt-3">
+  <section class="dc-architecture__section" id="module-inventory">
+    <h3>{{ 'Module inventory'|t }}</h3>
+    <p>{{ 'The reviewed repository snapshot contained 2,855 tracked paths. The root defines the Drupal module and links to subsystem designs. Source, configuration, content, and local tooling serve different purposes:'|t }}</p>
+    <ul>
+      <li><code>src/</code>, <code>config/</code> &mdash; {{ 'Server services, controllers, command and access boundaries, schemas, and defaults.'|t }}</li>
+      <li><code>js/</code>, <code>css/</code>, <code>templates/</code> &mdash; {{ 'The game and editor browser interfaces.'|t }}</li>
+      <li><code>content/</code>, <code>images/</code>, <code>characters/</code>, <code>screenshots/</code> &mdash; {{ 'Bundled content, input examples, and reference assets.'|t }}</li>
+      <li><code>tests/</code>, <code>scripts/</code>, <code>tools/</code> &mdash; {{ 'Checks, deployment and QA support, imports, and migration utilities.'|t }}</li>
+      <li><code>docs/</code>, <code>.github/</code>, <code>tmp/</code> &mdash; {{ 'Design and contributor guidance, issue templates, and retained analysis artifacts.'|t }}</li>
+    </ul>
   </section>
 
+  <section class="dc-architecture__section" id="future-state">
+    <h3>{{ 'Future state and gaps'|t }}</h3>
+    <p>{{ 'These are review findings and proposed exit checks, not features already shipped.'|t }}</p>
+    <dl>
+      <dt>{{ 'Actions across UI, chat, and automation'|t }}</dt>
+      <dd>{{ 'The channels have distinct ingress and state paths. Trace each action to its validator, executor, and mutation receipt, then converge on one authoritative executor per action. Verify that replay or duplicate delivery does not apply it twice.'|t }}</dd>
+      <dt>{{ 'One authority for an actor’s current room'|t }}</dt>
+      <dd>{{ 'Authored starting location, campaign actor location, runtime room, and encounter position represent different or overlapping facts. Establish one live room writer and confirm movement, escort, and reconnect cannot disagree or reset an actor.'|t }}</dd>
+      <dt>{{ 'Placement and movement agree'|t }}</dt>
+      <dd>{{ 'The terrain passability helper does not inspect placed objects, while the editor and map represent object blocking. Verify normal and forced movement against one occupancy rule, including ports and obstacles.'|t }}</dd>
+      <dt>{{ 'Published dungeon authority'|t }}</dt>
+      <dd>{{ 'Storyline room binding still reads canonical dungeon row data. Reconcile existing sites without published versions, then validate against the published contract without disrupting supported campaigns.'|t }}</dd>
+      <dt>{{ 'Resumable authoring and observable operations'|t }}</dt>
+      <dd>{{ 'Extend revision-safe saved work from Storyline to Dungeon and Room. Distinguish model budget failures from invalid tool calls, and verify that revision reporting and backup restores cover both database rows and stored media.'|t }}</dd>
+    </dl>
+  </section>
+
+  <section class="dc-architecture__section" id="retirement-candidates">
+    <h3>{{ 'Cleanup candidates'|t }}</h3>
+    <p>{{ 'These paths are flagged for review, not approved for deletion.'|t }}</p>
+    <ul>
+      <li><strong>{{ 'Strong candidates:'|t }}</strong> <code>.phpunit.result.cache</code>, <code>hexmap:review</code> {{ '(missing entry file), superseded reports such as the old Pathbuilder analysis, and adjacent-product documentation under'|t }} <code>docs/jobhunter/</code>.</li>
+      <li><strong>{{ 'Check consumers first:'|t }}</strong> <code>js/hexmap-entry.js</code>, <code>src/Service/ActionProcessor.php</code>, <code>scripts/systemd/</code>, {{ 'and tracked analysis artifacts under'|t }} <code>tmp/</code>. {{ 'Preserve active reads, tests, and audit evidence.'|t }}</li>
+      <li><strong>{{ 'Retain:'|t }}</strong> {{ 'Shared map components, actor-authority checks, module conversion tools, and compatibility adapters with known callers.'|t }}</li>
+    </ul>
+  </section>
+    </div>
+  </details>
+
+  <details class="dc-architecture__section">
+    <summary>{{ 'Live Feature Index (HQ Sync)'|t }}</summary>
+    <div class="table-responsive">
+      <table class="dc-architecture__table">
+        <thead>
+          <tr>
+            <th scope="col">{{ 'Feature ID'|t }}</th>
+            <th scope="col">{{ 'Status'|t }}</th>
+            <th scope="col">{{ 'Priority'|t }}</th>
+            <th scope="col">{{ 'Release'|t }}</th>
+            <th scope="col">{{ 'Acceptance Criteria'|t }}</th>
+            <th scope="col">{{ 'Implementation Notes'|t }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for feature in feature_index %}
+            <tr>
+              <td>{{ feature.feature_id }}</td>
+              <td>{{ feature.status }}</td>
+              <td>{{ feature.priority }}</td>
+              <td>{{ feature.release }}</td>
+              <td>{{ feature.acceptance }}</td>
+              <td>{{ feature.implementation }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
 </div>
