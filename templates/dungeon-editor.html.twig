@@ -104,6 +104,18 @@
           </div>
         </header>
 
+        <section class="room-editor__place-preview" data-dungeon-editor-place-preview aria-label="{{ 'Dungeon image'|t }}">
+          <div class="room-editor__place-image">
+            <img data-dungeon-editor-place-image alt="{{ 'Dungeon preview'|t }}" hidden>
+            <span data-dungeon-editor-place-placeholder>{{ 'No dungeon image generated yet.'|t }}</span>
+          </div>
+          <div class="room-editor__place-preview-actions">
+            <h3>{{ 'Dungeon view'|t }}</h3>
+            <p data-dungeon-editor-place-status aria-live="polite">{{ 'Generate an overview image for this dungeon.'|t }}</p>
+            <button type="button" class="room-editor__button room-editor__button--primary" data-dungeon-editor-action="place-image">{{ 'Generate / Regenerate image'|t }}</button>
+          </div>
+        </section>
+
         <div class="game-shell__workspace room-editor__workspace room-editor__workspace--stacked" data-dungeon-editor-workspace>
 
           <aside id="dungeon-editor-author-drawer"
@@ -202,7 +214,7 @@
                   { symbol: 'hex', fill: '#446998', line: '#60a5fa', label: 'A room'|t },
                   { symbol: 'hex', fill: '#307d6c', line: '#34d399', label: 'Another room (each has its own colour)'|t },
                   { symbol: 'badge', fill: '#0f172a', line: '#60a5fa', text: 'Name', label: 'Room name'|t },
-                  { symbol: 'hex', fill: '#dc2626', line: '#fecaca', label: 'Two rooms overlap here'|t }
+                  { symbol: 'hex', fill: '#dc2626', line: '#fecaca', label: 'Two rooms overlap here (a room on the district street is fine)'|t }
                 ] },
                 { title: 'Doorways'|t, items: [
                   { symbol: 'dot', fill: '#38bdf8', line: '#38bdf8', label: 'Entry port'|t },

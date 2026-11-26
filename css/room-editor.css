@@ -24,6 +24,56 @@
   margin-bottom: var(--space-4, 16px);
 }
 
+.room-editor__place-preview {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin: 0.75rem 0 1rem;
+  padding: 0.75rem;
+  border: 1px solid #334155;
+  border-radius: 12px;
+  background: #0f172a;
+}
+
+.room-editor__place-image {
+  display: grid;
+  place-items: center;
+  width: 10rem;
+  height: 6rem;
+  overflow: hidden;
+  border: 1px dashed #64748b;
+  border-radius: 8px;
+  background: #111827;
+  color: #94a3b8;
+  flex: 0 0 auto;
+}
+
+.room-editor__place-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.room-editor__place-preview-actions {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.room-editor__place-preview-actions h3,
+.room-editor__place-preview-actions p {
+  margin: 0;
+}
+
+@media (max-width: 700px) {
+  .room-editor__place-preview {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .room-editor__place-image {
+    width: 100%;
+  }
+}
+
 .room-editor__header-row {
   display: flex;
   flex-wrap: wrap;

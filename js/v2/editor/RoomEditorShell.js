@@ -49,7 +49,7 @@ import {
   selectEditorGmTool,
   shouldSubmitEditorGmKey,
 } from './EditorGmChatClient.js?v=20261119-room-unfreeze-1';
-import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261119-room-unfreeze-1';
+import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261124-warning-review-1';
 
 const FAMILIES = ['actor', 'item', 'obstacle', 'trap', 'hazard'];
 const SOLID_FAMILIES = ['actor', 'obstacle'];
@@ -65,7 +65,7 @@ const FAMILY_COLORS = {
 const TERRAIN_TYPES = [
   'stone_floor', 'rough_stone', 'smooth_stone', 'dirt', 'mud', 'sand',
   'water_shallow', 'water_deep', 'ice', 'lava', 'fungal_growth', 'bone',
-  'crystal', 'metal_grate', 'wooden_floor', 'carpet', 'rubble', 'void',
+  'crystal', 'metal_grate', 'wooden_floor', 'carpet', 'rubble', 'void', 'wall',
 ];
 
 const LIGHTING_LEVELS = ['bright_light', 'dim_light', 'darkness', 'magical_darkness'];
@@ -75,7 +75,7 @@ const ROOM_TYPES = [
   'workshop', 'library', 'prison', 'throne_room', 'armory', 'pantry', 'garden',
   'pool', 'mine', 'crypt', 'laboratory', 'barracks', 'marketplace', 'arena',
   'boss_chamber', 'entrance', 'exit', 'stairwell', 'crossroads', 'dead_end',
-  'trap_room', 'puzzle_room', 'vault_room', 'safe_room',
+  'trap_room', 'puzzle_room', 'vault_room', 'safe_room', 'street',
 ];
 
 const SIZE_CATEGORIES = ['tiny', 'small', 'medium', 'large', 'huge', 'gargantuan'];
@@ -338,6 +338,11 @@ export class RoomEditorShell {
     const q = (selector) => this.container.querySelector(selector);
     this._dom = {
       status: q('[data-room-editor-status]'),
+      placePreview: q('[data-room-editor-place-preview]'),
+      placeImage: q('[data-room-editor-place-image]'),
+      placePlaceholder: q('[data-room-editor-place-placeholder]'),
+      placeStatus: q('[data-room-editor-place-status]'),
+      placeImageBtn: q('[data-room-editor-action="place-image"]'),
       roomSelect: q('[data-room-editor-room-select]'),
       undoBtn: q('[data-room-editor-action="undo"]'),
       selectionBar: q('[data-room-editor-selection-bar]'),
@@ -403,6 +408,7 @@ export class RoomEditorShell {
   }
 
   _bindHeaderEvents() {
+    this._dom.placeImageBtn?.addEventListener('click', () => this._refreshPlaceImage(true));
     this._dom.newRoomBtn?.addEventListener('click', () => this.createNewRoom());
     this._dom.loadRoomBtn?.addEventListener('click', () => {
       const roomId = this._dom.roomSelect?.value || '';
@@ -1578,6 +1584,7 @@ export class RoomEditorShell {
       transition: { id: uuidv4() },
     });
     this.hexCanvas?.resizeToContainer();
+    this._refreshPlaceImage();
     this._fitRoomToView();
     if (this.selection?.type === 'hex') {
       this.hexCanvas?.renderMovementBandOverlay({
@@ -1589,6 +1596,48 @@ export class RoomEditorShell {
       this._setStatus(statusMessage, 'success');
     }
     this._refreshGmContext();
+  }
+
+  async _refreshPlaceImage(generate = false) {
+    const image = this._dom.placeImage;
+    const placeholder = this._dom.placePlaceholder;
+    const status = this._dom.placeStatus;
+    const button = this._dom.placeImageBtn;
+    if (!this.draft?.draft_id || !this.urls.placeImage) {
+      if (image) image.hidden = true;
+      if (placeholder) placeholder.hidden = false;
+      return;
+    }
+    button.disabled = generate;
+    if (generate) {
+      button.textContent = 'Waiting on image provider…';
+      status.textContent = 'Generating the room view…';
+    }
+    try {
+      const response = generate
+        ? await this._postJson(this._urlFor('placeImage', this.draft.draft_id), {})
+        : await this._getJson(this._urlFor('placeImage', this.draft.draft_id));
+      const url = String(response?.data?.preview_url || '');
+      if (image && url) {
+        image.src = url;
+        image.hidden = false;
+        placeholder.hidden = true;
+        status.textContent = generate ? 'Room image generated and saved.' : 'Current room image.';
+        button.textContent = 'Regenerate image';
+      } else {
+        if (image) image.hidden = true;
+        if (placeholder) placeholder.hidden = false;
+        status.textContent = 'Generate an establishing image for this room.';
+        button.textContent = 'Generate image';
+      }
+    } catch (error) {
+      status.textContent = `Room image failed: ${error.message}`;
+    } finally {
+      button.disabled = false;
+      if (generate && button.textContent === 'Waiting on image provider…') {
+        button.textContent = 'Generate / Regenerate image';
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------

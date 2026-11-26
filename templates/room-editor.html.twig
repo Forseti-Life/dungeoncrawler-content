@@ -113,6 +113,18 @@
           </div>
         </header>
 
+        <section class="room-editor__place-preview" data-room-editor-place-preview aria-label="{{ 'Room image'|t }}">
+          <div class="room-editor__place-image">
+            <img data-room-editor-place-image alt="{{ 'Room preview'|t }}" hidden>
+            <span data-room-editor-place-placeholder>{{ 'No room image generated yet.'|t }}</span>
+          </div>
+          <div class="room-editor__place-preview-actions">
+            <h3>{{ 'Room view'|t }}</h3>
+            <p data-room-editor-place-status aria-live="polite">{{ 'Generate an establishing image for this room.'|t }}</p>
+            <button type="button" class="room-editor__button room-editor__button--primary" data-room-editor-action="place-image">{{ 'Generate / Regenerate image'|t }}</button>
+          </div>
+        </section>
+
         <div class="game-shell__workspace room-editor__workspace room-editor__workspace--stacked" data-room-editor-workspace>
 
           <aside id="room-editor-author-drawer"

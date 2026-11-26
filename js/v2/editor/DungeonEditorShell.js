@@ -45,7 +45,7 @@ import {
   selectEditorGmTool,
   shouldSubmitEditorGmKey,
 } from './EditorGmChatClient.js?v=20261119-room-unfreeze-1';
-import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261119-room-unfreeze-1';
+import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261124-warning-review-1';
 
 const transform = globalThis.DungeonCrawlerPlacementTransform;
 if (!transform) {
@@ -188,7 +188,10 @@ export class DungeonEditorShell {
     this._loadRoomLibrary();
 
     const initialDungeonId = this.settings.selectedDungeonId || null;
-    if (initialDungeonId) {
+    const initialDraftId = new URLSearchParams(window.location.search).get('draft_id');
+    if (initialDraftId) {
+      this._createOrLoadDraft(null, initialDraftId);
+    } else if (initialDungeonId) {
       this.loadDungeon(initialDungeonId);
     } else {
       this._setStatus('Select a dungeon to view, or start a new one.', 'info');
@@ -385,6 +388,10 @@ export class DungeonEditorShell {
     const q = (selector) => root.querySelector(selector);
     this._dom = {
       status: q('[data-dungeon-editor-status]'),
+      placeImage: q('[data-dungeon-editor-place-image]'),
+      placePlaceholder: q('[data-dungeon-editor-place-placeholder]'),
+      placeStatus: q('[data-dungeon-editor-place-status]'),
+      placeImageBtn: q('[data-dungeon-editor-action="place-image"]'),
       revision: q('[data-dungeon-editor-revision]'),
       dungeonSelect: q('[data-dungeon-editor-dungeon-select]'),
       loadBtn: q('[data-dungeon-editor-action="load-dungeon"]'),
@@ -442,6 +449,7 @@ export class DungeonEditorShell {
   }
 
   _bindHeaderEvents() {
+    this._dom.placeImageBtn?.addEventListener('click', () => this._refreshPlaceImage(true));
     this._dom.dungeonSelect?.addEventListener('change', () => this._syncDungeonLoadState());
     this._dom.loadBtn?.addEventListener('click', () => {
       const id = this._dom.dungeonSelect?.value || '';
@@ -633,6 +641,17 @@ export class DungeonEditorShell {
     }
   }
 
+  /**
+   * True for the one street room of a district dungeon, which is fixed.
+   */
+  _isDistrictStreet(placementId) {
+    if (this.model?.kind !== 'district') {
+      return false;
+    }
+    const placement = (this.model.placements || []).find((p) => p.placement_id === placementId);
+    return placement?.room?.room_type === 'street';
+  }
+
   _selectedPlacement() {
     return (this.model?.placements || []).find((p) => p.placement_id === this.selectedPlacementId) || null;
   }
@@ -752,7 +771,7 @@ export class DungeonEditorShell {
     const own = drag.kind === 'move' ? drag.placementId : null;
     const valid = hexes.every((hex) => {
       const claimants = occupancy[transform.hexKey(hex)];
-      return !Array.isArray(claimants) || claimants.every((id) => id === own);
+      return !Array.isArray(claimants) || claimants.every((id) => id === own || this._isDistrictStreet(id));
     });
     return { hexes, valid };
   }
@@ -930,10 +949,15 @@ export class DungeonEditorShell {
     if (!Array.isArray(claimants) || !claimants.length) {
       return;
     }
-    const placementId = claimants.includes(this.selectedPlacementId) ? this.selectedPlacementId : claimants[0];
+    // A district street lies under its buildings: a click picks the building
+    // on top, and the street only when nothing else covers the hex.
+    const buildings = claimants.filter((id) => !this._isDistrictStreet(id));
+    const pickable = buildings.length ? buildings : claimants;
+    const placementId = pickable.includes(this.selectedPlacementId) ? this.selectedPlacementId : pickable[0];
     this._selectPlacement(placementId);
     const placement = this._selectedPlacement();
-    if (button !== 0 || this._busy || !placement?.resolved || this._drag) {
+    // The street is the ground the buildings stand on; it never moves.
+    if (button !== 0 || this._busy || !placement?.resolved || this._drag || this._isDistrictStreet(placement.placement_id)) {
       return;
     }
     // Anchor = the grabbed hex in room-local space, so it tracks the cursor.
@@ -1026,8 +1050,24 @@ export class DungeonEditorShell {
       placements,
       ports,
       links,
-      occupancy: this.model.occupancy || {},
+      occupancy: this._conflictOccupancy(),
     });
+  }
+
+  /**
+   * Occupancy as the canvas should flag it: the street is ground a building
+   * overlays by design, so it never counts as a claim in a district.
+   */
+  _conflictOccupancy() {
+    const occupancy = this.model.occupancy || {};
+    if (this.model.kind !== 'district') {
+      return occupancy;
+    }
+    const out = {};
+    Object.entries(occupancy).forEach(([key, ids]) => {
+      out[key] = ids.filter((id) => !this._isDistrictStreet(id));
+    });
+    return out;
   }
 
   _fitMapToView() {
@@ -1071,27 +1111,63 @@ export class DungeonEditorShell {
   // Draft lifecycle
   // ---------------------------------------------------------------------------
 
-  async _createOrLoadDraft(dungeonId) {
+  async _createOrLoadDraft(dungeonId, draftId = null) {
     if (this._busy) {
       return;
     }
     this._setBusy(true);
-    this._setStatus(dungeonId ? `Loading ${dungeonId}...` : 'Creating a new dungeon draft...', 'info');
+    this._setStatus(draftId ? 'Loading dungeon draft...' : dungeonId ? `Loading ${dungeonId}...` : 'Creating a new dungeon draft...', 'info');
     try {
-      const response = await this._postJson(this.urls.create, dungeonId ? { dungeon_id: dungeonId } : {});
+      const response = draftId
+        ? await this._getJson(this.urls.draft.replace('{draft_id}', encodeURIComponent(draftId)))
+        : await this._postJson(this.urls.create, dungeonId ? { dungeon_id: dungeonId } : {});
       this.draft = response.data;
       this._history = [];
       this._redoStack = [];
       await this.refresh();
+      await this._refreshPlaceImage();
       this._setStatus(
         `${this.model.name} - revision ${this.model.revision}, ${this.model.placements.length} placement(s).`,
         'info',
       );
     } catch (err) {
-      this._showError(err, dungeonId ? `Could not load ${dungeonId}` : 'Could not create draft');
+      this._showError(err, draftId ? 'Could not load dungeon draft' : dungeonId ? `Could not load ${dungeonId}` : 'Could not create draft');
       this._syncDungeonLoadState();
     } finally {
       this._setBusy(false);
+    }
+  }
+
+  async _refreshPlaceImage(generate = false) {
+    const button = this._dom.placeImageBtn;
+    const status = this._dom.placeStatus;
+    if (!this.draft?.draft_id || !this.urls.placeImage) return;
+    if (button) {
+      button.disabled = generate;
+      if (generate) button.textContent = 'Waiting on image provider…';
+    }
+    try {
+      const url = this.urls.placeImage.replace('{draft_id}', encodeURIComponent(this.draft.draft_id));
+      const response = generate
+        ? await this._postJson(url, {})
+        : await this._getJson(url);
+      const previewUrl = String(response?.data?.preview_url || '');
+      if (previewUrl && this._dom.placeImage) {
+        this._dom.placeImage.src = previewUrl;
+        this._dom.placeImage.hidden = false;
+        if (this._dom.placePlaceholder) this._dom.placePlaceholder.hidden = true;
+        if (status) status.textContent = generate ? 'Dungeon image generated and saved.' : 'Current dungeon image.';
+        if (button) button.textContent = 'Regenerate image';
+      } else {
+        if (this._dom.placeImage) this._dom.placeImage.hidden = true;
+        if (this._dom.placePlaceholder) this._dom.placePlaceholder.hidden = false;
+        if (status) status.textContent = 'Generate an overview image for this dungeon.';
+        if (button) button.textContent = 'Generate image';
+      }
+    } catch (error) {
+      if (status) status.textContent = `Dungeon image failed: ${error.message}`;
+    } finally {
+      if (button) button.disabled = false;
     }
   }
 
