@@ -115,6 +115,42 @@ class StorylineValidationTroubleshootingGuideTest extends UnitTestCase {
     $this->assertFalse($packet['code_change_required']);
   }
 
+  public function testActorHomeWarningUsesDraftAffiliationResolver(): void {
+    $warning = '3 of 6 cast members lack a home: a kin group or a place: Celia.';
+    $packet = StorylineValidationTroubleshootingGuide::packet([
+      'objects' => [
+        'actors' => ['generation_specs' => [[
+          'actor_id' => 'celia',
+          'display_name' => 'Celia',
+          'location_id' => 'absalom',
+        ]]],
+        'institutions' => [[
+          'institution_id' => 'absalom',
+          'domain' => 'place',
+          'name' => 'Absalom',
+        ]],
+      ],
+    ], [
+      'stages' => [[
+        'stage' => 'actor_character_sheets',
+        'route' => 'draft_operation',
+        'warnings' => [$warning],
+        'findings' => [[
+          'severity' => 'warning',
+          'code' => 'actor_home_missing',
+          'message' => $warning,
+          'entity_type' => 'storyline_actor_home',
+          'entity_ids' => ['celia'],
+          'actors' => [['actor_id' => 'celia', 'display_name' => 'Celia']],
+        ]],
+      ]],
+    ], ['first_open_warning' => $warning]);
+    $this->assertSame('storyline_actor_home', $packet['resolver']);
+    $this->assertSame(['affiliations'], $packet['editable']['fields']);
+    $this->assertFalse($packet['code_change_required']);
+    $this->assertSame('Absalom', $packet['evidence']['available_institutions'][0]['name']);
+  }
+
   public function testBlockingObjectiveErrorPrecedesWarningsAndProvidesAReplacement(): void {
     $error = "Objective 'collect_resonance_samples' has type 'interact' but sets 'item', which that type does not use. Use 'target'.";
     $warning = '[DCV_OBJ_PLAYABILITY_MISSING_TARGET_LABEL] quest.other.phase[0].objective[0]: missing label.';

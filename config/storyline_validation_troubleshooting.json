@@ -123,6 +123,12 @@
       "route": "draft_operation",
       "fields": ["location_id"],
       "verification": "same_object"
+    },
+    "actor_home_missing": {
+      "resolver": "storyline_actor_home",
+      "route": "draft_operation",
+      "fields": ["affiliations"],
+      "verification": "same_object"
     }
   },
   "default": {

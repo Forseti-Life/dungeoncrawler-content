@@ -94,6 +94,10 @@ class EditorGmIntentParser {
       ];
     }
     if ($surface_label === 'Storyline Builder' && !isset($context_snapshot['bounded_work_step'])) {
+      if ($registry->has('find_existing_institutions')
+        && ($institution_lookup = $this->groundedInstitutionLookupIntent($utterance, $context_snapshot)) !== NULL) {
+        return $institution_lookup;
+      }
       if ($registry->has('publish_storyline_quest_templates')
         && ($quest_publication = $this->groundedQuestTemplatePublicationIntent($utterance, $context_snapshot)) !== NULL) {
         return $quest_publication;
@@ -393,6 +397,10 @@ STEP;
         'properties' => [
           'focus' => ['type' => 'string', 'enum' => ['status', 'validation_review', 'discussion']],
           'reasoning' => $string('One short sentence.'),
+          'authorizes_changes' => [
+            'type' => 'boolean',
+            'description' => 'Optional provider carry-over. Direct responses never authorize a mutation; the value is ignored.',
+          ],
         ],
       ],
     ];
@@ -625,6 +633,55 @@ STEP;
     return preg_replace('/\s+/u', ' ', trim($normalized)) ?? $normalized;
   }
 
+  private function groundedInstitutionLookupIntent(string $utterance, array $snapshot): ?array {
+    foreach ((array) ($snapshot['lookup_evidence'] ?? []) as $lookup) {
+      if (($lookup['tool'] ?? '') === 'find_existing_institutions') {
+        return NULL;
+      }
+    }
+    $normalized = $this->normalizeGovernanceUtterance($utterance);
+    if (preg_match('/\b(?:institutional library|institution library|institution|town guard|guard)\b/', $normalized) !== 1
+      || preg_match('/\b(?:look through|look in|search|find|which|what|sensible|makes sense|attachment)\b/', $normalized) !== 1) {
+      return NULL;
+    }
+    $has_guard = str_contains($normalized, 'guard');
+    $has_absalom = str_contains($normalized, 'absalom');
+    if (!$has_guard && !$has_absalom) {
+      return NULL;
+    }
+    $tasks = [];
+    if ($has_guard) {
+      $tasks[] = [
+        'tool_name' => 'find_existing_institutions',
+        'arguments' => ['search' => 'guard', 'domain' => 'organization', 'limit' => 25],
+        'reasoning' => 'Find an existing guard or watch organization in the institution library.',
+      ];
+    }
+    if ($has_absalom) {
+      $tasks[] = [
+        'tool_name' => 'find_existing_institutions',
+        'arguments' => ['search' => 'Absalom', 'domain' => 'place', 'limit' => 25],
+        'reasoning' => 'Find the canonical Absalom place needed for the actor home tie.',
+      ];
+    }
+    if (count($tasks) === 1) {
+      return [
+        'type' => 'tool_call',
+        'tool_name' => $tasks[0]['tool_name'],
+        'arguments' => $tasks[0]['arguments'],
+        'reasoning' => $tasks[0]['reasoning'],
+        'next_steps' => [],
+      ];
+    }
+    return [
+      'type' => 'task_queue',
+      'tasks' => $tasks,
+      'reasoning' => 'Search guard organizations and the Absalom home place before proposing Celia’s attachment.',
+      'authorizes_changes' => FALSE,
+      'next_steps' => [],
+    ];
+  }
+
   private function isStorylineProposalOnlyRequest(string $utterance): bool {
     $normalized = $this->normalizeGovernanceUtterance(str_replace("\u{2019}", "'", $utterance));
     return preg_match('/\b(?:propose|suggest|recommend|give me|offer)\b/', $normalized) === 1
@@ -779,6 +836,7 @@ STEP;
         'type' => 'direct_response',
         'focus' => $focus,
         'reasoning' => trim((string) ($decoded['reasoning'] ?? '')),
+        'authorizes_changes' => FALSE,
       ];
     }
     if ($type === 'task_queue') {

@@ -435,6 +435,60 @@ class StorylineGmGuidanceTest extends UnitTestCase {
     $this->assertSame('validation_review', $intent['focus']);
   }
 
+  public function testInstitutionLibraryResearchUsesLookupWithoutMutationMetadata(): void {
+    $tool = $this->createMock(\Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolInterface::class);
+    $tool->method('definition')->willReturn(new \Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolDefinition(
+      'find_existing_institutions',
+      'context',
+      'Find institutions.',
+      FALSE,
+      'InstitutionLibraryService',
+      [
+        \Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolDefinition::argument('search', 'string', FALSE, 'Search text.'),
+        \Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolDefinition::argument('domain', 'string', FALSE, 'Institution domain.'),
+        \Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolDefinition::argument('limit', 'integer', FALSE, 'Result limit.'),
+      ],
+    ));
+    $ai = $this->createMock(AIApiService::class);
+    $ai->expects($this->never())->method('invokeModelDirect');
+    $logger = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger->method('get')->willReturn($this->createMock(LoggerChannelInterface::class));
+    $parser = new EditorGmIntentParser($ai, $logger);
+    $result = $parser->parse(
+      'Venture-Captain Celia Arvanxi is part of the town guard in the Absalom town district. Look through the institutional library to see what attachment makes sense.',
+      [],
+      new EditorGmToolRegistry([$tool], [], NULL),
+      'Storyline Builder',
+    );
+    $this->assertSame('task_queue', $result['type']);
+    $this->assertFalse($result['authorizes_changes']);
+    $this->assertSame([
+      ['search' => 'guard', 'domain' => 'organization', 'limit' => 25],
+      ['search' => 'Absalom', 'domain' => 'place', 'limit' => 25],
+    ], array_column($result['tasks'], 'arguments'));
+  }
+
+  public function testDirectResponseToleratesProviderAuthorizationCarryoverButIgnoresIt(): void {
+    $parser = $this->parser([
+      'type' => 'direct_response',
+      'focus' => 'discussion',
+      'reasoning' => 'Answer from evidence.',
+      'authorizes_changes' => TRUE,
+    ], static function (string $prompt, array $options): void {});
+    $registry_tool = $this->createMock(\Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolInterface::class);
+    $registry_tool->method('definition')->willReturn(new \Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolDefinition(
+      'noop', 'context', 'No-op registry anchor.', FALSE, 'test',
+    ));
+    $result = $parser->parse(
+      'What do you recommend?',
+      ['draft' => ['revision' => 57]],
+      new EditorGmToolRegistry([$registry_tool], [], NULL),
+      'Storyline Builder',
+    );
+    $this->assertSame('direct_response', $result['type']);
+    $this->assertFalse($result['authorizes_changes']);
+  }
+
   public function testAcceptedQuestCreationOfferUsesOnlyMissingSavedTasks(): void {
     $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
     $logger_factory->method('get')->willReturn($this->createMock(LoggerChannelInterface::class));

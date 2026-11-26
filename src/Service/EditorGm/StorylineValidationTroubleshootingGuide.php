@@ -91,6 +91,24 @@ final class StorylineValidationTroubleshootingGuide {
       && ($finding['entity_type'] ?? '') === 'storyline_actor_materialization') {
       $packet += self::actorMaterializationPacket($payload, $finding, $entry);
     }
+    if (($entry['resolver'] ?? 'generic') === 'storyline_actor_home') {
+      $packet += [
+        'object' => [
+          'type' => 'storyline_actor_home',
+          'actors' => array_values((array) ($finding['actors'] ?? [])),
+        ],
+        'editable' => [
+          'path' => '/objects/actors/generation_specs',
+          'fields' => ['affiliations'],
+          'tool' => 'plan_storyline_draft_operations',
+        ],
+        'evidence' => [
+          'available_institutions' => array_values((array) ($payload['objects']['institutions'] ?? [])),
+        ],
+        'user_question' => 'Which named actor, and which place or kin institution, should be linked as that actor’s home?',
+        'verification_codes' => ['actor_home_missing'],
+      ];
+    }
     return $packet;
   }
 
@@ -329,14 +347,14 @@ final class StorylineValidationTroubleshootingGuide {
     foreach ($registry['stages'] as $stage => $entry) {
       if (!is_array($entry)
         || !isset($registry['routes'][$entry['route'] ?? ''])
-        || !in_array($entry['resolver'] ?? '', ['generic', 'storyline_quest_objective', 'storyline_actor_materialization', 'editor_route'], TRUE)) {
+        || !in_array($entry['resolver'] ?? '', ['generic', 'storyline_quest_objective', 'storyline_actor_materialization', 'storyline_actor_home', 'editor_route'], TRUE)) {
         throw new \UnexpectedValueException('storyline_validation_troubleshooting_stage_invalid:' . $stage);
       }
     }
     foreach ($registry['findings'] as $code => $entry) {
       if (!is_array($entry)
         || !isset($registry['routes'][$entry['route'] ?? ''])
-        || !in_array($entry['resolver'] ?? '', ['generic', 'storyline_quest_objective', 'storyline_actor_materialization', 'editor_route'], TRUE)) {
+        || !in_array($entry['resolver'] ?? '', ['generic', 'storyline_quest_objective', 'storyline_actor_materialization', 'storyline_actor_home', 'editor_route'], TRUE)) {
         throw new \UnexpectedValueException('storyline_validation_troubleshooting_entry_invalid:' . $code);
       }
     }

@@ -57,6 +57,7 @@ class StorylineAuthoringDraftService {
     'institution_leader_unknown' => 'draft_operation',
     'institution_leader_not_member' => 'draft_operation',
     'institution_seat_unknown' => 'draft_operation',
+    'actor_home_missing' => 'draft_operation',
   ];
   /**
    * Library roles whose characters hand out work to the party.
@@ -1246,11 +1247,12 @@ class StorylineAuthoringDraftService {
       self::institutionFindings($draft['payload'] ?? []),
       self::actorSheetFindings($draft['payload'] ?? []),
     );
+    $home_findings = $this->actorHomeFindings($draft['payload'] ?? []);
     $stages['actor_character_sheets'] = [
       'valid' => $sheet_findings === [],
       'errors' => array_column($sheet_findings, 'message'),
       'warnings' => array_merge($this->questGiverWarnings($draft), $this->actorTieWarnings($draft['payload'] ?? [])),
-      'findings' => $sheet_findings,
+      'findings' => array_merge($sheet_findings, $home_findings),
     ];
     $stages['authored_questline_edges'] = [
       'valid' => TRUE,
@@ -1983,6 +1985,7 @@ class StorylineAuthoringDraftService {
     if (count($cast) < 2) {
       return [];
     }
+
     $related = [];
     foreach ((array) ($payload['objects']['actors']['relationships'] ?? []) as $relationship) {
       $related[(string) ($relationship['source_actor_id'] ?? '')] = TRUE;
@@ -2054,6 +2057,52 @@ class StorylineAuthoringDraftService {
       );
     }
     return $warnings;
+  }
+
+  /**
+   * Structured home-tie finding for the Storyline GM resolver.
+   */
+  private function actorHomeFindings(array $payload): array {
+    $cast = array_values(array_filter((array) ($payload['objects']['actors']['generation_specs'] ?? []), 'is_array'));
+    $institutions = array_column(
+      array_filter((array) ($payload['objects']['institutions'] ?? []), 'is_array'),
+      NULL,
+      'institution_id',
+    );
+    $lacking = [];
+    foreach ($cast as $member) {
+      if (!InstitutionLibraryService::isSocialActor($member)) {
+        continue;
+      }
+      $domains = array_column($this->castMemberships($member, $institutions), 'domain');
+      if (!in_array('home', InstitutionLibraryService::criticalTieGaps($member, $domains), TRUE)) {
+        continue;
+      }
+      $actor_id = trim((string) ($member['actor_id'] ?? ''));
+      if ($actor_id !== '') {
+        $lacking[] = [
+          'actor_id' => $actor_id,
+          'display_name' => trim((string) ($member['display_name'] ?? $actor_id)),
+        ];
+      }
+    }
+    if ($lacking === []) {
+      return [];
+    }
+    return [[
+      'severity' => 'warning',
+      'code' => 'actor_home_missing',
+      'message' => sprintf(
+        '%d of %d cast members lack a home: a kin group or a place: %s. Tie each one to its kin (clan, house, family) or to the place it lives; a state then follows from the place.',
+        count($lacking),
+        count($cast),
+        implode(', ', array_column($lacking, 'display_name')),
+      ),
+      'entity_type' => 'storyline_actor_home',
+      'entity_ids' => array_column($lacking, 'actor_id'),
+      'actors' => $lacking,
+      'route' => 'draft_operation',
+    ]];
   }
 
   /**
