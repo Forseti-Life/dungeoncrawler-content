@@ -60,6 +60,29 @@ const PLACEMENT_TINTS = [
   0x60a5fa, 0x34d399, 0xfbbf24, 0xf472b6, 0xa78bfa, 0xfb923c, 0x2dd4bf, 0xe879f9,
 ];
 
+function placementTint(index, count) {
+  if (count <= PLACEMENT_TINTS.length) return PLACEMENT_TINTS[index];
+  const hue = ((index * 137.508) + 210) % 360;
+  const saturation = 0.68;
+  const lightness = 0.56 + ((index % 3) * 0.04);
+  const chroma = (1 - Math.abs((2 * lightness) - 1)) * saturation;
+  const section = hue / 60;
+  const second = chroma * (1 - Math.abs((section % 2) - 1));
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  if (section < 1) [r, g] = [chroma, second];
+  else if (section < 2) [r, g] = [second, chroma];
+  else if (section < 3) [g, b] = [chroma, second];
+  else if (section < 4) [g, b] = [second, chroma];
+  else if (section < 5) [r, b] = [second, chroma];
+  else [r, b] = [chroma, second];
+  const match = lightness - (chroma / 2);
+  return (Math.round((r + match) * 255) << 16)
+    | (Math.round((g + match) * 255) << 8)
+    | Math.round((b + match) * 255);
+}
+
 function clearElement(el) {
   while (el && el.firstChild) {
     el.removeChild(el.firstChild);
@@ -389,6 +412,7 @@ export class DungeonEditorShell {
     this._dom = {
       status: q('[data-dungeon-editor-status]'),
       placeImage: q('[data-dungeon-editor-place-image]'),
+      placeImageTrigger: q('[data-dungeon-editor-place-image-trigger]'),
       placePlaceholder: q('[data-dungeon-editor-place-placeholder]'),
       placeStatus: q('[data-dungeon-editor-place-status]'),
       placeImageBtn: q('[data-dungeon-editor-action="place-image"]'),
@@ -450,6 +474,11 @@ export class DungeonEditorShell {
 
   _bindHeaderEvents() {
     this._dom.placeImageBtn?.addEventListener('click', () => this._refreshPlaceImage(true));
+    this._dom.placeImageTrigger?.addEventListener('click', () => {
+      if (this._dom.placeImage?.src) {
+        window.open(this._dom.placeImage.src, '_blank', 'noopener');
+      }
+    });
     this._dom.dungeonSelect?.addEventListener('change', () => this._syncDungeonLoadState());
     this._dom.loadBtn?.addEventListener('click', () => {
       const id = this._dom.dungeonSelect?.value || '';
@@ -998,7 +1027,7 @@ export class DungeonEditorShell {
     });
 
     this.model.placements.forEach((placement, index) => {
-      const tint = PLACEMENT_TINTS[index % PLACEMENT_TINTS.length];
+      const tint = placementTint(index, this.model.placements.length);
       const spec = { origin: placement.origin, rotation_steps: placement.rotation_steps };
       const roomName = placement.resolved ? String(placement?.room?.name || '').trim() : '';
       const displayLabel = roomName || String(placement?.label || placement?.placement_id || '').trim();
@@ -1154,12 +1183,12 @@ export class DungeonEditorShell {
       const previewUrl = String(response?.data?.preview_url || '');
       if (previewUrl && this._dom.placeImage) {
         this._dom.placeImage.src = previewUrl;
-        this._dom.placeImage.hidden = false;
+        this._dom.placeImageTrigger.hidden = false;
         if (this._dom.placePlaceholder) this._dom.placePlaceholder.hidden = true;
         if (status) status.textContent = generate ? 'Dungeon image generated and saved.' : 'Current dungeon image.';
         if (button) button.textContent = 'Regenerate image';
       } else {
-        if (this._dom.placeImage) this._dom.placeImage.hidden = true;
+        if (this._dom.placeImageTrigger) this._dom.placeImageTrigger.hidden = true;
         if (this._dom.placePlaceholder) this._dom.placePlaceholder.hidden = false;
         if (status) status.textContent = 'Generate an overview image for this dungeon.';
         if (button) button.textContent = 'Generate image';
@@ -1685,7 +1714,7 @@ export class DungeonEditorShell {
       item.setAttribute('data-placement-id', placement.placement_id);
       item.setAttribute('aria-selected', placement.placement_id === this.selectedPlacementId ? 'true' : 'false');
       const swatch = makeEl('span', 'dungeon-editor__swatch');
-      swatch.style.background = hexColor(PLACEMENT_TINTS[index % PLACEMENT_TINTS.length]);
+      swatch.style.background = hexColor(placementTint(index, placements.length));
       const label = makeEl('span', null, `${placement.label}${placement.is_level_entrance ? ' (entrance)' : ''}`);
       const meta = makeEl(
         'span',

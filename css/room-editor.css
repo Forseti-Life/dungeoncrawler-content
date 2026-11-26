@@ -54,6 +54,20 @@
   object-fit: cover;
 }
 
+.room-editor__place-image-trigger {
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+}
+
+.room-editor__place-image-trigger:focus-visible {
+  outline: 2px solid #fbbf24;
+  outline-offset: 2px;
+}
+
 .room-editor__place-preview-actions {
   display: grid;
   gap: 0.35rem;

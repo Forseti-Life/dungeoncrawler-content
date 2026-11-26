@@ -340,6 +340,7 @@ export class RoomEditorShell {
       status: q('[data-room-editor-status]'),
       placePreview: q('[data-room-editor-place-preview]'),
       placeImage: q('[data-room-editor-place-image]'),
+      placeImageTrigger: q('[data-room-editor-place-image-trigger]'),
       placePlaceholder: q('[data-room-editor-place-placeholder]'),
       placeStatus: q('[data-room-editor-place-status]'),
       placeImageBtn: q('[data-room-editor-action="place-image"]'),
@@ -409,6 +410,11 @@ export class RoomEditorShell {
 
   _bindHeaderEvents() {
     this._dom.placeImageBtn?.addEventListener('click', () => this._refreshPlaceImage(true));
+    this._dom.placeImageTrigger?.addEventListener('click', () => {
+      if (this._dom.placeImage?.src) {
+        window.open(this._dom.placeImage.src, '_blank', 'noopener');
+      }
+    });
     this._dom.newRoomBtn?.addEventListener('click', () => this.createNewRoom());
     this._dom.loadRoomBtn?.addEventListener('click', () => {
       const roomId = this._dom.roomSelect?.value || '';
@@ -1620,12 +1626,12 @@ export class RoomEditorShell {
       const url = String(response?.data?.preview_url || '');
       if (image && url) {
         image.src = url;
-        image.hidden = false;
+        this._dom.placeImageTrigger.hidden = false;
         placeholder.hidden = true;
         status.textContent = generate ? 'Room image generated and saved.' : 'Current room image.';
         button.textContent = 'Regenerate image';
       } else {
-        if (image) image.hidden = true;
+        if (image) this._dom.placeImageTrigger.hidden = true;
         if (placeholder) placeholder.hidden = false;
         status.textContent = 'Generate an establishing image for this room.';
         button.textContent = 'Generate image';

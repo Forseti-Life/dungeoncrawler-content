@@ -10,6 +10,7 @@ const graph = fs.readFileSync(path.resolve(__dirname, '../js/gm-storyline-actor-
 const builder = fs.readFileSync(path.resolve(__dirname, '../js/gm-storyline-builder.js'), 'utf8');
 const graphCss = fs.readFileSync(path.resolve(__dirname, '../css/gm-storyline-actor-graph.css'), 'utf8');
 const builderCss = fs.readFileSync(path.resolve(__dirname, '../css/gm-storyline-builder.css'), 'utf8');
+const dungeonShell = fs.readFileSync(path.resolve(__dirname, '../js/v2/editor/DungeonEditorShell.js'), 'utf8');
 
 let failed = 0;
 function assert(condition, message) {
@@ -55,6 +56,12 @@ assert(
   builderCss.includes('.gm-storyline-wizard__object-media')
     && builderCss.includes('.gm-storyline-wizard__object-preview'),
   'place previews and editor actions have dedicated responsive styling',
+);
+assert(
+  dungeonShell.includes('function placementTint(index, count)')
+    && dungeonShell.includes('placementTint(index, this.model.placements.length)')
+    && dungeonShell.includes('placementTint(index, placements.length)'),
+  'dungeon map and placement legend share a collision-free tint function',
 );
 
 process.exitCode = failed ? 1 : 0;

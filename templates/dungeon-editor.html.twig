@@ -106,7 +106,9 @@
 
         <section class="room-editor__place-preview" data-dungeon-editor-place-preview aria-label="{{ 'Dungeon image'|t }}">
           <div class="room-editor__place-image">
-            <img data-dungeon-editor-place-image alt="{{ 'Dungeon preview'|t }}" hidden>
+            <button type="button" data-dungeon-editor-place-image-trigger class="room-editor__place-image-trigger" aria-label="{{ 'Open dungeon image full size'|t }}" hidden>
+              <img data-dungeon-editor-place-image alt="{{ 'Dungeon preview'|t }}">
+            </button>
             <span data-dungeon-editor-place-placeholder>{{ 'No dungeon image generated yet.'|t }}</span>
           </div>
           <div class="room-editor__place-preview-actions">

@@ -115,7 +115,9 @@
 
         <section class="room-editor__place-preview" data-room-editor-place-preview aria-label="{{ 'Room image'|t }}">
           <div class="room-editor__place-image">
-            <img data-room-editor-place-image alt="{{ 'Room preview'|t }}" hidden>
+            <button type="button" data-room-editor-place-image-trigger class="room-editor__place-image-trigger" aria-label="{{ 'Open room image full size'|t }}" hidden>
+              <img data-room-editor-place-image alt="{{ 'Room preview'|t }}">
+            </button>
             <span data-room-editor-place-placeholder>{{ 'No room image generated yet.'|t }}</span>
           </div>
           <div class="room-editor__place-preview-actions">
