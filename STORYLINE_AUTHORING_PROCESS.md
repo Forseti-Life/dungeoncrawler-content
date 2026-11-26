@@ -42,6 +42,78 @@ The GM must not:
 - conceal a failed validation or unresolved decision;
 - publish a storyline without the author’s final action.
 
+## Validation Troubleshooting Guide
+
+The existing validation framework is the source of truth for every finding.
+Troubleshooting does not create another validator. It turns the selected
+finding into one scoped work packet and sends that packet to the existing
+owning authority.
+
+The runtime process is:
+
+1. validation returns the current findings and routes;
+2. the guide selects exactly one open finding;
+3. the registered finding/stage entry identifies the owner and resolver;
+4. the resolver loads only the owning row/object and the evidence needed for
+   that finding;
+5. the GM asks at most one missing fact, then plans only allowed fields;
+6. the native tool applies an authorized fix;
+7. the exact finding verification rule is checked before moving on.
+
+The Storyline GM is a data-object authoring agent, not a coding agent. If the
+guide lacks a resolver, or the existing schema cannot legally store the
+requested fix, the GM must stop changing data and report the impasse to the
+author. It should also call the shared `submit_backlog_suggestion` tool with:
+
+- the validation code and exact message;
+- the owning route/object;
+- the missing resolver or schema capability;
+- the smallest code/config change required;
+- the focused verification that will prove the fix.
+
+The GM must not edit the codebase, bypass validation, loosen a schema, or
+reinterpret a warning to make it pass. After a coding session delivers the
+change, the GM revalidates and continues the data repair.
+
+The guide registry is
+`config/storyline_validation_troubleshooting.json`. Its `routes` map one
+named route to one existing owner and tool. Its `stages` define defaults for a
+validation family. Its `findings` override the stage for a specific warning
+code and select a resolver, allowed fields, and verification behavior.
+
+### Adding a troubleshooting step
+
+1. Produce a structured finding from the existing validator with a stable
+   code, owner/entity type, object ID, indexes or path, and the field involved.
+2. Add or update the matching `findings` entry in the registry. Reuse an
+   existing stage default when the same route and resolver already apply.
+3. If an existing resolver can address the object shape, no PHP routing
+   change is needed. The registry entry supplies the writable fields and
+   verification mode.
+4. If the object shape is new, a coding session adds exactly one resolver
+   method in `StorylineValidationTroubleshootingGuide`; do not add a parallel
+   validator, special prompt branch, or second ownership path. The running GM
+   reports and logs this handoff; it does not modify the code itself.
+5. Add focused coverage using the existing PHPUnit and Storyline GM harness
+   tests. Verify the packet contains one object, rejects unrelated fields, and
+   clears the selected warning through the native tool.
+6. Document any new resolver in this section and keep the registry's route
+   aligned with `StorylineAuthoringDraftService` validation routes.
+
+Current resolvers:
+
+- `generic`: a scoped finding packet with no object-specific patch fields.
+  Use it for analysis until a native resolver exists.
+- `storyline_quest_objective`: resolves one draft objective by quest/task ID
+  and objective index, exposes configured fields only, and can ground
+  target labels and aliases from the authored actor.
+
+Warnings that share one owning row may be handled together only when their
+registry entries permit the same fields. Unrelated warnings must not appear
+in the same work packet. A schema/validator mismatch is a system contract
+failure: the GM must stop instead of asking the author for a value that no
+owning schema accepts.
+
 ## Three-Option Rule
 
 When the author asks to create an object but has not supplied enough direction
@@ -439,7 +511,7 @@ PF2E resolution math, and codebase integration seams.
 
 ### Decisions
 
-- Which defined scenes require a dungeon or room?
+- Which room is assigned to each defined scene?
 - What narrative and gameplay purpose does each location serve?
 - Can an existing canonical dungeon or room satisfy the need?
 - How do players enter, traverse, leave, and revisit the space?
@@ -477,8 +549,8 @@ creation work.
 ### Completion check
 
 Completion requires a coherent location plan, traversal logic, scene-to-room
-bindings, and canonical IDs. Every required scene has an intentional location
-or an explicit location-independent decision.
+bindings, and canonical IDs. Every scene must have an assigned room; a missing
+assignment is a blocking validation error.
 
 ## Stage 6: Items, Clues, Rewards, and Prerequisites
 

@@ -15,11 +15,12 @@ final class PlanStorylineDraftOperationsTool implements EditorGmToolInterface {
     return new EditorGmToolDefinition(
       'plan_storyline_draft_operations',
       EditorGmToolDefinition::FAMILY_PLANNING,
-      'Preview structured set, append, replace, patch, remove, and move operations against one draft revision. Use ID-matched patches for edits to existing row fields without repeating entire rows.',
+      'Plan structured storyline edits, including quest content and objective criteria, against one draft revision. Use ID-matched patches for edits to existing rows. For a fixed clue triggered by explicit Search, patch the explore objective with its room location and search_narration.',
       FALSE,
       'StorylineAuthoringDraftService::planDraftOperations()',
       [
         EditorGmToolDefinition::argument('expected_revision', 'integer', TRUE, 'Expected current draft revision.'),
+        EditorGmToolDefinition::argument('preview_only', 'boolean', FALSE, 'True when offering a concrete edit for approval rather than executing an authorized edit.'),
         EditorGmToolDefinition::argument(
           'operations',
           'array',
@@ -50,6 +51,9 @@ final class PlanStorylineDraftOperationsTool implements EditorGmToolInterface {
         'operations' => $operations,
       ],
     ] : NULL;
+    if (($arguments['preview_only'] ?? FALSE) === TRUE && $plan['has_changes']) {
+      $plan['requires_approval'] = TRUE;
+    }
     return $plan;
   }
 

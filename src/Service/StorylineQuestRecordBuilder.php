@@ -77,12 +77,33 @@ final class StorylineQuestRecordBuilder {
     if ($requires_check !== '') {
       $objective['requires_check'] = $requires_check;
     }
+    if ($type === 'explore' && trim((string) ($row['search_narration'] ?? '')) !== '') {
+      $objective['search_narration'] = trim($row['search_narration']);
+    }
+    $target_label = trim((string) ($row['target_label'] ?? ''));
+    if ($target_label !== '') {
+      $objective['target_label'] = $target_label;
+    }
+    $target_aliases = array_values(array_unique(array_filter(array_map(
+      static fn(mixed $alias): string => trim((string) $alias),
+      (array) ($row['target_aliases'] ?? []),
+    ), static fn(string $alias): bool => $alias !== '')));
+    if ($target_aliases !== []) {
+      $objective['target_aliases'] = $target_aliases;
+    }
+    $wayfinding_hint = trim((string) ($row['wayfinding_hint'] ?? ''));
+    if ($wayfinding_hint !== '') {
+      $objective['wayfinding_hint'] = $wayfinding_hint;
+    }
     $definition = $this->objectiveTypes->getObjectiveTypeDefinition($type);
     if ($definition !== []) {
       $criteria = (array) ($definition['default_completion_criteria'] ?? []);
       $metric = trim((string) ($row['metric'] ?? ''));
       if ($metric !== '') {
         $criteria['metric'] = $metric;
+      }
+      if (isset($objective['search_narration'])) {
+        $criteria['description'] = 'Use Search in the objective room to find the clue.';
       }
       if (($criteria['kind'] ?? '') === 'count') {
         $criteria['target_count'] = $row['required'] ?? NULL;
@@ -121,6 +142,9 @@ final class StorylineQuestRecordBuilder {
       ];
     }
     $definition = $this->objectiveTypes->getObjectiveTypeDefinition($type);
+    if ($type !== 'explore' && trim((string) ($row['search_narration'] ?? '')) !== '') {
+      $errors[] = "Objective '{$objective_id}' sets search_narration, which only an explore objective uses.";
+    }
     if ($definition === []) {
       throw new \LogicException('storyline_objective_type_registry_missing:' . $type);
     }

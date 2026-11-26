@@ -391,6 +391,45 @@ class CanonicalDefinitionService {
   }
 
   /**
+   * Removes only redundant registry IDs from the validated item snapshots.
+   *
+   * @param array<string, string> $expected_hashes
+   *   Canonical item IDs keyed to their validated payload hashes.
+   */
+  public function repairRedundantItemContentIds(array $expected_hashes): array {
+    $transaction = $this->database->startTransaction();
+    $receipts = [];
+    try {
+      ksort($expected_hashes, SORT_STRING);
+      foreach ($expected_hashes as $id => $expected_hash) {
+        $id = (string) $id;
+        $row = $this->database->select('dungeoncrawler_content_registry', 'r')
+          ->fields('r', ['schema_data', 'version'])
+          ->condition('content_type', $this->registryContentType('item'))
+          ->condition('content_id', $id)
+          ->forUpdate()->execute()->fetchAssoc();
+        if (!$row) {
+          throw new \DomainException('Canonical item no longer exists: ' . $id);
+        }
+        $payload = json_decode($row['schema_data'], TRUE, 512, JSON_THROW_ON_ERROR);
+        if (!hash_equals($expected_hash, hash('sha256', serialize($payload)))) {
+          throw new \DomainException('Canonical item changed since validation: ' . $id);
+        }
+        if (($payload['content_id'] ?? NULL) !== $id || ($payload['item_id'] ?? NULL) !== $id) {
+          throw new \DomainException('Canonical item IDs disagree; no field was removed: ' . $id);
+        }
+        unset($payload['content_id']);
+        $receipts[] = $this->saveDefinition('item', $id, $payload, $row['version']);
+      }
+    }
+    catch (\Throwable $exception) {
+      $transaction->rollBack();
+      throw $exception;
+    }
+    return $receipts;
+  }
+
+  /**
    * Whether an actor definition is a creature.
    *
    * A creature is an actor definition whose `state_data.class` is exactly

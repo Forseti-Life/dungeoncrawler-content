@@ -32,10 +32,13 @@ use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\GetStorylineBr
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\GetStorylineSynopsisTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\LoadStorylineDraftSnapshotTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\PlanStorylineDraftOperationsTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\PlanStorylineSceneRoomRemovalTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\PlanStorylineRemediationTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\PreviewStorylineDefinitionTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\PreviewStorylineNarrativeAnalysisTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\PublishStorylineDraftTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\PublishStorylineQuestTemplatesTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\RepairStorylineItemDefinitionsTool;
 use Drupal\dungeoncrawler_content\Service\EditorSuite\EditorSuiteService;
 use Drupal\dungeoncrawler_content\Service\StorylineAuthoringDraftService;
 use Drupal\dungeoncrawler_content\Service\Generation\CanonicalDefinitionGenerationService;
@@ -102,6 +105,7 @@ final class StorylineBuilderGmSurface implements EditorGmSurfaceInterface {
       new FindDungeonsUsingRoomTool($this->suite),
       new RouteToEditorTool($this->suite),
       new PlanStorylineDraftOperationsTool(),
+      new PlanStorylineSceneRoomRemovalTool(),
       new StorylineWorkTool($work, FALSE),
       $remediationPlanner,
       new ValidateDraftTool(),
@@ -112,6 +116,8 @@ final class StorylineBuilderGmSurface implements EditorGmSurfaceInterface {
       new StorylineWorkTool($work, TRUE),
       $remediationExecutor,
       new PublishStorylineDraftTool($remediationPlanner, $remediationExecutor),
+      new PublishStorylineQuestTemplatesTool(),
+      new RepairStorylineItemDefinitionsTool(),
       new DefinitionActorTool('inspect_actor'),
       new DefinitionActorTool('plan_actor_changes'),
       new DefinitionActorTool('apply_actor_changes'),

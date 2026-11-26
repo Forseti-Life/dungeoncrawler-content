@@ -2,6 +2,7 @@
 
 namespace Drupal\dungeoncrawler_content\Service\EditorGm;
 
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\RepairStorylineItemDefinitionsTool;
 use Drupal\ai_conversation\Service\AIApiService;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessInterface;
@@ -24,9 +25,23 @@ use Psr\Log\NullLogger;
 class EditorGmHarnessService implements AgentHarnessInterface {
 
   public const REQUEST_CONTRACT_VERSION = 'editor-gm-request-v1';
+  private const APPROVE_REMEDIATION = 'Apply this remediation batch.';
   public const RESPONSE_CONTRACT_VERSION = 'editor-gm-response-v1';
   public const COMMAND_PLAN_CONTRACT_VERSION = 'editor-gm-command-plan-v1';
   public const RESPONSE_OPERATION = 'editor_gm_grounded_response';
+  private const ANSWER_ATTEMPTS = 2;
+
+  private const STORYLINE_DIRECT_MUTATIONS = [
+    'publish_storyline_draft',
+    'publish_storyline_quest_templates',
+    'repair_storyline_item_definitions',
+    'create_canonical_definition',
+    'update_canonical_definition',
+    'apply_actor_changes',
+    'build_storyline_actor_sheets',
+    'bind_library_characters',
+    'apply_storyline_work',
+  ];
 
   private const ROUTE_FAMILY_BY_TOOL_FAMILY = [
     EditorGmToolDefinition::FAMILY_CONTEXT => 'deterministic_editor_tool',
@@ -190,8 +205,112 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     string $author_message,
     bool $dry_run,
   ): array {
+    [$utterance, $author_message] = $this->operativeAuthorDirective($utterance, $author_message);
     $context = $this->createContext($surface, $draft_id, $profile, $scope);
     $snapshot = $surface->assembler()->assemble($context);
+    if ($surface->id() === StorylineBuilderGmSurface::ID) {
+      $scope['storyline_draft_write_intent'] = $snapshot['storyline_draft_write_intent'] = $this->storylineDraftWriteIntent($author_message);
+      $scope['storyline_request_mode'] = $snapshot['storyline_request_mode'] = $this->storylineRequestMode($author_message, $scope);
+      $dry_run = $dry_run || $scope['storyline_draft_write_intent'] === FALSE;
+      $troubleshooting = is_array($snapshot['troubleshooting'] ?? NULL) ? $snapshot['troubleshooting'] : [];
+      if (!empty($troubleshooting['code_change_required'])
+        && in_array($scope['storyline_request_mode'], ['mutation', 'approval', 'orphan_approval'], TRUE)) {
+        $finding = (array) ($troubleshooting['finding'] ?? []);
+        $handoff = (array) ($troubleshooting['coding_handoff'] ?? []);
+        return $this->executeTool(
+          $surface,
+          $draft_id,
+          $profile,
+          AgentHarnessManagementService::TOOL_SUBMIT_BACKLOG_SUGGESTION,
+          [
+            'summary' => sprintf(
+              'Storyline validation %s is blocked for owner %s on route %s. %s',
+              (string) ($finding['code'] ?? 'unknown'),
+              (string) ($troubleshooting['owner'] ?? 'unknown'),
+              (string) ($troubleshooting['route'] ?? 'unknown'),
+              (string) ($handoff['scope'] ?? 'Add the missing object-specific troubleshooting capability.'),
+            ),
+            'category' => 'technical_improvement',
+            'original_message' => $author_message,
+          ],
+          FALSE,
+          'Log the schema/resolver impasse as a system defect instead of attempting a data workaround.',
+          $scope,
+          [],
+          $author_message,
+        );
+      }
+      $repair = $this->resolveOfferedStorylineNavigationWarning(
+        $utterance,
+        StorylineBuilderGmToolContext::of($context),
+      );
+      if ($repair !== NULL) {
+        if (isset($repair['plan'])) {
+          return $this->executeTool(
+            $surface, $draft_id, $profile, 'plan_storyline_draft_operations',
+            $repair['plan'], $dry_run, 'Fix the entry room binding using its unique canonical placement.', $scope, [], $author_message,
+          );
+        }
+        return $this->envelope(
+          $surface, 'editor_management_response', $snapshot,
+          [
+            'intent' => 'direct_response',
+            'assistant_response' => $repair['answer'],
+            'next_steps' => $repair['next_steps'] ?? $this->harnessManagement->nextStepFromSavedState($snapshot, $surface->label()),
+          ],
+          $context->validation(),
+        );
+      }
+    }
+    $approval = $this->normalizeStorylineDraftApproval($utterance);
+    if ($surface->id() === StorylineBuilderGmSurface::ID
+      && ($approval === 'apply the proposed draft edit' || (isset($scope['pending_storyline_draft_operations'])
+        && $this->isStorylineDraftApproval($approval)))) {
+      $proposal = $scope['pending_storyline_draft_operations'] ?? NULL;
+      if ($proposal === NULL) {
+        throw new \DomainException('No pending draft edit. Ask the GM to preview the edit first.');
+      }
+      if (($proposal['tool_name'] ?? NULL) !== 'apply_storyline_draft_operations'
+        || !is_array($proposal['arguments'] ?? NULL)) {
+        throw new \LogicException('storyline_gm_pending_draft_operations_invalid');
+      }
+      if (($proposal['arguments']['expected_revision'] ?? NULL) !== ($snapshot['draft']['revision'] ?? NULL)) {
+        throw new \DomainException('The draft changed after this preview. Review a new draft edit before applying it.');
+      }
+      return $this->executeTool(
+        $surface, $draft_id, $profile, 'apply_storyline_draft_operations',
+        $proposal['arguments'], $dry_run, 'Applied the approved draft edit.', $scope, [], $author_message,
+      );
+    }
+    if ($surface->id() === StorylineBuilderGmSurface::ID
+      && in_array(strtolower(rtrim(trim($utterance), '.!')), ['apply this remediation batch', 'apply this batch', 'apply the batch'], TRUE)) {
+      $proposal = $scope['pending_storyline_remediation'] ?? NULL;
+      if (($proposal['tool_name'] ?? NULL) !== 'apply_storyline_remediation'
+        || !is_array($proposal['arguments'] ?? NULL)) {
+        throw new \DomainException('No pending remediation batch. Ask the GM to preview one first.');
+      }
+      if (($proposal['arguments']['expected_revision'] ?? NULL) !== ($snapshot['draft']['revision'] ?? NULL)) {
+        throw new \DomainException('The draft changed after this preview. Review a new remediation batch before applying it.');
+      }
+      return $this->executeTool(
+        $surface, $draft_id, $profile, 'apply_storyline_remediation',
+        $proposal['arguments'], $dry_run, 'Applied the approved remediation batch.', $scope, [], $utterance,
+      );
+    }
+    if ($surface->id() === StorylineBuilderGmSurface::ID && $surface->registry()->has('repair_storyline_item_definitions')
+      && ($scope['storyline_draft_write_intent'] ?? NULL) !== FALSE) {
+      $item_ids = $this->resolveCanonicalItemRepair($author_message, $snapshot);
+      if ($item_ids !== []) {
+        return $this->executeTool(
+          $surface, $draft_id, $profile, 'repair_storyline_item_definitions',
+          ['expected_revision' => $snapshot['draft']['revision'], 'item_ids' => $item_ids],
+          $dry_run, 'Remove only the verified duplicate registry IDs from the selected canonical items.', $scope, [], $author_message,
+        );
+      }
+    }
+    if (isset($scope['lookup_evidence'])) {
+      $snapshot['lookup_evidence'] = $scope['lookup_evidence'];
+    }
     $conversation_context = trim((string) ($scope['conversation_context'] ?? ''));
     if ($conversation_context !== '') {
       $snapshot['conversation_context'] = $conversation_context;
@@ -229,6 +348,11 @@ class EditorGmHarnessService implements AgentHarnessInterface {
       );
     }
     if ($intent['type'] === 'task_queue') {
+      $lookups = $surface->id() === StorylineBuilderGmSurface::ID
+        ? $this->leadingStorylineLookups($surface, (array) $intent['tasks']) : [];
+      if ($lookups !== []) {
+        return $this->continueStorylineLookups($surface, $draft_id, $profile, $lookups, $utterance, $author_message, $scope, $dry_run);
+      }
       return $this->executeTaskQueue(
         $surface,
         $draft_id,
@@ -258,6 +382,10 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     }
 
     $definition = $surface->registry()->get($intent['tool_name'])->definition();
+    if ($surface->id() === StorylineBuilderGmSurface::ID
+      && !$definition->mutating && $definition->family === EditorGmToolDefinition::FAMILY_CONTEXT) {
+      return $this->continueStorylineLookups($surface, $draft_id, $profile, [$intent], $utterance, $author_message, $scope, $dry_run);
+    }
     if ($surface->id() === CharacterCreationGmSurface::ID && in_array($definition->name, [
       'plan_character_draft_updates', 'apply_character_draft_updates',
     ], TRUE)) {
@@ -276,7 +404,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         $profile,
         $intent['tool_name'],
         $intent['arguments'],
-        FALSE,
+        $dry_run,
         $intent['reasoning'],
         $scope,
         array_values((array) ($intent['next_steps'] ?? [])),
@@ -294,16 +422,21 @@ class EditorGmHarnessService implements AgentHarnessInterface {
       );
     }
     if ($surface->id() === StorylineBuilderGmSurface::ID) {
-      if (!in_array($definition->name, [
-        'publish_storyline_draft',
-        'create_canonical_definition',
-        'update_canonical_definition',
-        'apply_actor_changes',
-        'build_storyline_actor_sheets',
-        'bind_library_characters',
-        'apply_storyline_work',
-      ], TRUE)) {
+      if (!in_array($definition->name, self::STORYLINE_DIRECT_MUTATIONS, TRUE)) {
         throw new \LogicException('storyline_gm_direct_mutation_tool_forbidden');
+      }
+      if (!$this->authorizesDirectStorylineMutation($scope, $snapshot, $definition->name)) {
+        return $this->envelope(
+          $surface,
+          'editor_management_response',
+          $snapshot,
+          [
+            'intent' => 'direct_response',
+            'assistant_response' => 'No changes were made. A mutating tool cannot be selected from read-only or stale assistant text without a current write request or structured pending action.',
+            'next_steps' => $this->harnessManagement->nextStepFromSavedState($snapshot, $surface->label()),
+          ],
+          $context->validation(),
+        );
       }
       return $this->executeTool(
         $surface,
@@ -359,6 +492,272 @@ class EditorGmHarnessService implements AgentHarnessInterface {
   }
 
   /**
+   * Returns the user's final directive, excluding pasted UI transcript text.
+   */
+  private function operativeAuthorDirective(string $utterance, string $author_message): array {
+    $message = trim($author_message);
+    $lines = preg_split('/\R/u', $message) ?: [];
+    if (!array_filter($lines, static fn(string $line): bool => preg_match(
+      '/^(?:Next steps?|Assistant connected to .* GM tools \\(\\d+\\)\\.?)$/i',
+      trim($line),
+    ) === 1)) {
+      return [$utterance, $message];
+    }
+    $directive = array_values(array_filter(array_map('trim', $lines), static fn(string $line): bool =>
+      $line !== ''
+      && $line !== 'Next step'
+      && $line !== 'Next steps'
+      && !preg_match('/^Assistant connected to .* GM tools \\(\\d+\\)\\.?$/i', $line)
+    ));
+    $directive = trim((string) end($directive));
+    if ($directive === '') {
+      return [$utterance, $message];
+    }
+    return [$directive, $directive];
+  }
+
+  private function storylineRequestMode(string $message, array $scope): string {
+    $normalized = $this->normalizeStorylineDraftApproval($message);
+    if ($this->isStorylineDraftApproval($normalized)) {
+      $pending = array_filter([
+        $scope['pending_storyline_draft_operations'] ?? NULL,
+        $scope['pending_storyline_remediation'] ?? NULL,
+      ], 'is_array');
+      return $pending === [] ? 'orphan_approval' : 'approval';
+    }
+    if ($this->storylineDraftWriteIntent($message) === TRUE) {
+      if (preg_match('/\b(?:review and (?:create|publish)|publish|finalize the storyline|final signoff)\b/', $normalized) === 1) {
+        return 'mutation';
+      }
+      return 'mutation';
+    }
+    if ($this->storylineDraftWriteIntent($message) === FALSE) {
+      return 'read_only';
+    }
+    return 'discussion';
+  }
+
+  private function authorizesDirectStorylineMutation(array $scope, array $snapshot, string $tool_name): bool {
+    if (($scope['storyline_request_mode'] ?? '') === 'mutation') {
+      return TRUE;
+    }
+    return ($scope['storyline_request_mode'] ?? '') === 'approval'
+      && (
+        ($snapshot['authoring_workflow']['bounded_work']['active_work'] ?? NULL) !== NULL
+        && $tool_name === 'apply_storyline_work'
+      );
+  }
+
+  /**
+   * Binds an item repair request to current findings, not to draft references.
+   */
+  private function resolveCanonicalItemRepair(string $utterance, array $snapshot): array {
+    $request = $this->normalizeStorylineDraftApproval($utterance);
+    if ($this->isStorylineDraftApproval($request)) {
+      return [];
+    }
+    if (preg_match('/^(?:please )?(?:fix|repair|resolve) (?:this|that|the) warning$/D', $request) === 1) {
+      $items = RepairStorylineItemDefinitionsTool::repairableFindings($snapshot['validation_summary'] ?? []);
+      $first = $snapshot['current_state']['first_open_warning'] ?? '';
+      return array_keys(array_filter($items, static fn(array $finding): bool =>
+        $finding['message'] === $first
+      ));
+    }
+    if (preg_match("/^(?:please |let'?s |resume the saved work: )*(?:fix|repair|remove|strip|clean up|resolve)\\b[^?]*\\b(?:redundant|duplicate|undefined|unsupported|canonical item definitions?|content_id)\\b/u", $request) !== 1) {
+      return [];
+    }
+    $items = RepairStorylineItemDefinitionsTool::repairableFindings($snapshot['validation_summary'] ?? []);
+    return array_column(array_filter($items, static function (array $finding) use ($request): bool {
+      foreach ([$finding['entity_id'], $finding['entity_label']] as $name) {
+        if ($name !== '' && preg_match('/(?<![\p{L}\p{N}_])' . preg_quote(mb_strtolower($name), '/') . '(?![\p{L}\p{N}_])/u', $request) === 1) {
+          return TRUE;
+        }
+      }
+      return FALSE;
+    }), 'entity_id');
+  }
+
+  /**
+   * Resolves an offered navigation warning through the authored room binding.
+   */
+  private function resolveOfferedStorylineNavigationWarning(
+    string $utterance,
+    StorylineBuilderGmToolContext $context,
+  ): ?array {
+    if (preg_match('/^(?:please\s+)?(?:fix|resolve|repair)\s+(?:this|that|the)\s+warning(?:\s+please)?[.!]?$/i', trim($utterance)) !== 1) {
+      return NULL;
+    }
+    $offered_warning = (string) ($context->status()['first_open_warning'] ?? '');
+    if (preg_match("/^((?:Storyline entry_point primary location|\\[DCV_NAV_ENTRY_ROOM_NOT_IN_DUNGEON\\] entry_dungeon\\.entrance_room_id|\\[DCV_NAV_CONNECTOR_TARGET_ROOM_NOT_IN_DUNGEON\\] progression_connectors\\[0\\]: target_room_id) '([^']+)' is not linked to (?:canonical dungeon|dungeon|target_dungeon_id) '[^']+'\\.)$/", $offered_warning, $match) !== 1) {
+      return NULL;
+    }
+    [, $warning, $room_id] = $match;
+    $validation = $context->validation();
+    if (!in_array($warning, array_merge($validation['warnings'] ?? [], $validation['errors'] ?? []), TRUE)) {
+      return ['answer' => 'I revalidated the current draft. The warning you selected is no longer present. No changes were needed.'];
+    }
+
+    $draft = $context->draft();
+    if (($draft['payload']['entry_location_id'] ?? '') === $room_id) {
+      $binding = $context->drafts->planRoomDungeonBindings($context->draftId, $room_id);
+      if ($binding['operations'] !== []) {
+        return ['plan' => [
+          'expected_revision' => (int) $draft['revision'],
+          'operations' => $binding['operations'],
+        ]];
+      }
+    }
+
+    return [
+      'answer' => 'The warning is still present, but validation did not establish a safe edit to the authored entry room binding. The entry dungeon and connector are generated, so I did not patch them or change the draft.',
+      'next_steps' => ["Review the entry room's placement and the storyline's site binding."],
+    ];
+  }
+
+  /**
+   * Continues an author request after its required read-only lookups.
+   */
+  private function continueStorylineLookups(
+    EditorGmSurfaceInterface $surface,
+    ?string $draft_id,
+    string $profile,
+    array $tasks,
+    string $utterance,
+    string $author_message,
+    array $scope,
+    bool $dry_run,
+  ): array {
+    $evidence = [];
+    $tool_calls = [];
+    $seen = [];
+    while (TRUE) {
+      foreach ($tasks as $task) {
+        $name = (string) $task['tool_name'];
+        $arguments = (array) $task['arguments'];
+        $key = $name . ':' . json_encode(self::normalizeLookupArguments($arguments), JSON_THROW_ON_ERROR);
+        if (isset($seen[$key]) || count($seen) >= 5) {
+          throw new \DomainException('storyline_gm_lookup_continuation_limit:' . $name);
+        }
+        $seen[$key] = TRUE;
+        $result = $this->executeTool(
+          $surface, $draft_id, $profile, $name, $arguments, TRUE,
+          (string) ($task['reasoning'] ?? ''), $scope, [], '', $tool_calls,
+        );
+        if (!empty($result['tool_result']['would_mutate'])) {
+          throw new \LogicException('storyline_gm_lookup_proposed_execution_forbidden:' . $name);
+        }
+        $tool_calls = $result['tool_calls'];
+        $tool_result = $result['tool_result'];
+        unset($tool_result['tool_calls'], $tool_result['reasoning'], $tool_result['next_steps'], $tool_result['dry_run']);
+        $evidence[] = ['tool' => $name, 'arguments' => $arguments, 'result' => $tool_result];
+      }
+      $scope['lookup_evidence'] = $evidence;
+      $context = $this->createContext($surface, $draft_id, $profile, $scope);
+      $snapshot = $surface->assembler()->assemble($context);
+      $snapshot['lookup_evidence'] = $evidence;
+      $snapshot['storyline_draft_write_intent'] = $scope['storyline_draft_write_intent'] ?? NULL;
+      if (!empty($scope['conversation_context'])) {
+        $snapshot['conversation_context'] = $scope['conversation_context'];
+      }
+      $intent = $this->intentParser->parse($utterance, $snapshot, $surface->registry(), $surface->label());
+      if ($intent['type'] === 'direct_response') {
+        $answer = $this->synthesizeGroundedResponse($author_message, 'storyline_lookup', ['lookups' => $evidence], $snapshot, $surface->label());
+        $result['tool_result']['assistant_response'] = $answer['answer'];
+        $result['tool_result']['next_steps'] = $answer['next_steps'];
+        $result['tool_result']['tool_calls'] = $tool_calls;
+        $result['tool_calls'] = $tool_calls;
+        return $this->envelope(
+          $surface, $result['route_family'], $result['context_snapshot'], $result['tool_result'],
+          $result['validation'], $result['messages'], $result['command_plan'], $tool_calls,
+        );
+      }
+      if ($intent['type'] === 'clarification') {
+        $tool_calls[] = $this->describeToolCall('clarification');
+        return $this->envelope($surface, 'editor_intent_proposal', $snapshot, [
+          'intent' => 'clarification',
+          'reasoning' => $intent['reasoning'],
+          'question' => $intent['question'],
+          'assistant_response' => $intent['question'],
+          'options' => $intent['options'],
+          'tool_calls' => $tool_calls,
+        ], $context->validation(), [['level' => 'info', 'text' => $intent['question']]], [], $tool_calls);
+      }
+      if ($intent['type'] === 'task_queue') {
+        $tasks = $this->leadingStorylineLookups($surface, (array) $intent['tasks']);
+        if ($tasks !== []) {
+          continue;
+        }
+        $preview = $dry_run || !$this->authorizesStorylineLookupChanges($intent, $scope);
+        return $this->executeTaskQueue($surface, $draft_id, $profile, (array) $intent['tasks'], (string) $intent['reasoning'], (array) ($intent['next_steps'] ?? []), $scope, $author_message, $preview, $tool_calls);
+      }
+      $name = (string) $intent['tool_name'];
+      if ($name === AgentHarnessManagementService::TOOL_SUBMIT_BACKLOG_SUGGESTION) {
+        return $this->executeTool(
+          $surface, $draft_id, $profile, $name, (array) $intent['arguments'],
+          $dry_run || ($intent['authorizes_changes'] ?? FALSE) !== TRUE,
+          (string) $intent['reasoning'], $scope, [], $author_message, $tool_calls,
+        );
+      }
+      $definition = $surface->registry()->get($name)->definition();
+      if (!$definition->mutating && $definition->family === EditorGmToolDefinition::FAMILY_CONTEXT) {
+        $tasks = [$intent];
+        continue;
+      }
+      if ($definition->mutating && !in_array($name, self::STORYLINE_DIRECT_MUTATIONS, TRUE)) {
+        throw new \LogicException('storyline_gm_direct_mutation_tool_forbidden');
+      }
+      return $this->executeTool(
+        $surface, $draft_id, $profile, $name, (array) $intent['arguments'],
+        $dry_run || !$this->authorizesStorylineLookupChanges($intent, $scope),
+        (string) $intent['reasoning'], $scope, (array) ($intent['next_steps'] ?? []), $author_message, $tool_calls,
+      );
+    }
+  }
+
+  private function authorizesStorylineLookupChanges(array $intent, array $scope): bool {
+    if (($intent['authorizes_changes'] ?? FALSE) === TRUE) {
+      return TRUE;
+    }
+    if (($scope['storyline_draft_write_intent'] ?? NULL) !== TRUE) {
+      return FALSE;
+    }
+    $tools = ($intent['type'] ?? '') === 'task_queue'
+      ? array_column($intent['tasks'], 'tool_name')
+      : [$intent['tool_name']];
+    return $tools !== [] && array_diff($tools, [
+      'plan_storyline_draft_operations', 'plan_storyline_work', 'plan_storyline_remediation',
+    ]) === [];
+  }
+
+  private function leadingStorylineLookups(EditorGmSurfaceInterface $surface, array $tasks): array {
+    $lookups = [];
+    foreach ($tasks as $task) {
+      $name = (string) ($task['tool_name'] ?? '');
+      if ($name === AgentHarnessManagementService::TOOL_SUBMIT_BACKLOG_SUGGESTION) {
+        break;
+      }
+      $definition = $surface->registry()->get($name)->definition();
+      if ($definition->mutating || $definition->family !== EditorGmToolDefinition::FAMILY_CONTEXT) {
+        break;
+      }
+      $lookups[] = $task;
+    }
+    return $lookups;
+  }
+
+  private static function normalizeLookupArguments(array $arguments): array {
+    if (!array_is_list($arguments)) {
+      ksort($arguments);
+    }
+    foreach ($arguments as $key => $value) {
+      if (is_array($value)) {
+        $arguments[$key] = self::normalizeLookupArguments($value);
+      }
+    }
+    return $arguments;
+  }
+
+  /**
    * Executes a dependency-ordered task queue serially with time-budget guarding.
    */
   private function executeTaskQueue(
@@ -371,18 +770,31 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     array $scope,
     string $author_message,
     bool $dry_run = FALSE,
+    array $prior_tool_calls = [],
   ): array {
+    if ($surface->id() === StorylineBuilderGmSurface::ID) {
+      foreach ($tasks as $task) {
+        $name = (string) ($task['tool_name'] ?? '');
+        if ($name === AgentHarnessManagementService::TOOL_SUBMIT_BACKLOG_SUGGESTION) {
+          continue;
+        }
+        $definition = $surface->registry()->get($name)->definition();
+        if ($definition->mutating && !in_array($name, self::STORYLINE_DIRECT_MUTATIONS, TRUE)) {
+          throw new \LogicException('storyline_gm_direct_mutation_tool_forbidden');
+        }
+      }
+    }
     $ordered = $surface->id() === RoomEditorGmSurface::ID
       ? array_values($tasks)
       : $this->harnessManagement->orderTaskQueue($tasks);
     $initial_draft_id = $draft_id;
     $started_at = microtime(TRUE);
-    $accumulated_tool_calls = [
+    $accumulated_tool_calls = array_merge($prior_tool_calls, [
       [
         'tool' => 'task_queue_preprocessor',
         'message' => sprintf('Now queuing %d ordered task(s) for serial execution…', count($ordered)),
       ],
-    ];
+    ]);
     $last_envelope = NULL;
     $completed_count = 0;
 
@@ -475,6 +887,9 @@ class EditorGmHarnessService implements AgentHarnessInterface {
       $tool_calls[] = $this->describeToolCall($tool_name, $arguments);
       $context = $this->createContext($surface, $draft_id, $profile, $scope);
       $snapshot = $surface->assembler()->assemble($context);
+      if (isset($scope['lookup_evidence'])) {
+        $snapshot['lookup_evidence'] = $scope['lookup_evidence'];
+      }
       $conversation_context = trim((string) ($scope['conversation_context'] ?? ''));
       if ($conversation_context !== '') {
         $snapshot['conversation_context'] = $conversation_context;
@@ -537,10 +952,16 @@ class EditorGmHarnessService implements AgentHarnessInterface {
 
     $tool = $surface->registry()->get($tool_name);
     $definition = $tool->definition();
+    if ($definition->name === 'plan_storyline_draft_operations' && ($scope['storyline_draft_write_intent'] ?? NULL) !== NULL) {
+      $arguments['preview_only'] = !$scope['storyline_draft_write_intent'];
+    }
     $tool_calls = array_values($prior_tool_calls);
     $tool_calls[] = $this->describeToolCall($definition->name, $arguments);
     $context = $this->createContext($surface, $draft_id, $profile, $scope);
     $snapshot = $surface->assembler()->assemble($context);
+    if (isset($scope['lookup_evidence'])) {
+      $snapshot['lookup_evidence'] = $scope['lookup_evidence'];
+    }
     $conversation_context = trim((string) ($scope['conversation_context'] ?? ''));
     if ($conversation_context !== '') {
       $snapshot['conversation_context'] = $conversation_context;
@@ -630,6 +1051,22 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     $proposed_execution = is_array($result['proposed_execution'] ?? NULL)
       ? $result['proposed_execution']
       : [];
+    if ($definition->name === 'plan_storyline_remediation'
+      && ($result['has_changes'] ?? NULL) === FALSE && $utterance !== ''
+      && ($scope['storyline_draft_write_intent'] ?? NULL) === TRUE) {
+      $items = RepairStorylineItemDefinitionsTool::repairableFindings($context->validation());
+      $result['assistant_response'] = 'No remediation was saved or queued: the planner found no missing assets, linked-quest reference repairs, or draft edits in this plan.';
+      $result['next_steps'] = [];
+      if ($items !== []) {
+        $labels = implode(', ', array_column($items, 'entity_label'));
+        $result['assistant_response'] .= ' The flagged items already exist; the unsupported field is in their canonical definitions, not in this draft.';
+        $result['next_steps'] = ["Repair the canonical item definitions for {$labels} by removing the redundant content_id."];
+      }
+      return $this->envelope(
+        $surface, 'editor_management_response', $snapshot, $result, $context->validation(),
+        [], [], $tool_calls,
+      );
+    }
     if ($surface->id() === CharacterCreationGmSurface::ID && $apply_character_plan
       && $definition->name === 'plan_character_draft_updates' && !$dry_run) {
       if (($proposed_execution['tool_name'] ?? '') !== 'apply_character_draft_updates'
@@ -671,21 +1108,40 @@ class EditorGmHarnessService implements AgentHarnessInterface {
           (string) $proposed_execution['tool_name'],
         ));
       }
+      if ($definition->name === 'plan_storyline_draft_operations' && ($result['requires_approval'] ?? FALSE) === TRUE) {
+        $result['assistant_response'] = trim($reasoning . "\n\nNothing was saved. The draft edit is ready for approval.");
+        $result['next_steps'] = ['Apply the proposed draft edit.'];
+        return $this->envelope(
+          $surface, 'editor_intent_proposal', $snapshot, $result, $context->validation(),
+          [], [], $tool_calls,
+        );
+      }
       if (
         in_array((string) $proposed_execution['tool_name'], [
           'apply_storyline_remediation',
           'create_canonical_definition',
           'update_canonical_definition',
         ], TRUE)
+        && !(($scope['storyline_draft_write_intent'] ?? NULL) === TRUE
+          && $proposed_execution['tool_name'] === 'apply_storyline_remediation')
         && !$this->authorizesStorylineRemediation($utterance)
       ) {
+        $is_remediation = $proposed_execution['tool_name'] === 'apply_storyline_remediation';
+        $preview = $is_remediation ? [
+          'draft_changes' => $result['draft_changes'],
+          'definitions_to_prepare' => array_map(
+            static fn(array $definition): array => array_intersect_key($definition, array_flip(['family', 'definition_id'])),
+            $proposed_execution['arguments']['definitions'],
+          ),
+          'linked_quest_ids_to_realign' => array_column($proposed_execution['arguments']['quests'], 'template_id'),
+        ] : array_diff_key($result, ['proposed_execution' => TRUE]);
         $response = $this->synthesizeGroundedResponse(
           $utterance,
           'governing_harness_validation_review',
           [
             'current_state' => $snapshot['current_state'] ?? [],
             'validation_summary' => $snapshot['validation_summary'] ?? [],
-            'proposed_remediation' => $result,
+            'proposed_remediation' => $preview,
             'remediation_applied' => FALSE,
           ],
           $snapshot,
@@ -693,7 +1149,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         );
         $result['requires_approval'] = TRUE;
         $result['assistant_response'] = $response['answer'];
-        $result['next_steps'] = $response['next_steps'];
+        $result['next_steps'] = $is_remediation ? [self::APPROVE_REMEDIATION] : $response['next_steps'];
         return $this->envelope(
           $surface,
           'editor_management_response',
@@ -702,7 +1158,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
           $context->validation(),
           [[
             'level' => 'info',
-            'text' => 'Canonical remediation was not run because the author requested review rather than execution.',
+            'text' => 'Preview only. No changes were saved.',
           ]],
           [],
           $tool_calls,
@@ -726,6 +1182,9 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     if ($definition->mutating) {
       $context = $this->createContext($surface, $draft_id, $profile, $scope);
       $snapshot = $surface->assembler()->assemble($context);
+      if (isset($scope['lookup_evidence'])) {
+        $snapshot['lookup_evidence'] = $scope['lookup_evidence'];
+      }
       if ($conversation_context !== '') {
         $snapshot['conversation_context'] = $conversation_context;
       }
@@ -777,8 +1236,12 @@ class EditorGmHarnessService implements AgentHarnessInterface {
       'validation_summary' => $snapshot['validation_summary'] ?? [],
       'publication' => $snapshot['publication'] ?? [],
       'authority_boundary' => $snapshot['authority_boundary'] ?? [],
-      'authored_objects' => $snapshot['storyline']['objects'] ?? [],
     ];
+    if ($surface->id() === StorylineBuilderGmSurface::ID) {
+      $packet = $snapshot['troubleshooting'] ?? [];
+      $evidence['troubleshooting'] = is_array($packet) ? $packet : [];
+      $evidence['finding_scope'] = 'Resolve or explain only troubleshooting.finding. Do not inventory unrelated warnings.';
+    }
     $response = $this->synthesizeGroundedResponse(
       $utterance,
       'governing_harness_context',
@@ -817,6 +1280,45 @@ class EditorGmHarnessService implements AgentHarnessInterface {
    */
   private function describeToolCallMessage(string $tool_name, array $arguments = []): string {
     return (new AgentHarnessManagementService())->describeToolCallMessage($tool_name, $arguments);
+  }
+
+  private function normalizeStorylineDraftApproval(string $utterance): string {
+    $text = mb_strtolower(str_replace("\u{2019}", "'", trim($utterance)));
+    return preg_replace('/\s+/u', ' ', rtrim($text, '.! ')) ?? $text;
+  }
+
+  /**
+   * Recognizes short approvals of an already pending draft edit.
+   */
+  private function isStorylineDraftApproval(string $approval): bool {
+    $target = '(?:it|this|that|(?:the|this|that) (?:proposed )?(?:draft )?(?:edit|changes?|update|plan|proposal))';
+    $execution = "(?:apply|approve|accept|execute|save|commit|do|fix) $target";
+    return preg_match(
+      "/^(?:(?:yes|ok(?:ay)?),? |please |let'?s )*(?:"
+      . "(?:continue|proceed|resume|go ahead|carry on|keep going|move forward)(?: with $target| and $execution)?"
+      . "|$execution|go for it"
+      . "|yes|ok(?:ay)?|approve|approved|confirmed|sounds good)(?:,? please)?$/D",
+      $approval,
+    ) === 1;
+  }
+
+  /**
+   * Recognizes explicit author directions that must survive model planning.
+   */
+  private function storylineDraftWriteIntent(string $utterance): ?bool {
+    $text = $this->normalizeStorylineDraftApproval($utterance);
+    $polite = "(?:please |let'?s |(?:can|could|would|will) you (?:please )?)*";
+    if (preg_match("/^{$polite}(?:preview|propose|suggest|explain|show me)\\b/u", $text) === 1
+      || preg_match("/\\b(?:do not|don't|dont|without)\\s+(?:actually\\s+)?(?:fix|apply|save|edit|change|update|write|publish|execute|modify|remove|strip)\\b/u", $text) === 1
+      || preg_match('/\b(?:dry run|preview only|for review only)\b/u', $text) === 1) {
+      return FALSE;
+    }
+    if ($this->isStorylineDraftApproval($text)
+      || preg_match('/\b(?:review and (?:create|publish)|finalize the storyline|publish the (?:storyline|draft))\b/', $text) === 1
+      || preg_match("/^{$polite}(?:fix|resolve|repair|correct|address|apply|save|edit|update|change|add|remove|replace|set|record|link|create|write|implement)\\s+\\S/u", $text) === 1) {
+      return TRUE;
+    }
+    return NULL;
   }
 
   /**
@@ -940,6 +1442,8 @@ class EditorGmHarnessService implements AgentHarnessInterface {
       'validation_summary' => $context_snapshot['validation_summary'] ?? [],
       'publication' => $context_snapshot['publication'] ?? [],
       'conversation_context' => $context_snapshot['conversation_context'] ?? '',
+      'lookup_evidence' => $tool_name === 'storyline_lookup' ? [] : ($context_snapshot['lookup_evidence'] ?? []),
+      'troubleshooting' => $context_snapshot['troubleshooting'] ?? [],
     ];
     // Status and validation reviews take their next step from saved state.
     // The model is not asked for one, so there is a single source for it.
@@ -949,6 +1453,26 @@ class EditorGmHarnessService implements AgentHarnessInterface {
       $tool_name === 'governing_harness_validation_review'
       || ($tool_name === 'governing_harness_context' && in_array($tool_result['focus'] ?? '', ['status', 'validation_review'], TRUE))
     );
+    $saved_next_steps = $harness_owns_next_step
+      ? $this->harnessManagement->nextStepFromSavedState($context_snapshot, $surface_label)
+      : [];
+    if ($surface_label === 'Storyline Builder' && $tool_name === 'governing_harness_context') {
+      $storyline = $context_snapshot['storyline'] ?? [];
+      $grounding['storyline_advice'] = [
+        'saved_next_step' => $saved_next_steps[0] ?? '',
+        'premise' => $storyline['premise'] ?? '',
+        'ending' => $storyline['ending'] ?? '',
+        'focus' => 'Use only troubleshooting for the selected warning and its owning object.',
+      ];
+      $selected = $context_snapshot['troubleshooting']['finding']['message'] ?? '';
+      $grounding['validation_summary'] = [
+        'valid' => (bool) ($context_snapshot['validation_summary']['valid'] ?? FALSE),
+        'error_count' => (int) ($context_snapshot['validation_summary']['error_count'] ?? 0),
+        'warning_count' => (int) ($context_snapshot['validation_summary']['warning_count'] ?? 0),
+        'selected_warning' => $selected,
+        'selected_stage' => $context_snapshot['troubleshooting']['stage'] ?? '',
+      ];
+    }
     $execution_options = $this->harnessManagement->resolveExecutionOptions(
       AgentHarnessManagementService::PROFILE_RESPONSE_SYNTHESIS,
       ['system_prompt' => $this->responseSystemPrompt($surface_label, $harness_owns_next_step)],
@@ -967,35 +1491,49 @@ class EditorGmHarnessService implements AgentHarnessInterface {
       ],
     ]];
     $execution_options['tool_choice'] = ['type' => 'function', 'function' => ['name' => 'answer']];
-    $provider_result = $this->ai->invokeModelDirect(
-      implode("\n\n", [
-        '## Author request',
-        trim($utterance),
-        '## Selected tool',
-        $tool_name,
-        '## Authoritative tool result',
-        $this->harnessManagement->encodeCompactJson($evidence),
-        '## Relevant grounded context',
-        $this->harnessManagement->encodeCompactJson($grounding),
-        '## Your reply (call the answer function)',
-      ]),
-      EditorGmIntentParser::MODULE,
-      self::RESPONSE_OPERATION,
-      [
-        'draft_id' => (string) ($context_snapshot['draft']['draft_id'] ?? ''),
-        'tool_name' => $tool_name,
-      ],
-      $execution_options,
-    );
+    // The model occasionally emits a malformed function call. Each sample is
+    // checked in full and every rejection is logged; the reply is sampled
+    // again once, then the contract failure is raised.
+    for ($attempt = 1; $attempt <= self::ANSWER_ATTEMPTS; $attempt++) {
+      $provider_result = $this->ai->invokeModelDirect(
+        implode("\n\n", [
+          '## Author request',
+          trim($utterance),
+          '## Selected tool',
+          $tool_name,
+          '## Authoritative tool result',
+          $this->harnessManagement->encodeCompactJson($evidence),
+          '## Relevant grounded context',
+          $this->harnessManagement->encodeCompactJson($grounding),
+          '## Your reply (call the answer function)',
+        ]),
+        EditorGmIntentParser::MODULE,
+        self::RESPONSE_OPERATION,
+        [
+          'draft_id' => (string) ($context_snapshot['draft']['draft_id'] ?? ''),
+          'tool_name' => $tool_name,
+          'attempt' => $attempt,
+        ],
+        $execution_options + ['skip_cache' => TRUE],
+      );
 
-    if (!is_array($provider_result) || empty($provider_result['success'])) {
-      $this->logger->error('Editor GM grounded response failed: @error', [
-        '@error' => is_array($provider_result) ? (string) ($provider_result['error'] ?? 'unknown') : 'malformed provider response',
-      ]);
-      throw new \RuntimeException('editor_gm_response_model_failed');
+      if (!is_array($provider_result) || empty($provider_result['success'])) {
+        $this->logger->error('Editor GM grounded response failed: @error', [
+          '@error' => is_array($provider_result) ? (string) ($provider_result['error'] ?? 'unknown') : 'malformed provider response',
+        ]);
+        throw new \RuntimeException('editor_gm_response_model_failed');
+      }
+
+      try {
+        $decoded = $this->decodeAnswerCall($provider_result, $answer_schema);
+        break;
+      }
+      catch (\DomainException $exception) {
+        if ($attempt === self::ANSWER_ATTEMPTS || !str_starts_with($exception->getMessage(), 'editor_gm_response_')) {
+          throw $exception;
+        }
+      }
     }
-
-    $decoded = $this->decodeAnswerCall($provider_result, $answer_schema);
     $raw_sections = $decoded['sections'] ?? NULL;
     if (!is_array($raw_sections) || $raw_sections === [] || count($raw_sections) > 6) {
       throw new \DomainException('editor_gm_response_sections_invalid');
@@ -1016,7 +1554,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     if ($harness_owns_next_step) {
       return [
         'answer' => $answer,
-        'next_steps' => $this->harnessManagement->nextStepFromSavedState($context_snapshot, $surface_label),
+        'next_steps' => $saved_next_steps,
       ];
     }
     if ($surface_label === 'Storyline Builder') {
@@ -1114,15 +1652,16 @@ class EditorGmHarnessService implements AgentHarnessInterface {
   private function responseSystemPrompt(string $surface_label, bool $harness_owns_next_step = FALSE): string {
     $next_step_rule = $harness_owns_next_step
       ? <<<'RULE'
-- Do not state, suggest or imply a next step, and do not ask the author a
-  question. The harness adds the single next step from saved state after
-  your answer. Report what the evidence shows and stop.
+- Do not append a next-step instruction or ask the author a question. The
+  harness adds the single next step from saved state after your answer.
+  Read-only resolution proposals belong in the answer itself.
 RULE
       : <<<'RULE'
 - On Storyline Builder, return exactly ONE bounded next step. Ask only one
   creative decision at a time, never a list of changes for the author to
-  specify. Do not hide multiple action items inside that single step or
-  inside the answer's sections. Technical batching is agent-owned; never
+  specify. One next step does not mean one possible outcome. Do not turn
+  suggestions into an instruction to pick exactly one. Do not hide multiple
+  action items inside that single step or the answer's sections. Technical batching is agent-owned; never
   ask the author to break up a request, assign IDs, or repeat saved work.
   For unfinished bounded work, explain the saved progress and offer only
   resuming it. Do not suggest unrelated edits while authorized work remains.
@@ -1142,6 +1681,11 @@ Hard rules:
   State a validation rule or finding only when it appears in the tool result
   or validation_summary. An earlier reply that named a rule does not make it
   one.
+- An author's stated choice is authoritative story intent, not a technical
+  fact or an unanswered question. Never ask again for a decision already made.
+  Distinguish the choice from a change actually saved to the draft.
+- A published room and a published dungeon are separate facts. A placement
+  found only in an active dungeon draft does not mean the dungeon is published.
 - Answer directly and explain what the evidence means.
 - Never mention tools, tool selection, tool results, schema keys, internal field
   names, or harness mechanics. Translate evidence into natural language.
@@ -1149,6 +1693,29 @@ Hard rules:
 - If evidence is insufficient, say exactly what cannot yet be determined.
 - Distinguish schema validity from narrative completeness.
 - Preserve human authorship; do not make unstated creative choices.
+- On Storyline Builder, when reporting a warning as the next open issue or
+  answering a request to discuss one, propose a concrete resolution in the
+  answer. Focus on the warning the author named, or the saved next warning
+  if none was named. Explain what change would clear it; do not hand the
+  problem back as "ask the GM to fix it." For a creative decision, recommend
+  grounded outcomes as optional suggestions, not an exhaustive menu. Say
+  explicitly that the author can combine, branch, defer, or replace them
+  when the story allows it. Distinguish branch-specific triggers from
+  objective completion criteria. If the author already selected multiple
+  outcomes, keep all of them; don't ask which single outcome to keep.
+  Label invented outcomes as proposals, not facts or saved changes. For
+  example, a conflict left open needs a resolving scene or an explicit
+  intentional open thread, not objective completion criteria. If evidence
+  is insufficient, identify the specific missing fact instead of guessing.
+- When troubleshooting is present, it is the complete scope for the turn.
+  Use only its selected finding, owning object, allowed fields and evidence.
+  Do not inventory unrelated warnings or summarize the rest of the storyline.
+  Ask at most one precise question when troubleshooting.user_question is
+  present. If troubleshooting gives schema-valid suggested_values and the
+  author selected them, state that the scoped edit is ready; never suggest a
+  field outside troubleshooting.editable.fields.
+- Never ask for data that the owning schema cannot store. A schema/validator
+  mismatch is a system contract defect: identify it as such and stop.
 - On Character Creation, present available choices as a numbered list, with one
   option per line. Requested valid edits are saved immediately; never ask for
   approval or suggest an Approve and Run button. Read-only inspection does not

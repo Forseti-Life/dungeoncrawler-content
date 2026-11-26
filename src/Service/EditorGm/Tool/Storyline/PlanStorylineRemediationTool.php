@@ -22,7 +22,7 @@ final class PlanStorylineRemediationTool implements EditorGmToolInterface {
     return new EditorGmToolDefinition(
       'plan_storyline_remediation',
       EditorGmToolDefinition::FAMILY_PLANNING,
-      'Plan missing canonical assets, linked quest storyline-reference repairs, optional draft bindings, and final revalidation. Use scope=quest_storyline_references for only stale linked-quest references.',
+      'Plan missing canonical assets and their draft bindings, or repair stale linked-quest metadata with scope=quest_storyline_references. This does not update existing canonical item definitions. To edit quest content or objectives, use plan_storyline_draft_operations instead.',
       FALSE,
       'CanonicalDefinitionGenerationService + RoomEditorService + StorylineAuthoringDraftService',
       [
@@ -45,8 +45,10 @@ final class PlanStorylineRemediationTool implements EditorGmToolInterface {
     $operations = $this->listArgument($arguments, 'operations');
     $explicit_definitions = $this->listArgument($arguments, 'definitions');
     $planned_draft = $draft;
+    $draft_changes = [];
     if ($operations !== []) {
       $planned = $context->drafts->planDraftOperations($context->draftId, $expected_revision, $operations);
+      $draft_changes = $planned['changes'];
       if (is_array($planned['payload'] ?? NULL)) {
         $planned_draft['payload'] = $planned['payload'];
       }
@@ -66,10 +68,9 @@ final class PlanStorylineRemediationTool implements EditorGmToolInterface {
     else {
       $definitions = $this->deriveAssetPlans($planned_draft, $context->validation(), $context, $explicit_definitions);
     }
-    // Quest records are written from the draft when the storyline is
-    // published; only linked-quest reference repairs are planned here.
+    // Quest creation uses the native storyline quest writer, not remediation.
     $quests = $reference_repairs;
-    if ($definitions === [] && $quests === [] && $operations === []) {
+    if ($definitions === [] && $quests === [] && $draft_changes === []) {
       return [
         'has_changes' => FALSE,
         'definition_count' => 0,
@@ -82,7 +83,8 @@ final class PlanStorylineRemediationTool implements EditorGmToolInterface {
       'has_changes' => TRUE,
       'definition_count' => count($definitions),
       'quest_count' => count($quests),
-      'draft_operation_count' => count($operations),
+      'draft_operation_count' => count($draft_changes),
+      'draft_changes' => $draft_changes,
       'proposed_execution' => [
         'tool_name' => 'apply_storyline_remediation',
         'authority' => 'existing canonical definition, quest, and Storyline draft authorities',

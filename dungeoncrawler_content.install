@@ -2896,7 +2896,7 @@ function dungeoncrawler_content_schema() {
   $schema['dc_canonical_quests'] = [
     'fields' => [
       'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE],
-      'template_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE],
+      'template_id' => ['type' => 'varchar', 'length' => 128, 'not null' => TRUE],
       'version' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => '1.0.0'],
       'name' => ['type' => 'varchar', 'length' => 255, 'not null' => TRUE],
       'description' => ['type' => 'text', 'not null' => FALSE],
@@ -3007,7 +3007,7 @@ function dungeoncrawler_content_schema() {
       'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE],
       'storyline_template_id' => ['type' => 'varchar', 'length' => 128, 'not null' => TRUE],
       'storyline_version' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => '1.0.0'],
-      'quest_template_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE],
+      'quest_template_id' => ['type' => 'varchar', 'length' => 128, 'not null' => TRUE],
       'quest_version' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => '1.0.0'],
       'chapter_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE],
       'scene_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE],
@@ -3074,7 +3074,7 @@ function dungeoncrawler_content_schema() {
   $schema['dc_canonical_objective_refs'] = [
     'fields' => [
       'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE],
-      'quest_template_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE],
+      'quest_template_id' => ['type' => 'varchar', 'length' => 128, 'not null' => TRUE],
       'quest_version' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => '1.0.0'],
       'storyline_template_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE],
       'phase' => ['type' => 'int', 'not null' => TRUE, 'default' => 0],
@@ -3100,7 +3100,7 @@ function dungeoncrawler_content_schema() {
   $schema['dc_canonical_objective_actor_refs'] = [
     'fields' => [
       'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE],
-      'quest_template_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE],
+      'quest_template_id' => ['type' => 'varchar', 'length' => 128, 'not null' => TRUE],
       'quest_version' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => '1.0.0'],
       'storyline_template_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE],
       'phase' => ['type' => 'int', 'not null' => TRUE, 'default' => 0],
@@ -3126,7 +3126,7 @@ function dungeoncrawler_content_schema() {
   $schema['dc_canonical_objective_location_refs'] = [
     'fields' => [
       'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE],
-      'quest_template_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE],
+      'quest_template_id' => ['type' => 'varchar', 'length' => 128, 'not null' => TRUE],
       'quest_version' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => '1.0.0'],
       'storyline_template_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE],
       'phase' => ['type' => 'int', 'not null' => TRUE, 'default' => 0],
@@ -3152,7 +3152,7 @@ function dungeoncrawler_content_schema() {
   $schema['dc_canonical_objective_room_refs'] = [
     'fields' => [
       'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE],
-      'quest_template_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE],
+      'quest_template_id' => ['type' => 'varchar', 'length' => 128, 'not null' => TRUE],
       'quest_version' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => '1.0.0'],
       'storyline_template_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE],
       'phase' => ['type' => 'int', 'not null' => TRUE, 'default' => 0],
@@ -3177,7 +3177,7 @@ function dungeoncrawler_content_schema() {
   $schema['dc_canonical_objective_dungeon_refs'] = [
     'fields' => [
       'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE],
-      'quest_template_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE],
+      'quest_template_id' => ['type' => 'varchar', 'length' => 128, 'not null' => TRUE],
       'quest_version' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => '1.0.0'],
       'storyline_template_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE],
       'phase' => ['type' => 'int', 'not null' => TRUE, 'default' => 0],
@@ -3202,7 +3202,7 @@ function dungeoncrawler_content_schema() {
   $schema['dc_canonical_objective_item_refs'] = [
     'fields' => [
       'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE],
-      'quest_template_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE],
+      'quest_template_id' => ['type' => 'varchar', 'length' => 128, 'not null' => TRUE],
       'quest_version' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => '1.0.0'],
       'storyline_template_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE],
       'phase' => ['type' => 'int', 'not null' => TRUE, 'default' => 0],
@@ -3228,7 +3228,7 @@ function dungeoncrawler_content_schema() {
   $schema['dc_canonical_objective_hazard_refs'] = [
     'fields' => [
       'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE],
-      'quest_template_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE],
+      'quest_template_id' => ['type' => 'varchar', 'length' => 128, 'not null' => TRUE],
       'quest_version' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => '1.0.0'],
       'storyline_template_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE],
       'phase' => ['type' => 'int', 'not null' => TRUE, 'default' => 0],
@@ -3492,7 +3492,7 @@ function dungeoncrawler_content_schema() {
       'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE],
       'campaign_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE],
       'quest_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE],
-      'source_template_id' => ['type' => 'varchar', 'length' => 100, 'not null' => FALSE],
+      'source_template_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE],
       'quest_name' => ['type' => 'varchar', 'length' => 255, 'not null' => TRUE],
       'quest_description' => ['type' => 'text', 'not null' => TRUE],
       'quest_type' => ['type' => 'varchar', 'length' => 50, 'not null' => TRUE],
@@ -6992,4 +6992,27 @@ function dungeoncrawler_content_update_10233(): string {
   }
 
   return sprintf('Library characters: %d given storyline memberships, %d given a home in Absalom, %d alignments and %d ancestries set.', $summary['storyline_ties'], $summary['homes'], $summary['alignments'], $summary['ancestries']);
+}
+
+/**
+ * Allow generated storyline task IDs to be stored as canonical quest IDs.
+ */
+function dungeoncrawler_content_update_10234(): string {
+  $schema = \Drupal::database()->schema();
+  $required = ['type' => 'varchar', 'length' => 128, 'not null' => TRUE];
+  $schema->changeField('dc_canonical_quests', 'template_id', 'template_id', $required);
+  foreach ([
+    'dc_canonical_storyline_quests',
+    'dc_canonical_objective_refs',
+    'dc_canonical_objective_actor_refs',
+    'dc_canonical_objective_location_refs',
+    'dc_canonical_objective_room_refs',
+    'dc_canonical_objective_dungeon_refs',
+    'dc_canonical_objective_item_refs',
+    'dc_canonical_objective_hazard_refs',
+  ] as $table) {
+    $schema->changeField($table, 'quest_template_id', 'quest_template_id', $required);
+  }
+  $schema->changeField('dc_campaign_quests', 'source_template_id', 'source_template_id', array_replace($required, ['not null' => FALSE]));
+  return 'Widened canonical quest IDs and their references to 128 characters.';
 }

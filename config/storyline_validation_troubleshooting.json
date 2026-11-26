@@ -1,0 +1,74 @@
+{
+  "schema_version": "storyline-validation-troubleshooting-v1",
+  "routes": {
+    "draft_operation": {
+      "owner": "StorylineAuthoringDraftService",
+      "tool": "plan_storyline_draft_operations"
+    },
+    "canonical_definition": {
+      "owner": "CanonicalDefinitionService",
+      "tool": "update_canonical_definition"
+    },
+    "actor_sheet_build": {
+      "owner": "StorylineActorSheetService",
+      "tool": "build_storyline_actor_sheets"
+    },
+    "dungeon_editor": {
+      "owner": "DungeonEditorGmService",
+      "tool": "route_to_editor"
+    },
+    "room_editor": {
+      "owner": "RoomEditorGmService",
+      "tool": "route_to_editor"
+    }
+  },
+  "stages": {
+    "schema": {"route": "draft_operation", "resolver": "generic"},
+    "definition_completeness": {"route": "draft_operation", "resolver": "generic"},
+    "cross_references": {"route": "canonical_definition", "resolver": "generic"},
+    "questline_progression": {"route": "draft_operation", "resolver": "generic"},
+    "narrative_analysis": {"route": "draft_operation", "resolver": "generic"},
+    "navigation_progression": {"route": "draft_operation", "resolver": "generic"},
+    "objective_control_chain": {"route": "draft_operation", "resolver": "generic"},
+    "entity_type_contracts": {"route": "canonical_definition", "resolver": "generic"},
+    "task_contracts": {"route": "draft_operation", "resolver": "generic"},
+    "objective_playability": {"route": "draft_operation", "resolver": "generic"},
+    "entity_linkage": {"route": "draft_operation", "resolver": "generic"},
+    "dungeon_room_contracts": {"route": "dungeon_editor", "resolver": "generic"},
+    "authored_room_dungeon_bindings": {"route": "dungeon_editor", "resolver": "generic"},
+    "actor_character_sheets": {"route": "actor_sheet_build", "resolver": "generic"},
+    "authored_questline_edges": {"route": "draft_operation", "resolver": "generic"}
+  },
+  "findings": {
+    "DCV_OBJ_PLAYABILITY_MISSING_TARGET_LABEL": {
+      "resolver": "storyline_quest_objective",
+      "route": "draft_operation",
+      "fields": ["target_label", "target_aliases"],
+      "verification": "same_object"
+    },
+    "DCV_OBJ_PLAYABILITY_MISSING_TARGET_ALIASES": {
+      "resolver": "storyline_quest_objective",
+      "route": "draft_operation",
+      "fields": ["target_label", "target_aliases"],
+      "verification": "same_object"
+    },
+    "DCV_OBJ_PLAYABILITY_MISSING_WAYFINDING_HINT": {
+      "resolver": "storyline_quest_objective",
+      "route": "draft_operation",
+      "fields": ["wayfinding_hint"],
+      "verification": "same_object"
+    },
+    "DCV_OBJ_PLAYABILITY_MISSING_ACTION_ANCHOR": {
+      "resolver": "storyline_quest_objective",
+      "route": "draft_operation",
+      "fields": ["target", "location", "destination"],
+      "verification": "selected_code"
+    }
+  },
+  "default": {
+    "route": "unclassified",
+    "resolver": "generic",
+    "verification": "selected_code",
+    "scope": "read_only_unless_registered"
+  }
+}

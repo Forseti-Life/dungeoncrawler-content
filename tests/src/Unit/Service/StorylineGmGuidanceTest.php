@@ -12,6 +12,7 @@ use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmSurfaceInterface;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolRegistry;
 use Drupal\dungeoncrawler_content\Service\EditorGm\StorylineGmWorkService;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\PlanStorylineDraftOperationsTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\PublishStorylineQuestTemplatesTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\StorylineWorkTool;
 use Drupal\dungeoncrawler_content\Service\StorylineAuthoringDraftService;
 use Drupal\Tests\UnitTestCase;
@@ -50,6 +51,75 @@ class StorylineGmGuidanceTest extends UnitTestCase {
     ], [], NULL);
     $result = $parser->parse('Add a fork at every scene and route each to one shared destination ending.', ['draft' => ['revision' => 3]], $registry, 'Storyline Builder');
     $this->assertSame('plan_storyline_work', $result['tool_name']);
+  }
+
+  /**
+   * @dataProvider closingBeatPlans
+   */
+  public function testClosingBeatWorkPlanEnforcesTheNativeInstructionLimit(bool $oversized): void {
+    $steps = [
+      ['label' => 'Earn the signature', 'instruction' => 'Write the closing beat when the party meets the unwritten standard.'],
+      ['label' => 'Publish the standard', 'instruction' => 'Write the closing beat when the party persuades Celia to state the standard.'],
+      ['label' => 'Carry the disagreement forward', 'instruction' => 'Write the closing beat that earns the signature but leaves a deliberate open thread.'],
+    ];
+    if ($oversized) {
+      $steps[1]['instruction'] = str_repeat('x', 571);
+    }
+    $parser = $this->parser([
+      'type' => 'tool_call',
+      'tool_name' => 'plan_storyline_work',
+      'arguments' => ['expected_revision' => 35, 'steps' => $steps],
+      'reasoning' => 'Keep each selected outcome in its own closing beat.',
+    ], function (string $prompt, array $options): void {
+      $tools = array_column(array_column($options['tools'], 'function'), NULL, 'name');
+      $items = $tools['plan_storyline_work']['parameters']['properties']['steps']['items'];
+      $this->assertSame(StorylineGmWorkService::MAX_INSTRUCTION_LENGTH, $items['properties']['instruction']['maxLength']);
+      $this->assertStringContainsString('selects all of them', $options['system_prompt']);
+    });
+    if ($oversized) {
+      $this->expectException(\DomainException::class);
+      $this->expectExceptionMessage('editor_gm_intent_schema_invalid:plan_storyline_work:/steps/1/instruction');
+    }
+    $result = $parser->parse('Write all three as separate closing beats.', ['draft' => ['revision' => 35]], new EditorGmToolRegistry([
+      new PlanStorylineDraftOperationsTool(),
+      new StorylineWorkTool($this->createMock(StorylineGmWorkService::class), FALSE),
+    ], [], NULL), 'Storyline Builder');
+    $this->assertSame($steps, $result['arguments']['steps']);
+  }
+
+  public static function closingBeatPlans(): array {
+    return ['three bounded beats' => [FALSE], '571-character work unit' => [TRUE]];
+  }
+
+  /**
+   * @dataProvider denouementPaths
+   */
+  public function testBoundedDenouementPatchRequiresTheDraftPath(string $path, bool $valid): void {
+    $operation = ['type' => 'set', 'path' => $path, 'value' => 'Each outcome has a separate close.'];
+    $parser = $this->parser([
+      'type' => 'tool_call',
+      'tool_name' => 'plan_storyline_draft_operations',
+      'arguments' => ['expected_revision' => 42, 'operations' => [$operation]],
+      'reasoning' => 'Align the shared denouement.',
+    ], function (string $prompt, array $options): void {
+      $this->assertStringContainsString('/process_flow/narrative_architecture/beats/denouement/', $options['system_prompt']);
+    });
+    if (!$valid) {
+      $this->expectException(\DomainException::class);
+      $this->expectExceptionMessage('editor_gm_intent_schema_invalid:plan_storyline_draft_operations:/operations/0/path');
+    }
+    $intent = $parser->parse('Align the denouement beat.', [
+      'draft' => ['revision' => 42],
+      'bounded_work_step' => ['current' => 8, 'total' => 8],
+    ], new EditorGmToolRegistry([new PlanStorylineDraftOperationsTool()], [], NULL), 'Storyline Builder');
+    $this->assertSame([$operation], $intent['arguments']['operations']);
+  }
+
+  public static function denouementPaths(): array {
+    return [
+      'saved draft path' => ['/process_flow/narrative_architecture/beats/denouement/new_equilibrium', TRUE],
+      'rejected root from the paused job' => ['/narrative_architecture/beats/denouement/new_equilibrium', FALSE],
+    ];
   }
 
   /**
@@ -323,6 +393,83 @@ class StorylineGmGuidanceTest extends UnitTestCase {
       ],
     ], 'Storyline Builder');
     $this->assertStringContainsString('This needs the site built in the Dungeon Editor, not a draft edit.', $response['next_steps'][0]);
+  }
+
+  public function testNextConflictWarningProposesAnAuthoredResolution(): void {
+    $warning = "Conflict 'celia-test' remains unresolved at the end of the authored timeline.";
+    $step = (new AgentHarnessManagementService())->storylineNextStepFromSavedState([
+      'current_state' => ['accepted_warning_count' => 1, 'open_warning_count' => 1, 'first_open_warning' => $warning],
+      'storyline' => ['process_flow' => ['conflicts' => [
+        ['conflict_id' => 'celia-test', 'title' => "Celia's standards"],
+      ]]],
+      'validation_summary' => ['warnings' => ['Earlier accepted warning.', $warning], 'stages' => [[
+        'warnings' => ['Earlier accepted warning.', $warning],
+        'findings' => [[
+          'severity' => 'warning',
+          'code' => 'DCV_NARRATIVE_CONFLICT_UNRESOLVED',
+          'message' => $warning,
+          'entity_id' => 'celia-test',
+        ]],
+      ]]],
+    ]);
+    $this->assertCount(1, $step);
+    $this->assertStringContainsString("Celia's standards", $step[0]);
+    $this->assertStringContainsString('after the final escalation', $step[0]);
+    $this->assertStringContainsString('intentional open thread', $step[0]);
+    $this->assertStringNotContainsString('ask the GM', $step[0]);
+  }
+
+  public function testProposalOnlyRequestNeverEntersToolSelection(): void {
+    $ai = $this->createMock(AIApiService::class);
+    $ai->expects($this->never())->method('invokeModelDirect');
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($this->createMock(LoggerChannelInterface::class));
+    $parser = new EditorGmIntentParser($ai, $logger_factory);
+    $intent = $parser->parse(
+      "How do we resolve Celia's warning? Do we need completion criteria? Don't fix it, but propose answers.",
+      ['validation_summary' => ['warning_count' => 1]],
+      new EditorGmToolRegistry([new PlanStorylineDraftOperationsTool()], [], NULL),
+      'Storyline Builder',
+    );
+    $this->assertSame('direct_response', $intent['type']);
+    $this->assertSame('validation_review', $intent['focus']);
+  }
+
+  public function testAcceptedQuestCreationOfferUsesOnlyMissingSavedTasks(): void {
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($this->createMock(LoggerChannelInterface::class));
+    $parser = new EditorGmIntentParser(NULL, $logger_factory);
+    $registry = new EditorGmToolRegistry([new PublishStorylineQuestTemplatesTool()], [], NULL);
+    $snapshot = [
+      'draft' => ['revision' => 45],
+      'storyline_offered_next_step' => 'Create the two canonical quest templates for the closing tasks.',
+      'storyline' => ['process_flow' => ['tasks' => [
+        ['task_id' => 'already-saved'],
+        ['task_id' => 'earn-signature'],
+        ['task_id' => 'write-standard'],
+      ]]],
+      'validation_summary' => ['warnings' => [
+        "Linked quest 'earn-signature' is missing from canonical quest templates.",
+        "Linked quest 'write-standard' is missing from canonical quest templates.",
+        "Linked quest 'not-a-task' is missing from canonical quest templates.",
+      ]],
+    ];
+
+    foreach (['Create two quest templates', 'Create the two canonical quest templates one at a time'] as $request) {
+      $intent = $parser->parse($request, $snapshot, $registry, 'Storyline Builder');
+      $this->assertSame('publish_storyline_quest_templates', $intent['tool_name']);
+      $this->assertSame([
+        'expected_revision' => 45,
+        'task_ids' => ['earn-signature', 'write-standard'],
+      ], $intent['arguments']);
+    }
+
+    $intent = $parser->parse("Propose quest templates, but don't save them.", $snapshot, $registry, 'Storyline Builder');
+    $this->assertSame('direct_response', $intent['type']);
+
+    $snapshot['validation_summary']['warnings'] = ["Linked quest 'write-standard' is missing from canonical quest templates."];
+    $this->expectExceptionMessage('editor_gm_intent_parser_unavailable');
+    $parser->parse('Create them', $snapshot, $registry, 'Storyline Builder');
   }
 
   /**

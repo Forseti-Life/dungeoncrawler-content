@@ -22,6 +22,20 @@ class StorylineGmWorkService {
   public const MAX_LABEL_LENGTH = 80;
   public const MAX_INSTRUCTION_LENGTH = 500;
 
+  public static function stepSchema(): array {
+    return [
+      'type' => 'object',
+      'additionalProperties' => FALSE,
+      'required' => ['label', 'instruction'],
+      'properties' => [
+        'label' => ['type' => 'string', 'minLength' => 1, 'maxLength' => self::MAX_LABEL_LENGTH],
+        'instruction' => ['type' => 'string', 'minLength' => 1, 'maxLength' => self::MAX_INSTRUCTION_LENGTH],
+        'scene_id' => ['type' => 'string', 'minLength' => 1],
+        'scene_ids' => ['type' => 'array', 'minItems' => 1, 'uniqueItems' => TRUE, 'items' => ['type' => 'string', 'minLength' => 1]],
+      ],
+    ];
+  }
+
   private readonly KeyValueStoreInterface $store;
 
   public function __construct(

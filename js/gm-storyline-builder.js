@@ -8,6 +8,7 @@ import {
   shouldSubmitEditorGmKey,
 } from './v2/editor/EditorGmChatClient.js?v=20261118-format-5';
 import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117-review-2';
+import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=20261124-warning-review-1';
 
 (function (Drupal, once, drupalSettings) {
   'use strict';
@@ -30,6 +31,7 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
       stages: storylineStatusStages,
       missing: storylineStatusMissing,
     } = elements;
+    renderWarningReview(elements.warningReview, current);
     const percent = Number(current.completion_percent || 0);
     if (storylineStatusPercent) {
       storylineStatusPercent.textContent = `${percent}%`;
@@ -206,6 +208,7 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
         const draftsSettings = settings.drafts || {};
         const publishSettings = settings.publish || {};
         const objectEditorTemplates = settings.objectEditors || {};
+        const objectLabels = settings.objectLabels || {};
         const objectEditorLinks = document.querySelector('[data-storyline-object-editor-links]');
 
         const assistantPanel = wizard.querySelector('[data-gm-assistant-panel]');
@@ -250,6 +253,7 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
         const storylineStatusStages = document.querySelector('[data-storyline-status-stages]');
         const storylineStatusMissing = document.querySelector('[data-storyline-status-missing]');
         const storylineStatusElements = {
+          warningReview: document.querySelector('[data-storyline-status] [data-editor-warning-review]'),
           percent: storylineStatusPercent,
           progress: storylineStatusProgress,
           validity: storylineStatusValidity,
@@ -261,14 +265,14 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
 
         const collections = {
           journal_entries: ['chapter_id', 'scene_id', 'order', 'title', 'summary', 'trigger', 'room_ids', 'central_conflict', 'dramatic_function', 'themes', 'character_ids', 'foreshadows_scene_id'],
-          conflict_entries: ['conflict_id', 'title', 'actor_ids', 'introduced_scene_id', 'escalation_scene_ids', 'resolved_scene_id', 'status'],
+          conflict_entries: ['conflict_id', 'title', 'actor_ids', 'introduced_scene_id', 'escalation_scene_ids', 'resolved_scene_id', 'resolved_scene_ids', 'open_thread_scene_ids', 'status'],
           relationship_entries: ['scene_id', 'source_actor_id', 'target_actor_id', 'before', 'after', 'reason'],
           task_entries: ['task_id', 'chapter_id', 'scene_id', 'status', 'goal_text', 'gm_notes', 'open_resolution', 'unlocks_to', 'prerequisite_mode'],
           branch_choice_entries: ['decision_id', 'source_task_id', 'choice_id', 'label', 'trigger_type', 'trigger_interaction', 'trigger_condition', 'trigger_source_id', 'trigger_when', 'effect_summary', 'target_task_id', 'target_scene_id', 'terminal', 'approach_visibility', 'approach_outcome_label', 'approach_reveal', 'approach_objective_ids', 'approach_reward_xp', 'approach_reward_gold'],
           branch_actor_effect_entries: ['choice_id', 'actor_id', 'interaction', 'reaction', 'effect', 'state_changes'],
           branch_environment_effect_entries: ['choice_id', 'target_type', 'target_id', 'effect', 'state_changes'],
           branch_storyline_effect_entries: ['choice_id', 'target_type', 'target_id', 'source_actor_id', 'operation', 'effect', 'follow_up_required', 'state_changes'],
-          objective_entries: ['objective_id', 'task_id', 'type', 'next_step', 'target', 'requires_check', 'item', 'location', 'destination', 'kind', 'metric', 'description', 'required'],
+          objective_entries: ['objective_id', 'task_id', 'type', 'next_step', 'target', 'target_label', 'target_aliases', 'requires_check', 'item', 'location', 'wayfinding_hint', 'search_narration', 'destination', 'kind', 'metric', 'description', 'required'],
           institution_entries: ['domain', 'name', 'description', 'purpose', 'seat_id', 'leader_actor_id', 'parent_institution_id'],
           actor_entries: ['contact_id', 'actor_id', 'role', 'display_name', 'motivation', 'dialogue', 'knowledge', 'attitude', 'alignment', 'availability', 'chapter_id', 'scene_id', 'location_id'],
           dungeon_entries: ['dungeon_id', 'chapter_id', 'purpose', 'entrance_room'],
@@ -835,6 +839,9 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
           const conflictDraftRows = listFromCollection('conflict_entries', collections.conflict_entries);
           const conflictIdFor = createIdentifierAllocator(conflictDraftRows.map((conflict) => conflict.conflict_id));
           const objectiveDraftRows = listFromCollection('objective_entries', collections.objective_entries);
+          objectiveDraftRows.forEach((objective) => {
+            objective.target_aliases = parseCommaList(objective.target_aliases);
+          });
           const objectiveIdFor = createIdentifierAllocator(objectiveDraftRows.map((objective) => objective.objective_id));
           const actorEntries = entriesFromCollection('actor_entries', collections.actor_entries);
           const actorDraftRows = actorEntries.map(({ item }) => item);
@@ -909,6 +916,8 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
                 conflict_id: conflict.conflict_id || conflictIdFor(conflict.title || `conflict-${index + 1}`, `${storylineId}-conflict`),
                 actor_ids: parseCommaList(conflict.actor_ids),
                 escalation_scene_ids: parseCommaList(conflict.escalation_scene_ids),
+                resolved_scene_ids: parseCommaList(conflict.resolved_scene_ids),
+                open_thread_scene_ids: parseCommaList(conflict.open_thread_scene_ids),
               })),
               narrative_architecture: {
                 beats: {
@@ -1022,11 +1031,12 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
           const rooms = (blueprint.objects?.rooms?.generation_specs || [])
             .map((room) => ({ id: String(room.room_id || '').trim(), site: String(room.dungeon_id || '').trim() }))
             .filter((room) => room.id);
-          const roomEntry = (room) => ({ kind: 'room', id: room.id, label: room.id, nested: true });
+          const labelFor = (kind, id) => Object.hasOwn(objectLabels[kind] || {}, id) ? objectLabels[kind][id] : id;
+          const roomEntry = (room) => ({ kind: 'room', id: room.id, label: labelFor('room', room.id), nested: true });
           const objects = [
             ...(blueprint.objects?.dungeons?.generation_specs || []).flatMap((dungeon) => {
               const id = String(dungeon.dungeon_id || '').trim();
-              return [{ kind: 'dungeon', id, label: id }, ...rooms.filter((room) => room.site === id).map(roomEntry)];
+              return [{ kind: 'dungeon', id, label: labelFor('dungeon', id) }, ...rooms.filter((room) => room.site === id).map(roomEntry)];
             }),
             ...rooms.filter((room) => !(blueprint.objects?.dungeons?.generation_specs || []).some((dungeon) => String(dungeon.dungeon_id || '').trim() === room.site)).map(roomEntry),
           ];
@@ -1197,6 +1207,8 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
               ...conflict,
               actor_ids: Array.isArray(conflict?.actor_ids) ? conflict.actor_ids.join(', ') : (conflict?.actor_ids || ''),
               escalation_scene_ids: Array.isArray(conflict?.escalation_scene_ids) ? conflict.escalation_scene_ids.join(', ') : (conflict?.escalation_scene_ids || ''),
+              resolved_scene_ids: (conflict.resolved_scene_ids || []).join(', '),
+              open_thread_scene_ids: (conflict.open_thread_scene_ids || []).join(', '),
             }))],
             ['task_entries', (payload?.process_flow?.tasks || []).map((task) => ({
               ...task,
@@ -1259,7 +1271,10 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
                 }))
                 : []
             ))],
-            ['objective_entries', payload?.process_flow?.objective_completion_criteria || []],
+            ['objective_entries', (payload?.process_flow?.objective_completion_criteria || []).map((objective) => ({
+              ...objective,
+              target_aliases: Array.isArray(objective.target_aliases) ? objective.target_aliases.join(', ') : (objective.target_aliases || ''),
+            }))],
             ['institution_entries', savedInstitutions],
             ['actor_entries', payload?.objects?.actors?.generation_specs || []],
             ['dungeon_entries', payload?.objects?.dungeons?.generation_specs || []],
@@ -1928,9 +1943,12 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
           if (!assistantLog || !Array.isArray(options) || options.length !== 3) {
             throw new Error('assistant_three_options_required');
           }
-          renderEditorGmClarification(assistantLog, { intent: 'clarification', question, options }, {
+          const choiceList = renderEditorGmClarification(assistantLog, { intent: 'clarification', question, options }, {
             onSelectOption: (selection) => askAssistant(selection),
           });
+          const hint = document.createElement('p');
+          hint.textContent = Drupal.t('These are suggestions. Choose one below, or tell the GM to combine them, use several as separate outcomes, or take a different direction.');
+          choiceList.firstElementChild.after(hint);
         }
 
         async function initAssistant(announce = true) {
@@ -2029,6 +2047,25 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
           return payload;
         }
 
+        async function refreshSceneReview() {
+          if (!wizard.hasAttribute('data-scene-review-editor')) {
+            return;
+          }
+          const response = await fetch(window.location.href, { credentials: 'same-origin', cache: 'no-store' });
+          if (!response.ok) {
+            throw new Error(`scene_review_${response.status}`);
+          }
+          const documentCopy = new DOMParser().parseFromString(await response.text(), 'text/html');
+          for (const selector of ['.scene-review', '[data-scene-review-index]']) {
+            const current = document.querySelector(selector);
+            const updated = documentCopy.querySelector(selector);
+            if (!current || !updated) {
+              throw new Error('scene_review_content_missing');
+            }
+            current.replaceWith(updated);
+          }
+        }
+
         async function askAssistant(message) {
           if (!assistantSettings.executeUrlTemplate || !assistantLog || assistantBusy) {
             return false;
@@ -2042,6 +2079,7 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
           setAssistantStatus('Waiting on the Game Master Agent to respond…');
           let succeeded = false;
           let lastWorkProgress = null;
+          let sceneNeedsRefresh = false;
           try {
             if (!draftId) {
               await createDraft(true);
@@ -2054,9 +2092,15 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
               await saveDraft();
               setAssistantStatus('Waiting on the Game Master Agent to respond…');
             }
+            const selectedScene = wizard.hasAttribute('data-scene-review-editor') && /^#scene-\d+$/.test(window.location.hash)
+              ? document.getElementById(window.location.hash.slice(1))?.getAttribute('data-scene-id')
+              : '';
+            const utterance = selectedScene
+              ? `${prompt}\nCurrent scene in view: ${selectedScene}. Use it when the request refers to the current scene.`
+              : prompt;
             let payload = await sendAssistantIntent({
               type: 'natural_language',
-              utterance: prompt,
+              utterance,
               author_message: prompt,
             });
             let batches = 0;
@@ -2070,6 +2114,7 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
               applyWorkActionButtons(progress);
               const saved = payload.data.tool_result.saved;
               if (saved) {
+                sceneNeedsRefresh = true;
                 draftRevision = Number(saved.revision);
                 draftDirty = false;
                 hydrateFromPayload(saved.payload);
@@ -2107,6 +2152,7 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
             } else {
               const saved = result?.saved;
               if (saved && typeof saved === 'object') {
+                sceneNeedsRefresh = true;
                 draftRevision = Number(saved.revision || draftRevision);
                 draftDirty = false;
                 hydrateFromPayload(saved.payload || {});
@@ -2150,6 +2196,13 @@ import { StorylineFlowGraph } from './v2/editor/StorylineFlowGraph.js?v=20261117
             pushAssistantLog('error', `Assistant request failed: ${error.message}`);
           } finally {
             setAssistantBusy(false);
+            if (sceneNeedsRefresh) {
+              try {
+                await refreshSceneReview();
+              } catch (error) {
+                pushAssistantLog('error', `The draft was saved, but the scene view could not refresh: ${error.message}. Reload the page.`);
+              }
+            }
           }
           return succeeded;
         }

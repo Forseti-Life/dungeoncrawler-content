@@ -65,6 +65,14 @@ class EditorGmIntentParser {
     if (mb_strlen($utterance) > self::MAX_UTTERANCE_LENGTH) {
       throw new \InvalidArgumentException('editor_gm_utterance_too_long');
     }
+    if ($surface_label === 'Storyline Builder' && !isset($context_snapshot['bounded_work_step'])
+      && $this->isStorylineProposalOnlyRequest($utterance)) {
+      return [
+        'type' => 'direct_response',
+        'focus' => 'validation_review',
+        'reasoning' => 'The author asked for proposals without authorizing a draft change.',
+      ];
+    }
     if (
       in_array($surface_label, ['Storyline Builder', 'Dungeon Editor', 'Room Editor', 'Character Creation'], TRUE)
       && !isset($context_snapshot['bounded_work_step']) && $this->isStatusOnlyRequest($utterance)
@@ -86,6 +94,10 @@ class EditorGmIntentParser {
       ];
     }
     if ($surface_label === 'Storyline Builder' && !isset($context_snapshot['bounded_work_step'])) {
+      if ($registry->has('publish_storyline_quest_templates')
+        && ($quest_publication = $this->groundedQuestTemplatePublicationIntent($utterance, $context_snapshot)) !== NULL) {
+        return $quest_publication;
+      }
       $active_work = $context_snapshot['authoring_workflow']['bounded_work']['active_work'] ?? NULL;
       $cancel_work = in_array($this->normalizeGovernanceUtterance($utterance), ['cancel saved work', 'cancel the saved work', 'stop saved work', 'stop the saved work'], TRUE);
       $skip_work = in_array($this->normalizeGovernanceUtterance($utterance), ['skip this step', 'skip this step of the saved work', 'skip this unit', 'skip the paused step'], TRUE);
@@ -148,7 +160,16 @@ allowed. Use saved destination IDs from earlier prerequisite units.
 A branch source_task_id must belong to current_scene_task_ids. If that list is
 empty, append a source quest for this scene and use its {"$draft_ref":"key.task_id"}
 as source_task_id. A destination quest is never the source_task_id.
-Omit generated IDs on newly appended choices and quests.
+Omit generated IDs on newly appended choices and quests. When creating a
+playable task, create its objective in the same batch and link it with the
+task's draft reference. A task with goal_text needs an authored approach or
+an explicitly intended open resolution. Narrative-only text belongs in its
+scene, not in an unfinishable task.
+For separate endings, explicitly end each branch after its own closing beat.
+Without a terminal choice, a closing task can fall through to the next ending.
+Keep any shared prerequisite outside the approaches; never assign a single
+objective to multiple approaches. Leave approach objectives empty only when
+the GM judges that approach from the authored trigger.
 
 Obey the selected tool's exact operation and collection contracts. Reuse saved
 IDs. For new append rows omit server-generated identity fields, assign internal
@@ -156,7 +177,12 @@ batch keys, and use {"$draft_ref":"key.task_id"} or the appropriate identity
 field for links inside this batch. Never guess a future generated ID.
 Operation paths are rooted at the draft payload itself. Use /player_hook,
 /ending, /process_flow/... and /objects/...; never prefix paths with
-/storyline/.
+/storyline/. A denouement edit uses
+/process_flow/narrative_architecture/beats/denouement/<saved field>, never
+/narrative_architecture/... . The authored entry location is /entry_location_id. Generated
+navigation (entry_point, entry_dungeon, progression_connectors) is not
+writable. For a navigation finding, work from the authored entry location
+and room-site binding. Never invent a patch to the generated outline.
 For existing rows use ID-matched native patches containing changed fields only.
 Branch choices use typed triggers, native effect enums, and real task/scene
 destinations. Only a terminal choice has no destination. Do not infer actor
@@ -172,7 +198,13 @@ results or further author chores.
 STEP;
     }
 
-    $functions = $this->intentFunctions($registry, $surface_label, isset($context_snapshot['bounded_work_step']));
+    $lookup_evidence = $context_snapshot['lookup_evidence'] ?? [];
+    $functions = $this->intentFunctions(
+      $registry, $surface_label, isset($context_snapshot['bounded_work_step']),
+      isset($context_snapshot['lookup_evidence']),
+      array_intersect(['find_existing_institutions', 'find_library_characters', 'inspect_storyline_actor_sheets'], array_column($lookup_evidence, 'tool')),
+      array_column($context_snapshot['storyline']['objects']['actors']['generation_specs'] ?? [], 'actor_id'),
+    );
     unset($execution_options['json_object'], $execution_options['response_format']);
     $execution_options['tools'] = self::providerFunctions($functions);
     $execution_options['tool_choice'] = count($functions) === 1
@@ -181,7 +213,7 @@ STEP;
     // Several tool calls in one reply are a queue, where a queue is offered.
     $execution_options['tool_calls_multiple'] = isset($functions['task_queue']);
     $result = $this->ai->invokeModelDirect(
-      $this->buildPrompt($utterance, $context_snapshot, $registry, $surface_label),
+      $this->buildPrompt($utterance, $context_snapshot, $registry, $functions, $surface_label),
       self::MODULE,
       self::OPERATION,
       ['draft_id' => (string) ($context_snapshot['draft']['draft_id'] ?? '')],
@@ -249,11 +281,12 @@ STEP;
    *
    * @return array<string, array{description:string, strict:bool, parameters:array}>
    */
-  private function intentFunctions(EditorGmToolRegistry $registry, string $surface_label, bool $bounded_work_step): array {
+  private function intentFunctions(EditorGmToolRegistry $registry, string $surface_label, bool $bounded_work_step, bool $lookup_continuation = FALSE, array $completed_lookups = [], array $saved_actor_ids = []): array {
     $string = static fn(string $description): array => ['type' => 'string', 'description' => $description];
     $tools = $bounded_work_step
       ? [$this->toolDefinition($registry, 'plan_storyline_draft_operations')]
       : $this->harnessManagement->filterToolsForNaturalLanguage($registry->manifest(), $surface_label);
+    $tools = array_filter($tools, static fn(array $tool): bool => !in_array($tool['name'], $completed_lookups, TRUE));
     // Each tool is its own function, taking the tool's declared arguments
     // beside the reasoning. There is no generic call with an untyped
     // arguments object for a field to land in.
@@ -263,11 +296,38 @@ STEP;
       $properties = [];
       $required = [];
       foreach ($tool['arguments'] as $argument) {
+        if ($bounded_work_step && $argument['name'] === 'preview_only') {
+          continue;
+        }
         $properties[$argument['name']] = ['type' => self::schemaType($argument['type']), 'description' => $argument['description']];
+        if ($argument['name'] === 'operations' && in_array($tool['name'], ['plan_storyline_draft_operations', 'plan_storyline_remediation'], TRUE)) {
+          $properties['operations']['items'] = StorylineAuthoringDraftService::draftOperationSchema($saved_actor_ids);
+        }
+        if ($argument['name'] === 'steps' && in_array($tool['name'], ['plan_storyline_work', 'apply_storyline_work'], TRUE)) {
+          $properties['steps']['items'] = StorylineGmWorkService::stepSchema();
+        }
+        if ($tool['name'] === 'publish_storyline_quest_templates' && $argument['name'] === 'task_ids') {
+          $properties['task_ids'] += [
+            'minItems' => 1, 'maxItems' => 100, 'uniqueItems' => TRUE,
+            'items' => ['type' => 'string', 'minLength' => 1],
+          ];
+        }
+        if ($tool['name'] === 'repair_storyline_item_definitions' && $argument['name'] === 'item_ids') {
+          $properties['item_ids'] += [
+            'minItems' => 1, 'uniqueItems' => TRUE,
+            'items' => ['type' => 'string', 'minLength' => 1],
+          ];
+        }
         if ($argument['required']) {
           $required[] = $argument['name'];
         }
       }
+      $authorization = $lookup_continuation ? [
+        'authorizes_changes' => [
+          'type' => 'boolean',
+          'description' => 'True only if the author explicitly requested or selected a change, not for questions, inspection, or an unresolved choice.',
+        ],
+      ] : [];
       $functions[$tool['name']] = [
         'description' => $tool['summary'],
         'strict' => FALSE,
@@ -275,8 +335,8 @@ STEP;
         'parameters' => [
           'type' => 'object',
           'additionalProperties' => FALSE,
-          'required' => array_merge(['reasoning'], $required),
-          'properties' => ['reasoning' => $string('One short sentence.')] + $properties,
+          'required' => array_merge(['reasoning'], array_keys($authorization), $required),
+          'properties' => ['reasoning' => $string('One short sentence.')] + $authorization + $properties,
         ],
       ];
       $queue_items[] = [
@@ -290,8 +350,8 @@ STEP;
             'type' => 'object',
             'additionalProperties' => FALSE,
             'required' => $required,
-            // Types only: the tool's own function carries the descriptions.
-            'properties' => array_map(static fn(array $property): array => ['type' => $property['type']], $properties),
+            // Same constraints, without repeating argument descriptions.
+            'properties' => array_map(static fn(array $property): array => array_diff_key($property, ['description' => TRUE]), $properties),
           ],
         ],
       ];
@@ -305,9 +365,15 @@ STEP;
       'parameters' => [
         'type' => 'object',
         'additionalProperties' => FALSE,
-        'required' => ['tasks', 'reasoning'],
+        'required' => array_merge(['tasks', 'reasoning'], $lookup_continuation ? ['authorizes_changes'] : []),
         'properties' => [
           'reasoning' => $string('Overall summary.'),
+          ...($lookup_continuation ? [
+            'authorizes_changes' => [
+              'type' => 'boolean',
+              'description' => 'True only if the author explicitly requested or selected the queued changes; false for inspection or unresolved choices.',
+            ],
+          ] : []),
           'tasks' => [
             'type' => 'array',
             'minItems' => 1,
@@ -392,11 +458,15 @@ STEP;
       }
       $tasks[] = array_diff_key($task, ['type' => TRUE]);
     }
-    return [
+    $queue = [
       'type' => 'task_queue',
       'reasoning' => implode(' ', array_unique(array_column($tasks, 'reasoning'))),
       'tasks' => $tasks,
     ];
+    if (count(array_filter($tasks, static fn(array $task): bool => array_key_exists('authorizes_changes', $task))) === count($tasks)) {
+      $queue['authorizes_changes'] = count(array_filter($tasks, static fn(array $task): bool => $task['authorizes_changes'] === TRUE)) === count($tasks);
+    }
+    return $queue;
   }
 
   /**
@@ -425,12 +495,16 @@ STEP;
       ));
     }
     if (isset($functions[$name]['tool'])) {
-      return [
+      $intent = [
         'type' => 'tool_call',
         'tool_name' => $functions[$name]['tool'],
         'reasoning' => $arguments['reasoning'],
-        'arguments' => array_diff_key($arguments, ['reasoning' => TRUE]),
+        'arguments' => array_diff_key($arguments, ['reasoning' => TRUE, 'authorizes_changes' => TRUE]),
       ];
+      if (array_key_exists('authorizes_changes', $arguments)) {
+        $intent['authorizes_changes'] = $arguments['authorizes_changes'];
+      }
+      return $intent;
     }
     return ['type' => $name] + $arguments;
   }
@@ -511,6 +585,11 @@ STEP;
       'what is left',
       'how complete is this',
       'how complete is the draft',
+      'check again',
+      'recheck',
+      'check the draft again',
+      'validate again',
+      'revalidate',
     ], TRUE);
   }
 
@@ -544,6 +623,45 @@ STEP;
     $normalized = mb_strtolower(trim($utterance));
     $normalized = preg_replace('/[^\p{L}\p{N}\s\']+/u', ' ', $normalized) ?? $normalized;
     return preg_replace('/\s+/u', ' ', trim($normalized)) ?? $normalized;
+  }
+
+  private function isStorylineProposalOnlyRequest(string $utterance): bool {
+    $normalized = $this->normalizeGovernanceUtterance(str_replace("\u{2019}", "'", $utterance));
+    return preg_match('/\b(?:propose|suggest|recommend|give me|offer)\b/', $normalized) === 1
+      && preg_match('/\b(?:do not|don\'t|dont|without)\s+(?:fix(?:ing)?|apply(?:ing)?|edit(?:ing)?|chang(?:e|ing)|sav(?:e|ing))\b/', $normalized) === 1;
+  }
+
+  /**
+   * Resolves an accepted offer only while its saved scope still matches.
+   */
+  private function groundedQuestTemplatePublicationIntent(string $utterance, array $snapshot): ?array {
+    $normalized = $this->normalizeGovernanceUtterance($utterance);
+    if (preg_match('/^(?:please |lets |let s )?create (?:the )?(\d+|one|two|three|four|five|six|seven|eight|nine|ten) (?:canonical )?quest templates?(?: one at a time)?$/i', $normalized, $offer) !== 1) {
+      return NULL;
+    }
+    $count = array_search(strtolower($offer[1]), ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'], TRUE);
+    $count = $count === FALSE ? (int) $offer[1] : $count;
+    $tasks = array_column($snapshot['storyline']['process_flow']['tasks'] ?? [], NULL, 'task_id');
+    $missing = [];
+    foreach ($snapshot['validation_summary']['warnings'] ?? [] as $warning) {
+      if (preg_match("/^Linked quest '([^']+)' is missing from canonical quest templates\\.$/", $warning, $match) === 1
+        && isset($tasks[$match[1]])) {
+        $missing[$match[1]] = $match[1];
+      }
+    }
+    if ($missing === [] || count($missing) !== $count) {
+      return NULL;
+    }
+    return [
+      'type' => 'tool_call',
+      'tool_name' => 'publish_storyline_quest_templates',
+      'arguments' => [
+        'expected_revision' => (int) $snapshot['draft']['revision'],
+        'task_ids' => array_values($missing),
+      ],
+      'reasoning' => 'Create the authorized set of missing quest templates from their saved tasks.',
+      'next_steps' => [],
+    ];
   }
 
   /**
@@ -680,7 +798,7 @@ STEP;
         'tasks' => $this->harnessManagement->orderTaskQueue($validated_tasks),
         'reasoning' => trim((string) ($decoded['reasoning'] ?? '')),
         'next_steps' => [],
-      ];
+      ] + (array_key_exists('authorizes_changes', $decoded) ? ['authorizes_changes' => $decoded['authorizes_changes'] === TRUE] : []);
     }
     if ($type !== 'tool_call') {
       throw new \DomainException('editor_gm_intent_type_unsupported');
@@ -732,7 +850,7 @@ STEP;
         'arguments' => $arguments,
         'reasoning' => trim((string) ($decoded['reasoning'] ?? '')),
         'next_steps' => [],
-      ];
+      ] + (array_key_exists('authorizes_changes', $decoded) ? ['authorizes_changes' => $decoded['authorizes_changes'] === TRUE] : []);
     }
 
     if (!$registry->has($tool_name)) {
@@ -763,7 +881,7 @@ STEP;
       'arguments' => $arguments,
       'reasoning' => trim((string) ($decoded['reasoning'] ?? '')),
       'next_steps' => [],
-    ];
+    ] + (array_key_exists('authorizes_changes', $decoded) ? ['authorizes_changes' => $decoded['authorizes_changes'] === TRUE] : []);
   }
 
   /**
@@ -945,6 +1063,58 @@ Hard rules:
   /storyline/.
 - Do the work the author clearly requested. Do not ask a clarification when
   the grounded context and request already provide the required decisions.
+- On Storyline Builder, creative suggestions are illustrative, not a required
+  single-choice menu. The author can choose any combination, use multiple
+  outcomes as separate branches, defer, or supply a different direction.
+  A question about whether alternatives can coexist is read-only. An
+  affirmative instruction such as "All three" following proposed outcomes
+  selects all of them when that context is unambiguous. Do not ask which
+  single outcome a shared denouement should match. Unless the author asks
+  for a shared ending, plan separate closing beats with each branch's own
+  trigger and consequences. Preserve an intentional open thread only on
+  the outcome intended to carry it forward; do not invent branch state
+  fields the grounded contract does not support.
+- When lookup_evidence is present, the lookups have already run in this
+  same turn. Use their actual results to continue the author's request.
+  Batch institution searches for all named groups in the first lookup step.
+  Once the institution evidence is present, the lookup requirement is met.
+  An empty matching result means the named institution is new; for an
+  authorized addition, plan its draft operation instead of searching again.
+  If it already appears in the current draft, say so without adding it
+  again. If it exists only in the library, use that identity to attach it.
+  A choice answering the previous question is the author's decision: carry
+  out the authorized draft change, rather than asking the same question or
+  repeating a lookup. For a read-only request, answer without changing data.
+  For an existing character-sheet lookup, use the roster sheet inspection.
+  A character_id and sheet_url mean a sheet exists even if ready is false.
+  Report that distinction and give the link. Do not start a build or change
+  the roster on a lookup-only request.
+  If the evidence does not settle a necessary decision, ask only that new
+  decision; never invent an ID or claim an unsaved change was saved.
+- In a post-lookup tool call, set authorizes_changes true only when the author
+  requested an edit or selected an option that explicitly proposed an edit.
+  Questions, hypothetical discussions, and unresolved choices are false.
+- For list_rooms search, use distinctive words from the room name or ID,
+  not extra location words. All search words must match. If no room matches,
+  search again with fewer distinctive words or list rooms before concluding
+  that it does not exist.
+- To remove rooms from one scene, or leave only selected rooms in that scene,
+  use plan_storyline_scene_room_removal with that scene's saved ID and the
+  room IDs to remove. A scene-only removal does not delete the rooms from the
+  storyline or move actors or objectives. Keep the requested remaining rooms.
+  Do not use global room deletion for a scene-only change.
+- To place an actor in a library room, the room must also be a room in the
+  story's objects. If absent, do not plan the actor move yet: first call
+  find_dungeons_using_room for the published room. Then append a room row to
+  /objects/rooms/generation_specs with the existing room_id, actual dungeon_id,
+  and scene_id, together with the scene and actor patches. Binding is a
+  storyline edit, not creation or editing of the room or dungeon. Do not
+  invent a parent dungeon. Only move an actor when the author authorized it.
+- A room's published status does not establish that its parent dungeon is
+  published. The published_dungeons and active_dungeon_drafts in
+  find_dungeons_using_room are distinct evidence; do not describe a draft-only
+  placement as published. An unpublished parent may still be bound in the
+  storyline draft; tell the author its publication is still pending.
 - Resolve numbered or abbreviated follow-up answers against the immediately
   preceding QUESTION or NEXT STEPS in conversation_context. Treat "flesh it
   out", "do all", and equivalent instructions as authorization to complete
@@ -957,6 +1127,26 @@ Hard rules:
   to /player_hook, /ending, /process_flow/conflicts,
   /process_flow/branch_choices, and the named narrative_architecture paths.
   Never silently omit one named target and return it as later work.
+- For a conflict with multiple established ending scenes, patch the existing
+  row at /process_flow/conflicts, matching conflict_id. Preserve its
+  introduction and escalations. Put all resolving scene IDs in
+  resolved_scene_ids and intentional carry-forward scenes in
+  open_thread_scene_ids. Set resolved_scene_id to "" when using the plural
+  field. Use status "branching" for a mixture of resolved and open outcomes,
+  or "resolved" if all outcomes resolve. Do not reintroduce the conflict in
+  each ending. An approval such as "Apply it" or "Continue" refers to the last offered
+  action, not a request to review it again. If the draft still lacks the
+  approved outcome links, emit the patch using exact saved IDs.
+  A request to fix, edit, or apply is authorization to save. Do not request
+  more approval or set preview_only for it, including after a lookup. Set
+  preview_only when the author asks to preview a concrete edit without saving.
+  Respect storyline_draft_write_intent: true means plan and execute the
+  requested draft fix, not a status response or another offer; false means
+  no saving. Clarify only when the actual scope or creative decision is missing.
+- A canonical_item_definition_invalid finding names an existing canonical
+  item, not a draft asset reference. For an authorized fix of an unsupported
+  /content_id use repair_storyline_item_definitions with only the selected
+  finding IDs. Never recreate the item or edit the draft reference for this.
 - On Storyline Builder, an explicit request or selected option to build full
   character sheets for roster actors must use build_storyline_actor_sheets.
   A whole-roster, role-driven selection supplies every necessary decision.
@@ -970,6 +1160,26 @@ Hard rules:
   plan_storyline_draft_operations. Put every compatible requested draft change
   into one operation batch. Do not substitute a status, schema, synopsis,
   preview, or advisory tool call for requested mutations.
+  When adding cast and relationships together, give each new actor append
+  an internal key (e.g. "recruit") and omit actor_id and contact_id. For
+  either relationship endpoint naming that new actor, use
+  {"$draft_ref":"recruit.actor_id"}. A plain string endpoint must be the
+  exact actor_id of an actor already saved in the draft; never slug a name.
+  An actor relationship is identified by the directed (source_actor_id,
+  target_actor_id) pair, not by its bond or attitude. A relationship append
+  updates the supplied fields if that pair already exists. Omit relationships
+  the author has not asked to change.
+  Quest content changes are draft operations, not remediation. For fixed
+  clues revealed by Search, patch the saved row in
+  /process_flow/objective_completion_criteria with type=explore, its room
+  location, and search_narration. Do not model the clue as a room edit or
+  branch choice. Never pass quests to plan_storyline_remediation.
+  For an explicit request or an authorized follow-up to create missing
+  canonical quest templates, use publish_storyline_quest_templates with the
+  exact saved task IDs named by the current findings and authorized by the
+  author. This creates only those quest templates, not the storyline.
+  Do not pass quest as a definition family or submit a quests argument to
+  remediation. Do not create templates on a review or proposal-only turn.
 - BEFORE emitting draft operations, size the work. For requests involving
   multiple scenes, branches at every scene, a shared destination plus
   scene-local links, or any
@@ -985,8 +1195,12 @@ Hard rules:
   Create destination scenes/tasks in preceding unscoped prerequisite units,
   before branches reference them. Never put "all/every/eight scenes" inside
   an unscoped instruction. Do not create and wire a whole ending chain in one unit.
-  Each unit covers only one scene or one small ending phase. Keep the whole
-  plan under 600 words; split creation and cross-scene wiring if necessary.
+  Each unit covers only one scene or one small ending phase. Keep each
+  instruction under the tool schema's character limit. Summarize what that
+  unit must do; do not paste the chosen option, narrative prose, or the
+  whole plan into one instruction. Use a separate unit for each distinct
+  closing beat as needed, then wire its trigger and destination. Keep the
+  whole plan within the tool's byte limit.
   Include all requested targets, with prerequisite scenes created before
   branches that reference them. Validation runs after execution, so do not
   include a validation-only work unit. The harness/browser executes these
@@ -1078,6 +1292,11 @@ Hard rules:
   category (technical_improvement for bugs/defects/complaints, content_update,
   safety_feature, community_initiative, partnership, general_feedback, or
   other), and original_message.
+- When troubleshooting.code_change_required is true and the author is asking
+  to continue or fix that warning, first select submit_backlog_suggestion for
+  the precise schema/resolver impasse. Do not select a data mutation, ask the
+  author to supply an impossible value, or invent a workaround. The final
+  response must name the blocker and say a coding session must resolve it.
 - Tool selection does not answer the author. The agent harness will analyze the
   executed result and produce the final response and next steps afterward.
 
@@ -1087,7 +1306,7 @@ PROMPT, $surface_label, $mutation_rule);
   /**
    * Builds the grounded prompt for one turn.
    */
-  private function buildPrompt(string $utterance, array $context_snapshot, EditorGmToolRegistry $registry, string $surface_label = ''): string {
+  private function buildPrompt(string $utterance, array $context_snapshot, EditorGmToolRegistry $registry, array $functions, string $surface_label): string {
     $manifest = $registry->manifest();
     $tools = $this->harnessManagement->filterToolsForNaturalLanguage($manifest, $surface_label);
     $grounding = $this->harnessManagement->compactContextForIntent($context_snapshot, $surface_label);
@@ -1100,7 +1319,7 @@ PROMPT, $surface_label, $mutation_rule);
       // arguments; they are not repeated here.
       implode("\n", array_map(
         static fn(array $tool): string => sprintf('%s (%s%s)', $tool['name'], $tool['family'], $tool['mutating'] ? ', changes saved content' : ''),
-        $tools,
+        array_filter($tools, static fn(array $tool): bool => isset($functions[$tool['name']])),
       )),
       '## Supported command types for planning',
       implode(', ', $manifest['supported_command_types']),

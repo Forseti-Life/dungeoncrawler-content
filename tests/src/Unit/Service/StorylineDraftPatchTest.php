@@ -8,6 +8,7 @@ use Drupal\Core\Database\Connection;
 use Drupal\Core\Database\Query\SelectInterface;
 use Drupal\Core\Database\StatementInterface;
 use Drupal\Core\Session\AccountProxyInterface;
+use Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessManagementService;
 use Drupal\dungeoncrawler_content\Service\CanonicalQuestTemplateService;
 use Drupal\dungeoncrawler_content\Service\CharacterCreationGmService;
 use Drupal\dungeoncrawler_content\Service\ObjectiveTypeService;
@@ -23,6 +24,153 @@ use Drupal\Tests\UnitTestCase;
  */
 class StorylineDraftPatchTest extends UnitTestCase {
 
+  public function testAppendingSavedRelationshipUpdatesItsDirectedPairWithoutDroppingFields(): void {
+    [$service, $draft] = $this->fixture();
+    $append = ['type' => 'append', 'path' => '/objects/actors/relationships', 'value' => [
+      'source_actor_id' => 'actor-first',
+      'target_actor_id' => 'actor-second',
+      'attitude' => 'helpful',
+    ]];
+    $plan = $service->planDraftOperations('draft-1', 12, [$append]);
+    $original = $draft['payload']['objects']['actors']['relationships'][0];
+    $this->assertSame([array_replace($original, ['attitude' => 'helpful'])], $plan['payload']['objects']['actors']['relationships']);
+    $this->assertSame('patch', $plan['changes'][0]['type']);
+
+    $append['value']['attitude'] = 'friendly';
+    $this->assertFalse($service->planDraftOperations('draft-1', 12, [$append])['has_changes']);
+    $append['value']['source_actor_id'] = 'actor-second';
+    $append['value']['target_actor_id'] = 'actor-first';
+    $this->assertCount(2, $service->planDraftOperations('draft-1', 12, [$append])['payload']['objects']['actors']['relationships']);
+    $this->expectExceptionMessage('storyline_draft_actor_relationship_duplicate:actor-second:actor-first');
+    $service->planDraftOperations('draft-1', 12, [$append, $append]);
+  }
+
+  public function testAddingAnAlreadyAttachedInstitutionPreservesItsSavedDetails(): void {
+    [$service, $draft] = $this->fixture(static function (array $draft): array {
+      $draft['payload']['objects']['institutions'] = [[
+        'institution_id' => 'institution_organization_village-watch',
+        'domain' => 'organization',
+        'name' => 'Village Watch',
+        'description' => 'The saved description.',
+      ]];
+      return $draft;
+    });
+    $append = ['type' => 'append', 'path' => '/objects/institutions', 'value' => [
+      'domain' => 'organization', 'name' => 'Village Watch', 'description' => 'Do not replace saved details.',
+    ]];
+    $plan = $service->planDraftOperations('draft-1', 12, [$append]);
+
+    $this->assertFalse($plan['has_changes']);
+    $this->assertSame(12, $plan['result_revision']);
+    $this->assertSame($draft['payload'], $plan['payload']);
+    $this->assertSame(['Village Watch'], $plan['already_present_institutions']);
+    $summary = (new AgentHarnessManagementService())->synthesizeDeterministicMutationResponse('plan_storyline_draft_operations', $plan, [], 'Storyline Builder');
+    $this->assertSame("Village Watch already exists in this storyline.\nNo changes were made.", $summary['answer']);
+
+    $mixed = $service->planDraftOperations('draft-1', 12, [$append, $this->patch(['display_name' => 'Rikka'])]);
+    $this->assertSame(['Village Watch'], $mixed['already_present_institutions']);
+    $this->assertSame('Rikka', $mixed['payload']['objects']['actors']['generation_specs'][0]['display_name']);
+
+    $append['value']['invalid_field'] = TRUE;
+    $this->expectException(StorylineDraftValidationException::class);
+    $service->planDraftOperations('draft-1', 12, [$append]);
+  }
+
+  public function testDuplicatingANewInstitutionInOneBatchIsRejected(): void {
+    [$service] = $this->fixture();
+    $append = ['type' => 'append', 'path' => '/objects/institutions', 'value' => [
+      'domain' => 'organization', 'name' => 'Village Watch',
+    ]];
+    $this->expectExceptionMessage('storyline_draft_institution_duplicate:institution_organization_village-watch');
+    $service->planDraftOperations('draft-1', 12, [$append, $append]);
+  }
+
+  public function testRepeatingAnExistingRoomBindingDoesNotReplaceItsNarrative(): void {
+    $room = ['room_id' => 'market-street', 'dungeon_id' => 'city', 'scene_id' => 'intro', 'chapter_id' => 'chapter-1', 'narrative' => 'Existing street description.'];
+    [$service] = $this->fixture(static function (array $draft) use ($room): array {
+      $draft['payload']['objects']['rooms']['generation_specs'] = [$room];
+      return $draft;
+    });
+    $append = ['type' => 'append', 'path' => '/objects/rooms/generation_specs', 'value' => ['narrative' => 'A reworded street description.'] + $room];
+    $plan = $service->planDraftOperations('draft-1', 12, [$append, $this->patch(['display_name' => 'Rikka'])]);
+    $this->assertSame([$room], $plan['payload']['objects']['rooms']['generation_specs']);
+    $this->assertCount(1, $plan['changes']);
+    $this->assertSame('Rikka', $plan['payload']['objects']['actors']['generation_specs'][0]['display_name']);
+  }
+
+  /**
+   * Every materialized scene needs a nonempty room reference.
+   */
+  public function testSceneRoomAssignmentsAreValidated(): void {
+    $method = new \ReflectionMethod(StorylineAuthoringDraftService::class, 'roomSceneFindings');
+    $payload = [
+      'process_flow' => ['journal_entries' => [
+        ['scene_id' => 'assigned', 'title' => 'Assigned'],
+        ['scene_id' => 'missing', 'title' => 'Missing'],
+        ['scene_id' => 'blank', 'title' => 'Blank'],
+      ]],
+      'objects' => ['rooms' => ['generation_specs' => [
+        ['room_id' => 'room-a', 'scene_id' => 'assigned'],
+        ['room_id' => 'room-b', 'scene_id' => 'unknown'],
+      ]]],
+    ];
+    $definition = ['chapters' => [['scenes' => [
+      ['scene_id' => 'assigned', 'asset_references' => [['asset_type' => 'Room', 'asset_id' => 'room-a']]],
+      ['scene_id' => 'missing', 'asset_references' => [['asset_type' => 'actor', 'asset_id' => 'actor-a']]],
+      ['scene_id' => 'blank', 'asset_references' => [['asset_type' => 'room', 'asset_id' => ' ']]],
+    ]]]];
+
+    $findings = $method->invoke(NULL, $payload, $definition);
+    $this->assertSame(['room_scene_unknown', 'scene_room_missing', 'scene_room_missing'], array_column($findings, 'code'));
+    $this->assertSame(['unknown', 'missing', 'blank'], array_column($findings, 'scene_id'));
+    $this->assertSame(['error', 'error', 'error'], array_column($findings, 'severity'));
+
+    $definition['chapters'][0]['scenes'][1]['asset_references'][] = ['asset_type' => 'room', 'asset_id' => 'room-b'];
+    $definition['chapters'][0]['scenes'][2]['asset_references'][] = ['asset_type' => 'room', 'asset_id' => 'room-a'];
+    $payload['objects']['rooms']['generation_specs'][1]['scene_id'] = 'missing';
+    $this->assertSame([], $method->invoke(NULL, $payload, $definition));
+  }
+
+  /**
+   * Scene room lists and room bindings both project into the validation input.
+   */
+  public function testSceneRoomValidationUsesMaterializedAssignments(): void {
+    [$service, $draft] = $this->fixture();
+    $payload = $draft['payload'];
+    $payload['process_flow']['journal_entries'] = [
+      ['scene_id' => 'direct', 'title' => 'Direct', 'room_ids' => 'hall'],
+      ['scene_id' => 'bound', 'title' => 'Bound'],
+      ['scene_id' => 'unassigned', 'title' => 'Unassigned'],
+    ];
+    $payload['objects']['rooms']['generation_specs'] = [
+      ['room_id' => 'cave', 'scene_id' => 'bound'],
+    ];
+    $builder = new \ReflectionMethod($service, 'buildTemplateDefinitionFromDraftPayload');
+    $definition = $builder->invoke($service, $payload);
+    $findings = (new \ReflectionMethod($service, 'roomSceneFindings'))->invoke(NULL, $payload, $definition);
+
+    $this->assertSame(['unassigned'], array_column($findings, 'scene_id'));
+    $this->assertSame(['scene_room_missing'], array_column($findings, 'code'));
+  }
+
+  /**
+   * Importing canonical quests must not invent objective rows.
+   */
+  public function testCanonicalImportDoesNotInventObjectiveRows(): void {
+    [$service, $draft] = $this->fixture();
+    $manager = $this->createMock(StorylineManagerService::class);
+    $manager->method('resolveAuthoredRoomDungeonBindings')->willReturn(['rooms' => []]);
+    (new \ReflectionProperty(StorylineAuthoringDraftService::class, 'storylineManager'))->setValue($service, $manager);
+    $method = new \ReflectionMethod($service, 'hydrateDraftRowsFromCanonicalTemplate');
+    $payload = $method->invoke($service, $draft['payload'], [
+      'chapters' => [],
+      'questline' => ['quest_nodes' => [['quest_id' => 'task-a']]],
+      'metadata' => [],
+    ]);
+
+    $this->assertSame([], $payload['process_flow']['objective_completion_criteria']);
+  }
+
   /**
    * Partial renaming must not overwrite existing links or narrative.
    */
@@ -35,6 +183,133 @@ class StorylineDraftPatchTest extends UnitTestCase {
     $this->assertSame(13, $plan['result_revision']);
     $this->assertCount(1, $plan['changes']);
     $this->assertSame('Unnamed scout', $draft['payload']['objects']['actors']['generation_specs'][0]['display_name']);
+  }
+
+  /**
+   * A looked-up room can be bound and an actor placed in one revision.
+   */
+  public function testLibraryRoomAndActorPlacementPlan(): void {
+    [$service] = $this->fixture(static function (array $draft): array {
+      $draft['payload']['process_flow']['journal_entries'][] = [
+        'chapter_id' => 'chapter-one',
+        'scene_id' => 'briefing',
+        'title' => 'Briefing',
+        'summary' => 'The scout briefs the party.',
+        'room_ids' => [],
+      ];
+      return $draft;
+    });
+    $operations = [
+      ['type' => 'append', 'path' => '/objects/rooms/generation_specs', 'value' => [
+        'room_id' => 'east-hall', 'dungeon_id' => 'city-watch', 'scene_id' => 'briefing',
+        'narrative' => 'The scout briefs the party.',
+      ]],
+      $this->patch(['location_id' => 'east-hall', 'scene_id' => 'briefing']),
+      ['type' => 'patch', 'path' => '/process_flow/journal_entries', 'match' => [
+        'field' => 'scene_id', 'value' => 'briefing',
+      ], 'value' => ['room_ids' => ['east-hall']]],
+    ];
+    $plan = $service->planDraftOperations('draft-1', 12, $operations);
+    $this->assertSame('east-hall', $plan['payload']['objects']['rooms']['generation_specs'][0]['room_id']);
+    $this->assertSame('east-hall', $plan['payload']['objects']['actors']['generation_specs'][0]['location_id']);
+    $this->assertSame(['east-hall'], $plan['payload']['process_flow']['journal_entries'][0]['room_ids']);
+    $this->expectExceptionMessage('storyline_draft_revision_conflict');
+    $service->planDraftOperations('draft-1', 11, $operations);
+  }
+
+  /**
+   * Scene-only unassignment preserves shared rooms and their dependants.
+   *
+   * @dataProvider sceneRoomListProvider
+   */
+  public function testSceneOnlyRoomRemovalPreservesReferences(bool $as_string): void {
+    [$service, $draft] = $this->fixture(static function (array $draft) use ($as_string): array {
+      $draft['payload']['process_flow']['journal_entries'] = [
+        ['chapter_id' => 'chapter-one', 'scene_id' => 'briefing', 'title' => 'Briefing', 'summary' => 'The briefing.', 'room_ids' => $as_string ? 'briefing-hall, shared-hall, staging' : ['briefing-hall', 'shared-hall', 'staging']],
+        ['chapter_id' => 'chapter-one', 'scene_id' => 'later', 'title' => 'Later', 'summary' => 'The later scene.', 'room_ids' => ['shared-hall']],
+      ];
+      $draft['payload']['objects']['rooms']['generation_specs'] = [
+        ['room_id' => 'briefing-hall', 'dungeon_id' => 'town', 'scene_id' => 'briefing'],
+        ['room_id' => 'shared-hall', 'dungeon_id' => 'town', 'scene_id' => 'briefing'],
+        ['room_id' => 'staging', 'dungeon_id' => 'town', 'scene_id' => 'briefing'],
+        ['room_id' => 'shared-hall', 'dungeon_id' => 'town', 'scene_id' => 'later'],
+      ];
+      $draft['payload']['objects']['actors']['generation_specs'][0]['location_id'] = 'shared-hall';
+      $draft['payload']['process_flow']['objective_completion_criteria'][] = [
+        'objective_id' => 'escort', 'description' => 'Reach staging.', 'location' => 'staging',
+      ];
+      return $draft;
+    });
+    $context = new \Drupal\dungeoncrawler_content\Service\EditorGm\StorylineBuilderGmToolContext(
+      'draft-1', 'editing', $service, $this->createMock(\Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService::class),
+    );
+    $tool = new \Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\PlanStorylineSceneRoomRemovalTool();
+    $plan = $tool->execute(['expected_revision' => 12, 'scene_id' => 'briefing', 'remove_room_ids' => ['shared-hall', 'staging']], $context);
+    $payload = $plan['payload'];
+    $this->assertSame($as_string ? 'briefing-hall' : ['briefing-hall'], $payload['process_flow']['journal_entries'][0]['room_ids']);
+    $this->assertSame($draft['payload']['process_flow']['journal_entries'][1], $payload['process_flow']['journal_entries'][1]);
+    $this->assertSame(['briefing', '', '', 'later'], array_column($payload['objects']['rooms']['generation_specs'], 'scene_id'));
+    $this->assertSame($draft['payload']['objects']['actors'], $payload['objects']['actors']);
+    $this->assertSame($draft['payload']['process_flow']['objective_completion_criteria'], $payload['process_flow']['objective_completion_criteria']);
+    $this->assertSame('apply_storyline_draft_operations', $plan['proposed_execution']['tool_name']);
+    $this->assertSame(12, $plan['proposed_execution']['arguments']['expected_revision']);
+  }
+
+  public static function sceneRoomListProvider(): array {
+    return ['array' => [FALSE], 'comma-separated string' => [TRUE]];
+  }
+
+  /**
+   * Rooms bound only by room rows can be unassigned without deleting them.
+   */
+  public function testSceneRoomRemovalHandlesRowBindingsAndEmptyLists(): void {
+    [$service, $draft] = $this->fixture(static function (array $draft): array {
+      $draft['payload']['process_flow']['journal_entries'] = [
+        ['chapter_id' => 'chapter-one', 'scene_id' => 'briefing', 'title' => 'Briefing', 'summary' => 'Briefing.', 'room_ids' => ['list-only']],
+        ['chapter_id' => 'chapter-one', 'scene_id' => 'later', 'title' => 'Later', 'summary' => 'Later.', 'room_ids' => ['bound-only']],
+      ];
+      $draft['payload']['objects']['rooms']['generation_specs'] = [
+        ['room_id' => 'bound-only', 'dungeon_id' => 'town', 'scene_id' => 'briefing'],
+        ['room_id' => 'bound-only', 'dungeon_id' => 'town', 'scene_id' => 'briefing'],
+        ['room_id' => 'bound-only', 'dungeon_id' => 'town', 'scene_id' => 'later'],
+      ];
+      return $draft;
+    });
+    $context = new \Drupal\dungeoncrawler_content\Service\EditorGm\StorylineBuilderGmToolContext(
+      'draft-1', 'editing', $service, $this->createMock(\Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService::class),
+    );
+    $tool = new \Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\PlanStorylineSceneRoomRemovalTool();
+    $plan = $tool->execute([
+      'expected_revision' => 12, 'scene_id' => 'briefing',
+      'remove_room_ids' => ['list-only', 'bound-only', 'bound-only'],
+    ], $context);
+    $payload = $plan['payload'];
+    $this->assertSame([], $payload['process_flow']['journal_entries'][0]['room_ids']);
+    $this->assertSame($draft['payload']['process_flow']['journal_entries'][1], $payload['process_flow']['journal_entries'][1]);
+    $this->assertSame(['', '', 'later'], array_column($payload['objects']['rooms']['generation_specs'], 'scene_id'));
+    $this->assertSame(['bound-only', 'bound-only', 'bound-only'], array_column($payload['objects']['rooms']['generation_specs'], 'room_id'));
+  }
+
+  public function testSceneRoomRemovalRejectsUnrelatedRoomAndStaleRevision(): void {
+    [$service] = $this->fixture(static function (array $draft): array {
+      $draft['payload']['process_flow']['journal_entries'][] = [
+        'chapter_id' => 'chapter-one', 'scene_id' => 'briefing', 'title' => 'Briefing', 'summary' => 'Briefing.', 'room_ids' => ['hall'],
+      ];
+      return $draft;
+    });
+    $context = new \Drupal\dungeoncrawler_content\Service\EditorGm\StorylineBuilderGmToolContext(
+      'draft-1', 'editing', $service, $this->createMock(\Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService::class),
+    );
+    $tool = new \Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\PlanStorylineSceneRoomRemovalTool();
+    try {
+      $tool->execute(['expected_revision' => 11, 'scene_id' => 'briefing', 'remove_room_ids' => ['hall']], $context);
+      $this->fail('A stale revision must be rejected.');
+    }
+    catch (\DomainException $exception) {
+      $this->assertSame('storyline_draft_revision_conflict', $exception->getMessage());
+    }
+    $this->expectExceptionMessage('storyline_scene_room_not_assigned:elsewhere');
+    $tool->execute(['expected_revision' => 12, 'scene_id' => 'briefing', 'remove_room_ids' => ['hall', 'elsewhere']], $context);
   }
 
   /**
@@ -920,7 +1195,7 @@ class StorylineDraftPatchTest extends UnitTestCase {
   /**
    * Provides an original draft with sheet links and an actor relationship.
    */
-  private function fixture(): array {
+  private function fixture(?callable $edit_draft = NULL): array {
     $service = $this->getMockBuilder(StorylineAuthoringDraftService::class)
       ->disableOriginalConstructor()
       ->onlyMethods(['getDraft'])
@@ -982,6 +1257,9 @@ class StorylineDraftPatchTest extends UnitTestCase {
         'orchestration' => ['generation' => [], 'validation' => []],
       ],
     ];
+    if ($edit_draft !== NULL) {
+      $draft = $edit_draft($draft);
+    }
     $service->method('getDraft')->with('draft-1')->willReturn($draft);
     return [$service, $draft];
   }

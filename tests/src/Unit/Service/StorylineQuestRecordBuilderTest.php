@@ -69,6 +69,20 @@ class StorylineQuestRecordBuilderTest extends UnitTestCase {
     $this->assertStringContainsString('Set required to the number needed', implode(' ', $this->builder()->rowErrors($row)));
   }
 
+  public function testPlayerGuidanceFieldsAreProjectedToCanonicalObjective(): void {
+    $objective = $this->builder()->objective([
+      'objective_id' => 'meet-gribbles',
+      'type' => 'interact',
+      'target' => 'gribbles_rindsworth',
+      'target_label' => 'Gribbles Rindsworth',
+      'target_aliases' => ['Gribbles', 'the fence'],
+      'wayfinding_hint' => "Look for Gribbles' corner in the tavern.",
+    ]);
+    $this->assertSame('Gribbles Rindsworth', $objective['target_label']);
+    $this->assertSame(['Gribbles', 'the fence'], $objective['target_aliases']);
+    $this->assertSame("Look for Gribbles' corner in the tavern.", $objective['wayfinding_hint']);
+  }
+
   /**
    * A row that sets another type's target field is rejected.
    *
@@ -111,6 +125,16 @@ class StorylineQuestRecordBuilderTest extends UnitTestCase {
 
   private function builder(): StorylineQuestRecordBuilder {
     return new StorylineQuestRecordBuilder(new ObjectiveTypeService());
+  }
+
+  public function testFixedSearchClueIsProjectedOnlyForExploreObjectives(): void {
+    $row = ['objective_id' => 'find-manhole', 'type' => 'explore', 'location' => 'street', 'search_narration' => 'Rats slip beneath a manhole cover.'];
+    $builder = $this->builder();
+    $this->assertSame([], $builder->rowErrors($row));
+    $objective = $builder->objective($row);
+    $this->assertSame('street', $objective['location_id']);
+    $this->assertSame($row['search_narration'], $objective['search_narration']);
+    $this->assertStringContainsString('only an explore objective uses', implode(' ', $builder->rowErrors(['type' => 'interact'] + $row)));
   }
 
 }

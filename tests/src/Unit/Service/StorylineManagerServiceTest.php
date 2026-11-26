@@ -680,6 +680,41 @@ class StorylineManagerServiceTest extends UnitTestCase {
   }
 
   /**
+   * Other builder metadata must not replace canonical quest objectives.
+   *
+   * @covers ::validateObjectiveControlChainStage
+   */
+  public function testCanonicalObjectivesAreUsedWhenBuilderHasNoObjectiveRows(): void {
+    $uuid = $this->createMock(UuidInterface::class);
+    $service = new class(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      $uuid,
+      $this->createMock(CampaignStateService::class),
+      $this->buildStateValidationServiceMock(),
+      NULL,
+      new ObjectiveTypeService(),
+      $this->buildContentRegistryMock()
+    ) extends StorylineManagerService {
+      protected function loadQuestTemplateObjectivePhases(string $template_id): ?array {
+        return NULL;
+      }
+    };
+    $method = new \ReflectionMethod(StorylineManagerService::class, 'validateObjectiveControlChainStage');
+    $definition = [
+      'metadata' => ['storyline_builder' => ['identity' => []]],
+      'questline' => ['quest_nodes' => [['quest_id' => 'task-a']]],
+    ];
+    $findings = [];
+    $arguments = [$definition, 'definition', &$findings];
+    $this->assertContains("Quest 'task-a' is missing canonical quest template objectives for objective control-chain validation.", $method->invokeArgs($service, $arguments));
+
+    $definition['metadata']['storyline_builder']['objective_completion_criteria'] = [];
+    $arguments = [$definition, 'definition', &$findings];
+    $this->assertContains("Task 'task-a' has no objective. Every task needs at least one objective row whose task_id is 'task-a'.", $method->invokeArgs($service, $arguments));
+  }
+
+  /**
    * A builder storyline whose tasks each have a typed, linked objective passes.
    *
    * @covers ::validateStorylineBuilderObjectives
@@ -1455,6 +1490,63 @@ class StorylineManagerServiceTest extends UnitTestCase {
     );
   }
 
+  public function testBootstrapNavigationUsesTheEntryRoomsDungeonBinding(): void {
+    $service = $this->buildService();
+    $normalize = new \ReflectionMethod(StorylineManagerService::class, 'normalizeTemplateDefinition');
+    $definition = [
+      'name' => 'Entry Navigation Story',
+      'source' => 'npc-storyline-bootstrap',
+      'metadata' => [
+        'generated_outline' => [
+          'entry_point' => ['primary_location_id' => 'tavern_entrance'],
+        ],
+      ],
+      'chapters' => [[
+        'chapter_id' => 'opening',
+        'name' => 'Opening',
+        'scenes' => [['scene_id' => 'first-scene', 'name' => 'First Scene']],
+      ]],
+      'asset_references' => [
+        ['asset_type' => 'dungeon', 'asset_id' => 'trial-temple', 'chapter_id' => 'opening'],
+        ['asset_type' => 'dungeon', 'asset_id' => 'city-site'],
+        [
+          'asset_type' => 'room',
+          'asset_id' => 'tavern_entrance',
+          'link_data' => ['dungeon_id' => 'city-site'],
+        ],
+      ],
+    ];
+    $outline = $normalize->invoke($service, $definition)['metadata']['generated_outline'];
+    $this->assertSame('city-site', $outline['entry_point']['primary_dungeon_id']);
+    $this->assertSame('city-site', $outline['entry_dungeon']['dungeon_id']);
+    $this->assertSame('city-site', $outline['progression_connectors'][0]['target_dungeon_id']);
+    $this->assertSame('tavern_entrance', $outline['progression_connectors'][0]['target_room_id']);
+
+    $definition['metadata']['generated_outline']['entry_point']['primary_dungeon_id'] = 'trial-temple';
+    $outline = $normalize->invoke($service, $definition)['metadata']['generated_outline'];
+    $this->assertSame('trial-temple', $outline['entry_point']['primary_dungeon_id']);
+  }
+
+  public function testTargetedEntryRoomBindingRepairRequiresUniqueCanonicalPlacement(): void {
+    $service = $this->buildService();
+    $rooms = [
+      ['room_id' => 'tavern_entrance', 'dungeon_id' => 'missing-temple'],
+      ['room_id' => 'another-room', 'dungeon_id' => 'missing-temple'],
+    ];
+    $sites = [['dungeon_id' => 'city-site']];
+
+    $this->assertSame([], $service->resolveAuthoredRoomDungeonBindings($rooms, $sites)['resolved']);
+    $repair = $service->resolveAuthoredRoomDungeonBindings($rooms, $sites, 'tavern_entrance');
+    $this->assertSame([[
+      'index' => 0, 'room_id' => 'tavern_entrance', 'dungeon_id' => 'city-site', 'evidence' => 'unique_canonical_placement',
+    ]], $repair['resolved']);
+    $this->assertSame($rooms[1], $repair['rooms'][1]);
+    $this->assertSame([], $service->resolveAuthoredRoomDungeonBindings($repair['rooms'], $sites, 'tavern_entrance')['resolved']);
+
+    $sites[] = ['dungeon_id' => 'other-city-site'];
+    $this->assertSame([], $service->resolveAuthoredRoomDungeonBindings($rooms, $sites, 'tavern_entrance')['resolved']);
+  }
+
   /**
    * @covers ::validateStorylineEndToEndContract
    */
@@ -1958,6 +2050,12 @@ class StorylineManagerServiceTest extends UnitTestCase {
     $this->assertStringContainsString('DCV_OBJ_PLAYABILITY_MISSING_TARGET_LABEL', $error_text);
     $this->assertStringContainsString('DCV_OBJ_PLAYABILITY_MISSING_TARGET_ALIASES', $error_text);
     $this->assertStringContainsString('DCV_OBJ_PLAYABILITY_MISSING_WAYFINDING_HINT', $error_text);
+    $finding_method = new \ReflectionMethod(StorylineManagerService::class, 'objectivePlayabilityFindings');
+    $finding_method->setAccessible(TRUE);
+    $findings = $finding_method->invoke($service, $errors);
+    $this->assertSame('ltba-enter-the-vault', $findings[0]['entity_id'] ?? NULL);
+    $this->assertSame('target_label', $findings[0]['field'] ?? NULL);
+    $this->assertSame(0, $findings[0]['objective_index'] ?? NULL);
   }
 
   /**
@@ -2697,6 +2795,34 @@ class StorylineManagerServiceTest extends UnitTestCase {
     $codes = array_column($analysis['findings'], 'code');
 
     $this->assertContains('DCV_NARRATIVE_CONFLICT_RESOLUTION_OUT_OF_ORDER', $codes);
+  }
+
+  public function testAnalyzeStorylineNarrativeLinksResolvedAndOpenBranchEndings(): void {
+    $service = $this->buildService();
+    $storyline = $this->buildNarrativeAnalysisFixture();
+    $storyline['chapters'][0]['scenes'][] = ['scene_id' => 'scene-three', 'name' => 'Open ending', 'order' => 3];
+    $storyline['chapters'][0]['scenes'][] = ['scene_id' => 'scene-four', 'name' => 'Alternative ending', 'order' => 4];
+    $narrative = &$storyline['metadata']['storyline_analysis'];
+    $narrative['scene_annotations']['scene-three'] = ['central_conflict' => 'Loyalty versus duty'];
+    $narrative['scene_annotations']['scene-four'] = ['central_conflict' => 'Loyalty versus duty'];
+    $narrative['conflicts'][0] = array_replace($narrative['conflicts'][0], [
+      'status' => 'branching',
+      'resolved_scene_id' => '',
+      'resolved_scene_ids' => ['scene-two', 'scene-four'],
+      'open_thread_scene_ids' => ['scene-three'],
+    ]);
+
+    $analysis = $service->analyzeStorylineNarrative($storyline);
+    $this->assertNotContains('DCV_NARRATIVE_CONFLICT_ARC_MISSING', array_column($analysis['findings'], 'code'));
+    $this->assertSame([], array_values(array_filter($analysis['findings'], static fn(array $finding): bool => $finding['severity'] === 'error')));
+    $this->assertContains(['source' => 'conflict:loyalty-conflict', 'target' => 'scene:scene-two', 'type' => 'resolved_by'], $analysis['graph']['edges']);
+    $this->assertContains(['source' => 'conflict:loyalty-conflict', 'target' => 'scene:scene-four', 'type' => 'resolved_by'], $analysis['graph']['edges']);
+    $this->assertContains(['source' => 'conflict:loyalty-conflict', 'target' => 'scene:scene-three', 'type' => 'carried_forward_at'], $analysis['graph']['edges']);
+
+    $narrative['conflicts'][0]['open_thread_scene_ids'] = ['scene-two', 'nonexistent'];
+    $codes = array_column($service->analyzeStorylineNarrative($storyline)['findings'], 'code');
+    $this->assertContains('DCV_NARRATIVE_CONFLICT_OUTCOMES_INVALID', $codes);
+    $this->assertContains('DCV_NARRATIVE_CONFLICT_RESOLUTION_UNKNOWN', $codes);
   }
 
   /**

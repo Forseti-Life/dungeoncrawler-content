@@ -885,9 +885,30 @@
           "type": "string",
           "description": "What the players must do next to make progress, in their words."
         },
+        "search_narration": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "Explore only: fixed discovery text shown when a player uses Search in the objective room. A nonempty value requires explicit Search instead of room entry."
+        },
         "target": {
           "type": "string",
           "description": "Actor or object ID for kill, investigate and interact."
+        },
+        "target_label": {
+          "type": "string",
+          "maxLength": 255,
+          "description": "Player-facing name for a canonical target."
+        },
+        "target_aliases": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "maxItems": 20,
+          "uniqueItems": true,
+          "description": "Alternate player phrases for the canonical target."
         },
         "item": {
           "type": "string",
@@ -896,6 +917,11 @@
         "location": {
           "type": "string",
           "description": "Room or scene ID for explore."
+        },
+        "wayfinding_hint": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "Player-facing directions for a named location."
         },
         "destination": {
           "type": "string",
@@ -958,11 +984,22 @@
         "resolved_scene_id": {
           "type": "string"
         },
+        "resolved_scene_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "open_thread_scene_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
         "status": {
           "enum": [
             "active",
             "resolved",
-            "intentional_open_thread"
+            "intentional_open_thread",
+            "branching"
           ]
         }
       }

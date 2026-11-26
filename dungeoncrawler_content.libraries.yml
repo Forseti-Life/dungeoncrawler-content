@@ -74,7 +74,7 @@ character-creation-style:
     - dungeoncrawler_content/character-step-base
 
 character-creation-gm-chat:
-  version: 20261118-format-8
+  version: 20261122-scene-gm-1
   css:
     theme:
       css/character-creation-gm-chat.css: {}
@@ -126,7 +126,7 @@ gm-storyline-scene-review:
       css/gm-storyline-scene-review.css: {}
 
 gm-storyline-builder:
-  version: 20261118-format-8
+  version: 20261126-objective-guidance-1
   js:
     js/gm-storyline-builder.js: { attributes: { type: module } }
   dependencies:
@@ -248,7 +248,7 @@ hexmap:
 # All js/v2/** modules are imported inside hexmap-v2.js (ES module imports);
 # only the entry point is listed here.
 hexmap-v2:
-  version: 20261115-quest-goals-4
+  version: 20261124-search-actor-1
   js:
     # PixiJS CDN (version locked — same as hexmap library)
     https://cdn.jsdelivr.net/npm/pixi.js@7.3.2/dist/pixi.min.js: { type: external, minified: true }
@@ -266,7 +266,7 @@ hexmap-v2:
     - core/once
 
 room-editor:
-  version: 20261119-room-unfreeze-1
+  version: 20261124-warning-review-1
   js:
     https://cdn.jsdelivr.net/npm/pixi.js@7.3.2/dist/pixi.min.js: { type: external, minified: true }
     js/room-editor.js: { attributes: { type: module } }
@@ -335,7 +335,7 @@ module-explorer:
     - core/once
 
 dungeon-editor:
-  version: 20261119-room-unfreeze-1
+  version: 20261124-warning-review-1
   js:
     https://cdn.jsdelivr.net/npm/pixi.js@7.3.2/dist/pixi.min.js: { type: external, minified: true }
     js/dungeon-editor.js: { attributes: { type: module } }

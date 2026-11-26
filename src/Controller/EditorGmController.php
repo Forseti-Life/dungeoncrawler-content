@@ -80,6 +80,16 @@ class EditorGmController extends ControllerBase {
       if ($_surface === 'character_creation' && $session) {
         $scope['conversation_context'] .= $this->characterReferenceContext($session, (string) $draft_id);
       }
+      if ($_surface === 'storyline_builder' && $session) {
+        $last_result = $this->latestStorylineAssistantResult((int) $session['id']);
+        $proposal = $last_result['proposed_execution'] ?? [];
+        if (!empty($last_result['requires_approval']) && ($proposal['tool_name'] ?? NULL) === 'apply_storyline_remediation') {
+          $scope['pending_storyline_remediation'] = $proposal;
+        }
+        if (!empty($last_result['requires_approval']) && ($proposal['tool_name'] ?? NULL) === 'apply_storyline_draft_operations') {
+          $scope['pending_storyline_draft_operations'] = $proposal;
+        }
+      }
       $session ??= $this->conversationSession($_surface, $draft_id);
       if ($session) {
         $this->persistAuthorTurn($session, $body);
@@ -101,6 +111,19 @@ class EditorGmController extends ControllerBase {
       return $this->errorResponse($exception);
     }
   }
+
+    /**
+     * Reads the most recent assistant turn's structured storyline result.
+     */
+    private function latestStorylineAssistantResult(int $session_id): array {
+      foreach (array_reverse($this->chatSessions->getRecentMessagesChronological($session_id, 20)) as $message) {
+        if (($message['metadata']['editor_gm_role'] ?? NULL) !== 'assistant') {
+          continue;
+        }
+        return $message['metadata']['editor_gm_response']['tool_result'] ?? [];
+      }
+      return [];
+    }
 
   /**
    * Retain verified conditional choices without creating another actor draft.
@@ -335,6 +358,9 @@ class EditorGmController extends ControllerBase {
     }
     if ($code === 'editor_gm_intent_output_truncated') {
       $error['message'] = 'The GM tried to write the whole change in one reply and ran out of room, so nothing was executed. Ask for it in smaller parts, or ask the GM to plan it as saved work. Batches already saved remain saved.';
+    }
+    if (str_starts_with($code, 'storyline_gm_lookup_continuation_limit:')) {
+      $error['message'] = 'The GM repeated a lookup or reached its lookup limit. No requested draft changes were saved.';
     }
     if ($exception instanceof DefinitionValidationException) {
       $error['code'] = 'definition_validation_failed';

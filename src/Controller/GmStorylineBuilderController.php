@@ -9,6 +9,7 @@ use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Link;
 use Drupal\dungeoncrawler_content\Render\StorylineReviewPage;
 use Drupal\Core\Url;
+use Drupal\dungeoncrawler_content\Service\DungeonEditorService;
 use Drupal\dungeoncrawler_content\Service\RoomEditorService;
 use Drupal\dungeoncrawler_content\Service\StorylineAuthoringDraftService;
 use Drupal\dungeoncrawler_content\Service\StorylineManagerService;
@@ -23,6 +24,7 @@ class GmStorylineBuilderController extends ControllerBase {
     protected StorylineManagerService $storylineManager,
     protected StorylineAuthoringDraftService $storylineDrafts,
     protected RoomEditorService $roomEditor,
+    protected DungeonEditorService $dungeonEditor,
   ) {}
 
   /**
@@ -33,6 +35,7 @@ class GmStorylineBuilderController extends ControllerBase {
       $container->get('dungeoncrawler_content.storyline_manager'),
       $container->get('dungeoncrawler_content.storyline_authoring_drafts'),
       $container->get('dungeoncrawler_content.room_editor'),
+      $container->get('dungeoncrawler_content.dungeon_editor'),
     );
   }
 
@@ -40,7 +43,7 @@ class GmStorylineBuilderController extends ControllerBase {
    * Render the GM storyline builder process map.
    */
   /**
-   * Read-only review of one draft's scenes, in authored order.
+   * Scene workspace for one draft, in authored order.
    */
   public function sceneReview(\Symfony\Component\HttpFoundation\Request $request): array {
     $draft = $this->reviewDraft($request);
@@ -133,6 +136,7 @@ class GmStorylineBuilderController extends ControllerBase {
         }
       }
       $scenes[] = [
+        'scene_id' => $scene_id,
         'title' => trim((string) ($scene['title'] ?? '')),
         'summary' => trim((string) ($scene['summary'] ?? '')),
         'trigger' => trim((string) ($scene['trigger'] ?? '')),
@@ -160,7 +164,7 @@ class GmStorylineBuilderController extends ControllerBase {
 <div class="scene-review">
   <header class="scene-review__header">
     <h2 class="scene-review__title">{{ title ?: 'Untitled storyline' }}</h2>
-    <p class="scene-review__meta">Revision {{ revision }} · {{ scenes|length }} scenes · read-only view of the saved draft</p>
+    <p class="scene-review__meta">Revision {{ revision }} · {{ scenes|length }} scenes · saved draft</p>
     <p class="scene-review__legend">Characters and rooms open in a new tab. A dashed name has nothing to open yet: the room is not built, or the character is not an actor in this draft.</p>
   </header>
   {% if scenes is empty %}<p>This draft has no scenes yet.</p>{% endif %}
@@ -173,13 +177,7 @@ class GmStorylineBuilderController extends ControllerBase {
       </li>
     {% endfor %}</ul>
   {% endmacro %}
-  <div class="scene-review__layout">
-    {% if scenes %}
-      <nav class="scene-review__index" aria-label="Scenes">
-        <p class="scene-review__label">Scenes</p>
-        <ol>{% for scene in scenes %}<li><a href="#scene-{{ loop.index }}">{{ scene.title ?: 'Untitled scene' }}</a></li>{% endfor %}</ol>
-      </nav>
-    {% endif %}
+  <div class="scene-review__layout scene-review__layout--full">
     <div class="scene-review__body">
       {% if storyline_choices %}
         <section class="scene-review__scene">
@@ -188,7 +186,7 @@ class GmStorylineBuilderController extends ControllerBase {
         </section>
       {% endif %}
       {% for scene in scenes %}
-        <section class="scene-review__scene" id="scene-{{ loop.index }}">
+        <section class="scene-review__scene" id="scene-{{ loop.index }}" data-scene-id="{{ scene.scene_id }}">
           <p class="scene-review__number">Scene {{ loop.index }} of {{ scenes|length }}</p>
           <h3 class="scene-review__scene-title">{{ scene.title ?: 'Untitled scene' }}</h3>
           {% if scene.dramatic_function %}<p class="scene-review__function">{{ scene.dramatic_function }}</p>{% endif %}
@@ -229,7 +227,9 @@ class GmStorylineBuilderController extends ControllerBase {
 </div>
 TWIG,
     ];
-    return $this->inStorylinePage($page, $draft, 'scenes');
+    $build = StorylineReviewPage::wrap($page, $draft, 'scenes', $this->buildStorylineGmMarkup(TRUE), self::STATUS_CARD_MARKUP);
+    $build['#attached'] = $this->storylineEditorAttachments();
+    return $build;
   }
 
   /**
@@ -554,15 +554,24 @@ TWIG,
             <div><dt>Current focus</dt><dd data-storyline-status-focus>Stage 1</dd></div>
             <div><dt>Objects</dt><dd data-storyline-status-counts>0 scenes · 0 actors · 0 rooms</dd></div>
           </dl>
+          <p><a data-editor-warning-review hidden>Review warnings</a></p>
           <ol class="gm-storyline-status__stages" data-storyline-status-stages></ol>
           <p class="gm-storyline-status__label"><strong>Minimum content still needed</strong></p>
           <ul data-storyline-status-missing><li>Create or load a draft.</li></ul>
         </section>';
 
-  public function page(): array {
+  private function storylineEditorAttachments(): array {
     $initial_fields = $this->loadInitialWizardFields();
-    $build = [
-      '#attached' => [
+    $account = $this->currentUser();
+    $can_review_all = $account->hasPermission('administer dungeoncrawler content')
+      || $account->hasPermission('publish canonical dungeoncrawler dungeons');
+    $draft_names = [];
+    foreach ($this->dungeonEditor->listDrafts($can_review_all ? NULL : (int) $account->id()) as $draft) {
+      if ($draft['dungeon_id'] && $draft['name'] !== '' && !isset($draft_names[$draft['dungeon_id']])) {
+        $draft_names[$draft['dungeon_id']] = $draft['name'];
+      }
+    }
+    return [
         'library' => [
           'dungeoncrawler_content/character-setup-tabs',
           'dungeoncrawler_content/gm-storyline-builder',
@@ -570,6 +579,10 @@ TWIG,
         'drupalSettings' => [
           'dungeoncrawlerGmStorylineBuilder' => [
             'initialFields' => $initial_fields,
+            'objectLabels' => [
+              'dungeon' => $draft_names + array_column($this->dungeonEditor->listDungeons(), 'name', 'dungeon_id'),
+              'room' => array_column($this->roomEditor->listRooms(), 'name', 'room_id'),
+            ],
             'assistant' => [
               'describeUrlTemplate' => str_replace('00000000-0000-4000-8000-000000000000', '{draft_id}', Url::fromRoute('dungeoncrawler_content.storyline_builder_gm_describe', ['draft_id' => '00000000-0000-4000-8000-000000000000'])->toString()),
               'executeUrlTemplate' => str_replace('00000000-0000-4000-8000-000000000000', '{draft_id}', Url::fromRoute('dungeoncrawler_content.storyline_builder_gm_execute', ['draft_id' => '00000000-0000-4000-8000-000000000000'])->toString()),
@@ -621,7 +634,13 @@ TWIG,
             ],
           ],
         ],
-      ],
+    ];
+  }
+
+  public function page(): array {
+    $build = [
+      '#attached' => $this->storylineEditorAttachments(),
+      '#cache' => ['max-age' => 0],
     ];
 
     // The page layout comes from the template every editor page embeds;
@@ -865,6 +884,53 @@ TWIG,
   /**
    * Build wizard markup for storyline authoring flow.
    */
+  private function buildStorylineGmMarkup(bool $scene_editor = FALSE): string {
+    $intro = $scene_editor
+      ? 'Ask about scenes, quests, tasks, or objectives, or request changes to the shared storyline draft.'
+      : 'Describe the storyline you want, ask for critique, or request structured changes. Clear requests update the draft immediately and remain editable.';
+    $first_label = $scene_editor ? 'Review this scene' : 'Create a storyline';
+    $first_prompt = $scene_editor
+      ? 'Review the current scene and explain its most important outstanding finding. Recommend one manageable next action.'
+      : 'Help me create a new storyline. Ask me for the most important missing decisions one at a time.';
+    $help = $scene_editor
+      ? 'Choose a scene in the left sidebar to give the agent its context. The saved scene view appears below; use the storyline draft for structured fields.'
+      : 'Explore the interface: hover over the numbered sections in the left sidebar to learn what each stage controls. The structured fields below this conversation let you inspect and refine the exact storyline data.';
+    return <<<HTML
+        <section class="gm-storyline-wizard__assistant-panel gm-storyline-wizard__assistant-panel--primary" data-gm-assistant-panel aria-labelledby="gm-storyline-assistant-title">
+          <div class="gm-storyline-wizard__assistant-header">
+            <div>
+              <p class="gm-storyline-wizard__assistant-eyebrow">Primary storyline interface</p>
+              <h3 id="gm-storyline-assistant-title">Game Master Agent</h3>
+              <p>{$intro}</p>
+            </div>
+          </div>
+          <div class="gm-storyline-wizard__assistant-prompts" aria-label="Suggested requests">
+            <button type="button" class="btn btn-secondary btn-sm" data-gm-assistant-prompt="{$first_prompt}">{$first_label}</button>
+            <button type="button" class="btn btn-secondary btn-sm" data-gm-assistant-prompt="Review the saved storyline and explain its most important outstanding finding. Recommend one manageable next action.">Review current work</button>
+            <button type="button" class="btn btn-secondary btn-sm" data-gm-assistant-prompt="Propose the next scene-level progression improvement for the current premise. Recommend one coherent action rather than a whole-story checklist.">Plan progression</button>
+          </div>
+          <h4 class="gm-storyline-wizard__assistant-log-title">GM conversation</h4>
+          <ul class="gm-storyline-wizard__assistant-log" data-gm-assistant-log aria-live="polite" aria-relevant="additions">
+            <li class="gm-storyline-wizard__assistant-item gm-storyline-wizard__assistant-item--assistant gm-storyline-wizard__assistant-item--welcome">
+              <strong>Welcome to the Storyline Builder. Let’s build a complete, connected story together.</strong>
+              <span>Building a strong storyline is hard. It requires a coherent premise, meaningful progression, consistent characters and relationships, connected locations and objects, and an ending that follows from the choices players make.</span>
+              <span>I’m your Game Master Agent. I will apply clear requests directly to the draft in manageable, saved batches and recommend one next action. If a creative decision is needed, I will ask one question with three alternative directions.</span>
+              <span>{$help}</span>
+            </li>
+            <li class="gm-storyline-wizard__assistant-item gm-storyline-wizard__assistant-item--status" data-gm-assistant-status role="status" aria-live="polite">Connecting to the Game Master Agent…</li>
+          </ul>
+          <div class="gm-storyline-wizard__assistant-composer">
+            <label for="gm-storyline-assistant-input">Ask the Game Master Agent</label>
+            <textarea id="gm-storyline-assistant-input" class="form-textarea" rows="4" data-gm-assistant-input placeholder="Describe the storyline, ask for an analysis, or request a structured change."></textarea>
+            <div class="gm-storyline-wizard__assistant-composer-actions">
+              <span>Enter to send · Shift + Enter for a new line</span>
+              <button type="button" class="btn btn-primary" data-gm-assistant-send>Send to GM</button>
+            </div>
+          </div>
+        </section>
+HTML;
+  }
+
   private function buildWizardMarkup(): string {
     $editor_suite = '';
     $storyline_explorer = $this->buildToolLinkIfAccessible('Storyline Explorer', 'dungeoncrawler_content.storyline_explorer');
@@ -926,40 +992,10 @@ TWIG,
       StorylineManagerService::STORYLINE_BRANCH_OPERATIONS[7] => 'Set state',
     ]);
 
+    $assistant_markup = $this->buildStorylineGmMarkup();
     return <<<HTML
       <div class="gm-storyline-wizard" data-gm-storyline-wizard>
-        <section class="gm-storyline-wizard__assistant-panel gm-storyline-wizard__assistant-panel--primary" data-gm-assistant-panel aria-labelledby="gm-storyline-assistant-title">
-          <div class="gm-storyline-wizard__assistant-header">
-            <div>
-              <p class="gm-storyline-wizard__assistant-eyebrow">Primary storyline interface</p>
-              <h3 id="gm-storyline-assistant-title">Game Master Agent</h3>
-              <p>Describe the storyline you want, ask for critique, or request structured changes. Clear requests update the draft immediately and remain editable.</p>
-            </div>
-          </div>
-          <div class="gm-storyline-wizard__assistant-prompts" aria-label="Suggested requests">
-            <button type="button" class="btn btn-secondary btn-sm" data-gm-assistant-prompt="Help me create a new storyline. Ask me for the most important missing decisions one at a time.">Create a storyline</button>
-            <button type="button" class="btn btn-secondary btn-sm" data-gm-assistant-prompt="Review the saved storyline and explain its most important outstanding finding. Recommend one manageable next action.">Review current work</button>
-            <button type="button" class="btn btn-secondary btn-sm" data-gm-assistant-prompt="Propose the next scene-level progression improvement for the current premise. Recommend one coherent action rather than a whole-story checklist.">Plan progression</button>
-          </div>
-          <h4 class="gm-storyline-wizard__assistant-log-title">GM conversation</h4>
-          <ul class="gm-storyline-wizard__assistant-log" data-gm-assistant-log aria-live="polite" aria-relevant="additions">
-            <li class="gm-storyline-wizard__assistant-item gm-storyline-wizard__assistant-item--assistant gm-storyline-wizard__assistant-item--welcome">
-              <strong>Welcome to the Storyline Builder. Let’s build a complete, connected story together.</strong>
-              <span>Building a strong storyline is hard. It requires a coherent premise, meaningful progression, consistent characters and relationships, connected locations and objects, and an ending that follows from the choices players make.</span>
-              <span>I’m your Game Master Agent. I will apply clear requests directly to the draft in manageable, saved batches and recommend one next action. If a creative decision is needed, I will ask one question with three alternative directions.</span>
-              <span><strong>Explore the interface:</strong> hover over the numbered sections in the left sidebar to learn what each stage controls. The structured fields below this conversation let you inspect and refine the exact storyline data.</span>
-            </li>
-            <li class="gm-storyline-wizard__assistant-item gm-storyline-wizard__assistant-item--status" data-gm-assistant-status role="status" aria-live="polite">Connecting to the Game Master Agent…</li>
-          </ul>
-          <div class="gm-storyline-wizard__assistant-composer">
-            <label for="gm-storyline-assistant-input">Ask the Game Master Agent</label>
-            <textarea id="gm-storyline-assistant-input" class="form-textarea" rows="4" data-gm-assistant-input placeholder="Describe the storyline, ask for an analysis, or request a structured change."></textarea>
-            <div class="gm-storyline-wizard__assistant-composer-actions">
-              <span>Enter to send · Shift + Enter for a new line</span>
-              <button type="button" class="btn btn-primary" data-gm-assistant-send>Send to GM</button>
-            </div>
-          </div>
-        </section>
+        {$assistant_markup}
 
         <div class="gm-storyline-wizard__top-actions">
           <label class="visually-hidden" for="gm-storyline-shared-draft">Load storyline</label>
@@ -1058,7 +1094,9 @@ TWIG,
               <input type="text" class="form-text" placeholder="Introduced scene ID" aria-label="Conflict introduced scene ID" data-col-field="introduced_scene_id">
               <input type="text" class="form-text" placeholder="Escalation scene IDs (comma separated)" aria-label="Conflict escalation scene IDs" data-col-field="escalation_scene_ids">
               <input type="text" class="form-text" placeholder="Resolved scene ID" aria-label="Conflict resolved scene ID" data-col-field="resolved_scene_id">
-              <select aria-label="Conflict status" data-col-field="status"><option value="active">Active</option><option value="resolved">Resolved</option><option value="intentional_open_thread">Intentional open thread</option></select>
+              <input type="text" class="form-text" placeholder="Alternative resolution scene IDs" aria-label="Alternative resolution scene IDs (comma separated)" data-col-field="resolved_scene_ids">
+              <input type="text" class="form-text" placeholder="Intentional open-thread scene IDs" aria-label="Intentional open-thread scene IDs (comma separated)" data-col-field="open_thread_scene_ids">
+              <select aria-label="Conflict status" data-col-field="status"><option value="active">Active</option><option value="resolved">Resolved</option><option value="intentional_open_thread">Intentional open thread</option><option value="branching">Resolved or open, depending on branch</option></select>
               <button type="button" class="btn btn-secondary btn-sm" data-remove-row>Remove</button>
             </div></template>
           </div>
@@ -1195,9 +1233,13 @@ TWIG,
               <select class="form-select" aria-label="What the players do" data-col-field="type"><option value="">Type…</option><option value="interact">interact (target)</option><option value="escort">escort (destination)</option><option value="explore">explore (location)</option><option value="investigate">investigate (target)</option><option value="kill">kill (target, count)</option><option value="collect">collect (item, count)</option></select>
               <input type="text" class="form-text" placeholder="What the players do next" aria-label="What the players do next" data-col-field="next_step">
               <input type="text" class="form-text" placeholder="Target ID (interact, investigate, kill)" aria-label="Target ID" data-col-field="target">
+              <input type="text" class="form-text" placeholder="Player-facing target label" aria-label="Player-facing target label" data-col-field="target_label">
+              <input type="text" class="form-text" placeholder="Target aliases (comma separated)" aria-label="Target aliases (comma separated)" data-col-field="target_aliases">
               <select class="form-select" aria-label="Check the target must agree to (interact)" data-col-field="requires_check"><option value="">Completes on talking</option><option value="request">Needs a successful Request (Diplomacy)</option></select>
               <input type="text" class="form-text" placeholder="Item ID (collect)" aria-label="Item ID" data-col-field="item">
               <input type="text" class="form-text" placeholder="Location ID (explore)" aria-label="Location ID" data-col-field="location">
+              <input type="text" class="form-text" maxlength="1000" placeholder="Wayfinding hint" aria-label="Wayfinding hint" data-col-field="wayfinding_hint">
+              <input type="text" class="form-text" maxlength="1000" placeholder="Fixed discovery text (requires Search)" aria-label="Fixed discovery text for an explicit Search" data-col-field="search_narration">
               <input type="text" class="form-text" placeholder="Destination ID (escort)" aria-label="Destination ID" data-col-field="destination">
               <select class="form-select" aria-label="Completion kind (set by type)" data-col-field="kind"><option value="">Kind (from type)</option><option value="count">count</option><option value="flag">flag</option></select>
               <input type="text" class="form-text" placeholder="Metric" data-col-field="metric">

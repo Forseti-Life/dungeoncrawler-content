@@ -4,6 +4,7 @@ namespace Drupal\dungeoncrawler_content\Service\EditorGm;
 
 use Drupal\dungeoncrawler_content\Service\StorylineAuthoringDraftService;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\PlanStorylineRemediationTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\StorylineValidationTroubleshootingGuide;
 
 /**
  * Projects storyline draft context for GM assistant turns.
@@ -28,6 +29,7 @@ final class StorylineBuilderGmContextAssembler implements EditorGmContextAssembl
     $draft = $context->draft();
     $payload = is_array($draft['payload'] ?? NULL) ? $draft['payload'] : [];
     $validation = $context->validation();
+    $status = $context->status();
 
     return [
       'tool_id' => StorylineBuilderGmSurface::ID,
@@ -38,7 +40,8 @@ final class StorylineBuilderGmContextAssembler implements EditorGmContextAssembl
         'updated_at' => (int) ($draft['updated_at'] ?? 0),
       ],
       'storyline' => $payload,
-      'current_state' => $context->status(),
+      'current_state' => $status,
+      'troubleshooting' => StorylineValidationTroubleshootingGuide::packet($payload, $validation, $status),
       'actor_sheet_workflow' => [
         'inspect_tool' => 'inspect_storyline_actor_sheets',
         'build_tool' => 'build_storyline_actor_sheets',

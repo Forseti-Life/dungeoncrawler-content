@@ -271,9 +271,10 @@ class CanonicalQuestTemplateService {
    * Writes the quest record a published storyline task is played as.
    *
    * The record is derived from the storyline, so it replaces the stored one.
+   * In create-only mode, existing records for the storyline stay unchanged.
    * A record that belongs to another storyline is never overwritten.
    */
-  public function saveStorylineQuestRecord(array $record): array {
+  public function saveStorylineQuestRecord(array $record, bool $create_only = FALSE): array {
     $template_id = trim((string) ($record['template_id'] ?? ''));
     $storyline_id = trim((string) ($record['storyline_template_id'] ?? ''));
     $version = trim((string) ($record['version'] ?? ''));
@@ -283,7 +284,7 @@ class CanonicalQuestTemplateService {
     if ((array) ($record['objectives_schema'] ?? []) === []) {
       throw new \DomainException('storyline_quest_record_objective_required:' . $template_id);
     }
-    $existing = $this->database->select('dc_canonical_quests', 'q')
+    $existing = $this->database->select(self::CANONICAL_TABLE, 'q')
       ->fields('q', ['storyline_template_id'])
       ->condition('template_id', $template_id)
       ->execute()
@@ -292,6 +293,9 @@ class CanonicalQuestTemplateService {
       if (trim((string) $owner) !== $storyline_id) {
         throw new \DomainException(sprintf('storyline_quest_record_owned_elsewhere:%s:%s', $template_id, trim((string) $owner)));
       }
+    }
+    if ($create_only && $existing !== []) {
+      return ['template_id' => $template_id, 'created' => FALSE];
     }
     $encode = static fn(mixed $value): string => json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
     $now = time();
@@ -313,11 +317,17 @@ class CanonicalQuestTemplateService {
       'story_impact' => $encode((array) $record['story_impact']),
       'updated_at' => $now,
     ];
-    $this->database->merge('dc_canonical_quests')
-      ->keys(['template_id' => $template_id, 'version' => $version])
-      ->insertFields($fields + ['template_id' => $template_id, 'version' => $version, 'created_at' => $now])
-      ->updateFields($fields)
-      ->execute();
+    $insert_fields = $fields + ['template_id' => $template_id, 'version' => $version, 'created_at' => $now];
+    if ($create_only) {
+      $this->database->insert(self::CANONICAL_TABLE)->fields($insert_fields)->execute();
+    }
+    else {
+      $this->database->merge(self::CANONICAL_TABLE)
+        ->keys(['template_id' => $template_id, 'version' => $version])
+        ->insertFields($insert_fields)
+        ->updateFields($fields)
+        ->execute();
+    }
 
     return ['template_id' => $template_id, 'created' => $existing === []];
   }

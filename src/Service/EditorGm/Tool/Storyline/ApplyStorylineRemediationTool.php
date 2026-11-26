@@ -30,7 +30,7 @@ final class ApplyStorylineRemediationTool implements EditorGmToolInterface {
         EditorGmToolDefinition::argument('expected_revision', 'integer', TRUE, 'Storyline draft revision the plan targets.'),
         EditorGmToolDefinition::argument('operation_id', 'string', TRUE, 'Unique remediation operation id.'),
         EditorGmToolDefinition::argument('definitions', 'array', FALSE, 'Planned canonical definition generation specifications.'),
-        EditorGmToolDefinition::argument('quests', 'array', FALSE, 'Planned linked-quest storyline-reference repairs. Quest records themselves are written when the storyline is published.'),
+        EditorGmToolDefinition::argument('quests', 'array', FALSE, 'Planned linked-quest storyline-reference repairs only. Use publish_storyline_quest_templates to create missing quest records.'),
         EditorGmToolDefinition::argument('operations', 'array', FALSE, 'Planned Storyline draft operations.'),
       ],
     );

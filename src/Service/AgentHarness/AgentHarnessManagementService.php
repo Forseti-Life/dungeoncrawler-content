@@ -76,12 +76,15 @@ class AgentHarnessManagementService {
     'preview_storyline_narrative_analysis',
     'check_storyline_creation_readiness',
     'plan_storyline_draft_operations',
+    'plan_storyline_scene_room_removal',
     'plan_storyline_work',
     'apply_storyline_work',
     'apply_storyline_draft_operations',
     'plan_storyline_remediation',
     'apply_storyline_remediation',
     'publish_storyline_draft',
+    'publish_storyline_quest_templates',
+    'repair_storyline_item_definitions',
     'generate_canonical_definition',
     'create_canonical_definition',
     'update_canonical_definition',
@@ -594,6 +597,7 @@ class AgentHarnessManagementService {
       $tier = match (TRUE) {
         in_array($tool_name, [
           'plan_storyline_draft_operations',
+          'plan_storyline_scene_room_removal',
           'apply_storyline_draft_operations',
           'plan_room_commands',
           'plan_dungeon_commands',
@@ -814,7 +818,8 @@ class AgentHarnessManagementService {
       ];
     }
 
-    if ($tool_name === 'apply_storyline_draft_operations') {
+    if ($tool_name === 'apply_storyline_draft_operations'
+      || ($tool_name === 'plan_storyline_draft_operations' && empty($tool_result['has_changes']) && !empty($tool_result['already_present_institutions']))) {
       return $this->buildStorylineDraftOperationsSummary($tool_result, $context_snapshot);
     }
 
@@ -828,6 +833,32 @@ class AgentHarnessManagementService {
 
     if ($tool_name === 'publish_storyline_draft') {
       return $this->buildStorylinePublishSummary($tool_result, $context_snapshot);
+    }
+    if ($tool_name === 'publish_storyline_quest_templates') {
+      $records = $tool_result['quest_records'];
+      $created = count(array_filter(array_column($records, 'created')));
+      return [
+        'answer' => sprintf(
+          "Quest templates\nCreated %d of %d requested templates. Any that already existed were left unchanged. The storyline draft was not changed or published.",
+          $created,
+          count($records),
+        ),
+        'next_steps' => $this->nextStepFromSavedState($context_snapshot, self::SURFACE_STORYLINE),
+      ];
+    }
+    if ($tool_name === 'repair_storyline_item_definitions') {
+      $resolved = (array) ($tool_result['already_resolved'] ?? []);
+      $items = array_filter((array) $tool_result['items']);
+      $answer = $items === []
+        ? 'Canonical item definitions already repaired'
+        : "Canonical item definitions updated\nRemoved the redundant registry ID from " . implode(', ', $items) . '.';
+      if ($resolved !== []) {
+        $answer .= ' Already valid: ' . implode(', ', $resolved) . '.';
+      }
+      return [
+        'answer' => $answer . ' The storyline draft was not changed.',
+        'next_steps' => $this->nextStepFromSavedState($context_snapshot, self::SURFACE_STORYLINE),
+      ];
     }
 
     return NULL;
@@ -861,10 +892,20 @@ class AgentHarnessManagementService {
    */
   private function buildStorylineDraftOperationsSummary(array $tool_result, array $context_snapshot): array {
     $changes = is_array($tool_result['changes'] ?? NULL) ? $tool_result['changes'] : [];
+    $existing_lines = array_map(
+      static fn(string $name): string => sprintf('%s already exists in this storyline.', $name),
+      $tool_result['already_present_institutions'] ?? [],
+    );
+    if ($changes === [] && $existing_lines !== []) {
+      return [
+        'answer' => implode("\n", [...$existing_lines, 'No changes were made.']),
+        'next_steps' => [],
+      ];
+    }
     $revision = (int) ($tool_result['result_revision'] ?? $context_snapshot['draft']['revision'] ?? 0);
     $reasoning = trim((string) ($tool_result['reasoning'] ?? ''));
 
-    $change_lines = [];
+    $change_lines = $existing_lines;
     foreach ($changes as $change) {
       if (!is_array($change)) {
         continue;
@@ -1159,10 +1200,15 @@ class AgentHarnessManagementService {
       }
     }
     if ($next === 'Have the GM address the next validation warning.') {
-      $found = $this->firstValidationFinding($validation, 'warning');
+      $found = !empty($state['accepted_warning_count'])
+        ? $this->firstValidationFinding($validation, 'warning', required_message: (string) ($state['first_open_warning'] ?? ''))
+        : $this->firstValidationFinding($validation, 'warning');
       if ($found['message'] !== '') {
+        if ($surface_label === self::SURFACE_STORYLINE) {
+          return [$this->storylineWarningStep($found, $context_snapshot)];
+        }
         return [sprintf(
-          'Validation warning: %s Options: ask the GM to fix this warning now, skip to the next warning, or continue %s changes.',
+          'Validation warning: %s Options: ask the GM to fix this warning, accept it under Review warnings, or continue %s changes.',
           $this->describeFinding($found, $context_snapshot),
           $guidance['warning_work'],
         )];
@@ -1171,10 +1217,37 @@ class AgentHarnessManagementService {
     return $next_steps;
   }
 
+  private function storylineWarningStep(array $selected, array $snapshot): string {
+    $message = $this->describeFinding($selected, $snapshot);
+    $finding = $selected['finding'] ?? [];
+    if (($finding['code'] ?? '') === 'canonical_item_definition_invalid') {
+      if ($finding['definition_pointer'] === '/content_id' && $finding['schema_error_code'] === 'additional_property') {
+        return sprintf('Repair the canonical item definition for "%s" by removing its redundant content_id. The storyline reference stays unchanged.', $finding['entity_label']);
+      }
+      return sprintf('Review the canonical item definition for "%s": %s', $finding['entity_label'], $message);
+    }
+    if (($selected['finding']['code'] ?? '') === 'DCV_NARRATIVE_CONFLICT_ARC_MISSING') {
+      return "Validation warning: $message Proposed resolution: Link the scene to the existing conflict at the point it introduces, escalates, resolves, or deliberately carries it forward. Alternative endings can resolve the same conflict differently.";
+    }
+    if (($selected['finding']['code'] ?? '') === 'DCV_NARRATIVE_CONFLICT_UNRESOLVED') {
+      $conflict_id = $selected['finding']['entity_id'] ?? '';
+      $conflicts = array_column($snapshot['storyline']['process_flow']['conflicts'] ?? [], NULL, 'conflict_id');
+      $title = trim((string) ($conflicts[$conflict_id]['title'] ?? ''));
+      if ($title !== '') {
+        $message = sprintf('The conflict "%s" is still open at the end.', $title);
+      }
+      return "Validation warning: $message Proposed resolution: Write an outcome in a scene after the final escalation, then record that scene as the resolution. If the story is meant to leave the conflict open, mark it as an intentional open thread instead.";
+    }
+    if (preg_match('/^(?:Storyline entry_point primary location |\\[DCV_NAV_(?:ENTRY_ROOM|CONNECTOR_TARGET_ROOM)_NOT_IN_DUNGEON\\])/', $selected['message']) === 1) {
+      return "Validation warning: $message Proposed resolution: Check the room's canonical site and correct the authored binding if exactly one placement supports it.";
+    }
+    return "Validation warning: $message Address it as part of authoring, or accept it under Review warnings if it is intentional.";
+  }
+
   /**
    * Returns one concise validation finding by severity for next-step guidance.
    */
-  private function firstValidationFinding(array $validation, string $severity, ?string $required_route = NULL): array {
+  private function firstValidationFinding(array $validation, string $severity, ?string $required_route = NULL, ?string $required_message = NULL): array {
     $stages = (array) ($validation['stages'] ?? []);
     if (is_array($validation['findings'] ?? NULL)) {
       // Dungeon and Room validation is one routed list, not stages.
@@ -1196,7 +1269,8 @@ class AgentHarnessManagementService {
         $structured[$message] = TRUE;
         $route = trim((string) ($finding['route'] ?? $stage_route));
         if (($finding['severity'] ?? '') !== $severity || $message === ''
-          || ($required_route !== NULL && $route !== $required_route)) {
+          || ($required_route !== NULL && $route !== $required_route)
+          || ($required_message !== NULL && $message !== $required_message)) {
           continue;
         }
         return ['message' => $message, 'route' => $route, 'finding' => $finding];
@@ -1207,7 +1281,8 @@ class AgentHarnessManagementService {
       $stage_list = $severity === 'error' ? (array) ($stage['errors'] ?? []) : (array) ($stage['warnings'] ?? []);
       foreach ($stage_list as $entry) {
         $message = trim((string) $entry);
-        if ($message !== '' && !isset($structured[$message])) {
+        if ($message !== '' && !isset($structured[$message])
+          && ($required_message === NULL || $message === $required_message)) {
           return ['message' => $message, 'route' => $stage_route];
         }
       }
@@ -1218,7 +1293,7 @@ class AgentHarnessManagementService {
     $list = $severity === 'error' ? (array) ($validation['errors'] ?? []) : (array) ($validation['warnings'] ?? []);
     foreach ($list as $entry) {
       $message = trim((string) $entry);
-      if ($message !== '') {
+      if ($message !== '' && ($required_message === NULL || $message === $required_message)) {
         return ['message' => $message, 'route' => 'unclassified'];
       }
     }
