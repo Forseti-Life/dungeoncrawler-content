@@ -962,6 +962,8 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
             tags: parseCommaList(get('storyline_tags')),
             player_hook: get('storyline_player_hook'),
             entry_actor_id: get('storyline_entry_actor') || actors[0]?.actor_id || '',
+            entry_broker_id: get('storyline_entry_broker'),
+            entry_introduction_path: get('storyline_entry_introduction_path') || 'direct',
             entry_location_id: get('storyline_entry_location'),
             ending: get('storyline_ending'),
             process_flow: {
@@ -1226,6 +1228,8 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
           setField('storyline_tags', Array.isArray(payload.tags) ? payload.tags.join(', ') : (payload.tags || ''));
           setField('storyline_player_hook', payload.player_hook || '');
           setField('storyline_entry_actor', payload.entry_actor_id || '');
+          setField('storyline_entry_broker', payload.entry_broker_id || '');
+          setField('storyline_entry_introduction_path', payload.entry_introduction_path || 'direct');
           setField('storyline_entry_location', payload.entry_location_id || '');
           setField('storyline_ending', payload.ending || '');
           const architecture = payload?.process_flow?.narrative_architecture || {};

@@ -123,6 +123,9 @@ class StorylineActorSheetService {
         $sheet = $this->linkedSheet($spec);
         $reused = $sheet !== NULL;
         $source_unchanged = ($spec['character_sheet_spec_hash'] ?? NULL) === $this->specHash($spec);
+        $adopting_ready_sheet = $sheet !== NULL
+          && empty($spec['character_id'])
+          && $this->characters->validateData($sheet['payload'], 0)['ready'];
         if ($sheet !== NULL && ($spec['character_sheet_spec_hash'] ?? NULL) === $this->specHash($spec)
           && ($spec['character_sheet_revision'] ?? NULL) === $sheet['revision']
           && empty($preferences[$id]) && $this->characters->validateData($sheet['payload'], 0)['ready']) {
@@ -132,7 +135,11 @@ class StorylineActorSheetService {
         if ($sheet === NULL) {
           $sheet = $this->characters->createDraft();
         }
-        if (!$reused || !$source_unchanged || !empty($preferences[$id]) || !$this->characters->validateData($sheet['payload'], 0)['ready']) {
+        if (!$reused
+          || (!$adopting_ready_sheet && !$source_unchanged)
+          || !empty($preferences[$id])
+          || !$this->characters->validateData($sheet['payload'], 0)['ready']
+        ) {
           $authored_identity = $source_unchanged ? [] : [
             'name' => $spec['display_name'],
             'concept' => $spec['role'] . ': ' . ($spec['motivation'] ?? ''),

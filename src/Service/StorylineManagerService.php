@@ -4474,7 +4474,15 @@ class StorylineManagerService {
     $linked_quests = $this->buildLinkedQuestMap($chapters);
     $questline = $this->normalizeAuthoredQuestlineDefinition($definition['questline'] ?? NULL, $chapters, $linked_quests);
     $asset_references = $this->buildAssetReferenceMap($definition, $chapters, $linked_quests);
-    $contacts = $this->normalizeContactDefinitions($definition['contacts'] ?? [], $asset_references);
+    $entry_point = is_array($definition['metadata']['generated_outline']['entry_point'] ?? NULL)
+      ? $definition['metadata']['generated_outline']['entry_point']
+      : [];
+    $contacts = $this->normalizeContactDefinitions(
+      $definition['contacts'] ?? [],
+      $asset_references,
+      (string) ($entry_point['introduction_path'] ?? 'direct'),
+      (string) ($entry_point['broker_id'] ?? ''),
+    );
     $this->backfillQuestGiverLocationAnchors($contacts, $asset_references, $chapters);
     $tags = array_values(array_filter(array_map('strval', is_array($definition['tags'] ?? NULL) ? $definition['tags'] : [])));
     $metadata = $this->normalizeStorylineMetadata($definition, $chapters, $contacts, $asset_references, $tags);
@@ -5349,9 +5357,14 @@ class StorylineManagerService {
   }
 
   /**
-   * Normalizes storyline contact payloads and guarantees a tavern broker path.
+   * Normalizes storyline contacts and seeds a broker only for brokered entry.
    */
-  protected function normalizeContactDefinitions(array $contacts, array $asset_references): array {
+  protected function normalizeContactDefinitions(
+    array $contacts,
+    array $asset_references,
+    string $introduction_path = 'direct',
+    string $broker_id = '',
+  ): array {
     $normalized = [];
 
     foreach (array_values($contacts) as $contact) {
@@ -5427,7 +5440,7 @@ class StorylineManagerService {
       }
     }
 
-    if (!$has_broker) {
+    if ($introduction_path === 'brokered' && !$has_broker && trim($broker_id) !== '') {
       $introductions = [];
       foreach ($quest_giver_contacts as $contact) {
         $introductions[] = [
@@ -5444,7 +5457,7 @@ class StorylineManagerService {
       $normalized[] = [
         'contact_id' => 'eldric-broker',
         'entity_type' => 'campaign_npc',
-        'entity_id' => 'npc_tavern_keeper',
+        'entity_id' => trim($broker_id),
         'role' => 'broker',
         'display_name' => 'Eldric',
         'attitude' => 'friendly',
@@ -8198,13 +8211,41 @@ class StorylineManagerService {
 
       if ($introduction_path === 'brokered') {
         if ($broker_id === '') {
-          $errors[] = 'Storyline entry_point.broker_id is required when introduction_path is brokered.';
+          $report(
+            'DCV_STORYLINE_ENTRY_BROKER_REQUIRED',
+            'Storyline entry_point.broker_id is required when introduction_path is brokered.',
+            [
+              'entity_type' => 'storyline_entry_point',
+              'entity_id' => 'entry_point',
+              'field' => 'broker_id',
+              'primary_quest_giver_id' => $primary_quest_giver_id,
+              'introduction_path' => $introduction_path,
+            ],
+          );
         }
         elseif (!isset($contact_entity_ids[$broker_id])) {
-          $errors[] = "Storyline entry_point broker '{$broker_id}' is not declared as a contact.";
+          $report(
+            'DCV_STORYLINE_ENTRY_BROKER_UNKNOWN',
+            "Storyline entry_point broker '{$broker_id}' is not declared as a contact.",
+            [
+              'entity_type' => 'storyline_entry_point',
+              'entity_id' => 'entry_point',
+              'field' => 'broker_id',
+              'broker_id' => $broker_id,
+            ],
+          );
         }
         elseif (!isset($contact_roles[$broker_id]['broker'])) {
-          $errors[] = "Storyline entry_point broker '{$broker_id}' must use role broker.";
+          $report(
+            'DCV_STORYLINE_ENTRY_BROKER_ROLE',
+            "Storyline entry_point broker '{$broker_id}' must use role broker.",
+            [
+              'entity_type' => 'storyline_entry_point',
+              'entity_id' => 'entry_point',
+              'field' => 'broker_id',
+              'broker_id' => $broker_id,
+            ],
+          );
         }
 
         if (

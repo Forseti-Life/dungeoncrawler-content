@@ -129,6 +129,32 @@ class StorylineActorSheetServiceTest extends TestCase {
     $this->assertArrayNotHasKey('character_id', $this->draft['payload']['objects']['actors']['generation_specs'][0]);
   }
 
+  public function testReadyLibrarySheetIsAdoptedWithoutRewritingIt(): void {
+    $service = $this->service();
+    $this->links['original-guard'] = 77;
+    $this->sheets[77] = [
+      'character_id' => 77,
+      'revision' => 5,
+      'campaign_id' => 0,
+      'status' => 1,
+      'lifecycle_state' => 'canonical_template',
+      'payload' => [
+        'name' => 'Original Guard',
+        'class' => 'guard-class',
+        'ancestry' => 'fixture-folk',
+        'level' => 3,
+      ],
+    ];
+
+    $built = $service->build($this->draft['draft_id'], 3, ['original-guard']);
+
+    $this->assertSame(1, $built['completed_count']);
+    $this->assertSame(77, $this->draft['payload']['objects']['actors']['generation_specs'][0]['character_id']);
+    $this->assertSame(5, $this->draft['payload']['objects']['actors']['generation_specs'][0]['character_sheet_revision']);
+    $this->assertSame(0, $this->builds);
+    $this->assertSame(0, $this->generations);
+  }
+
   public function testRetryPreservesLaterNativeSheetEdits(): void {
     $service = $this->service();
     $service->build($this->draft['draft_id'], 3);

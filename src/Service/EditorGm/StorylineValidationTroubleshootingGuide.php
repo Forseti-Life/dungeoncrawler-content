@@ -112,7 +112,94 @@ final class StorylineValidationTroubleshootingGuide {
     if (($entry['resolver'] ?? 'generic') === 'storyline_chapter_reference') {
       $packet += self::chapterReferencePacket($payload, $validation, $finding);
     }
+    if (($entry['resolver'] ?? 'generic') === 'storyline_actor_sheet') {
+      $actor_ids = [];
+      foreach (self::validationFindings($validation) as $actor_finding) {
+        if (in_array((string) ($actor_finding['code'] ?? ''), ['actor_sheet_missing', 'actor_sheet_outdated'], TRUE)
+          && trim((string) ($actor_finding['actor_id'] ?? '')) !== '') {
+          $actor_ids[] = (string) $actor_finding['actor_id'];
+        }
+      }
+      $packet += [
+        'object' => [
+          'type' => 'storyline_actor_roster',
+          'actor_ids' => array_values(array_unique($actor_ids)),
+        ],
+        'editable' => [
+          'tool' => 'build_storyline_actor_sheets',
+          'fields' => [],
+          'actor_ids' => array_values(array_unique($actor_ids)),
+        ],
+        'user_action' => 'Build and link the selected roster character sheets with the native sheet authority, then revalidate.',
+        'verification_codes' => ['actor_sheet_missing', 'actor_sheet_outdated'],
+        'code_change_required' => FALSE,
+        'coding_handoff' => [],
+      ];
+    }
+    if (($entry['resolver'] ?? 'generic') === 'storyline_entry_broker') {
+      $primary_actor_id = trim((string) ($payload['entry_actor_id'] ?? $finding['primary_quest_giver_id'] ?? ''));
+      $broker_ids = [];
+      foreach ((array) ($payload['objects']['actors']['generation_specs'] ?? []) as $actor) {
+        if (is_array($actor)
+          && ($actor['role'] ?? '') === 'broker'
+          && trim((string) ($actor['actor_id'] ?? '')) !== $primary_actor_id) {
+          $broker_ids[] = trim((string) $actor['actor_id']);
+        }
+      }
+      $broker_ids = array_values(array_unique(array_filter($broker_ids)));
+      $direct = $broker_ids === [];
+      $broker_id = $direct ? '' : $broker_ids[0];
+      $packet += [
+        'object' => [
+          'type' => 'storyline_entry_point',
+          'id' => 'entry_point',
+          'primary_actor_id' => $primary_actor_id,
+        ],
+        'editable' => [
+          'tool' => 'plan_storyline_draft_operations',
+          'fields' => ['entry_broker_id', 'entry_introduction_path'],
+        ],
+        'suggested_values' => [
+          'entry_broker_id' => $broker_id,
+          'entry_introduction_path' => $direct ? 'direct' : 'brokered',
+        ],
+        'suggested_operations' => [
+          [
+            'type' => 'set',
+            'path' => '/entry_broker_id',
+            'value' => $broker_id,
+          ],
+          [
+            'type' => 'set',
+            'path' => '/entry_introduction_path',
+            'value' => $direct ? 'direct' : 'brokered',
+          ],
+        ],
+        'user_action' => $direct
+          ? 'Use direct introduction because the only would-be broker is the primary quest giver.'
+          : 'Use the one distinct broker actor on the roster.',
+        'verification_codes' => [
+          'DCV_STORYLINE_ENTRY_BROKER_REQUIRED',
+          'DCV_STORYLINE_ENTRY_BROKER_UNKNOWN',
+          'DCV_STORYLINE_ENTRY_BROKER_ROLE',
+        ],
+        'code_change_required' => FALSE,
+        'coding_handoff' => [],
+      ];
+    }
     return $packet;
+  }
+
+  private static function validationFindings(array $validation): array {
+    $findings = [];
+    foreach ((array) ($validation['stages'] ?? []) as $stage) {
+      foreach ((array) ($stage['findings'] ?? []) as $finding) {
+        if (is_array($finding)) {
+          $findings[] = $finding;
+        }
+      }
+    }
+    return $findings;
   }
 
   private static function chapterReferencePacket(array $payload, array $validation, array $finding): array {
@@ -488,14 +575,14 @@ final class StorylineValidationTroubleshootingGuide {
     foreach ($registry['stages'] as $stage => $entry) {
       if (!is_array($entry)
         || !isset($registry['routes'][$entry['route'] ?? ''])
-        || !in_array($entry['resolver'] ?? '', ['generic', 'storyline_quest_objective', 'storyline_actor_materialization', 'storyline_actor_home', 'storyline_chapter_reference', 'editor_route'], TRUE)) {
+        || !in_array($entry['resolver'] ?? '', ['generic', 'storyline_quest_objective', 'storyline_actor_materialization', 'storyline_actor_home', 'storyline_chapter_reference', 'storyline_actor_sheet', 'storyline_entry_broker', 'editor_route'], TRUE)) {
         throw new \UnexpectedValueException('storyline_validation_troubleshooting_stage_invalid:' . $stage);
       }
     }
     foreach ($registry['findings'] as $code => $entry) {
       if (!is_array($entry)
         || !isset($registry['routes'][$entry['route'] ?? ''])
-        || !in_array($entry['resolver'] ?? '', ['generic', 'storyline_quest_objective', 'storyline_actor_materialization', 'storyline_actor_home', 'storyline_chapter_reference', 'editor_route'], TRUE)) {
+        || !in_array($entry['resolver'] ?? '', ['generic', 'storyline_quest_objective', 'storyline_actor_materialization', 'storyline_actor_home', 'storyline_chapter_reference', 'storyline_actor_sheet', 'storyline_entry_broker', 'editor_route'], TRUE)) {
         throw new \UnexpectedValueException('storyline_validation_troubleshooting_entry_invalid:' . $code);
       }
     }

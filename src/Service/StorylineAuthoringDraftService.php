@@ -74,6 +74,9 @@ class StorylineAuthoringDraftService {
   private const REVISION_TABLE = 'dungeoncrawler_content_storyline_draft_revisions';
   private const REDIRECT_TABLE = 'dungeoncrawler_content_storyline_draft_redirects';
   private const OPERATION_TABLE = 'dungeoncrawler_content_storyline_draft_operations';
+  private const ACTOR_ID_ALIASES = [
+    'tavern_keeper' => 'npc_tavern_keeper',
+  ];
   public const OPERATION_CONTRACT = [
     'set' => ['required' => ['type', 'path', 'value']],
     'append' => ['required' => ['type', 'path', 'value'], 'optional' => ['key']],
@@ -652,6 +655,8 @@ class StorylineAuthoringDraftService {
       'tags' => [],
       'player_hook' => '',
       'entry_actor_id' => '',
+      'entry_broker_id' => '',
+      'entry_introduction_path' => 'direct',
       'entry_location_id' => '',
       'ending' => '',
       'process_flow' => [
@@ -718,6 +723,8 @@ class StorylineAuthoringDraftService {
       $payload['tags'] = array_values(array_filter((array) ($template_data['tags'] ?? []), 'is_string'));
       $payload['player_hook'] = (string) ($identity['player_hook'] ?? '');
       $payload['entry_actor_id'] = (string) ($entry_point['primary_quest_giver_id'] ?? '');
+      $payload['entry_broker_id'] = (string) ($entry_point['broker_id'] ?? '');
+      $payload['entry_introduction_path'] = (string) ($entry_point['introduction_path'] ?? 'direct');
       $payload['entry_location_id'] = (string) ($entry_point['primary_location_id'] ?? '');
       $payload['ending'] = (string) ($identity['ending'] ?? '');
       $payload['canonical_template'] = $template_data;
@@ -1471,7 +1478,7 @@ class StorylineAuthoringDraftService {
           'code' => 'actor_sheet_missing',
           'actor_id' => (string) $spec['actor_id'],
           'display_name' => $name,
-          'message' => sprintf("Actor '%s' has no character sheet. Build the roster's character sheets.", $name),
+          'message' => sprintf("Actor '%s' has no character sheet linked to this storyline. Build or relink the roster's character sheets.", $name),
         ];
       }
       elseif (($spec['character_sheet_spec_hash'] ?? NULL) !== self::actorSpecHash($spec)) {
@@ -2474,6 +2481,7 @@ class StorylineAuthoringDraftService {
     if (is_array($draft['payload']['canonical_template'] ?? NULL)) {
       $payload['canonical_template'] = $draft['payload']['canonical_template'];
     }
+    $payload = $this->normalizeStorylineActorAliases($payload);
     // Every save goes through here, the builder form included.
     $payload = self::rebindChangedIdentities($draft['payload'] ?? [], self::withInstitutionSubjectIds($payload));
     self::assertRemovedPlacesAreUnreferenced($draft['payload'] ?? [], $payload);
@@ -4441,13 +4449,127 @@ class StorylineAuthoringDraftService {
     $payload['objects']['items']['validation_criteria'] = array_values((array) ($builder['item_validation_criteria'] ?? []));
     $payload['orchestration']['generation'] = array_values((array) ($builder['generation_orchestration'] ?? []));
     $payload['orchestration']['validation'] = array_values((array) ($builder['validation_orchestration'] ?? []));
+    return $this->normalizeStorylineActorAliases($payload);
+  }
+
+  private function normalizeStorylineActorAliases(array $payload): array {
+    $canonical_template = $payload['canonical_template'] ?? NULL;
+    $has_canonical_template = array_key_exists('canonical_template', $payload);
+    unset($payload['canonical_template']);
+    $payload = $this->replaceStorylineActorAliases($payload);
+    if (!isset($payload['entry_broker_id']) || !isset($payload['entry_introduction_path'])) {
+      $entry = is_array($canonical_template['metadata']['generated_outline']['entry_point'] ?? NULL)
+        ? $canonical_template['metadata']['generated_outline']['entry_point']
+        : [];
+      $payload['entry_broker_id'] = $this->canonicalStorylineActorId(
+        (string) ($payload['entry_broker_id'] ?? $entry['broker_id'] ?? ''),
+      );
+      $payload['entry_introduction_path'] = (string) (
+        $payload['entry_introduction_path']
+        ?? $entry['introduction_path']
+        ?? 'direct'
+      );
+    }
+    $entry_actor_id = trim((string) ($payload['entry_actor_id'] ?? ''));
+    $entry_broker_id = trim((string) ($payload['entry_broker_id'] ?? ''));
+    if ($entry_broker_id === $entry_actor_id || $entry_broker_id === '') {
+      $payload['entry_broker_id'] = '';
+      $payload['entry_introduction_path'] = 'direct';
+    }
+    $actors = array_values(array_filter(
+      (array) ($payload['objects']['actors']['generation_specs'] ?? []),
+      'is_array',
+    ));
+    $merged = [];
+    foreach ($actors as $actor) {
+      $actor_id = trim((string) ($actor['actor_id'] ?? ''));
+      if ($actor_id === '') {
+        $merged[] = $actor;
+        continue;
+      }
+      if (!isset($merged[$actor_id])) {
+        $merged[$actor_id] = $actor;
+        continue;
+      }
+      $current = $merged[$actor_id];
+      $role_rank = static fn(string $role): int => match ($role) {
+        'quest_giver' => 3,
+        'broker' => 2,
+        'npc', 'contact' => 1,
+        default => 0,
+      };
+      if ($role_rank((string) ($actor['role'] ?? '')) > $role_rank((string) ($current['role'] ?? ''))) {
+        $current['role'] = (string) $actor['role'];
+      }
+      foreach ($actor as $field => $value) {
+        if (in_array($field, ['actor_id', 'affiliations', 'role'], TRUE)) {
+          continue;
+        }
+        $current_value = $current[$field] ?? NULL;
+        if ($current_value === NULL || $current_value === '' || $current_value === 'indifferent') {
+          $current[$field] = $value;
+        }
+      }
+      $affiliations = [];
+      foreach (array_merge(
+        (array) ($current['affiliations'] ?? []),
+        (array) ($actor['affiliations'] ?? []),
+      ) as $affiliation) {
+        if (!is_array($affiliation) || trim((string) ($affiliation['institution_id'] ?? '')) === '') {
+          continue;
+        }
+        $affiliations[(string) $affiliation['institution_id']] = $affiliation;
+      }
+      $current['affiliations'] = array_values($affiliations);
+      $merged[$actor_id] = $current;
+    }
+    $payload['objects']['actors']['generation_specs'] = array_values($merged);
+    $relationships = [];
+    foreach ((array) ($payload['objects']['actors']['relationships'] ?? []) as $relationship) {
+      if (!is_array($relationship)) {
+        continue;
+      }
+      $key = implode('|', [
+        (string) ($relationship['source_actor_id'] ?? ''),
+        (string) ($relationship['target_actor_id'] ?? ''),
+        (string) ($relationship['bond'] ?? ''),
+        (string) ($relationship['notes'] ?? ''),
+      ]);
+      $relationships[$key] = $relationship;
+    }
+    $payload['objects']['actors']['relationships'] = array_values($relationships);
+    if ($has_canonical_template) {
+      $payload['canonical_template'] = $canonical_template;
+    }
     return $payload;
+  }
+
+  private function replaceStorylineActorAliases(mixed $value): mixed {
+    if (is_array($value)) {
+      foreach ($value as $key => $child) {
+        $value[$key] = $this->replaceStorylineActorAliases($child);
+      }
+      return $value;
+    }
+    if (!is_string($value)) {
+      return $value;
+    }
+    return (string) preg_replace(
+      '/(?<![a-z0-9_-])tavern_keeper(?![a-z0-9_-])/i',
+      'npc_tavern_keeper',
+      $value,
+    );
+  }
+
+  private function canonicalStorylineActorId(string $actor_id): string {
+    return self::ACTOR_ID_ALIASES[$actor_id] ?? $actor_id;
   }
 
   /**
    * Apply editable draft fields back onto an existing canonical template.
    */
   private function applyDraftEditsToCanonicalTemplate(array $payload, array $template): array {
+    $template = $this->replaceStorylineActorAliases($template);
     $original_template_id = $this->sanitizeIdentifier((string) ($template['template_id'] ?? ''));
     $template['template_id'] = $this->sanitizeIdentifier((string) ($payload['storyline_id'] ?? $template['template_id'] ?? ''));
     if ($template['template_id'] === '') {
@@ -4494,6 +4616,26 @@ class StorylineAuthoringDraftService {
       ?? $template['metadata']['generated_outline']['entry_point']['primary_location_id']
       ?? ''
     ));
+    $entry_actor_id = trim((string) $template['metadata']['generated_outline']['entry_point']['primary_quest_giver_id']);
+    $entry_broker_id = trim((string) ($payload['entry_broker_id'] ?? ''));
+    $introduction_path = (string) ($payload['entry_introduction_path'] ?? 'direct');
+    if ($entry_broker_id === $entry_actor_id || $entry_broker_id === '') {
+      $entry_broker_id = '';
+      $introduction_path = 'direct';
+    }
+    $template['metadata']['generated_outline']['entry_point']['broker_id'] = $entry_broker_id;
+    $template['metadata']['generated_outline']['entry_point']['broker_name'] = '';
+    if ($entry_broker_id !== '') {
+      foreach ((array) ($payload['objects']['actors']['generation_specs'] ?? []) as $actor) {
+        if (is_array($actor) && (string) ($actor['actor_id'] ?? '') === $entry_broker_id) {
+          $template['metadata']['generated_outline']['entry_point']['broker_name'] = trim((string) (
+            $actor['display_name'] ?? ''
+          ));
+          break;
+        }
+      }
+    }
+    $template['metadata']['generated_outline']['entry_point']['introduction_path'] = $introduction_path;
     $template['metadata']['storyline_builder']['institutions'] = array_values(array_filter((array) ($payload['objects']['institutions'] ?? []), 'is_array'));
     $template['metadata']['storyline_builder']['objective_completion_criteria'] = array_values(array_filter((array) ($payload['process_flow']['objective_completion_criteria'] ?? []), 'is_array'));
     $template['metadata']['storyline_builder']['narrative_architecture'] = $this->normalizeNarrativeArchitecture(

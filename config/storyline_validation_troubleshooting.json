@@ -160,6 +160,36 @@
       "fields": ["location_id"],
       "verification": "same_object"
     },
+    "actor_sheet_missing": {
+      "resolver": "storyline_actor_sheet",
+      "route": "actor_sheet_build",
+      "fields": [],
+      "verification": "same_object"
+    },
+    "actor_sheet_outdated": {
+      "resolver": "storyline_actor_sheet",
+      "route": "actor_sheet_build",
+      "fields": [],
+      "verification": "same_object"
+    },
+    "DCV_STORYLINE_ENTRY_BROKER_REQUIRED": {
+      "resolver": "storyline_entry_broker",
+      "route": "draft_operation",
+      "fields": ["entry_broker_id", "entry_introduction_path"],
+      "verification": "same_object"
+    },
+    "DCV_STORYLINE_ENTRY_BROKER_UNKNOWN": {
+      "resolver": "storyline_entry_broker",
+      "route": "draft_operation",
+      "fields": ["entry_broker_id", "entry_introduction_path"],
+      "verification": "same_object"
+    },
+    "DCV_STORYLINE_ENTRY_BROKER_ROLE": {
+      "resolver": "storyline_entry_broker",
+      "route": "draft_operation",
+      "fields": ["entry_broker_id"],
+      "verification": "same_object"
+    },
     "actor_home_missing": {
       "resolver": "storyline_actor_home",
       "route": "draft_operation",

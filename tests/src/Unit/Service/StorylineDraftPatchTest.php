@@ -1062,6 +1062,58 @@ class StorylineDraftPatchTest extends UnitTestCase {
     $this->assertNotSame(StorylineAuthoringDraftService::actorSpecHash($after[1]), $after[1]['character_sheet_spec_hash']);
   }
 
+  public function testEldricAliasIsConsolidatedWithoutChangingCanonicalSource(): void {
+    [$service] = $this->fixture();
+    $payload = [
+      'entry_actor_id' => 'tavern_keeper',
+      'entry_broker_id' => 'tavern_keeper',
+      'entry_introduction_path' => 'brokered',
+      'objects' => [
+        'actors' => [
+          'generation_specs' => [[
+            'actor_id' => 'tavern_keeper',
+            'contact_id' => 'tavern_keeper',
+            'display_name' => 'Eldric',
+            'role' => 'quest_giver',
+            'attitude' => 'indifferent',
+            'affiliations' => [['institution_id' => 'gilded-tankard', 'standing' => 'leader']],
+          ], [
+            'actor_id' => 'npc_tavern_keeper',
+            'contact_id' => 'eldric-broker',
+            'display_name' => 'Eldric',
+            'role' => 'broker',
+            'attitude' => 'friendly',
+            'motivation' => 'Introduce promising adventurers.',
+            'affiliations' => [],
+          ]],
+          'relationships' => [[
+            'source_actor_id' => 'tavern_keeper',
+            'target_actor_id' => 'captain',
+          ]],
+        ],
+      ],
+      'canonical_template' => [
+        'contacts' => [['entity_id' => 'tavern_keeper']],
+      ],
+    ];
+    $normalize = new \ReflectionMethod($service, 'normalizeStorylineActorAliases');
+    $normalize->setAccessible(TRUE);
+
+    $normalized = $normalize->invoke($service, $payload);
+
+    $this->assertSame('npc_tavern_keeper', $normalized['entry_actor_id']);
+    $this->assertSame('', $normalized['entry_broker_id']);
+    $this->assertSame('direct', $normalized['entry_introduction_path']);
+    $this->assertCount(1, $normalized['objects']['actors']['generation_specs']);
+    $actor = $normalized['objects']['actors']['generation_specs'][0];
+    $this->assertSame('npc_tavern_keeper', $actor['actor_id']);
+    $this->assertSame('quest_giver', $actor['role']);
+    $this->assertSame('friendly', $actor['attitude']);
+    $this->assertSame('Introduce promising adventurers.', $actor['motivation']);
+    $this->assertSame('npc_tavern_keeper', $normalized['objects']['actors']['relationships'][0]['source_actor_id']);
+    $this->assertSame('tavern_keeper', $normalized['canonical_template']['contacts'][0]['entity_id']);
+  }
+
   /**
    * Institutions are stage 3: defined for a cast, peopled, and tied to it.
    */

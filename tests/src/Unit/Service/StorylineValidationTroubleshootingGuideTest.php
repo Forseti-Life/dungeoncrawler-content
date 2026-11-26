@@ -266,6 +266,71 @@ class StorylineValidationTroubleshootingGuideTest extends UnitTestCase {
     ], $packet['suggested_operations']);
   }
 
+  public function testMissingActorSheetUsesNativeBuildAuthority(): void {
+    $warning = "Actor 'Eldric' has no character sheet linked to the storyline.";
+    $finding = [
+      'severity' => 'error',
+      'code' => 'actor_sheet_missing',
+      'message' => $warning,
+      'actor_id' => 'tavern_keeper',
+      'display_name' => 'Eldric',
+    ];
+    $packet = StorylineValidationTroubleshootingGuide::packet([], [
+      'stages' => [[
+        'stage' => 'actor_character_sheets',
+        'route' => 'actor_sheet_build',
+        'errors' => [$warning],
+        'findings' => [$finding],
+      ]],
+    ], ['first_open_warning' => '']);
+
+    $this->assertSame('storyline_actor_sheet', $packet['resolver']);
+    $this->assertSame('build_storyline_actor_sheets', $packet['editable']['tool']);
+    $this->assertSame(['tavern_keeper'], $packet['editable']['actor_ids']);
+    $this->assertFalse($packet['code_change_required']);
+    $this->assertSame([], $packet['coding_handoff']);
+  }
+
+  public function testSelfBrokerWarningSwitchesToDirectIntroduction(): void {
+    $warning = 'Storyline entry_point.broker_id is required when introduction_path is brokered.';
+    $packet = StorylineValidationTroubleshootingGuide::packet([
+      'entry_actor_id' => 'npc_tavern_keeper',
+      'objects' => [
+        'actors' => [
+          'generation_specs' => [[
+            'actor_id' => 'npc_tavern_keeper',
+            'role' => 'quest_giver',
+            'display_name' => 'Eldric',
+          ]],
+        ],
+      ],
+    ], [
+      'stages' => [[
+        'stage' => 'cross_references',
+        'route' => 'canonical_definition',
+        'warnings' => [$warning],
+        'findings' => [[
+          'severity' => 'warning',
+          'code' => 'DCV_STORYLINE_ENTRY_BROKER_REQUIRED',
+          'message' => $warning,
+          'entity_type' => 'storyline_entry_point',
+          'entity_id' => 'entry_point',
+          'field' => 'broker_id',
+          'primary_quest_giver_id' => 'npc_tavern_keeper',
+          'introduction_path' => 'brokered',
+        ]],
+      ]],
+    ], ['first_open_warning' => $warning]);
+
+    $this->assertSame('storyline_entry_broker', $packet['resolver']);
+    $this->assertSame('direct', $packet['suggested_values']['entry_introduction_path']);
+    $this->assertSame([
+      ['type' => 'set', 'path' => '/entry_broker_id', 'value' => ''],
+      ['type' => 'set', 'path' => '/entry_introduction_path', 'value' => 'direct'],
+    ], $packet['suggested_operations']);
+    $this->assertFalse($packet['code_change_required']);
+  }
+
   public function testMissingCanonicalRoomRoutesToRoomEditor(): void {
     $warning = "[entity_type_contracts:room] asset_references[8] (cellar): referenced room is missing from canonical room templates.";
     $packet = StorylineValidationTroubleshootingGuide::packet([], [

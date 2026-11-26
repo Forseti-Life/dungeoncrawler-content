@@ -545,7 +545,7 @@ class StorylineGmGuidanceTest extends UnitTestCase {
         'findings' => array_map(static fn(array $finding): array => $finding + ['route' => 'actor_sheet_build'], $findings),
       ]]],
     ])[0];
-    $this->assertStringContainsString("Actor 'Pikk Nettlefoot' has no character sheet.", $step);
+    $this->assertStringContainsString("Actor 'Pikk Nettlefoot' has no character sheet linked to this storyline.", $step);
     $this->assertStringContainsString('ask the GM to build the character sheets for the roster', $step);
   }
 

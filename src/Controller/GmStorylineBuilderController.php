@@ -804,6 +804,8 @@ TWIG,
       'storyline_tags' => implode(', ', array_values(array_filter((array) ($data['tags'] ?? []), 'is_string'))),
       'storyline_player_hook' => (string) ($identity['player_hook'] ?? ''),
       'storyline_entry_actor' => (string) ($entry_point['primary_quest_giver_id'] ?? ''),
+      'storyline_entry_broker' => (string) ($entry_point['broker_id'] ?? ''),
+      'storyline_entry_introduction_path' => (string) ($entry_point['introduction_path'] ?? 'direct'),
       'storyline_entry_location' => (string) ($entry_point['primary_location_id'] ?? ''),
       'storyline_ending' => (string) ($identity['ending'] ?? ''),
       'journal_flow' => $this->stringifyMultiline($process_flow['journal_entries'] ?? $journal_flow_rows),
@@ -1025,6 +1027,8 @@ HTML;
           <label>Tags <input type="text" class="form-text" data-field="storyline_tags" placeholder="mystery, urban, political"></label>
           <label>Player hook <textarea class="form-textarea" rows="2" data-field="storyline_player_hook" placeholder="What players know and why they engage."></textarea></label>
           <label>Entry actor <input type="text" class="form-text" data-field="storyline_entry_actor" placeholder="Canonical actor ID"></label>
+          <label>Introduction path <select class="form-select" data-field="storyline_entry_introduction_path"><option value="direct">Direct</option><option value="brokered">Brokered</option></select></label>
+          <label>Entry broker <input type="text" class="form-text" data-field="storyline_entry_broker" placeholder="Canonical broker actor ID; leave blank for direct"></label>
           <label>Entry location <input type="text" class="form-text" data-field="storyline_entry_location" placeholder="Canonical location ID"></label>
           <label>Ending <textarea class="form-textarea" rows="2" data-field="storyline_ending" placeholder="Public-facing completion state and outcome."></textarea></label>
         </section>

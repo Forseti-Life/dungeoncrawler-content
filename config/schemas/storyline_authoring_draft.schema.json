@@ -45,6 +45,13 @@
     "entry_actor_id": {
       "type": "string"
     },
+    "entry_broker_id": {
+      "type": "string"
+    },
+    "entry_introduction_path": {
+      "type": "string",
+      "enum": ["direct", "brokered"]
+    },
     "entry_location_id": {
       "type": "string"
     },
