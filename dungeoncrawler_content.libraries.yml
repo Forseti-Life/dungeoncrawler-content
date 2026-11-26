@@ -106,6 +106,12 @@ editor-gm-chat-style:
     theme:
       css/gm-storyline-builder.css: {}
 
+editor-warning-review:
+  version: 20261126-high-contrast-1
+  css:
+    theme:
+      css/editor-warning-review.css: {}
+
 gm-storyline-actor-graph:
   version: 20261118-mutual-1
   css:
