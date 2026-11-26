@@ -16,6 +16,8 @@ use Drupal\dungeoncrawler_content\Service\EditorGm\EditorWarningReview;
  */
 class RoomEditorService {
 
+  use CanonicalPublicationReplayTrait;
+
 
   private const TERRAIN_TYPES = [
     'stone_floor', 'rough_stone', 'smooth_stone', 'dirt', 'mud', 'sand',
@@ -617,18 +619,10 @@ class RoomEditorService {
     if ((int) $draft['revision'] !== $request['expected_revision']) {
       throw new \RuntimeException('revision_conflict');
     }
-    if ($draft['status'] !== 'active') {
-      throw new \DomainException('draft_not_active');
-    }
     $expected_base = $request['expected_base_version_id'] ?? NULL;
     if ($expected_base !== $draft['base_version_id']) {
       throw new \RuntimeException('base_version_conflict');
     }
-    $validation = $this->validateDraft($draft_id, 'publication');
-    if (!$validation['is_valid']) {
-      throw new \DomainException('publication_validation_failed');
-    }
-
     $room = $draft['room'];
     // Gaps are working notes of the draft; a published room carries none.
     unset($room['metadata']['placement_gaps']);
@@ -639,14 +633,29 @@ class RoomEditorService {
     }
     $encoded = $this->encodeRoom($room);
     $hash = hash('sha256', $encoded);
-    $identical_version = $this->database->select('dungeoncrawler_content_room_versions', 'v')
-      ->fields('v', ['version_id'])
-      ->condition('room_id', $room_id)
-      ->condition('payload_hash', $hash)
-      ->execute()
-      ->fetchField();
-    if ($identical_version) {
-      throw new \DomainException('payload_already_published');
+    $replay = $this->completeExistingPublicationReplay(
+      'dungeoncrawler_content_room_versions',
+      'dungeoncrawler_content_rooms',
+      'room_id',
+      $room_id,
+      $hash,
+      'dungeoncrawler_content_room_editor_drafts',
+      $draft_id,
+      (int) $draft['revision'],
+    );
+    if ($replay !== NULL) {
+      return [
+        'room_id' => $room_id,
+        'payload_hash' => $hash,
+        ...$replay,
+      ];
+    }
+    if ($draft['status'] !== 'active') {
+      throw new \DomainException('draft_not_active');
+    }
+    $validation = $this->validateDraft($draft_id, 'publication');
+    if (!$validation['is_valid']) {
+      throw new \DomainException('publication_validation_failed');
     }
     $version_id = $this->uuid->generate();
     $transaction = $this->database->startTransaction();

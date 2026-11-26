@@ -42,6 +42,10 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     'bind_library_characters',
     'apply_storyline_work',
   ];
+  private const DIRECT_EDITOR_FINALIZATIONS = [
+    'publish_room_version',
+    'publish_dungeon_version',
+  ];
 
   private const ROUTE_FAMILY_BY_TOOL_FAMILY = [
     EditorGmToolDefinition::FAMILY_CONTEXT => 'deterministic_editor_tool',
@@ -511,6 +515,21 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         $author_message,
       );
     }
+    if (in_array($definition->name, self::DIRECT_EDITOR_FINALIZATIONS, TRUE)
+      && $this->isExplicitPublicationDirective($author_message)) {
+      return $this->executeTool(
+        $surface,
+        $draft_id,
+        $profile,
+        $definition->name,
+        $intent['arguments'],
+        $dry_run,
+        $intent['reasoning'],
+        $scope,
+        array_values((array) ($intent['next_steps'] ?? [])),
+        $author_message,
+      );
+    }
 
     $tool_calls = [$this->describeToolCall($definition->name, $intent['arguments'])];
     $proposal_result = [
@@ -563,6 +582,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     ) === 1)) {
       return [$utterance, $message];
     }
+
     $directive = array_values(array_filter(array_map('trim', $lines), static fn(string $line): bool =>
       $line !== ''
       && $line !== 'Next step'
@@ -574,6 +594,17 @@ class EditorGmHarnessService implements AgentHarnessInterface {
       return [$utterance, $message];
     }
     return [$directive, $directive];
+  }
+
+  private function isExplicitPublicationDirective(string $author_message): bool {
+    $message = mb_strtolower(trim($author_message));
+    if ($message === '') {
+      return FALSE;
+    }
+    return preg_match(
+      '/(?:^|\\b)(?:publish it|publish (?:the |this )?(?:room|dungeon|draft|version)|review and (?:publish|create)|finalize (?:the )?(?:room|dungeon)|publish now)(?:\\b|$)/u',
+      $message,
+    ) === 1;
   }
 
   private function storylineRequestMode(string $message, array $scope): string {

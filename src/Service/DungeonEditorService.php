@@ -25,6 +25,8 @@ use Drupal\dungeoncrawler_content\Service\EditorGm\EditorWarningReview;
  */
 class DungeonEditorService {
 
+  use CanonicalPublicationReplayTrait;
+
   public const SCHEMA_VERSION = 'canonical-dungeon-v1';
   public const DRAFT_SCHEMA_VERSION = 'dungeon-editor-draft-v1';
   public const AGGREGATE_SCHEMA_FILE = 'canonical_dungeon_aggregate.schema.json';
@@ -1182,9 +1184,6 @@ class DungeonEditorService {
         throw new \OutOfBoundsException('dungeon_draft_not_found');
       }
       $this->assertDraftAccess($row);
-      if ($row['status'] !== 'active') {
-        throw new \DomainException('dungeon_draft_not_active');
-      }
       if ((int) $row['revision'] !== $expected_revision) {
         throw new \RuntimeException('revision_conflict');
       }
@@ -1231,6 +1230,33 @@ class DungeonEditorService {
         throw new \RuntimeException('base_version_conflict');
       }
 
+      $encoded = $this->encodeDungeon($dungeon);
+      $hash = hash('sha256', $encoded);
+      $replay = $this->completeExistingPublicationReplay(
+        'dungeoncrawler_content_dungeon_versions',
+        'dungeoncrawler_content_dungeons',
+        'dungeon_id',
+        $dungeon_id,
+        $hash,
+        'dungeoncrawler_content_dungeon_editor_drafts',
+        $draft_id,
+        (int) $row['revision'],
+      );
+      if ($replay !== NULL) {
+        return [
+          'schema_version' => 'dungeon-editor-publication-result-v1',
+          'draft_id' => $draft_id,
+          'dungeon_id' => $dungeon_id,
+          'published_version_id' => (string) $replay['version_id'],
+          'version' => (string) $replay['version'],
+          'projected_connector_count' => 0,
+          ...$replay,
+          'model' => $this->describe($draft_id),
+        ];
+      }
+      if ($row['status'] !== 'active') {
+        throw new \DomainException('dungeon_draft_not_active');
+      }
       try {
         $validation = $this->validateAggregate($draft, 'publication');
       }
@@ -1246,18 +1272,6 @@ class DungeonEditorService {
         throw new DungeonCommandRejectedException('publication_blocked_by_active_campaign', $campaign_blockers);
       }
       $projected_rows = $this->connectorProjection->project($dungeon_id, $dungeon);
-
-      $encoded = $this->encodeDungeon($dungeon);
-      $hash = hash('sha256', $encoded);
-      $identical_version = $this->database->select('dungeoncrawler_content_dungeon_versions', 'v')
-        ->fields('v', ['version_id'])
-        ->condition('dungeon_id', $dungeon_id)
-        ->condition('payload_hash', $hash)
-        ->execute()
-        ->fetchField();
-      if ($identical_version) {
-        throw new \DomainException('payload_already_published');
-      }
 
       $latest_version = $this->database->select('dungeoncrawler_content_dungeon_versions', 'v')
         ->fields('v', ['version'])

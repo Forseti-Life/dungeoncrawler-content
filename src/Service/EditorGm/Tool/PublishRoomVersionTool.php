@@ -43,7 +43,11 @@ final class PublishRoomVersionTool implements EditorGmToolInterface {
     $result = $context->roomEditor->publish($context->draftId, $request);
     $context->invalidate();
 
-    return ['publication' => $result];
+    return [
+      'publication' => $result,
+      'idempotent_replay' => (bool) ($result['idempotent_replay'] ?? FALSE),
+      'changed' => empty($result['idempotent_replay']),
+    ];
   }
 
 }

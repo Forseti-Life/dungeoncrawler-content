@@ -42,7 +42,9 @@ final class PublishDungeonVersionTool implements EditorGmToolInterface {
     $draft = $context->draft();
     $result = $context->dungeonEditor->publish($context->draftId, $expected_revision, (int) ($draft['updated_by'] ?? $draft['created_by'] ?? 0), $request);
     $context->invalidate();
-    return $result;
+    return $result + [
+      'idempotent_replay' => !empty($result['idempotent_replay']),
+      'changed' => empty($result['idempotent_replay']),
+    ];
   }
-
 }
