@@ -328,6 +328,39 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         );
       }
     }
+    if (
+      in_array($surface->id(), [RoomEditorGmSurface::ID, DungeonEditorGmSurface::ID], TRUE)
+      && $this->isExplicitApplyDirective($author_message)
+      && is_array($scope['pending_editor_execution'] ?? NULL)
+    ) {
+      $proposal = $scope['pending_editor_execution'];
+      $tool_name = trim((string) ($proposal['tool_name'] ?? ''));
+      $arguments = is_array($proposal['arguments'] ?? NULL) ? $proposal['arguments'] : [];
+      if ($tool_name === '' || !$surface->registry()->has($tool_name) || $arguments === []) {
+        throw new \LogicException('editor_gm_pending_execution_invalid');
+      }
+      $definition = $surface->registry()->get($tool_name)->definition();
+      if (!$definition->mutating) {
+        throw new \LogicException('editor_gm_pending_execution_nonmutating');
+      }
+      $expected_revision = $arguments['expected_revision'] ?? NULL;
+      if ($expected_revision !== NULL
+        && (int) $expected_revision !== (int) ($snapshot['draft']['revision'] ?? -1)) {
+        throw new \DomainException('The draft changed after this proposal. Review a new proposal before applying it.');
+      }
+      return $this->executeTool(
+        $surface,
+        $draft_id,
+        $profile,
+        $tool_name,
+        $arguments,
+        $dry_run,
+        'Applied the explicitly approved pending editor proposal.',
+        $scope,
+        [],
+        $author_message,
+      );
+    }
     if (isset($scope['lookup_evidence'])) {
       $snapshot['lookup_evidence'] = $scope['lookup_evidence'];
     }
@@ -603,6 +636,17 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     }
     return preg_match(
       '/(?:^|\\b)(?:publish it|publish (?:the |this )?(?:room|dungeon|draft|version)|review and (?:publish|create)|finalize (?:the )?(?:room|dungeon)|publish now)(?:\\b|$)/u',
+      $message,
+    ) === 1;
+  }
+
+  private function isExplicitApplyDirective(string $author_message): bool {
+    $message = mb_strtolower(trim($author_message));
+    if ($message === '') {
+      return FALSE;
+    }
+    return preg_match(
+      '/^(?:apply\\b.*|(?:yes,?\\s*)?(?:go ahead|confirm|execute it|do it))(?:[.!])?$/u',
       $message,
     ) === 1;
   }

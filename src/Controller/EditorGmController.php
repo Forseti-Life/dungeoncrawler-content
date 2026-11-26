@@ -80,14 +80,23 @@ class EditorGmController extends ControllerBase {
       if ($_surface === 'character_creation' && $session) {
         $scope['conversation_context'] .= $this->characterReferenceContext($session, (string) $draft_id);
       }
-      if ($_surface === 'storyline_builder' && $session) {
-        $last_result = $this->latestStorylineAssistantResult((int) $session['id']);
+      if ($session) {
+        $last_result = $this->latestEditorAssistantResult((int) $session['id']);
         $proposal = $last_result['proposed_execution'] ?? [];
-        if (!empty($last_result['requires_approval']) && ($proposal['tool_name'] ?? NULL) === 'apply_storyline_remediation') {
-          $scope['pending_storyline_remediation'] = $proposal;
+        if ($_surface === 'storyline_builder') {
+          if (!empty($last_result['requires_approval']) && ($proposal['tool_name'] ?? NULL) === 'apply_storyline_remediation') {
+            $scope['pending_storyline_remediation'] = $proposal;
+          }
+          if (!empty($last_result['requires_approval']) && ($proposal['tool_name'] ?? NULL) === 'apply_storyline_draft_operations') {
+            $scope['pending_storyline_draft_operations'] = $proposal;
+          }
         }
-        if (!empty($last_result['requires_approval']) && ($proposal['tool_name'] ?? NULL) === 'apply_storyline_draft_operations') {
-          $scope['pending_storyline_draft_operations'] = $proposal;
+        elseif (
+          in_array($_surface, ['room_editor', 'dungeon_editor'], TRUE)
+          && !empty($last_result['requires_approval'])
+          && is_array($proposal)
+        ) {
+          $scope['pending_editor_execution'] = $proposal;
         }
       }
       $session ??= $this->conversationSession($_surface, $draft_id);
@@ -115,7 +124,7 @@ class EditorGmController extends ControllerBase {
     /**
      * Reads the most recent assistant turn's structured storyline result.
      */
-    private function latestStorylineAssistantResult(int $session_id): array {
+    private function latestEditorAssistantResult(int $session_id): array {
       foreach (array_reverse($this->chatSessions->getRecentMessagesChronological($session_id, 20)) as $message) {
         if (($message['metadata']['editor_gm_role'] ?? NULL) !== 'assistant') {
           continue;
