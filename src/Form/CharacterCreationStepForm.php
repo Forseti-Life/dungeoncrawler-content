@@ -17,6 +17,7 @@ use Drupal\dungeoncrawler_content\Service\AbilityScoreTracker;
 use Drupal\dungeoncrawler_content\Service\CampaignSubjectRegistryService;
 use Drupal\dungeoncrawler_content\Service\CampaignCharacterRuntimeResolverService;
 use Drupal\dungeoncrawler_content\Service\CharacterCreationGmService;
+use Drupal\dungeoncrawler_content\Service\CharacterCreationValidationService;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
 use Drupal\dungeoncrawler_content\Service\CharacterRulesCatalog;
 use Drupal\dungeoncrawler_content\Service\CharacterRulesUtility;
@@ -2579,22 +2580,7 @@ class CharacterCreationStepForm extends FormBase {
    *   A safe value compatible with current options.
    */
   public function sanitizeOptionValue(array &$element, mixed $input, FormStateInterface $form_state): mixed {
-    if ($input === FALSE) {
-      return $element['#default_value'] ?? '';
-    }
-
-    $options = $element['#options'] ?? [];
-
-    if ($input === NULL || $input === '') {
-      return '';
-    }
-
-    if (is_array($input)) {
-      return [];
-    }
-
-    $candidate = (string) $input;
-    return array_key_exists($candidate, $options) ? $candidate : '';
+    return CharacterCreationValidationService::sanitizeOptionValue($element, $input, $form_state);
   }
 
   /**

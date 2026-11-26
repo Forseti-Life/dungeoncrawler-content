@@ -107,6 +107,21 @@ class CharacterCreationValidationService {
   ) {}
 
   /**
+   * Sanitizes submitted option values without retaining service dependencies
+   * in Drupal's serialized AJAX form cache.
+   */
+  public static function sanitizeOptionValue(array &$element, mixed $input, FormStateInterface $form_state): mixed {
+    if ($input === FALSE) {
+      return $element['#default_value'] ?? '';
+    }
+    if ($input === NULL || $input === '' || is_array($input)) {
+      return is_array($input) ? [] : '';
+    }
+    $candidate = (string) $input;
+    return array_key_exists($candidate, (array) ($element['#options'] ?? [])) ? $candidate : '';
+  }
+
+  /**
    * Apply the moved step rules to inspected values, never a loaded form.
    */
   private function validateStepRules(int $step, CharacterCreationInput $form_state): void {
@@ -711,7 +726,7 @@ class CharacterCreationValidationService {
       '#required' => FALSE,
       '#options' => $heritage_options,
       '#default_value' => $selected_heritage,
-      '#value_callback' => [$this, 'sanitizeOptionValue'],
+      '#value_callback' => [self::class, 'sanitizeOptionValue'],
       // Visually hidden: JS-rendered heritage cards are the user-facing selector.
       '#wrapper_attributes' => ['class' => ['dc-visually-hidden']],
       '#description' => $this->t('Select a heritage to specialize your ancestry with unique talents and abilities that define your legacy.'),
@@ -814,7 +829,7 @@ class CharacterCreationValidationService {
           '#title' => $this->t('Select Ancestry Feat'),
           '#options' => $feat_options,
           '#default_value' => $selected_feat,
-          '#value_callback' => [$this, 'sanitizeOptionValue'],
+          '#value_callback' => [self::class, 'sanitizeOptionValue'],
           '#ajax' => [
             'callback' => '::updateAncestryFeatOptions',
             'wrapper' => 'heritage-path-wrapper',
