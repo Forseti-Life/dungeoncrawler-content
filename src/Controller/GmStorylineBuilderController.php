@@ -623,6 +623,18 @@ TWIG,
                 ],
               )->toString(),
             ),
+            'objectImageUrlTemplate' => str_replace(
+              ['00000000-0000-4000-8000-000000000000', 'OBJECTKIND', 'OBJECTID'],
+              ['{draft_id}', '{kind}', '{object_id}'],
+              Url::fromRoute(
+                'dungeoncrawler_content.gm_storyline_object_image',
+                [
+                  'draft_id' => '00000000-0000-4000-8000-000000000000',
+                  'kind' => 'OBJECTKIND',
+                  'object_id' => 'OBJECTID',
+                ],
+              )->toString(),
+            ),
             'objectEditors' => [
               'actor' => $this->editorUrlTemplate(
                 'dungeoncrawler_content.actor_view',

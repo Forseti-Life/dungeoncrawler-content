@@ -2087,6 +2087,12 @@ function dungeoncrawler_content_schema() {
         'not null' => TRUE,
         'default' => 'original',
       ],
+      'version_number' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 1,
+      ],
       'is_primary' => [
         'type' => 'int',
         'size' => 'tiny',
@@ -2120,6 +2126,7 @@ function dungeoncrawler_content_schema() {
       'image_id' => ['image_id'],
       'campaign_lookup' => ['campaign_id', 'table_name', 'object_id'],
       'object_slot_primary' => ['table_name', 'object_id', 'slot', 'is_primary'],
+      'object_slot_version' => ['table_name', 'object_id', 'slot', 'variant', 'version_number'],
       'scope_campaign' => ['scope_type', 'campaign_id'],
     ],
   ];
@@ -7104,4 +7111,64 @@ function dungeoncrawler_content_update_10235(): string {
   }
 
   return sprintf('Promoted %d established NPC portraits and %d image links onto canonical actor records.', $promoted, $links);
+}
+
+/**
+ * Versions object image links and leaves one current primary per object slot.
+ */
+function dungeoncrawler_content_update_10236(): string {
+  $database = \Drupal::database();
+  $schema = $database->schema();
+  $specification = [
+    'type' => 'int',
+    'unsigned' => TRUE,
+    'not null' => TRUE,
+    'default' => 1,
+  ];
+  if (!$schema->fieldExists('dc_generated_image_links', 'version_number')) {
+    $schema->addField('dc_generated_image_links', 'version_number', $specification);
+  }
+  if (!$schema->indexExists('dc_generated_image_links', 'object_slot_version')) {
+    $schema->addIndex(
+      'dc_generated_image_links',
+      'object_slot_version',
+      ['table_name', 'object_id', 'slot', 'variant', 'version_number'],
+      dungeoncrawler_content_schema()['dc_generated_image_links'],
+    );
+  }
+
+  $rows = $database->select('dc_generated_image_links', 'l')
+    ->fields('l', ['id', 'scope_type', 'campaign_id', 'table_name', 'object_id', 'slot', 'variant'])
+    ->orderBy('created', 'ASC')
+    ->orderBy('id', 'ASC')
+    ->execute()
+    ->fetchAll(\PDO::FETCH_ASSOC);
+  $next = [];
+  $latest = [];
+  foreach ($rows as $row) {
+    $key = implode(':', [
+      (string) $row['scope_type'],
+      (string) ($row['campaign_id'] ?? ''),
+      (string) $row['table_name'],
+      (string) $row['object_id'],
+      (string) $row['slot'],
+      (string) $row['variant'],
+    ]);
+    $next[$key] = ($next[$key] ?? 0) + 1;
+    $latest[$key] = (int) $row['id'];
+    $database->update('dc_generated_image_links')
+      ->fields(['version_number' => $next[$key], 'is_primary' => 0])
+      ->condition('id', (int) $row['id'])
+      ->execute();
+  }
+  foreach ($latest as $link_id) {
+    $database->update('dc_generated_image_links')
+      ->fields(['is_primary' => 1])
+      ->condition('id', $link_id)
+      ->execute();
+  }
+  return sprintf(
+    'Assigned immutable image version numbers to %d generated-image links and repaired primary selection.',
+    count($rows),
+  );
 }

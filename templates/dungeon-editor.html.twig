@@ -114,6 +114,10 @@
           <div class="room-editor__place-preview-actions">
             <h3>{{ 'Dungeon view'|t }}</h3>
             <p data-dungeon-editor-place-status aria-live="polite">{{ 'Generate an overview image for this dungeon.'|t }}</p>
+            <label class="room-editor__field" data-dungeon-editor-place-version-field hidden>
+              {{ 'Image version'|t }}
+              <select data-dungeon-editor-place-version aria-label="{{ 'Dungeon image version'|t }}"></select>
+            </label>
             <button type="button" class="room-editor__button room-editor__button--primary" data-dungeon-editor-action="place-image">{{ 'Generate / Regenerate image'|t }}</button>
           </div>
         </section>

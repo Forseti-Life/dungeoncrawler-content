@@ -212,6 +212,7 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
         const publishSettings = settings.publish || {};
         const objectEditorTemplates = settings.objectEditors || {};
         const actorPortraitUrlTemplate = settings.actorPortraitUrlTemplate || '';
+        const objectImageUrlTemplate = settings.objectImageUrlTemplate || '';
         const objectLabels = settings.objectLabels || {};
         const objectEditorLinks = document.querySelector('[data-storyline-object-editor-links]');
 
@@ -697,9 +698,15 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
         }
 
         function updateCollectionObjectMedia(collection, row, fallbackLabel) {
-          if (!['actor_entries', 'dungeon_entries', 'room_entries'].includes(collection)) return;
-          const kind = collection === 'actor_entries' ? 'actor' : (collection === 'dungeon_entries' ? 'dungeon' : 'room');
-          const idField = kind === 'actor' ? 'actor_id' : (kind === 'dungeon' ? 'dungeon_id' : 'room_id');
+          if (!['actor_entries', 'dungeon_entries', 'room_entries', 'institution_entries'].includes(collection)) return;
+          const kind = collection === 'actor_entries'
+            ? 'actor'
+            : (collection === 'dungeon_entries'
+              ? 'dungeon'
+              : (collection === 'room_entries' ? 'room' : 'institution'));
+          const idField = kind === 'actor'
+            ? 'actor_id'
+            : (kind === 'dungeon' ? 'dungeon_id' : (kind === 'room' ? 'room_id' : 'institution_id'));
           const id = (row.querySelector(`[data-col-field="${idField}"]`)?.value || '').trim();
           let media = row.querySelector(':scope > .gm-storyline-wizard__object-media');
           if (!media) {
@@ -712,7 +719,7 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
             preview.appendChild(label);
             const actions = document.createElement('div');
             actions.className = 'gm-storyline-wizard__object-actions';
-            const generate = document.createElement(kind === 'actor' ? 'button' : 'a');
+            const generate = document.createElement(['actor', 'institution'].includes(kind) ? 'button' : 'a');
             generate.className = 'btn btn-primary btn-sm';
             if (kind === 'actor') {
               generate.type = 'button';
@@ -756,15 +763,60 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
                   }
                 }
               });
+            } else if (kind === 'institution') {
+              generate.type = 'button';
+              generate.addEventListener('click', async () => {
+                const objectId = (row.querySelector('[data-col-field="institution_id"]')?.value || '').trim();
+                if (!draftId || !objectId || !objectImageUrlTemplate) {
+                  label.textContent = 'Save the institution before generating an image.';
+                  return;
+                }
+                generate.disabled = true;
+                generate.textContent = 'Waiting on image provider…';
+                label.textContent = 'Generating institution image…';
+                try {
+                  if (!csrfToken) csrfToken = await fetchCsrfToken();
+                  const response = await fetch(
+                    objectImageUrlTemplate
+                      .replace('{draft_id}', encodeURIComponent(draftId))
+                      .replace('{kind}', 'institution')
+                      .replace('{object_id}', encodeURIComponent(objectId)),
+                    {
+                      method: 'POST',
+                      credentials: 'same-origin',
+                      headers: { 'X-CSRF-Token': csrfToken },
+                    },
+                  );
+                  const body = await response.json().catch(() => ({}));
+                  if (!response.ok) {
+                    throw new Error(body?.error?.message || body?.error?.code || `institution_image_${response.status}`);
+                  }
+                  const source = rowSource.get(row) || {};
+                  source.preview_url = body.data.preview_url;
+                  rowSource.set(row, source);
+                  label.textContent = 'Institution image generated.';
+                  generate.textContent = 'Regenerate image';
+                  updateCollectionObjectMedia(collection, row, fallbackLabel);
+                } catch (error) {
+                  label.textContent = `Institution image generation failed: ${error.message}`;
+                } finally {
+                  generate.disabled = false;
+                  if (generate.textContent === 'Waiting on image provider…') {
+                    generate.textContent = 'Generate image';
+                  }
+                }
+              });
             } else {
               generate.target = '_blank';
               generate.rel = 'noopener';
             }
             generate.textContent = kind === 'actor'
               ? 'Generate portrait'
-              : (kind === 'dungeon'
-                ? 'Generate / Regenerate in Dungeon Editor'
-                : 'Generate / Regenerate in Room Editor');
+              : (kind === 'institution'
+                ? 'Generate image'
+                : (kind === 'dungeon'
+                  ? 'Generate / Regenerate in Dungeon Editor'
+                  : 'Generate / Regenerate in Room Editor'));
             const open = document.createElement('a');
             open.className = 'btn btn-secondary btn-sm';
             open.target = '_blank';
@@ -780,18 +832,18 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
           const preview = media.querySelector('.gm-storyline-wizard__object-preview');
           const label = preview.querySelector('.gm-storyline-wizard__object-preview-label');
           preview.querySelectorAll('img').forEach((image) => image.remove());
-          if (kind === 'actor' && source.portrait_url) {
+          if ((kind === 'actor' && source.portrait_url) || (kind === 'institution' && source.preview_url)) {
             const image = document.createElement('img');
-            image.src = source.portrait_url;
-            image.alt = `${fallbackLabel} portrait`;
+            image.src = kind === 'actor' ? source.portrait_url : source.preview_url;
+            image.alt = `${fallbackLabel} ${kind === 'actor' ? 'portrait' : 'image'}`;
             image.className = 'gm-storyline-wizard__object-portrait';
             preview.prepend(image);
-            label.textContent = `${fallbackLabel} portrait`;
-            media.querySelector('button').textContent = 'Regenerate portrait';
+            label.textContent = `${fallbackLabel} ${kind === 'actor' ? 'portrait' : 'image'}`;
+            media.querySelector('button').textContent = kind === 'actor' ? 'Regenerate portrait' : 'Regenerate image';
           } else {
             label.textContent = kind === 'actor'
               ? `Portrait not generated · ${fallbackLabel}`
-              : `${kind === 'dungeon' ? 'Dungeon' : 'Room'} preview · ${fallbackLabel}`;
+              : `${kind === 'institution' ? 'Institution' : (kind === 'dungeon' ? 'Dungeon' : 'Room')} preview · ${fallbackLabel}`;
           }
           media.querySelectorAll('a').forEach((link) => {
             link.href = href || '#';

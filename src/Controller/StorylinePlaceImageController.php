@@ -34,9 +34,20 @@ final class StorylinePlaceImageController extends ControllerBase {
     );
   }
 
-  public function generate(string $draft_id, string $kind, string $object_id): JsonResponse {
-    if (!in_array($kind, ['room', 'dungeon'], TRUE)) {
+  public function generate(string $draft_id, string $kind, string $object_id, \Symfony\Component\HttpFoundation\Request $request): JsonResponse {
+    if (!in_array($kind, ['room', 'dungeon', 'institution'], TRUE)) {
       throw new AccessDeniedHttpException('storyline_place_kind_invalid');
+    }
+    if ($request->isMethod('GET')) {
+      $versions = $this->places->versions($kind, $object_id);
+      return new JsonResponse([
+        'data' => [
+          'kind' => $kind,
+          'object_id' => $object_id,
+          'preview_url' => (string) ($versions[0]['url'] ?? ''),
+          'versions' => $versions,
+        ],
+      ]);
     }
     $draft = $this->drafts->getDraftForViewing($draft_id);
     $result = $this->places->generate(
@@ -58,6 +69,8 @@ final class StorylinePlaceImageController extends ControllerBase {
         'kind' => $kind,
         'object_id' => $object_id,
         'preview_url' => (string) ($result['url'] ?? ''),
+        'version_number' => (int) ($result['version_number'] ?? 1),
+        'versions' => (array) ($result['versions'] ?? []),
       ],
     ]);
   }
@@ -76,11 +89,13 @@ final class StorylinePlaceImageController extends ControllerBase {
       throw new \OutOfBoundsException('place_object_id_missing');
     }
     if ($request->isMethod('GET')) {
+      $versions = $this->places->versions($kind, $object_id);
       return new JsonResponse([
         'data' => [
           'kind' => $kind,
           'object_id' => $object_id,
-          'preview_url' => $this->places->previewUrl($kind, $object_id),
+          'preview_url' => (string) ($versions[0]['url'] ?? ''),
+          'versions' => $versions,
         ],
       ]);
     }
@@ -124,6 +139,8 @@ final class StorylinePlaceImageController extends ControllerBase {
         'kind' => $kind,
         'object_id' => $object_id,
         'preview_url' => (string) ($result['url'] ?? ''),
+        'version_number' => (int) ($result['version_number'] ?? 1),
+        'versions' => (array) ($result['versions'] ?? []),
       ],
     ]);
   }

@@ -901,6 +901,7 @@ services:
     arguments:
       - '@dungeoncrawler_content.image_generation_integration'
       - '@dungeoncrawler_content.generated_image_repository'
+      - '@dungeoncrawler_content.institution_library'
 
   dungeoncrawler_content.character_image_prompt_builder:
     class: Drupal\dungeoncrawler_content\Service\CharacterImagePromptBuilder

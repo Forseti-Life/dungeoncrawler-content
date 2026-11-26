@@ -28,8 +28,8 @@
  * Publication is available only through the server readiness and publish routes.
  */
 
-import { GameEventBus } from '../GameEventBus.js?v=20261119-room-unfreeze-1';
-import { HexCanvas } from '../canvas/HexCanvas.js?v=20261126-district-layering-1';
+import { GameEventBus } from '../GameEventBus.js?v=20261126-image-versions-1';
+import { HexCanvas } from '../canvas/HexCanvas.js?v=20261126-image-versions-1';
 import './placementTransform.js?v=20260908g1';
 import {
   appendEditorGmMessage,
@@ -44,8 +44,8 @@ import {
   restoreEditorGmConversation,
   selectEditorGmTool,
   shouldSubmitEditorGmKey,
-} from './EditorGmChatClient.js?v=20261119-room-unfreeze-1';
-import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261124-warning-review-1';
+} from './EditorGmChatClient.js?v=20261126-image-versions-1';
+import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261126-image-versions-1';
 
 const transform = globalThis.DungeonCrawlerPlacementTransform;
 if (!transform) {
@@ -415,6 +415,8 @@ export class DungeonEditorShell {
       placeImageTrigger: q('[data-dungeon-editor-place-image-trigger]'),
       placePlaceholder: q('[data-dungeon-editor-place-placeholder]'),
       placeStatus: q('[data-dungeon-editor-place-status]'),
+      placeVersion: q('[data-dungeon-editor-place-version]'),
+      placeVersionField: q('[data-dungeon-editor-place-version-field]'),
       placeImageBtn: q('[data-dungeon-editor-action="place-image"]'),
       revision: q('[data-dungeon-editor-revision]'),
       dungeonSelect: q('[data-dungeon-editor-dungeon-select]'),
@@ -477,6 +479,14 @@ export class DungeonEditorShell {
     this._dom.placeImageTrigger?.addEventListener('click', () => {
       if (this._dom.placeImage?.src) {
         window.open(this._dom.placeImage.src, '_blank', 'noopener');
+      }
+    });
+    this._dom.placeVersion?.addEventListener('change', () => {
+      const option = this._dom.placeVersion.selectedOptions?.[0];
+      const url = String(option?.dataset?.url || '');
+      if (url && this._dom.placeImage) {
+        this._dom.placeImage.src = url;
+        if (this._dom.placeStatus) this._dom.placeStatus.textContent = `Showing image ${option.textContent}.`;
       }
     });
     this._dom.dungeonSelect?.addEventListener('change', () => this._syncDungeonLoadState());
@@ -1182,6 +1192,7 @@ export class DungeonEditorShell {
         ? await this._postJson(url, {})
         : await this._getJson(url);
       const previewUrl = String(response?.data?.preview_url || '');
+      this._renderPlaceImageVersions(response?.data?.versions || [], previewUrl);
       if (previewUrl && this._dom.placeImage) {
         this._dom.placeImage.src = previewUrl;
         this._dom.placeImageTrigger.hidden = false;
@@ -1198,6 +1209,29 @@ export class DungeonEditorShell {
       if (status) status.textContent = `Dungeon image failed: ${error.message}`;
     } finally {
       if (button) button.disabled = false;
+    }
+  }
+
+  _renderPlaceImageVersions(versions, selectedUrl = '') {
+    const select = this._dom.placeVersion;
+    const field = this._dom.placeVersionField;
+    if (!select || !field) return;
+    const list = Array.isArray(versions) ? versions.filter((item) => item && item.url) : [];
+    select.replaceChildren();
+    for (const version of list) {
+      const option = document.createElement('option');
+      option.value = String(version.image_id || version.image_uuid || version.version_number || '');
+      option.dataset.url = String(version.url);
+      const number = Number(version.version_number || 1);
+      const created = Number(version.created || 0);
+      const date = created ? new Date(created * 1000).toLocaleString() : '';
+      option.textContent = `Version ${number}${version.is_primary ? ' (current)' : ''}${date ? ` - ${date}` : ''}`;
+      select.appendChild(option);
+    }
+    field.hidden = list.length < 2;
+    if (list.length) {
+      const match = list.find((item) => item.url === selectedUrl) || list[0];
+      select.value = String(match.image_id || match.image_uuid || match.version_number || '');
     }
   }
 

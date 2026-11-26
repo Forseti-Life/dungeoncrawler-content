@@ -32,9 +32,9 @@
 
 /* global PIXI */
 
-import { GameEventBus } from '../GameEventBus.js?v=20261119-room-unfreeze-1';
-import { HexCanvas } from '../canvas/HexCanvas.js?v=20261119-room-unfreeze-1';
-import { SpriteService } from '../../SpriteService.js?v=20261119-room-unfreeze-1';
+import { GameEventBus } from '../GameEventBus.js?v=20261126-image-versions-1';
+import { HexCanvas } from '../canvas/HexCanvas.js?v=20261126-image-versions-1';
+import { SpriteService } from '../../SpriteService.js?v=20261126-image-versions-1';
 import {
   appendEditorGmMessage,
   bindEditorGmPrompts,
@@ -48,8 +48,8 @@ import {
   restoreEditorGmConversation,
   selectEditorGmTool,
   shouldSubmitEditorGmKey,
-} from './EditorGmChatClient.js?v=20261119-room-unfreeze-1';
-import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261124-warning-review-1';
+} from './EditorGmChatClient.js?v=20261126-image-versions-1';
+import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261126-image-versions-1';
 
 const FAMILIES = ['actor', 'item', 'obstacle', 'trap', 'hazard'];
 const SOLID_FAMILIES = ['actor', 'obstacle'];
@@ -343,6 +343,8 @@ export class RoomEditorShell {
       placeImageTrigger: q('[data-room-editor-place-image-trigger]'),
       placePlaceholder: q('[data-room-editor-place-placeholder]'),
       placeStatus: q('[data-room-editor-place-status]'),
+      placeVersion: q('[data-room-editor-place-version]'),
+      placeVersionField: q('[data-room-editor-place-version-field]'),
       placeImageBtn: q('[data-room-editor-action="place-image"]'),
       roomSelect: q('[data-room-editor-room-select]'),
       undoBtn: q('[data-room-editor-action="undo"]'),
@@ -413,6 +415,14 @@ export class RoomEditorShell {
     this._dom.placeImageTrigger?.addEventListener('click', () => {
       if (this._dom.placeImage?.src) {
         window.open(this._dom.placeImage.src, '_blank', 'noopener');
+      }
+    });
+    this._dom.placeVersion?.addEventListener('change', () => {
+      const option = this._dom.placeVersion.selectedOptions?.[0];
+      const url = String(option?.dataset?.url || '');
+      if (url && this._dom.placeImage) {
+        this._dom.placeImage.src = url;
+        this._dom.placeStatus.textContent = `Showing image ${option.textContent}.`;
       }
     });
     this._dom.newRoomBtn?.addEventListener('click', () => this.createNewRoom());
@@ -1624,6 +1634,7 @@ export class RoomEditorShell {
         ? await this._postJson(this._urlFor('placeImage', this.draft.draft_id), {})
         : await this._getJson(this._urlFor('placeImage', this.draft.draft_id));
       const url = String(response?.data?.preview_url || '');
+      this._renderPlaceImageVersions(response?.data?.versions || [], url);
       if (image && url) {
         image.src = url;
         this._dom.placeImageTrigger.hidden = false;
@@ -1643,6 +1654,29 @@ export class RoomEditorShell {
       if (generate && button.textContent === 'Waiting on image provider…') {
         button.textContent = 'Generate / Regenerate image';
       }
+    }
+  }
+
+  _renderPlaceImageVersions(versions, selectedUrl = '') {
+    const select = this._dom.placeVersion;
+    const field = this._dom.placeVersionField;
+    if (!select || !field) return;
+    const list = Array.isArray(versions) ? versions.filter((item) => item && item.url) : [];
+    select.replaceChildren();
+    for (const version of list) {
+      const option = document.createElement('option');
+      option.value = String(version.image_id || version.image_uuid || version.version_number || '');
+      option.dataset.url = String(version.url);
+      const number = Number(version.version_number || 1);
+      const created = Number(version.created || 0);
+      const date = created ? new Date(created * 1000).toLocaleString() : '';
+      option.textContent = `Version ${number}${version.is_primary ? ' (current)' : ''}${date ? ` - ${date}` : ''}`;
+      select.appendChild(option);
+    }
+    field.hidden = list.length < 2;
+    if (list.length) {
+      const match = list.find((item) => item.url === selectedUrl) || list[0];
+      select.value = String(match.image_id || match.image_uuid || match.version_number || '');
     }
   }
 

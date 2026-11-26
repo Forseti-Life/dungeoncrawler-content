@@ -149,22 +149,65 @@ class GeneratedImageRepository {
       $visibility = isset($link_context['visibility']) && is_string($link_context['visibility']) ? $link_context['visibility'] : 'owner';
       $is_primary = isset($link_context['is_primary']) ? (int) (!empty($link_context['is_primary'])) : 1;
 
-      $this->database->insert('dc_generated_image_links')
-        ->fields([
-          'image_id' => $image_id,
-          'scope_type' => $scope_type,
-          'campaign_id' => $campaign_id,
-          'table_name' => $link_table,
-          'object_id' => $link_object,
-          'slot' => $slot,
-          'variant' => $variant,
-          'is_primary' => $is_primary,
-          'sort_weight' => 0,
-          'visibility' => $visibility,
-          'created' => $now,
-          'updated' => $now,
-        ])
-        ->execute();
+      $applyScope = static function ($query) use ($scope_type, $campaign_id, $link_table, $link_object, $slot, $variant): void {
+        $query->condition('scope_type', $scope_type)
+          ->condition('table_name', $link_table)
+          ->condition('object_id', $link_object)
+          ->condition('slot', $slot)
+          ->condition('variant', $variant);
+        if ($campaign_id === NULL) {
+          $query->condition('campaign_id', NULL, 'IS NULL');
+        }
+        else {
+          $query->condition('campaign_id', $campaign_id);
+        }
+      };
+      $link_transaction = $this->database->startTransaction();
+      try {
+        $version_query = $this->database->select('dc_generated_image_links', 'l')
+          ->fields('l', ['version_number']);
+        $applyScope($version_query);
+        $version_number = (int) ($version_query
+          ->orderBy('version_number', 'DESC')
+          ->range(0, 1)
+          ->forUpdate()
+          ->execute()
+          ->fetchField() ?: 0) + 1;
+        if ($is_primary === 1) {
+          $demote = $this->database->update('dc_generated_image_links')
+            ->fields(['is_primary' => 0, 'updated' => $now]);
+          $applyScope($demote);
+          $demote->execute();
+        }
+
+        $link_id = $this->database->insert('dc_generated_image_links')
+          ->fields([
+            'image_id' => $image_id,
+            'scope_type' => $scope_type,
+            'campaign_id' => $campaign_id,
+            'table_name' => $link_table,
+            'object_id' => $link_object,
+            'slot' => $slot,
+            'variant' => $variant,
+            'version_number' => $version_number,
+            'is_primary' => $is_primary,
+            'sort_weight' => 0,
+            'visibility' => $visibility,
+            'created' => $now,
+            'updated' => $now,
+          ])
+          ->execute();
+        $link_result = [
+          'link_id' => (int) $link_id,
+          'version_number' => $version_number,
+          'is_primary' => $is_primary === 1,
+        ];
+      }
+      catch (\Throwable $exception) {
+        $link_transaction->rollBack();
+        throw $exception;
+      }
+      unset($link_transaction);
     }
 
     return [
@@ -175,7 +218,7 @@ class GeneratedImageRepository {
         'public_url' => $resolved['public_url'] ?? NULL,
         'file_uri' => $resolved['file_uri'] ?? '',
       ]),
-    ];
+    ] + ($link_result ?? []);
   }
 
   /**
@@ -399,6 +442,7 @@ class GeneratedImageRepository {
     $query->condition('i.deleted', 0);
     $query->condition('i.status', 'ready');
     $query->orderBy('l.is_primary', 'DESC');
+    $query->orderBy('l.version_number', 'DESC');
     $query->orderBy('l.sort_weight', 'ASC');
     $query->orderBy('l.created', 'DESC');
 
@@ -472,6 +516,7 @@ class GeneratedImageRepository {
     $query->condition('i.deleted', 0);
     $query->condition('i.status', 'ready');
     $query->orderBy('l.is_primary', 'DESC');
+    $query->orderBy('l.version_number', 'DESC');
     $query->orderBy('l.sort_weight', 'ASC');
     $query->orderBy('l.created', 'DESC');
 

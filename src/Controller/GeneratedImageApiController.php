@@ -230,6 +230,7 @@ class GeneratedImageApiController extends ControllerBase {
           'campaign_id' => isset($link['campaign_id']) ? (int) $link['campaign_id'] : NULL,
           'slot' => $link['slot'] ?? NULL,
           'variant' => $link['variant'] ?? NULL,
+          'version_number' => (int) ($link['version_number'] ?? 1),
           'is_primary' => (bool) ($link['is_primary'] ?? 0),
           'visibility' => $link['visibility'] ?? 'owner',
         ];
@@ -248,6 +249,7 @@ class GeneratedImageApiController extends ControllerBase {
       'campaign_id' => isset($row['campaign_id']) ? (int) $row['campaign_id'] : NULL,
       'slot' => $row['slot'] ?? NULL,
       'variant' => $row['variant'] ?? NULL,
+      'version_number' => (int) ($row['version_number'] ?? 1),
       'is_primary' => (bool) ($row['is_primary'] ?? 0),
       'visibility' => $row['visibility'] ?? 'owner',
       'provider' => $row['provider'] ?? NULL,

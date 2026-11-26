@@ -914,6 +914,8 @@ class GameObjectsController extends ControllerBase {
       $rows[] = [
         'uuid' => ['data' => $uuid_cell],
         'slot' => (string) ($image['slot'] ?? ''),
+        'version' => (int) ($image['version_number'] ?? 1),
+        'current' => !empty($image['is_primary']) ? $this->t('Yes') : $this->t('No'),
         'provider' => (string) ($image['provider'] ?? ''),
         'visibility' => (string) ($image['visibility'] ?? ''),
         'preview' => ['data' => $preview_cell],
@@ -949,6 +951,8 @@ class GameObjectsController extends ControllerBase {
           '#header' => [
             $this->t('Image UUID'),
             $this->t('Slot'),
+            $this->t('Version'),
+            $this->t('Current'),
             $this->t('Provider'),
             $this->t('Visibility'),
             $this->t('Preview'),
