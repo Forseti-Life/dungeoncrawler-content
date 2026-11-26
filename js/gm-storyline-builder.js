@@ -364,9 +364,22 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
           setDraftStatus(draftId ? `Unsaved changes (draft ${draftId.slice(0, 8)}, rev ${draftRevision})` : 'Unsaved changes');
         }
 
-        function setPublishStatus(text) {
+        function setPublishStatus(text, state = 'idle') {
           if (publishStatusEl) {
             publishStatusEl.textContent = text;
+            publishStatusEl.dataset.state = state;
+          }
+        }
+
+        function setPublishBusy(busy) {
+          wizard.setAttribute('data-publishing', busy ? 'true' : 'false');
+          if (publishBtn) {
+            publishBtn.disabled = busy || !draftCanEdit;
+            publishBtn.textContent = busy ? 'Publishing…' : 'Publish storyline';
+            publishBtn.setAttribute('aria-busy', busy ? 'true' : 'false');
+          }
+          if (validateBtn) {
+            validateBtn.disabled = busy || !draftCanEdit;
           }
         }
 
@@ -1724,20 +1737,26 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
 
         async function publishTemplate() {
           if (!publishSettings.publishUrlTemplate) {
-            setPublishStatus('Template publish API unavailable');
+            setPublishStatus('Template publish API unavailable', 'error');
             return;
           }
+          setPublishBusy(true);
+          setPublishStatus(`Publishing revision ${draftRevision}: saving, validating, and creating the canonical storyline…`, 'working');
           try {
             const validation = await validateTemplateDraft();
             if (!validation?.valid) {
+              setPublishStatus(
+                `Publication stopped: validation found ${Number(validation?.error_count || 0)} error(s). Review the details above.`,
+                'error',
+              );
               return;
             }
             const publishUrl = resolveDraftUrl(publishSettings.publishUrlTemplate, draftId);
             if (!publishUrl) {
-              setPublishStatus('Publish URL unavailable');
+              setPublishStatus('Publish URL unavailable', 'error');
               return;
             }
-            setPublishStatus('Creating canonical storyline…');
+            setPublishStatus('Validation passed. Publishing the canonical storyline and recording final signoff…', 'working');
             if (!csrfToken) {
               csrfToken = await fetchCsrfToken();
             }
@@ -1757,9 +1776,15 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
               throw new Error(payload?.error?.message || payload?.error?.code || `publish_${response.status}`);
             }
             const templateId = payload?.data?.template_id || 'unknown';
-            setPublishStatus(`Created canonical storyline: ${templateId}`);
+            const receipt = payload?.data?.publication_receipt || {};
+            draftTemplateId = templateId;
+            await loadDraftById(draftId);
+            setDraftStatus(`Published storyline ${templateId}; final signoff recorded for revision ${Number(receipt.draft_revision || draftRevision)}.`);
+            setPublishStatus(`Published ${templateId}. Final signoff recorded for revision ${Number(receipt.draft_revision || draftRevision)}.`, 'success');
           } catch (error) {
-            setPublishStatus(`Creation failed: ${error.message}`);
+            setPublishStatus(`Publication failed: ${error.message}`, 'error');
+          } finally {
+            setPublishBusy(false);
           }
         }
 
