@@ -78,6 +78,7 @@ final class DungeonEditorGmContextAssembler implements EditorGmContextAssemblerI
         'regions' => array_values((array) ($dungeon['regions'] ?? [])),
       ],
       'current_state' => $context->status(),
+      'troubleshooting' => DungeonValidationTroubleshootingGuide::packet($context),
       'validation_summary' => [
         'profile' => (string) ($validation['profile'] ?? $context->validationProfile),
         'valid' => (bool) ($validation['is_valid'] ?? FALSE),

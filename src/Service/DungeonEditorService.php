@@ -8,6 +8,7 @@ use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\dungeoncrawler_content\Geometry\RoomPlacementTransformer;
 use Drupal\dungeoncrawler_content\Service\Definition\DefinitionSchemaValidator;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorDraftStatusProjection;
+use Drupal\dungeoncrawler_content\Service\EditorGm\EditorWarningReview;
 
 /**
  * Canonical dungeon authoring authority.
@@ -57,7 +58,10 @@ class DungeonEditorService {
     'undo',
     'redo',
   ];
-  private const METADATA_KEYS = ['name', 'description', 'depth', 'theme', 'metadata'];
+  // Clear street hexes a building keeps to the street's edge.
+  public const STREET_EDGE_MARGIN = 3;
+
+  private const METADATA_KEYS = ['name', 'description', 'depth', 'theme', 'kind', 'metadata'];
   private const PLACEMENT_METADATA_KEYS = ['label', 'tags', 'is_level_entrance'];
   private const LINK_KEYS = ['kind', 'direction', 'default_state', 'travel_cost', 'requirements', 'description', 'tags'];
   private const REGION_KEYS = ['name', 'placement_ids', 'description', 'environmental_effects', 'ambient_hazard_level'];
@@ -80,6 +84,11 @@ class DungeonEditorService {
    */
   public const FINDING_ROUTES = [
     'placement_overlap' => 'draft_command',
+    'district_street_missing' => 'draft_command',
+    'district_street_ambiguous' => 'draft_command',
+    'district_street_background_missing' => 'room_editor',
+    'district_building_near_street_edge' => 'draft_command',
+    'district_building_no_street_access' => 'draft_command',
     'placement_version_unresolved' => 'room_editor',
     'port_link_endpoint_missing' => 'draft_command',
     'port_link_direction_invalid' => 'draft_command',
@@ -127,6 +136,7 @@ class DungeonEditorService {
     protected ?string $schemaDirectory = NULL,
     protected ?ConnectorProjectionService $connectorProjection = NULL,
     protected ?StorylineAuthoringDraftService $storylines = NULL,
+    protected ?EditorWarningReview $warningReview = NULL,
   ) {
     $this->schemaDirectory ??= dirname(__DIR__, 2) . '/config/schemas';
     $this->connectorProjection ??= new ConnectorProjectionService($database);
@@ -405,12 +415,11 @@ class DungeonEditorService {
        WHERE r.publication_status = :status
        ORDER BY r.name',
       [':status' => 'published']
-    )->fetchAll();
+    );
 
     $library = [];
     foreach ($rows as $row) {
       $room = json_decode((string) $row->room_payload, TRUE, 512, JSON_THROW_ON_ERROR);
-      $this->roomVersionCache[$row->published_version_id] = $room;
       $library[] = [
         'room_id' => $row->room_id,
         'name' => $row->name,
@@ -421,7 +430,7 @@ class DungeonEditorService {
         'hex_count' => count($room['hexes'] ?? []),
         'entry_port_count' => count($room['entry_ports'] ?? []),
         'exit_port_count' => count($room['exit_ports'] ?? []),
-        'footprint' => $this->roomFootprint($room),
+        'footprint' => iterator_to_array($this->roomFootprint($room), FALSE),
         'ports' => $this->roomPorts($room),
       ];
     }
@@ -553,6 +562,7 @@ class DungeonEditorService {
     $row = $this->loadDraftRow($draft_id);
     $draft = $this->decodeDraft($row);
     $dungeon = $draft['dungeon'];
+    $validation = $this->validateAggregate($draft);
 
     $placements = [];
     $occupancy = [];
@@ -569,20 +579,35 @@ class DungeonEditorService {
         'tags' => $placement['tags'],
         'resolved' => $room !== NULL,
         'room' => NULL,
-        'level_hexes' => [],
+        'level_bounds' => NULL,
       ];
       if ($room !== NULL) {
+        $claim = [$placement['placement_id']];
         $entry['room'] = [
           'name' => $room['name'] ?? $placement['room_id'],
           'room_type' => $room['room_type'] ?? NULL,
           'hex_count' => count($room['hexes'] ?? []),
-          'hexes' => $this->roomHexesForRender($room),
+          'hexes' => $room['hexes'],
           'ports' => $this->roomPorts($room),
         ];
+        $min_q = $min_r = PHP_INT_MAX;
+        $max_q = $max_r = PHP_INT_MIN;
         foreach ($this->roomFootprint($room) as $hex) {
           $level = RoomPlacementTransformer::toLevel($hex, $placement);
-          $entry['level_hexes'][] = $level;
-          $occupancy[RoomPlacementTransformer::hexKey($level)][] = $placement['placement_id'];
+          $min_q = min($min_q, $level['q']);
+          $max_q = max($max_q, $level['q']);
+          $min_r = min($min_r, $level['r']);
+          $max_r = max($max_r, $level['r']);
+          $key = RoomPlacementTransformer::hexKey($level);
+          if (!isset($occupancy[$key])) {
+            $occupancy[$key] = [];
+          }
+          if (!in_array($placement['placement_id'], $occupancy[$key], TRUE)) {
+            $occupancy[$key][] = $placement['placement_id'];
+          }
+        }
+        if ($min_q !== PHP_INT_MAX) {
+          $entry['level_bounds'] = ['min_q' => $min_q, 'max_q' => $max_q, 'min_r' => $min_r, 'max_r' => $max_r];
         }
       }
       $placements[] = $entry;
@@ -598,13 +623,14 @@ class DungeonEditorService {
       'description' => $dungeon['description'],
       'depth' => $dungeon['depth'],
       'theme' => $dungeon['theme'],
+      'kind' => $dungeon['kind'] ?? 'dungeon',
       'hex_grid' => $dungeon['hex_grid'],
       'metadata' => $dungeon['metadata'] ?? [],
       'placements' => $placements,
       'port_links' => $dungeon['port_links'] ?? [],
       'regions' => $dungeon['regions'] ?? [],
-      'occupancy' => array_map(static fn(array $ids): array => array_values(array_unique($ids)), $occupancy),
-      'validation' => $this->validateAggregate($draft),
+      'occupancy' => $occupancy,
+      'validation' => $validation,
     ];
   }
 
@@ -820,6 +846,7 @@ class DungeonEditorService {
    * given validation result.
    */
   public function summarizeDraftState(array $draft, array $validation): array {
+    $review = $this->warningReview?->summary('dungeon', $draft, $validation) ?? [];
     $dungeon = $draft['dungeon'];
     $placements = $dungeon['room_placements'];
     $resolved = 0;
@@ -905,7 +932,7 @@ class DungeonEditorService {
       ],
       5 => [
         'label' => 'Validation',
-        'checks' => [$is['valid']],
+        'checks' => EditorDraftStatusProjection::validationChecks($is['valid'], $review),
         'metrics' => ['errors' => $validation['counts']['error'], 'warnings' => $validation['counts']['warning']],
       ],
       6 => [
@@ -913,7 +940,7 @@ class DungeonEditorService {
         'checks' => [$is['valid'], $draft['status'] === 'published'],
         'metrics' => ['published_version_id' => $draft['published_version_id']],
       ],
-    ], $counts);
+    ], $counts) + $review;
     $result['storylines'] = array_map(
       static fn(array $story): array => array_intersect_key($story, array_flip(['draft_id', 'title', 'status'])),
       $this->storiesUsing((string) $dungeon['dungeon_id']),
@@ -1047,7 +1074,7 @@ class DungeonEditorService {
     if ($state['error_count'] > 0) {
       return ['Have the GM address the next validation finding.'];
     }
-    if ($state['warning_count'] > 0) {
+    if (($state['open_warning_count'] ?? $state['warning_count']) > 0) {
       return ['Have the GM address the next validation warning.'];
     }
     return ['Review the dungeon and check its publication readiness.'];
@@ -1420,6 +1447,29 @@ class DungeonEditorService {
           throw new DungeonCommandPayloadException('dungeon_command_payload_invalid', [$this->payloadFinding('/room_id', 'room_id and version_id must be strings.')]);
         }
         $room = $this->resolvePlacementVersion($version_id, $room_id);
+        if (($dungeon['kind'] ?? 'dungeon') === 'district' && ($room['room_type'] ?? '') !== 'street') {
+          $has_street = FALSE;
+          foreach ($dungeon['room_placements'] ?? [] as $existing_placement) {
+            $existing_room = $this->resolvePlacementVersion(
+              (string) ($existing_placement['version_id'] ?? ''),
+              (string) ($existing_placement['room_id'] ?? ''),
+            );
+            if (($existing_room['room_type'] ?? '') === 'street') {
+              $has_street = TRUE;
+              break;
+            }
+          }
+          if (!$has_street) {
+            throw new DungeonCommandRejectedException('district_ground_required', [
+              $this->finding(
+                'error',
+                'district_ground_required',
+                'Create and place the district street ground before placing any building room.',
+                [],
+              ),
+            ]);
+          }
+        }
         // G1 generation plans may supply placement_id so later same-plan
         // link_ports steps can reference previewed placements before apply.
         $placement_id = isset($payload['placement_id']) ? (string) $payload['placement_id'] : $this->uuid->generate();
@@ -1504,20 +1554,7 @@ class DungeonEditorService {
             throw new DungeonCommandPayloadException('dungeon_command_payload_invalid', [$this->payloadFinding('/' . $end, 'Endpoint must be {placement_id, port_id}.')]);
           }
         }
-        $extras = $this->optionalFields($payload, ['from', 'to', 'kind', 'direction', 'default_state'], self::LINK_KEYS);
-        $link_id = $this->uuid->generate();
-        $dungeon['port_links'][] = [
-          'link_id' => $link_id,
-          'from' => ['placement_id' => $payload['from']['placement_id'], 'port_id' => $payload['from']['port_id']],
-          'to' => ['placement_id' => $payload['to']['placement_id'], 'port_id' => $payload['to']['port_id']],
-          'kind' => $payload['kind'],
-          'direction' => $payload['direction'],
-          'default_state' => $payload['default_state'],
-          'travel_cost' => $extras['travel_cost'] ?? 0,
-          'requirements' => $extras['requirements'] ?? [],
-          'description' => $extras['description'] ?? '',
-          'tags' => $extras['tags'] ?? [],
-        ];
+        $dungeon['port_links'][] = $this->newLink($payload['from'], $payload['to'], $payload);
         break;
 
       case 'update_port_link':
@@ -1678,6 +1715,66 @@ class DungeonEditorService {
     return array_intersect_key($payload, array_flip($allowed));
   }
 
+  /**
+   * Placements that genuinely compete for one hex. In a district a building
+   * overlays the street and overrides its hex, so the street never competes.
+   */
+  private function competingClaims(array $ids, bool $district, array $placement_rooms): array {
+    $ids = array_values(array_unique($ids));
+    if (!$district) {
+      return $ids;
+    }
+    return array_values(array_filter($ids, static fn(string $id): bool => ($placement_rooms[$id]['room_type'] ?? NULL) !== 'street'));
+  }
+
+  /**
+   * Buildings whose entry port stands on a street hex.
+   *
+   * The door belongs to the building room: an entry port on a street hex is
+   * the way in. No street door or stored link is involved, so moving a
+   * building needs nothing relinked.
+   *
+   * @return array<string, true>
+   *   Placement ids.
+   */
+  private function streetContacts(array $level_ports, array $occupancy, array $streets): array {
+    $contacts = [];
+    foreach ($level_ports as $key => $port) {
+      if ($port['kind'] !== 'entry') {
+        continue;
+      }
+      [$placement_id] = explode(':', $key, 2);
+      if (in_array($placement_id, $streets, TRUE)) {
+        continue;
+      }
+      if (array_intersect($streets, $occupancy[RoomPlacementTransformer::hexKey($port)] ?? []) !== []) {
+        $contacts[$placement_id] = TRUE;
+      }
+    }
+    return $contacts;
+  }
+
+  private function newLink(array $from, array $to, array $fields): array {
+    $extras = $this->optionalFields($fields, ['from', 'to', 'kind', 'direction', 'default_state', 'entry_port_id'], self::LINK_KEYS);
+    foreach (['kind', 'direction', 'default_state'] as $key) {
+      if (!is_string($fields[$key] ?? NULL)) {
+        throw new DungeonCommandPayloadException('dungeon_command_payload_invalid', [$this->payloadFinding('/' . $key, $key . ' is required.')]);
+      }
+    }
+    return [
+      'link_id' => $this->uuid->generate(),
+      'from' => ['placement_id' => $from['placement_id'], 'port_id' => $from['port_id']],
+      'to' => ['placement_id' => $to['placement_id'], 'port_id' => $to['port_id']],
+      'kind' => $fields['kind'],
+      'direction' => $fields['direction'],
+      'default_state' => $fields['default_state'],
+      'travel_cost' => $extras['travel_cost'] ?? 0,
+      'requirements' => $extras['requirements'] ?? [],
+      'description' => $extras['description'] ?? '',
+      'tags' => $extras['tags'] ?? [],
+    ];
+  }
+
   private function requireLinkIndex(array $dungeon, array $payload): int {
     $link_id = $payload['link_id'] ?? NULL;
     if (!is_string($link_id) || !$this->isUuid($link_id)) {
@@ -1805,26 +1902,20 @@ class DungeonEditorService {
   }
 
   /**
-   * Validates a draft's aggregate per dungeon_editor_validation_result.schema.json.
+   * Level-space footprint and ports of every placement in a dungeon draft.
    *
-   * Implements the full rule table of 04-contracts.md "Validation rules by
-   * profile": editing is permissive about incompleteness (entrance,
-   * reachability, dangling exits) and strict about incorrectness (overlap,
-   * unresolved versions, illegal links, unresolved region references). The
-   * code list is closed by the contract, so nothing outside it is emitted.
+   * The one place placements are resolved to level hexes; validation and
+   * district inspection both read it.
+   *
+   * @return array{findings: array, occupancy: array, entrances: array, level_ports: array, placement_rooms: array, resolved: array}
    */
-  public function validateAggregate(array $draft, string $profile = 'editing'): array {
-    if (!in_array($profile, ['editing', 'publication'], TRUE)) {
-      throw new \InvalidArgumentException('validation_profile_invalid');
-    }
-    $dungeon = $draft['dungeon'];
-    $this->assertAggregateConforms($dungeon, $profile);
-
+  private function levelGeometry(array $dungeon): array {
     $findings = [];
     $occupancy = [];
     $entrances = [];
     // Level-space ports by "placement_id:port_id" for resolved placements.
     $level_ports = [];
+    $placement_rooms = [];
     $resolved = [];
     foreach ($dungeon['room_placements'] as $placement) {
       $placement_id = $placement['placement_id'];
@@ -1842,13 +1933,21 @@ class DungeonEditorService {
         continue;
       }
       $resolved[$placement_id] = TRUE;
+      $placement_rooms[$placement_id] = $room;
+      $claim = [$placement_id];
       foreach ($this->roomFootprint($room) as $hex) {
         $level = RoomPlacementTransformer::toLevel($hex, $placement);
         if (abs($level['q']) > self::AXIAL_BOUND || abs($level['r']) > self::AXIAL_BOUND) {
           // Commands reject this before storage; a stored instance is corruption.
           throw new \RuntimeException('placement_origin_out_of_bounds:' . $placement_id);
         }
-        $occupancy[RoomPlacementTransformer::hexKey($level)][] = $placement_id;
+        $key = RoomPlacementTransformer::hexKey($level);
+        if (isset($occupancy[$key])) {
+          $occupancy[$key][] = $placement_id;
+        }
+        else {
+          $occupancy[$key] = $claim;
+        }
       }
       foreach ($this->roomPorts($room) as $port) {
         $level_ports[$placement_id . ':' . $port['port_id']] = [
@@ -1858,9 +1957,157 @@ class DungeonEditorService {
       }
     }
 
-    $reported = [];
+    return [
+      'findings' => $findings,
+      'occupancy' => $occupancy,
+      'entrances' => $entrances,
+      'level_ports' => $level_ports,
+      'placement_rooms' => $placement_rooms,
+      'resolved' => $resolved,
+    ];
+  }
+
+  /**
+   * Lists the exact data points that break a district layout.
+   *
+   * Read-only and built on the same level geometry as validation, so it can
+   * name every overlapping hex, link gap and unused door where validation
+   * reports the first of each.
+   *
+   * @return array<string, mixed>
+   */
+  public function inspectDistrict(array $draft): array {
+    $dungeon = $draft['dungeon'];
+    $geometry = $this->levelGeometry($dungeon);
+    $labels = [];
+    foreach ($dungeon['room_placements'] as $placement) {
+      $labels[$placement['placement_id']] = $placement['label'];
+    }
+    $streets = array_keys(array_filter($geometry['placement_rooms'], static fn(array $room): bool => ($room['room_type'] ?? NULL) === 'street'));
+
+    $overlaps = [];
+    foreach ($geometry['occupancy'] as $key => $ids) {
+      $ids = $this->competingClaims($ids, ($dungeon['kind'] ?? 'dungeon') === 'district', $geometry['placement_rooms']);
+      sort($ids);
+      for ($i = 0; $i < count($ids); $i++) {
+        for ($j = $i + 1; $j < count($ids); $j++) {
+          $pair = $ids[$i] . '|' . $ids[$j];
+          $overlaps[$pair]['placements'] = [$labels[$ids[$i]], $labels[$ids[$j]]];
+          [$q, $r] = array_map('intval', explode(':', $key));
+          $overlaps[$pair]['hexes'][] = ['q' => $q, 'r' => $r];
+        }
+      }
+    }
+    $overlap_rows = [];
+    foreach ($overlaps as $row) {
+      if (!empty($row['hexes'])) {
+        $row['overlap_count'] = count($row['hexes']);
+        $row['hexes'] = array_slice($row['hexes'], 0, 40);
+        $overlap_rows[] = $row;
+      }
+    }
+
+    $contacts = $this->streetContacts($geometry['level_ports'], $geometry['occupancy'], $streets);
+    $buildings = [];
+    foreach ($dungeon['room_placements'] as $placement) {
+      $id = $placement['placement_id'];
+      if (!in_array($id, $streets, TRUE) && !empty($geometry['resolved'][$id]) && !isset($contacts[$id])) {
+        $buildings[] = ['placement' => $placement['label'], 'problem' => 'no_entry_port_on_the_street'];
+      }
+    }
+
+    $crowding = $this->buildingsCrowdingStreetEdge($geometry['occupancy'], $streets, $labels);
+
+    return [
+      'streets' => array_map(static fn(string $id): string => $labels[$id], $streets),
+      'level_entrances' => array_map(static fn(string $id): string => $labels[$id], $geometry['entrances']),
+      'overlapping_hexes' => $overlap_rows,
+      'buildings_without_street_access' => $buildings,
+      'buildings_near_street_edge' => $crowding,
+    ];
+  }
+
+  /**
+   * Buildings with a hex outside the street or within the margin of its edge.
+   *
+   * A district street should hold every building well inside its borders, so
+   * the party can walk all the way around each one.
+   *
+   * @param array<string, list<string>> $occupancy
+   *   Placement ids by hex key.
+   * @param list<string> $streets
+   * @param array<string, string> $labels
+   *
+   * @return list<array<string, mixed>>
+   */
+  private function buildingsCrowdingStreetEdge(array $occupancy, array $streets, array $labels): array {
+    if ($streets === []) {
+      return [];
+    }
+    $street_hexes = [];
+    $building_hexes = [];
     foreach ($occupancy as $key => $ids) {
-      $ids = array_values(array_unique($ids));
+      foreach ($ids as $id) {
+        if (in_array($id, $streets, TRUE)) {
+          $street_hexes[$key] = TRUE;
+        }
+        else {
+          $building_hexes[$id][] = $key;
+        }
+      }
+    }
+    $margin = self::STREET_EDGE_MARGIN;
+    $rows = [];
+    foreach ($building_hexes as $id => $keys) {
+      $worst = NULL;
+      foreach ($keys as $key) {
+        [$q, $r] = array_map('intval', explode(':', $key));
+        for ($dq = -$margin; $dq <= $margin; $dq++) {
+          for ($dr = max(-$margin, -$dq - $margin); $dr <= min($margin, -$dq + $margin); $dr++) {
+            if (!isset($street_hexes[($q + $dq) . ':' . ($r + $dr)])) {
+              $worst = ['q' => $q, 'r' => $r];
+              break 3;
+            }
+          }
+        }
+      }
+      if ($worst !== NULL) {
+        $rows[] = ['placement' => $labels[$id] ?? $id, 'hex' => $worst, 'margin' => $margin, 'problem' => 'within_margin_of_street_edge'];
+      }
+    }
+    return $rows;
+  }
+
+  /**
+   * Validates a draft's aggregate per dungeon_editor_validation_result.schema.json.
+   *
+   * Implements the full rule table of 04-contracts.md "Validation rules by
+   * profile": editing is permissive about incompleteness (entrance,
+   * reachability, dangling exits) and strict about incorrectness (overlap,
+   * unresolved versions, illegal links, unresolved region references). The
+   * code list is closed by the contract, so nothing outside it is emitted.
+   */
+  public function validateAggregate(array $draft, string $profile = 'editing'): array {
+    if (!in_array($profile, ['editing', 'publication'], TRUE)) {
+      throw new \InvalidArgumentException('validation_profile_invalid');
+    }
+    $dungeon = $draft['dungeon'];
+    $this->assertAggregateConforms($dungeon, $profile);
+
+    $geometry = $this->levelGeometry($dungeon);
+    $findings = $geometry['findings'];
+    $occupancy = $geometry['occupancy'];
+    $entrances = $geometry['entrances'];
+    $level_ports = $geometry['level_ports'];
+    $placement_rooms = $geometry['placement_rooms'];
+    $resolved = $geometry['resolved'];
+
+    $reported = [];
+    // In a district a building overlays the street and its entry port on a
+    // street hex is the way in; rooms themselves never share a hex.
+    $district = ($dungeon['kind'] ?? 'dungeon') === 'district';
+    foreach ($occupancy as $key => $ids) {
+      $ids = $this->competingClaims($ids, $district, $placement_rooms);
       if (count($ids) < 2) {
         continue;
       }
@@ -1877,6 +2124,38 @@ class DungeonEditorService {
         $q,
         $r
       ), array_map(static fn(string $id): array => ['placement_id' => $id], $ids), ['q' => $q, 'r' => $r]);
+    }
+
+    if ($district) {
+      $streets = array_keys(array_filter($placement_rooms, static fn(array $room): bool => ($room['room_type'] ?? NULL) === 'street'));
+      if ($streets === []) {
+        $findings[] = $this->finding('error', 'district_street_missing', 'A district needs exactly one street room; none is placed.', []);
+      }
+      elseif (count($streets) > 1) {
+        $findings[] = $this->finding('error', 'district_street_ambiguous', 'A district needs exactly one street room; several are placed.', array_map(static fn(string $id): array => ['placement_id' => $id], $streets));
+      }
+      foreach ($streets as $street_id) {
+        if (empty($placement_rooms[$street_id]['metadata']['background']['url'])) {
+          $findings[] = $this->finding('warning', 'district_street_background_missing', 'The street room has no background art, so the district has nothing to draw.', [['placement_id' => $street_id]]);
+        }
+      }
+      $labels = [];
+      foreach ($dungeon['room_placements'] as $placement) {
+        $labels[$placement['placement_id']] = $placement['label'];
+      }
+      foreach ($this->buildingsCrowdingStreetEdge($occupancy, $streets, $labels) as $crowded) {
+        $findings[] = $this->finding('warning', 'district_building_near_street_edge', sprintf(
+          '%s is within %d hexes of the street edge or outside it; move it (remove the placement and plan it again, or place the building over a door nearer the centre of the street) so the party can walk around it.',
+          $crowded['placement'], $crowded['margin']
+        ), [], $crowded['hex']);
+      }
+      $street_contacts = $this->streetContacts($level_ports, $occupancy, $streets);
+      foreach ($dungeon['room_placements'] as $placement) {
+        $id = $placement['placement_id'];
+        if (!empty($resolved[$id]) && !in_array($id, $streets, TRUE) && !isset($street_contacts[$id])) {
+          $findings[] = $this->finding('warning', 'district_building_no_street_access', sprintf('"%s" has no entry port on a street hex, so the party cannot walk into it from the street; move it so an entry port sits on the street.', $placement['label']), [['placement_id' => $id]]);
+        }
+      }
     }
 
     // Links: endpoints, direction, self reference, arity. A link joins an exit
@@ -1919,6 +2198,12 @@ class DungeonEditorService {
         $edges[$to_id][] = $from_id;
       }
     }
+    foreach ($street_contacts ?? [] as $building_id => $_) {
+      foreach ($streets as $street_id) {
+        $edges[$street_id][] = $building_id;
+        $edges[$building_id][] = $street_id;
+      }
+    }
     foreach ($exit_use as $exit_key => $link_ids) {
       if (count($link_ids) > 1) {
         [$pid, $port_id] = explode(':', $exit_key, 2);
@@ -1927,7 +2212,8 @@ class DungeonEditorService {
       }
     }
     foreach ($level_ports as $key => $port) {
-      if ($port['kind'] === 'exit' && !isset($exit_use[$key])) {
+      // A district building is entered from the street and ends there.
+      if ($port['kind'] === 'exit' && !isset($exit_use[$key]) && !$district) {
         [$pid, $port_id] = explode(':', $key, 2);
         $findings[] = $this->finding($profile === 'publication' ? 'error' : 'info', 'exit_port_dangling', sprintf('Exit port "%s" on "%s" is not linked.', $port_id, $port['label']), [['placement_id' => $pid], ['port_id' => $port_id]], ['q' => $port['q'], 'r' => $port['r']]);
       }
@@ -2096,29 +2382,10 @@ class DungeonEditorService {
   /**
    * Room-local footprint as bare {q, r} hexes.
    */
-  private function roomFootprint(array $room): array {
-    $hexes = [];
+  private function roomFootprint(array $room): \Generator {
     foreach ($room['hexes'] ?? [] as $hex) {
-      $hexes[] = ['q' => (int) $hex['q'], 'r' => (int) $hex['r']];
+      yield ['q' => (int) $hex['q'], 'r' => (int) $hex['r']];
     }
-    return $hexes;
-  }
-
-  /**
-   * Room-local hexes with only the fields the map renderer styles by.
-   */
-  private function roomHexesForRender(array $room): array {
-    $hexes = [];
-    foreach ($room['hexes'] ?? [] as $hex) {
-      $hexes[] = [
-        'q' => (int) $hex['q'],
-        'r' => (int) $hex['r'],
-        'terrain_type' => $hex['terrain_type'] ?? NULL,
-        'lighting' => $hex['lighting'] ?? NULL,
-        'elevation_ft' => $hex['elevation_ft'] ?? 0,
-      ];
-    }
-    return $hexes;
   }
 
   /**

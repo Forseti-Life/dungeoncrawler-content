@@ -5,8 +5,11 @@ namespace Drupal\dungeoncrawler_content\Service;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\Component\Uuid\UuidInterface;
+use Drupal\dungeoncrawler_content\Geometry\PlacementRules;
 use Drupal\dungeoncrawler_content\Geometry\RoomPlacementTransformer;
+use Drupal\dungeoncrawler_content\Geometry\RoomPortEdgePolicy;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorDraftStatusProjection;
+use Drupal\dungeoncrawler_content\Service\EditorGm\EditorWarningReview;
 
 /**
  * Canonical room authoring authority for drafts, commands, and publication.
@@ -17,8 +20,19 @@ class RoomEditorService {
   private const TERRAIN_TYPES = [
     'stone_floor', 'rough_stone', 'smooth_stone', 'dirt', 'mud', 'sand',
     'water_shallow', 'water_deep', 'ice', 'lava', 'fungal_growth', 'bone',
-    'crystal', 'metal_grate', 'wooden_floor', 'carpet', 'rubble', 'void',
+    'crystal', 'metal_grate', 'wooden_floor', 'carpet', 'rubble', 'void', 'wall',
   ];
+
+  /**
+   * Families an area shape may place; actors keep their own tools.
+   */
+  private const SHAPE_FAMILIES = ['obstacle', 'item'];
+
+  private const MAX_BULK = 5000;
+  public const MAX_STREET_HEXES = 50000;
+  private const MAX_ROOM_HEXES = 10000;
+
+  private const MAX_PLACEMENTS = 2500;
 
   private const LIGHTING_LEVELS = ['bright_light', 'dim_light', 'darkness', 'magical_darkness'];
 
@@ -27,7 +41,7 @@ class RoomEditorService {
     'workshop', 'library', 'prison', 'throne_room', 'armory', 'pantry', 'garden',
     'pool', 'mine', 'crypt', 'laboratory', 'barracks', 'marketplace', 'arena',
     'boss_chamber', 'entrance', 'exit', 'stairwell', 'crossroads', 'dead_end',
-    'trap_room', 'puzzle_room', 'vault_room', 'safe_room',
+    'trap_room', 'puzzle_room', 'vault_room', 'safe_room', 'street',
   ];
 
   private const SIZE_CATEGORIES = ['tiny', 'small', 'medium', 'large', 'huge', 'gargantuan'];
@@ -58,6 +72,7 @@ class RoomEditorService {
     'room_lighting_invalid' => 'draft_command',
     'room_hex_count_invalid' => 'draft_command',
     'room_placement_count_invalid' => 'draft_command',
+    'placement_gap_open' => 'draft_command',
     'room_entry_port_count_invalid' => 'draft_command',
     'room_exit_port_count_invalid' => 'draft_command',
     'hex_coordinate_invalid' => 'draft_command',
@@ -85,6 +100,9 @@ class RoomEditorService {
     'port_invalid' => 'draft_command',
     'default_entry_required' => 'draft_command',
     'room_has_no_placements' => 'draft_command',
+    'room_background_invalid' => 'draft_command',
+    'street_background_missing' => 'draft_command',
+    'street_has_no_doors' => 'draft_command',
     // Raised by the GM tools around a draft, not by aggregate validation.
     'room_draft_required' => 'draft_command',
     'room_id_required' => 'draft_command',
@@ -98,6 +116,7 @@ class RoomEditorService {
     protected CanonicalDefinitionService $definitions,
     protected ?StorylineAuthoringDraftService $storylines = NULL,
     protected ?DungeonEditorService $dungeons = NULL,
+    protected ?EditorWarningReview $warningReview = NULL,
   ) {}
 
   /**
@@ -149,18 +168,21 @@ class RoomEditorService {
 
   /**
    * Creates an active draft from a canonical room or a blank room.
+   *
+   * A dedicated draft from the published version is for callers that will
+   * publish it immediately without including any pending author edits.
    */
-  public function createDraft(?string $room_id = NULL, ?string $name = NULL): array {
+  public function createDraft(?string $room_id = NULL, ?string $name = NULL, bool $from_published_version = FALSE): array {
     $uid = (int) $this->currentUser->id();
     $room_id = $room_id !== NULL ? trim($room_id) : NULL;
-    if ($name !== NULL && (trim($name) === '' || mb_strlen($name) > 200 || $room_id !== NULL)) {
+    if ($name !== NULL && (trim($name) === '' || mb_strlen($name) > 200)) {
       throw new \InvalidArgumentException('new_room_name_invalid');
     }
     if ($room_id !== NULL && !preg_match('/^[a-z0-9][a-z0-9_-]{0,99}$/', $room_id)) {
       throw new \InvalidArgumentException('room_id_invalid');
     }
 
-    if ($room_id !== NULL) {
+    if ($room_id !== NULL && !$from_published_version) {
       $existing = $this->database->select('dungeoncrawler_content_room_editor_drafts', 'd')
         ->fields('d')
         ->condition('room_id', $room_id)
@@ -176,23 +198,36 @@ class RoomEditorService {
     }
 
     $base_version_id = NULL;
-    if ($room_id === NULL) {
-      $room = $this->blankRoom();
-      if ($name !== NULL) {
-        $room['name'] = trim($name);
-      }
-    }
-    else {
+    $row = NULL;
+    if ($room_id !== NULL) {
       $row = $this->database->select('dungeoncrawler_content_rooms', 'r')
         ->fields('r')
         ->condition('room_id', $room_id)
         ->execute()
         ->fetchAssoc();
-      if (!$row) {
+    }
+    if ($room_id === NULL || $row === FALSE || $row === NULL) {
+      if ($room_id !== NULL && $name === NULL) {
         throw new \OutOfBoundsException('room_not_found');
       }
+      $room = $this->blankRoom();
+      if ($room_id !== NULL) {
+        $room['room_id'] = $room_id;
+      }
+      if ($name !== NULL) {
+        $room['name'] = trim($name);
+      }
+    }
+    else {
+      if ($name !== NULL) {
+        throw new \InvalidArgumentException('existing_room_name_invalid');
+      }
       $base_version_id = $row['published_version_id'] ?? NULL;
-      $room = $this->loadPublishedPayload($base_version_id) ?? $this->normalizeLegacyRoom($row);
+      $published_room = $this->loadPublishedPayload($base_version_id);
+      if ($from_published_version && $published_room === NULL) {
+        throw new \DomainException('canonical_room_not_published:' . $room_id);
+      }
+      $room = $published_room ?? $this->normalizeLegacyRoom($row);
     }
 
     $draft_id = $this->uuid->generate();
@@ -422,6 +457,7 @@ class RoomEditorService {
    * Every value comes from the saved draft and the given validation result.
    */
   public function summarizeDraftState(array $draft, array $validation): array {
+    $review = $this->warningReview?->summary('room', $draft, $validation) ?? [];
     $room = $draft['room'];
     // Room drafts may predate the aggregate contract. A field validation
     // reports as missing or malformed holds nothing to count.
@@ -484,7 +520,7 @@ class RoomEditorService {
       ],
       5 => [
         'label' => 'Validation',
-        'checks' => [$is['valid']],
+        'checks' => EditorDraftStatusProjection::validationChecks($is['valid'], $review),
         'metrics' => ['errors' => $validation['counts']['error'], 'warnings' => $validation['counts']['warning']],
       ],
       6 => [
@@ -492,7 +528,7 @@ class RoomEditorService {
         'checks' => [$is['valid'], $draft['status'] === 'published'],
         'metrics' => ['published_version_id' => $draft['published_version_id']],
       ],
-    ], $counts);
+    ], $counts) + $review;
     $room_id = $text('room_id');
     $result['storylines'] = $this->storylines === NULL || $room_id === '' ? [] : array_map(
       static fn(array $story): array => array_intersect_key($story, array_flip(['draft_id', 'title', 'status'])),
@@ -560,7 +596,7 @@ class RoomEditorService {
     if ($state['error_count'] > 0) {
       return ['Have the GM address the next validation finding.'];
     }
-    if ($state['warning_count'] > 0) {
+    if (($state['open_warning_count'] ?? $state['warning_count']) > 0) {
       return ['Have the GM address the next validation warning.'];
     }
     return ['Review the room and check its publication readiness.'];
@@ -594,6 +630,8 @@ class RoomEditorService {
     }
 
     $room = $draft['room'];
+    // Gaps are working notes of the draft; a published room carries none.
+    unset($room['metadata']['placement_gaps']);
     $this->assertStarterFixedDataContract($room);
     $room_id = (string) $room['room_id'];
     if ($room_id === '') {
@@ -744,6 +782,33 @@ class RoomEditorService {
         $room['hexes'][] = $hex;
         break;
 
+      case 'set_street_footprint':
+        $hexes = $payload['hexes'] ?? NULL;
+        $entry = $payload['entry_hex'] ?? NULL;
+        if ($room['room_type'] !== 'street' || !is_array($hexes) || !array_is_list($hexes)
+          || $hexes === [] || count($hexes) > self::MAX_STREET_HEXES
+          || !is_array($entry) || !is_int($entry['q'] ?? NULL) || !is_int($entry['r'] ?? NULL)
+          || $room['placements'] !== [] || $room['exit_ports'] !== []
+          || !in_array(array_column($room['entry_ports'], 'port_id'), [['entry-1'], ['street-entry']], TRUE)) {
+          throw new \InvalidArgumentException('street_footprint_requires_unplaced_street_with_seed_entry');
+        }
+        $room['hexes'] = array_map(fn(mixed $hex): array => $this->normalizeHex($hex), $hexes);
+        $edges = RoomPortEdgePolicy::openEdges($room, $entry);
+        if ($this->findHexIndex($room, $entry['q'], $entry['r']) === NULL || $edges === []) {
+          throw new \DomainException('street_footprint_entry_not_on_boundary');
+        }
+        $edge = RoomPortEdgePolicy::farthestOpenEdgeFromCentroid($room, $entry, $edges);
+        $room['entry_ports'] = [[
+          'port_id' => 'street-entry',
+          'hex' => ['q' => $entry['q'], 'r' => $entry['r']],
+          'edge' => $edge,
+          'label' => 'Street entrance',
+          'arrival_facing' => $edge,
+          'is_default' => TRUE,
+          'tags' => [],
+        ]];
+        break;
+
       case 'remove_hex':
         $q = (int) ($payload['hex']['q'] ?? PHP_INT_MAX);
         $r = (int) ($payload['hex']['r'] ?? PHP_INT_MAX);
@@ -765,6 +830,24 @@ class RoomEditorService {
           }
         }
         array_splice($room['hexes'], $index, 1);
+        break;
+
+      case 'set_hexes_terrain':
+        $hexes = $payload['hexes'] ?? NULL;
+        if (!is_array($hexes) || $hexes === [] || !array_is_list($hexes) || count($hexes) > 5000) {
+          throw new \InvalidArgumentException('hexes_list_invalid');
+        }
+        $terrain = (string) ($payload['terrain_type'] ?? '');
+        if (!in_array($terrain, self::TERRAIN_TYPES, TRUE)) {
+          throw new \InvalidArgumentException('terrain_type_invalid');
+        }
+        foreach ($hexes as $hex) {
+          $index = $this->findHexIndex($room, (int) ($hex['q'] ?? PHP_INT_MAX), (int) ($hex['r'] ?? PHP_INT_MAX));
+          if ($index === NULL) {
+            throw new \DomainException('hex_not_found');
+          }
+          $room['hexes'][$index]['terrain_type'] = $terrain;
+        }
         break;
 
       case 'set_hex_terrain':
@@ -907,6 +990,63 @@ class RoomEditorService {
           throw new \DomainException('placement_not_found');
         }
         array_splice($room['placements'], $index, 1);
+        break;
+
+      case 'place_objects_bulk':
+        $this->placeObjectsBulk($room, $payload);
+        break;
+
+      case 'move_objects_bulk':
+        $this->moveObjectsBulk($room, $payload);
+        break;
+
+      case 'remove_objects_bulk':
+        $ids = $this->bulkIds($payload['instance_ids'] ?? NULL, 'instance_ids_invalid');
+        foreach ($ids as $instance_id) {
+          if ($this->findPlacementIndex($room, $instance_id) === NULL) {
+            throw new \DomainException('placement_not_found');
+          }
+        }
+        $room['placements'] = array_values(array_filter(
+          $room['placements'],
+          static fn(array $placement): bool => !in_array($placement['instance_id'] ?? NULL, $ids, TRUE)
+        ));
+        break;
+
+      case 'replace_objects_bulk':
+        $ids = $this->bulkIds($payload['instance_ids'] ?? NULL, 'instance_ids_invalid');
+        $definition = $this->bulkDefinition($payload['definition_ref'] ?? NULL);
+        foreach ($ids as $instance_id) {
+          $index = $this->findPlacementIndex($room, $instance_id);
+          if ($index === NULL) {
+            throw new \DomainException('placement_not_found');
+          }
+          if (!in_array($room['placements'][$index]['definition_ref']['family'] ?? NULL, self::SHAPE_FAMILIES, TRUE)) {
+            throw new \DomainException('bulk_family_invalid');
+          }
+          $room['placements'][$index]['definition_ref'] = $definition;
+        }
+        break;
+
+      case 'dismiss_placement_gaps':
+        $ids = $this->bulkIds($payload['gap_ids'] ?? NULL, 'gap_ids_invalid');
+        $reason = trim((string) ($payload['reason'] ?? ''));
+        if ($reason === '') {
+          throw new \InvalidArgumentException('gap_dismiss_reason_required');
+        }
+        $known = array_column((array) ($room['metadata']['placement_gaps'] ?? []), 'gap_id');
+        foreach ($ids as $gap_id) {
+          if (!in_array($gap_id, $known, TRUE)) {
+            throw new \DomainException('placement_gap_not_found');
+          }
+        }
+        foreach ($room['metadata']['placement_gaps'] as &$gap) {
+          if (in_array($gap['gap_id'], $ids, TRUE)) {
+            $gap['status'] = 'dismissed';
+            $gap['dismissed_reason'] = $reason;
+          }
+        }
+        unset($gap);
         break;
 
       case 'add_entry_port':
@@ -1055,11 +1195,12 @@ class RoomEditorService {
       $errors[] = $this->finding('room_lighting_invalid', '/lighting', 'Room lighting must use a canonical level and at most 20 sources.');
     }
     $hexes = is_array($room['hexes'] ?? NULL) ? $room['hexes'] : [];
-    if (count($hexes) < 1 || count($hexes) > 10000) {
-      $errors[] = $this->finding('room_hex_count_invalid', '/hexes', 'Rooms require 1 through 10000 hexes.');
+    $max_hexes = ($room['room_type'] ?? NULL) === 'street' ? self::MAX_STREET_HEXES : self::MAX_ROOM_HEXES;
+    if (count($hexes) < 1 || count($hexes) > $max_hexes) {
+      $errors[] = $this->finding('room_hex_count_invalid', '/hexes', sprintf('This room type requires 1 through %d hexes.', $max_hexes));
     }
-    if (count((array) ($room['placements'] ?? [])) > 250) {
-      $errors[] = $this->finding('room_placement_count_invalid', '/placements', 'Rooms support at most 250 placements.');
+    if (count((array) ($room['placements'] ?? [])) > self::MAX_PLACEMENTS) {
+      $errors[] = $this->finding('room_placement_count_invalid', '/placements', 'Rooms support at most ' . self::MAX_PLACEMENTS . ' placements.');
     }
     if (count((array) ($room['entry_ports'] ?? [])) > 20) {
       $errors[] = $this->finding('room_entry_port_count_invalid', '/entry_ports', 'Rooms support at most 20 entry ports.');
@@ -1176,7 +1317,10 @@ class RoomEditorService {
             // footprint; otherwise the edge points into the room and the
             // dungeon-level port transform would seal it against a wall.
             $outside = RoomPlacementTransformer::neighbor($normalized_port['hex'], $normalized_port['edge']);
-            if (isset($coordinates[$outside['q'] . ':' . $outside['r']])) {
+            // A street's doors may stand anywhere on it: a building placed
+            // over the street overrides the hexes it covers.
+            $street_door = $bucket === 'exit_ports' && ($room['room_type'] ?? NULL) === 'street';
+            if (!$street_door && isset($coordinates[$outside['q'] . ':' . $outside['r']])) {
               $errors[] = $this->finding(
                 'port_edge_not_boundary',
                 "/{$bucket}/{$index}/edge",
@@ -1196,7 +1340,43 @@ class RoomEditorService {
         }
       }
     }
+    $open_gaps = [];
+    foreach ((array) ($room['metadata']['placement_gaps'] ?? []) as $gap) {
+      if (($gap['status'] ?? 'open') === 'open') {
+        $open_gaps[(string) $gap['operation_id']][] = $gap;
+      }
+    }
+    foreach ($open_gaps as $operation_id => $gaps) {
+      $finding = $this->finding(
+        'placement_gap_open',
+        '/metadata/placement_gaps',
+        sprintf('%d placement%s skipped by "%s" and still open.', count($gaps), count($gaps) === 1 ? '' : 's', $gaps[0]['operation']),
+        $profile === 'publication' ? 'error' : 'warning',
+        ['operation_id' => $operation_id, 'operation' => $gaps[0]['operation'], 'gap_count' => count($gaps), 'reasons' => array_values(array_unique(array_column($gaps, 'reason')))]
+      );
+      if ($profile === 'publication') {
+        $errors[] = $finding;
+      }
+      else {
+        $warnings[] = $finding;
+      }
+    }
     $defaults = array_filter((array) ($room['entry_ports'] ?? []), static fn(array $port): bool => !empty($port['is_default']));
+    $background = $room['metadata']['background'] ?? NULL;
+    if ($background !== NULL && (!is_array($background)
+      || !is_string($background['url'] ?? NULL) || trim($background['url']) === ''
+      || (isset($background['width']) && (!is_int($background['width']) || $background['width'] < 1))
+      || (isset($background['height']) && (!is_int($background['height']) || $background['height'] < 1)))) {
+      $errors[] = $this->finding('room_background_invalid', '/metadata/background', 'Room background must have a url and, when given, positive integer width and height.');
+    }
+    if (($room['room_type'] ?? NULL) === 'street') {
+      if ($background === NULL) {
+        $errors[] = $this->finding('street_background_missing', '/metadata/background', 'A street room needs background art in metadata.background.', $profile === 'publication' ? 'error' : 'warning');
+      }
+      if ((array) ($room['exit_ports'] ?? []) === []) {
+        $warnings[] = $this->finding('street_has_no_doors', '/exit_ports', 'A street room has no door ports, so no building can open onto it.', 'warning');
+      }
+    }
     if ($profile === 'publication' && count($defaults) !== 1) {
       $errors[] = $this->finding('default_entry_required', '/entry_ports', 'Published rooms require exactly one default entry.');
     }
@@ -1403,6 +1583,18 @@ class RoomEditorService {
     return $this->loadPublishedPayload($version_id ?: NULL);
   }
 
+  /**
+   * Returns the published version string of a room, or NULL when unpublished.
+   */
+  public function publishedVersion(string $room_id): ?string {
+    $query = $this->database->select('dungeoncrawler_content_rooms', 'r');
+    $query->innerJoin('dungeoncrawler_content_room_versions', 'v', 'v.version_id = r.published_version_id');
+    $query->fields('v', ['version']);
+    $query->condition('r.room_id', $room_id);
+    $version = $query->execute()->fetchField();
+    return $version ? (string) $version : NULL;
+  }
+
   private function loadPublishedPayload(?string $version_id): ?array {
     if (!$version_id) {
       return NULL;
@@ -1584,6 +1776,219 @@ class RoomEditorService {
       throw new \InvalidArgumentException('port_invalid');
     }
     return $port;
+  }
+
+  /**
+   * @return list<string>
+   */
+  private function bulkIds(mixed $ids, string $error): array {
+    if (!is_array($ids) || $ids === [] || !array_is_list($ids) || count($ids) > self::MAX_BULK) {
+      throw new \InvalidArgumentException($error);
+    }
+    foreach ($ids as $id) {
+      if (!is_string($id) || $id === '') {
+        throw new \InvalidArgumentException($error);
+      }
+    }
+    return array_values(array_unique($ids));
+  }
+
+  /**
+   * Validates a definition a shape may place and returns its normal form.
+   */
+  private function bulkDefinition(mixed $definition): array {
+    if (!is_array($definition) || !in_array($definition['family'] ?? NULL, self::SHAPE_FAMILIES, TRUE)) {
+      throw new \InvalidArgumentException('bulk_family_invalid');
+    }
+    $family = (string) $definition['family'];
+    $id = (string) ($definition['definition_id'] ?? '');
+    $version = (string) ($definition['version'] ?? '1.0.0');
+    $this->definitions->assertDefinitionSelectable($family, $id);
+    if (!$this->definitions->definitionExists($family, $id, $version)) {
+      throw new \DomainException('definition_not_found');
+    }
+    return ['family' => $family, 'definition_id' => $id, 'version' => $version];
+  }
+
+  /**
+   * Records, updates or clears one gap on the draft.
+   *
+   * A gap an item already carries is updated in place on failure and removed
+   * on success, so retrying never duplicates it.
+   */
+  private function settleGap(array &$room, array $item, string $operation, string $operation_id, ?array $refusal, array $facts): void {
+    $gaps = array_values((array) ($room['metadata']['placement_gaps'] ?? []));
+    $gap_id = isset($item['gap_id']) ? (string) $item['gap_id'] : NULL;
+    $position = NULL;
+    if ($gap_id !== NULL) {
+      foreach ($gaps as $i => $gap) {
+        if (($gap['gap_id'] ?? NULL) === $gap_id && ($gap['status'] ?? 'open') === 'open') {
+          $position = $i;
+        }
+      }
+      if ($position === NULL) {
+        throw new \DomainException('placement_gap_not_found');
+      }
+    }
+    if ($refusal === NULL) {
+      if ($position !== NULL) {
+        array_splice($gaps, $position, 1);
+      }
+    }
+    else {
+      $row = [
+        'gap_id' => $gap_id ?? $this->uuid->generate(),
+        'operation' => $operation,
+        'operation_id' => $operation_id,
+        'status' => 'open',
+        'reason' => $refusal['reason'],
+        'blocker' => $refusal['blocker'],
+      ] + $facts;
+      if ($position !== NULL) {
+        $row['operation'] = $gaps[$position]['operation'];
+        $row['operation_id'] = $gaps[$position]['operation_id'];
+        $gaps[$position] = $row;
+      }
+      else {
+        $gaps[] = $row;
+      }
+    }
+    if ($gaps === [] && !isset($room['metadata']['placement_gaps'])) {
+      return;
+    }
+    $room['metadata']['placement_gaps'] = $gaps;
+  }
+
+  private function bulkOperation(array $payload): array {
+    $operation = (string) ($payload['operation'] ?? 'place_objects');
+    if (!preg_match('/^[a-z][a-z0-9_]{0,39}$/', $operation)) {
+      throw new \InvalidArgumentException('operation_invalid');
+    }
+    $operation_id = (string) ($payload['operation_id'] ?? $this->uuid->generate());
+    if (!$this->isUuid($operation_id)) {
+      throw new \InvalidArgumentException('operation_id_invalid');
+    }
+    return [$operation, $operation_id];
+  }
+
+  private function bulkItems(array $payload): array {
+    $items = $payload['items'] ?? NULL;
+    if (!is_array($items) || $items === [] || !array_is_list($items) || count($items) > self::MAX_BULK) {
+      throw new \InvalidArgumentException('bulk_items_invalid');
+    }
+    return $items;
+  }
+
+  /**
+   * Places many obstacles or items; a hex that cannot take one is skipped and
+   * recorded as a gap instead of stopping the command.
+   */
+  private function placeObjectsBulk(array &$room, array $payload): void {
+    [$operation, $operation_id] = $this->bulkOperation($payload);
+    $items = $this->bulkItems($payload);
+    $terrain = PlacementRules::terrainByHex($room);
+    $clear = PlacementRules::keptClear($room, $payload);
+    $occupied = PlacementRules::solidOccupancy($room);
+    $definitions = [];
+    foreach ($items as $item) {
+      if (!is_array($item) || !isset($item['anchor_hex']['q'], $item['anchor_hex']['r']) || !is_int($item['anchor_hex']['q']) || !is_int($item['anchor_hex']['r'])) {
+        throw new \InvalidArgumentException('bulk_item_invalid');
+      }
+      $ref = $item['definition_ref'] ?? NULL;
+      $cache_key = is_array($ref) ? json_encode($ref) : '';
+      $definitions[$cache_key] ??= $this->bulkDefinition($ref);
+      $family = $definitions[$cache_key]['family'];
+      $q = $item['anchor_hex']['q'];
+      $r = $item['anchor_hex']['r'];
+      $facing = max(0, min(5, (int) ($item['facing'] ?? 0)));
+      $refusal = PlacementRules::refusal($terrain, $clear, $occupied, $family, $q . ':' . $r);
+      if ($refusal === NULL) {
+        $instance_id = (string) ($item['instance_id'] ?? $this->uuid->generate());
+        if (!$this->isUuid($instance_id)) {
+          throw new \InvalidArgumentException('instance_id_invalid');
+        }
+        if ($this->findPlacementIndex($room, $instance_id) !== NULL) {
+          throw new \DomainException('instance_id_already_exists');
+        }
+        $room['placements'][] = [
+          'schema_version' => 'room-placement-v1',
+          'instance_id' => $instance_id,
+          'definition_ref' => $definitions[$cache_key],
+          'room_id' => (string) $room['room_id'],
+          'anchor_hex' => ['q' => $q, 'r' => $r],
+          'footprint' => [['q' => 0, 'r' => 0]],
+          'facing' => $facing,
+          'elevation_ft' => max(-50, min(200, (int) ($item['elevation_ft'] ?? 0))),
+          'state_defaults' => [],
+          'overrides' => is_array($item['overrides'] ?? NULL) ? $item['overrides'] : [],
+        ];
+        if ($family === 'obstacle') {
+          $occupied[$q . ':' . $r] = $instance_id;
+        }
+      }
+      $this->settleGap($room, $item, $operation, $operation_id, $refusal, [
+        'hex' => ['q' => $q, 'r' => $r],
+        'definition_ref' => $definitions[$cache_key],
+        'facing' => $facing,
+      ]);
+    }
+  }
+
+  /**
+   * Moves many placements; one whose target is refused stays where it is and
+   * the refusal is recorded as a gap.
+   */
+  private function moveObjectsBulk(array &$room, array $payload): void {
+    [$operation, $operation_id] = $this->bulkOperation($payload);
+    $items = $this->bulkItems($payload);
+    $moving = [];
+    foreach ($items as $item) {
+      $id = (string) ($item['instance_id'] ?? '');
+      if ($this->findPlacementIndex($room, $id) === NULL) {
+        throw new \DomainException('placement_not_found');
+      }
+      $moving[] = $id;
+    }
+    $terrain = PlacementRules::terrainByHex($room);
+    $clear = PlacementRules::keptClear($room, $payload);
+    // The moving set leaves its hexes first, so shifting a line by one hex
+    // does not collide with itself.
+    $occupied = PlacementRules::solidOccupancy($room, $moving);
+    foreach ($items as $item) {
+      if (!isset($item['anchor_hex']['q'], $item['anchor_hex']['r']) || !is_int($item['anchor_hex']['q']) || !is_int($item['anchor_hex']['r'])) {
+        throw new \InvalidArgumentException('bulk_item_invalid');
+      }
+      $index = $this->findPlacementIndex($room, (string) $item['instance_id']);
+      $family = (string) ($room['placements'][$index]['definition_ref']['family'] ?? '');
+      $q = $item['anchor_hex']['q'];
+      $r = $item['anchor_hex']['r'];
+      $refusal = PlacementRules::refusal($terrain, $clear, $occupied, $family, $q . ':' . $r);
+      if ($refusal === NULL) {
+        $room['placements'][$index]['anchor_hex'] = ['q' => $q, 'r' => $r];
+        if (isset($item['facing'])) {
+          if (!is_int($item['facing']) || $item['facing'] < 0 || $item['facing'] > 5) {
+            throw new \InvalidArgumentException('bulk_item_invalid');
+          }
+          $room['placements'][$index]['facing'] = $item['facing'];
+        }
+        if (in_array($family, ['actor', 'obstacle'], TRUE)) {
+          $occupied[$q . ':' . $r] = (string) $item['instance_id'];
+        }
+      }
+      else {
+        // It stays put, so it still occupies its own hex.
+        $own = $room['placements'][$index]['anchor_hex'];
+        if (in_array($family, ['actor', 'obstacle'], TRUE)) {
+          $occupied[$own['q'] . ':' . $own['r']] = (string) $item['instance_id'];
+        }
+      }
+      $this->settleGap($room, $item, $operation, $operation_id, $refusal, [
+        'hex' => ['q' => $q, 'r' => $r],
+        'instance_id' => (string) $item['instance_id'],
+        'definition_ref' => $room['placements'][$index]['definition_ref'],
+        'facing' => (int) ($room['placements'][$index]['facing'] ?? 0),
+      ]);
+    }
   }
 
   private function findHexIndex(array $room, int $q, int $r): ?int {

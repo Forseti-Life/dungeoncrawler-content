@@ -80,6 +80,30 @@ class BuildSiteFromStoryBriefToolTest extends UnitTestCase {
       ->execute(['expected_revision' => 3], $this->context($editor));
   }
 
+  public function testDistrictBuildRequiresGroundBeforeAnyRoom(): void {
+    $rooms = $this->createMock(CanonicalRoomBuildService::class);
+    $rooms->expects($this->never())->method('build');
+    $generation = $this->createMock(EditorCanonicalGenerationPlanService::class);
+    $generation->expects($this->never())->method('generateDungeonLayout');
+    $editor = $this->createMock(DungeonEditorService::class);
+    $editor->method('getDraft')->willReturn([
+      'draft_id' => 'd1',
+      'revision' => 3,
+      'dungeon' => [
+        'dungeon_id' => 'kobold-caves',
+        'kind' => 'district',
+        'room_placements' => [],
+      ],
+    ]);
+    $editor->method('describe')->willReturn(['placements' => []]);
+
+    $result = $this->tool($this->brief(['cave-mouth', 'warren']), $rooms, $generation)
+      ->execute(['expected_revision' => 3], $this->context($editor));
+
+    $this->assertSame('district_ground_required', $result['state']);
+    $this->assertSame(2, $result['building_count']);
+  }
+
   private function tool(array $brief, CanonicalRoomBuildService $rooms, EditorCanonicalGenerationPlanService $generation): BuildSiteFromStoryBriefTool {
     $storylines = $this->createMock(StorylineAuthoringDraftService::class);
     $storylines->method('storyBriefs')->with('dungeon', 'kobold-caves')->willReturn($brief);

@@ -6,6 +6,10 @@ use Drupal\Component\Uuid\UuidInterface;
 use Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\ApplyRoomCommandsTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\ApplyRoomCommandTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\EditSelectionTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\PlaceShapeTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\PlacementAnalysisTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\PlacementGapsTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\RoomDraftLifecycleTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\DefinitionLifecycleTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\CheckPublicationReadinessTool;
@@ -28,6 +32,7 @@ use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\PublishRoomVersionTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\SummarizeDefinitionUsageTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\SummarizeRoomTopologyTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\UpdateCanonicalDefinitionTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\DescribeValidationTroubleshootingTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\ValidateCanonicalDefinitionTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\ValidateDraftTool;
 use Drupal\dungeoncrawler_content\Service\RoomEditorService;
@@ -55,6 +60,7 @@ final class RoomEditorGmSurface implements EditorGmSurfaceInterface {
     'add_hex',
     'remove_hex',
     'set_hex_terrain',
+    'set_hexes_terrain',
     'set_hex_elevation',
     'place_object',
     'move_object',
@@ -62,6 +68,11 @@ final class RoomEditorGmSurface implements EditorGmSurfaceInterface {
     'update_object_overrides',
     'duplicate_object',
     'remove_object',
+    'place_objects_bulk',
+    'move_objects_bulk',
+    'remove_objects_bulk',
+    'replace_objects_bulk',
+    'dismiss_placement_gaps',
     'add_entry_port',
     'update_entry_port',
     'remove_entry_port',
@@ -86,6 +97,7 @@ final class RoomEditorGmSurface implements EditorGmSurfaceInterface {
     $command_executor = new ApplyRoomCommandsTool($uuid);
     $tools = [
       new LoadDraftSnapshotTool(),
+      new DescribeValidationTroubleshootingTool(),
       new LoadPublishedSnapshotTool(),
       new SummarizeRoomTopologyTool(),
       new ListCatalogDefinitionsTool(),
@@ -118,6 +130,18 @@ final class RoomEditorGmSurface implements EditorGmSurfaceInterface {
     }
     foreach (['list_room_drafts', 'create_room_draft', 'load_room_draft', 'abandon_room_draft', 'list_room_command_history'] as $name) {
       $tools[] = new RoomDraftLifecycleTool($name);
+    }
+    foreach (PlaceShapeTool::NAMES as $name) {
+      $tools[] = new PlaceShapeTool($name);
+    }
+    foreach (PlacementAnalysisTool::NAMES as $name) {
+      $tools[] = new PlacementAnalysisTool($name);
+    }
+    foreach (EditSelectionTool::NAMES as $name) {
+      $tools[] = new EditSelectionTool($name);
+    }
+    foreach (PlacementGapsTool::NAMES as $name) {
+      $tools[] = new PlacementGapsTool($name);
     }
     $tools[] = new ApplyRoomCommandTool($command_executor);
     foreach (['inspect_definition_lifecycle', 'retire_canonical_definition', 'restore_canonical_definition'] as $name) {

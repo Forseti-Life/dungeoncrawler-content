@@ -19,8 +19,8 @@ final class RoomDraftLifecycleTool implements EditorGmToolInterface {
     $mutating = in_array($this->name, ['create_room_draft', 'abandon_room_draft'], TRUE);
     $arguments = match ($this->name) {
       'create_room_draft' => [
-        EditorGmToolDefinition::argument('room_id', 'string', FALSE, 'Existing canonical room to edit; omit for a new room. Never ask the author to invent an ID.'),
-        EditorGmToolDefinition::argument('name', 'string', FALSE, 'Name for a new room; identity is generated internally.'),
+        EditorGmToolDefinition::argument('room_id', 'string', FALSE, 'Existing canonical room or authoritative reserved storyline room ID. Omit for an unbound new room.'),
+        EditorGmToolDefinition::argument('name', 'string', FALSE, 'Name for a new room. When room_id is reserved by a storyline, both may be supplied.'),
       ],
       'load_room_draft' => [
         EditorGmToolDefinition::argument('draft_id', 'string', TRUE, 'Draft selected from list_room_drafts; must be accessible and active.'),

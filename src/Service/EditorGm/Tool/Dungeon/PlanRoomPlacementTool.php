@@ -29,8 +29,10 @@ final class PlanRoomPlacementTool implements EditorGmToolInterface {
       'planning only; RoomPlacementTransformer geometry, execution requires apply_dungeon_commands',
       [
         EditorGmToolDefinition::argument('room_id', 'string', TRUE, 'Published room to place (from list_published_rooms).'),
-        EditorGmToolDefinition::argument('anchor_placement_id', 'string', TRUE, 'Existing placement whose exit port the new room must seal against.'),
-        EditorGmToolDefinition::argument('anchor_port_id', 'string', TRUE, 'Exit port id on the anchor placement.'),
+        EditorGmToolDefinition::argument('anchor_placement_id', 'string', FALSE, 'Existing placement whose exit port the new room must seal against. Use with anchor_port_id.'),
+        EditorGmToolDefinition::argument('anchor_port_id', 'string', FALSE, 'Exit port id on the anchor placement. Use with anchor_placement_id.'),
+        EditorGmToolDefinition::argument('anchor_room_id', 'string', FALSE, 'Resolve the existing placement and first unlinked exit port from this published room ID.'),
+        EditorGmToolDefinition::argument('near_room_id', 'string', FALSE, 'Place in a non-overlapping position near this published room without requiring a port seal.'),
         EditorGmToolDefinition::argument('entry_port_id', 'string', FALSE, 'Restrict to one entry port of the new room.'),
         EditorGmToolDefinition::argument('candidate', 'integer', FALSE, '1-based index into the returned candidates to plan (default 1).'),
         EditorGmToolDefinition::argument('label', 'string', FALSE, 'Placement label.'),
@@ -41,18 +43,63 @@ final class PlanRoomPlacementTool implements EditorGmToolInterface {
   public function execute(array $arguments, EditorGmToolContext $context): array {
     $context = DungeonEditorGmToolContext::of($context);
     $room_id = EditorGmToolContext::requireString($arguments, 'room_id');
-    $anchor_id = EditorGmToolContext::requireString($arguments, 'anchor_placement_id');
-    $anchor_port_id = EditorGmToolContext::requireString($arguments, 'anchor_port_id');
     $entry_filter = isset($arguments['entry_port_id']) ? trim((string) $arguments['entry_port_id']) : '';
 
     $model = $context->model();
     $library = DungeonPlanSteps::libraryRoom($context, $room_id);
+    $anchor_room_id = trim((string) ($arguments['anchor_room_id'] ?? ''));
+    $near_room_id = trim((string) ($arguments['near_room_id'] ?? ''));
+    $anchor_id = trim((string) ($arguments['anchor_placement_id'] ?? ''));
+    $anchor_port_id = trim((string) ($arguments['anchor_port_id'] ?? ''));
+    if ($near_room_id !== '' && ($anchor_room_id !== '' || $anchor_id !== '' || $anchor_port_id !== '')) {
+      throw new \InvalidArgumentException('near_room_id_cannot_mix_sealed_anchor');
+    }
+    if ($anchor_room_id !== '') {
+      if ($anchor_id !== '' || $anchor_port_id !== '' || $near_room_id !== '') {
+        throw new \InvalidArgumentException('anchor_room_id_cannot_mix_explicit_anchor');
+      }
+      $matches = array_values(array_filter(
+        (array) ($model['placements'] ?? []),
+        static fn(mixed $placement): bool => is_array($placement)
+          && ($placement['room_id'] ?? '') === $anchor_room_id,
+      ));
+      if (count($matches) !== 1) {
+        throw new \DomainException('anchor_room_placement_ambiguous:' . $anchor_room_id);
+      }
+      $anchor_id = (string) ($matches[0]['placement_id'] ?? '');
+    }
+    if ($anchor_id === '') {
+      if ($near_room_id !== '') {
+        return $this->planNearRoom($room_id, $near_room_id, $library, $model, $context, $arguments);
+      }
+      throw new \InvalidArgumentException('anchor_placement_id_required');
+    }
     $anchor = DungeonPlanSteps::placement($model, $anchor_id);
     if (!$anchor['resolved']) {
       throw new \DomainException(sprintf('placement_unresolved:%s', $anchor_id));
     }
 
     $anchor_port = NULL;
+    if ($anchor_port_id === '' && $anchor_room_id !== '') {
+      $linked = [];
+      foreach ((array) ($model['port_links'] ?? []) as $link) {
+        if (($link['from']['placement_id'] ?? '') === $anchor_id) {
+          $linked[(string) ($link['from']['port_id'] ?? '')] = TRUE;
+        }
+      }
+      foreach ((array) $anchor['room']['ports'] as $port) {
+        if (($port['kind'] ?? '') === 'exit' && !isset($linked[(string) ($port['port_id'] ?? '')])) {
+          $anchor_port_id = (string) $port['port_id'];
+          break;
+        }
+      }
+      if ($anchor_port_id === '') {
+        throw new \DomainException('anchor_room_has_no_unlinked_exit:' . $anchor_room_id);
+      }
+    }
+    if ($anchor_port_id === '') {
+      throw new \InvalidArgumentException('anchor_port_id_required');
+    }
     foreach ((array) $anchor['room']['ports'] as $port) {
       if ($port['port_id'] === $anchor_port_id) {
         $anchor_port = $port;
@@ -181,6 +228,101 @@ final class PlanRoomPlacementTool implements EditorGmToolInterface {
       )),
     ]);
     return $result;
+  }
+
+  private function planNearRoom(
+    string $room_id,
+    string $anchor_room_id,
+    array $library,
+    array $model,
+    DungeonEditorGmToolContext $context,
+    array $arguments,
+  ): array {
+    $matches = array_values(array_filter(
+      (array) ($model['placements'] ?? []),
+      static fn(mixed $placement): bool => is_array($placement)
+        && ($placement['room_id'] ?? '') === $anchor_room_id,
+    ));
+    if (count($matches) !== 1) {
+      throw new \DomainException('near_room_placement_ambiguous:' . $anchor_room_id);
+    }
+    $bounds = (array) ($matches[0]['level_bounds'] ?? []);
+    if ($bounds === []) {
+      throw new \DomainException('near_room_bounds_unresolved:' . $anchor_room_id);
+    }
+    $center_q = (int) floor(((int) $bounds['min_q'] + (int) $bounds['max_q']) / 2);
+    $center_r = (int) floor(((int) $bounds['min_r'] + (int) $bounds['max_r']) / 2);
+    $occupied = (array) ($model['occupancy'] ?? []);
+    $candidates = [];
+    foreach (range(0, RoomPlacementTransformer::EDGE_COUNT - 1) as $rotation) {
+      $rotated = [];
+      $min_q = $max_q = $min_r = $max_r = NULL;
+      foreach ((array) ($library['footprint'] ?? []) as $hex) {
+        $point = RoomPlacementTransformer::rotate((int) $hex['q'], (int) $hex['r'], $rotation);
+        $rotated[] = $point;
+        $min_q = $min_q === NULL ? $point['q'] : min($min_q, $point['q']);
+        $max_q = $max_q === NULL ? $point['q'] : max($max_q, $point['q']);
+        $min_r = $min_r === NULL ? $point['r'] : min($min_r, $point['r']);
+        $max_r = $max_r === NULL ? $point['r'] : max($max_r, $point['r']);
+      }
+      $origins = [
+        ['q' => (int) $bounds['max_q'] + 1 - $min_q, 'r' => $center_r - (int) floor(($min_r + $max_r) / 2)],
+        ['q' => (int) $bounds['min_q'] - 1 - $max_q, 'r' => $center_r - (int) floor(($min_r + $max_r) / 2)],
+        ['q' => $center_q - (int) floor(($min_q + $max_q) / 2), 'r' => (int) $bounds['max_r'] + 1 - $min_r],
+        ['q' => $center_q - (int) floor(($min_q + $max_q) / 2), 'r' => (int) $bounds['min_r'] - 1 - $max_r],
+      ];
+      foreach ($origins as $origin) {
+        $overlaps = FALSE;
+        foreach ($rotated as $point) {
+          $key = RoomPlacementTransformer::hexKey([
+            'q' => $origin['q'] + $point['q'],
+            'r' => $origin['r'] + $point['r'],
+          ]);
+          if (isset($occupied[$key])) {
+            $overlaps = TRUE;
+            break;
+          }
+        }
+        if (!$overlaps) {
+          $candidates[] = ['origin' => $origin, 'rotation_steps' => $rotation];
+        }
+      }
+    }
+    $candidates = array_values(array_unique($candidates, SORT_REGULAR));
+    if ($candidates === []) {
+      throw new \DomainException('near_room_candidate_not_found:' . $anchor_room_id);
+    }
+    $chosen_index = isset($arguments['candidate']) ? (int) $arguments['candidate'] - 1 : 0;
+    $chosen = $candidates[$chosen_index] ?? NULL;
+    if ($chosen === NULL) {
+      throw new \OutOfBoundsException('candidate_not_found:' . ($chosen_index + 1));
+    }
+    $payload = [
+      'room_id' => $room_id,
+      'version_id' => (string) $library['version_id'],
+      'origin' => $chosen['origin'],
+      'rotation_steps' => $chosen['rotation_steps'],
+    ];
+    if (isset($arguments['label'])) {
+      $payload['label'] = trim((string) $arguments['label']);
+    }
+    return [
+      'room_id' => $room_id,
+      'version_id' => $library['version_id'],
+      'near_room_id' => $anchor_room_id,
+      'candidate_count' => count($candidates),
+      'candidates' => $candidates,
+      'chosen' => $chosen,
+      'follow_up' => 'Use plan_port_links to connect the new placement to the anchor room if a link is required.',
+      'command_plan' => DungeonPlanSteps::plan($context, [
+        DungeonPlanSteps::step(
+          1,
+          'place_room',
+          $payload,
+          sprintf('Place "%s" near "%s" without overlapping any existing placement.', $library['name'], $anchor_room_id),
+        ),
+      ]),
+    ];
   }
 
 }

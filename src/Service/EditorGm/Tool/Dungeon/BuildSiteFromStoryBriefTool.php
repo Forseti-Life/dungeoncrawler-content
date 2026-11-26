@@ -55,6 +55,21 @@ final class BuildSiteFromStoryBriefTool implements EditorGmToolInterface {
     $dungeon_id = (string) $context->dungeon()['dungeon_id'];
     $story = $this->story($dungeon_id, $arguments['storyline_draft_id'] ?? NULL);
     $room_briefs = array_column($story['rooms'], NULL, 'room_id');
+    if (($context->dungeon()['kind'] ?? 'dungeon') === 'district') {
+      $street_placements = array_filter(
+        (array) $context->model()['placements'],
+        static fn(array $placement): bool => ($placement['room']['room_type'] ?? '') === 'street',
+      );
+      if ($street_placements === []) {
+        return [
+          'state' => 'district_ground_required',
+          'storyline' => $story['title'],
+          'dungeon_id' => $dungeon_id,
+          'building_count' => count($room_briefs),
+          'next_step' => 'Create and place the district street ground before building any room.',
+        ];
+      }
+    }
     // The site is a path from its entrance: the entrance comes first and the
     // last room in story order is the end of it.
     $entrance = $story['entrance_room'];

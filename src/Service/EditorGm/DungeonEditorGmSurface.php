@@ -12,6 +12,7 @@ use Drupal\dungeoncrawler_content\Service\Generation\CanonicalRoomBuildService;
 use Drupal\dungeoncrawler_content\Service\StorylineAuthoringDraftService;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\ApplyDungeonCommandsTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\DescribePublicationReadinessTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\DelegateRoomEditorTaskTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\ExplainDungeonValidationFindingsTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\GenerateDungeonLayoutTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\InspectRoomVersionTool;
@@ -38,6 +39,7 @@ use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\ListCatalogDefinitionsTo
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\LoadCanonicalDefinitionTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\PlanCanonicalDefinitionPatchTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\UpdateCanonicalDefinitionTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\DescribeValidationTroubleshootingTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Suite\RouteToEditorTool;
 use Drupal\dungeoncrawler_content\Service\EditorSuite\EditorSuiteService;
 
@@ -79,7 +81,9 @@ final class DungeonEditorGmSurface implements EditorGmSurfaceInterface {
   ) {
     $tools = [
       new LoadDungeonDraftTool(),
+      new DescribeValidationTroubleshootingTool(),
       ...($suite === NULL ? [] : [new RouteToEditorTool($suite)]),
+      new DelegateRoomEditorTaskTool(),
       new SummarizeLevelTopologyTool(),
       new ListPublishedRoomsTool(),
       new InspectRoomVersionTool(),

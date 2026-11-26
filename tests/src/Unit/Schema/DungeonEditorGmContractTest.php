@@ -34,7 +34,9 @@ class DungeonEditorGmContractTest extends TestCase {
 
   private const DUNGEON_TOOLS = [
     'load_dungeon_draft',
+    'describe_validation_troubleshooting',
     'route_to_editor',
+    'delegate_room_editor_task',
     'summarize_level_topology',
     'list_published_rooms',
     'inspect_room_version',
