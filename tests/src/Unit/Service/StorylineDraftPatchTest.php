@@ -1125,6 +1125,7 @@ class StorylineDraftPatchTest extends UnitTestCase {
         'ancestry' => 'goblin',
         'level' => 3,
         'alignment' => 'CN',
+        'portrait_url' => '/files/gribbles.png',
       ],
     ]);
     $service = new StorylineAuthoringDraftService(
@@ -1174,6 +1175,7 @@ class StorylineDraftPatchTest extends UnitTestCase {
         'ancestry' => 'goblin',
         'level' => 3,
         'alignment' => 'CN',
+        'portrait_url' => '/files/gribbles.png',
       ],
     ]);
     $mirror = $this->createMock(ActorDefinitionMirror::class);

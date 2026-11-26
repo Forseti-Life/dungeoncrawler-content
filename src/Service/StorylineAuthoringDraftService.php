@@ -5479,6 +5479,21 @@ class StorylineAuthoringDraftService {
       }
     }
     $actor['character_sheet_revision'] = (int) ($sheet['revision'] ?? 0);
+    $portrait_url = trim((string) (
+      $sheet['payload']['portrait_url']
+      ?? $sheet['payload']['portrait']
+      ?? ''
+    ));
+    if ($portrait_url === '') {
+      $portrait_url = trim((string) $this->database
+        ->select('dc_campaign_characters', 'c')
+        ->fields('c', ['portrait'])
+        ->condition('id', $character_id)
+        ->range(0, 1)
+        ->execute()
+        ->fetchField());
+    }
+    $actor['portrait_url'] = $portrait_url;
     $actor['character_sheet_spec_hash'] = self::actorSpecHash($actor);
   }
 

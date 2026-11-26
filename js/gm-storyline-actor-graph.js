@@ -17,7 +17,7 @@
   const UNAFFILIATED = 'None';
   const BOND_SUGGESTIONS = ['spouse', 'parent', 'child', 'sibling', 'ally', 'rival', 'enemy', 'serves', 'commands', 'mentor'];
   const ATTITUDE_COLORS = { hostile: '#ef4444', unfriendly: '#f97316', indifferent: '#94a3b8', friendly: '#22c55e', helpful: '#14b8a6' };
-  const NODE = { width: 150, height: 44, gapX: 26, gapY: 30, perRow: 3, pad: 26, title: 34 };
+  const NODE = { width: 182, height: 60, gapX: 26, gapY: 30, perRow: 3, pad: 26, title: 34 };
 
   const svgEl = (name, attributes = {}, text = null) => {
     const element = document.createElementNS(SVG, name);
@@ -295,9 +295,24 @@
             const group = svgEl('g', { class: `actor-graph__node${actor.actor_id === selectedId ? ' is-selected' : ''}`, tabindex: 0, role: 'button', 'aria-label': `${actor.display_name}, ${actor.role}` });
             group.appendChild(svgEl('rect', { x: position.x, y: position.y, width: NODE.width, height: NODE.height, rx: 10 }));
             group.appendChild(svgEl('rect', { x: position.x, y: position.y, width: 6, height: NODE.height, rx: 3, fill: ATTITUDE_COLORS[(actor.attitude || '').toLowerCase()] || '#94a3b8' }));
+            if (actor.portrait_url) {
+              group.appendChild(svgEl('image', {
+                href: actor.portrait_url,
+                x: position.x + 12,
+                y: position.y + 9,
+                width: 42,
+                height: 42,
+                preserveAspectRatio: 'xMidYMid slice',
+                class: 'actor-graph__node-portrait',
+              }));
+            } else {
+              group.appendChild(svgEl('circle', { cx: position.x + 33, cy: position.y + 30, r: 20, class: 'actor-graph__node-portrait-placeholder' }));
+              const initials = actor.display_name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
+              group.appendChild(svgEl('text', { x: position.x + 33, y: position.y + 34, 'text-anchor': 'middle', class: 'actor-graph__node-initials' }, initials));
+            }
             const name = actor.display_name.length > 21 ? `${actor.display_name.slice(0, 20)}…` : actor.display_name;
-            group.appendChild(svgEl('text', { x: position.x + 14, y: position.y + 19, class: 'actor-graph__node-name' }, name));
-            group.appendChild(svgEl('text', { x: position.x + 14, y: position.y + 35, class: 'actor-graph__node-role' }, (actor.role || '').replace(/_/g, ' ')));
+            group.appendChild(svgEl('text', { x: position.x + 62, y: position.y + 24, class: 'actor-graph__node-name' }, name));
+            group.appendChild(svgEl('text', { x: position.x + 62, y: position.y + 42, class: 'actor-graph__node-role' }, (actor.role || '').replace(/_/g, ' ')));
             group.appendChild(svgEl('title', {}, `${actor.display_name} — select to manage, double-click to open the review page`));
             const select = () => { selectedId = actor.actor_id; render(); };
             group.addEventListener('click', select);
@@ -318,6 +333,52 @@
             return;
           }
           const editable = draft.can_edit === true;
+          const portrait = el('div', { class: 'actor-graph__portrait' });
+          if (actor.portrait_url) {
+            portrait.appendChild(el('img', {
+              src: actor.portrait_url,
+              alt: `${actor.display_name} portrait`,
+              loading: 'lazy',
+            }));
+          } else {
+            const initials = actor.display_name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
+            portrait.appendChild(el('div', { class: 'actor-graph__portrait-placeholder', 'aria-label': 'No portrait available' }, initials));
+          }
+          const portraitButton = el('button', {
+            type: 'button',
+            class: 'btn btn-secondary btn-sm actor-graph__portrait-action',
+          }, actor.portrait_url ? 'Regenerate portrait' : 'Generate portrait');
+          portraitButton.addEventListener('click', async () => {
+            portraitButton.disabled = true;
+            portraitButton.textContent = 'Waiting on image provider…';
+            setStatus(`Generating a portrait for ${actor.display_name}…`);
+            try {
+              if (!csrfToken) {
+                const token = await fetch('/session/token', { credentials: 'same-origin' });
+                if (!token.ok) throw new Error(`token_${token.status}`);
+                csrfToken = (await token.text()).trim();
+              }
+              const url = settings.portraitUrlTemplate.replace('{actor_id}', encodeURIComponent(actor.actor_id));
+              const response = await fetch(url, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'X-CSRF-Token': csrfToken },
+              });
+              const body = await response.json().catch(() => ({}));
+              if (!response.ok) {
+                throw new Error(body?.error?.message || body?.error?.code || `portrait_${response.status}`);
+              }
+              actor.portrait_url = body.data.portrait_url;
+              setStatus(`${actor.display_name}'s portrait was generated.`);
+              render();
+            } catch (error) {
+              portraitButton.disabled = false;
+              portraitButton.textContent = actor.portrait_url ? 'Regenerate portrait' : 'Generate portrait';
+              setStatus(`Portrait generation failed: ${error.message}`, true);
+            }
+          });
+          portrait.appendChild(portraitButton);
+          panel.appendChild(portrait);
           panel.appendChild(el('h3', {}, actor.display_name));
           panel.appendChild(el('p', { class: 'actor-graph__meta' }, `${(actor.role || '').replace(/_/g, ' ')} · ${actor.attitude || 'no attitude set'}`));
           const open = el('a', { href: reviewUrl(actor.actor_id), target: '_blank', rel: 'noopener', class: 'btn btn-primary actor-graph__open' }, 'Open actor review page');

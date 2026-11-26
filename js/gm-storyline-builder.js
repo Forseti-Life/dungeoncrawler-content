@@ -692,6 +692,50 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
             ? `${contract.label} · ${category}`
             : contract.label;
           headline.querySelector('.gm-storyline-wizard__row-name').textContent = name || fallback;
+          updateCollectionObjectMedia(collection, row, name || fallback);
+        }
+
+        function updateCollectionObjectMedia(collection, row, fallbackLabel) {
+          if (!['dungeon_entries', 'room_entries'].includes(collection)) return;
+          const kind = collection === 'dungeon_entries' ? 'dungeon' : 'room';
+          const idField = kind === 'dungeon' ? 'dungeon_id' : 'room_id';
+          const id = (row.querySelector(`[data-col-field="${idField}"]`)?.value || '').trim();
+          let media = row.querySelector(':scope > .gm-storyline-wizard__object-media');
+          if (!media) {
+            media = document.createElement('div');
+            media.className = 'gm-storyline-wizard__object-media';
+            const preview = document.createElement('div');
+            preview.className = 'gm-storyline-wizard__object-preview';
+            const label = document.createElement('span');
+            label.className = 'gm-storyline-wizard__object-preview-label';
+            preview.appendChild(label);
+            const actions = document.createElement('div');
+            actions.className = 'gm-storyline-wizard__object-actions';
+            const generate = document.createElement('a');
+            generate.className = 'btn btn-primary btn-sm';
+            generate.target = '_blank';
+            generate.rel = 'noopener';
+            generate.textContent = kind === 'dungeon'
+              ? 'Generate / Regenerate in Dungeon Editor'
+              : 'Generate / Regenerate in Room Editor';
+            const open = document.createElement('a');
+            open.className = 'btn btn-secondary btn-sm';
+            open.target = '_blank';
+            open.rel = 'noopener';
+            open.textContent = 'Open editor';
+            actions.append(generate, open);
+            media.append(preview, actions);
+            row.insertBefore(media, row.querySelector(':scope > .gm-storyline-wizard__row-headline')?.nextSibling || null);
+          }
+          const template = String(objectEditorTemplates[kind] || '');
+          const href = id && template ? template.replace('{object_id}', encodeURIComponent(id)) : '';
+          media.querySelector('.gm-storyline-wizard__object-preview-label').textContent =
+            `${kind === 'dungeon' ? 'Dungeon' : 'Room'} preview · ${fallbackLabel}`;
+          media.querySelectorAll('a').forEach((link) => {
+            link.href = href || '#';
+            link.setAttribute('aria-disabled', href ? 'false' : 'true');
+            link.classList.toggle('is-disabled', !href);
+          });
         }
 
         function refreshCollectionHeadlines(container, collection) {

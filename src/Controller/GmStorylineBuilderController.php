@@ -506,6 +506,10 @@ TWIG,
           'dungeoncrawlerStorylineActorGraph' => [
             'loadUrl' => Url::fromRoute('dungeoncrawler_content.api.storyline_builder_draft_get', $draft_route)->toString(),
             'saveUrl' => Url::fromRoute('dungeoncrawler_content.api.storyline_builder_draft_save', $draft_route)->toString(),
+            'portraitUrlTemplate' => str_replace('ACTORID', '{actor_id}', Url::fromRoute(
+              'dungeoncrawler_content.gm_storyline_actor_portrait',
+              $draft_route + ['actor_id' => 'ACTORID'],
+            )->toString()),
             'actorUrlTemplate' => str_replace('ACTORID', '{actor_id}', $actor_url),
             // The institution and relationship engines' own vocabularies.
             'domains' => InstitutionNormalizationService::AUTHORABLE_DOMAINS,

@@ -66,6 +66,18 @@ dungeoncrawler_content.gm_storyline_actor_graph:
     _user_is_logged_in: 'TRUE'
     _permission: 'edit canonical dungeoncrawler storylines'
 
+dungeoncrawler_content.gm_storyline_actor_portrait:
+  path: '/api/storyline-builder/drafts/{draft_id}/actors/{actor_id}/portrait'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\StorylineActorPortraitController::generate'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _user_is_logged_in: 'TRUE'
+    _permission: 'edit canonical dungeoncrawler storylines'
+    draft_id: '[0-9a-f-]{36}'
+    actor_id: '[A-Za-z0-9][A-Za-z0-9._-]{0,190}'
+
 dungeoncrawler_content.gm_storyline_scene_review:
   path: '/game-master/storyline-builder/scenes'
   defaults:

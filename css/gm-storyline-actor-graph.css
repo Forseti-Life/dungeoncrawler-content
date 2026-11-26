@@ -33,6 +33,22 @@
 .actor-graph__node:focus { outline: none; }
 .actor-graph__node-name { fill: #f1f5f9; font-size: 13px; font-weight: 600; }
 .actor-graph__node-role { fill: #94a3b8; font-size: 11px; }
+.actor-graph__node-portrait { clip-path: circle(21px at 21px 21px); }
+.actor-graph__node-portrait-placeholder { fill: #0f172a; stroke: #64748b; }
+.actor-graph__node-initials { fill: #fbbf24; font-size: 12px; font-weight: 700; }
+.actor-graph__portrait { display: grid; justify-items: center; gap: 0.65rem; margin-bottom: 1rem; }
+.actor-graph__portrait > img,
+.actor-graph__portrait-placeholder {
+  width: 100%;
+  max-width: 15rem;
+  aspect-ratio: 3 / 4;
+  border: 1px solid #475569;
+  border-radius: 12px;
+  background: #0f172a;
+  object-fit: cover;
+}
+.actor-graph__portrait-placeholder { display: grid; place-items: center; color: #fbbf24; font-size: 2rem; font-weight: 700; }
+.actor-graph__portrait-action { min-width: 10rem; }
 .actor-graph__link path { fill: none; stroke: #64748b; stroke-width: 1.6; }
 .actor-graph__link.is-active path { stroke: #fbbf24; stroke-width: 2.4; }
 .actor-graph__link.is-dim { opacity: 0.25; }

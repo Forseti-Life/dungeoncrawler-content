@@ -387,6 +387,47 @@
   font-size: 1rem;
 }
 
+.gm-storyline-wizard__object-media {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(10rem, 1fr) auto;
+  align-items: stretch;
+  gap: 0.75rem;
+}
+
+.gm-storyline-wizard__object-preview {
+  display: grid;
+  place-items: center;
+  min-height: 7rem;
+  border: 1px dashed rgba(148, 163, 184, 0.55);
+  border-radius: 10px;
+  background:
+    linear-gradient(135deg, rgba(51, 65, 85, 0.45) 25%, transparent 25%) 0 0 / 18px 18px,
+    linear-gradient(315deg, rgba(51, 65, 85, 0.35) 25%, transparent 25%) 0 0 / 18px 18px,
+    rgba(8, 12, 22, 0.7);
+}
+
+.gm-storyline-wizard__object-preview-label {
+  max-width: 22rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  background: rgba(8, 12, 22, 0.84);
+  color: #cbd5e1;
+  font-size: 0.82rem;
+  text-align: center;
+}
+
+.gm-storyline-wizard__object-actions {
+  display: grid;
+  align-content: center;
+  gap: 0.5rem;
+}
+
+.gm-storyline-wizard__object-actions .is-disabled {
+  pointer-events: none;
+  opacity: 0.55;
+}
+
 .gm-storyline-wizard__row--five {
   grid-template-columns: repeat(5, minmax(0, 1fr)) auto;
 }
@@ -779,6 +820,9 @@
   .gm-storyline-wizard__row--objective,
   .gm-storyline-wizard__row--analysis,
   .gm-storyline-wizard__row--effect {
+    grid-template-columns: 1fr;
+  }
+  .gm-storyline-wizard__object-media {
     grid-template-columns: 1fr;
   }
 
