@@ -88,6 +88,7 @@ final class RoomEditorGmContextAssembler implements EditorGmContextAssemblerInte
         'exit_ports' => array_values((array) ($room['exit_ports'] ?? [])),
       ],
       'current_state' => $context->status(),
+      'furnishing_recommendations' => $context->roomEditor->furnishingRecommendations($room),
       'troubleshooting' => RoomValidationTroubleshootingGuide::packet($context),
       'validation_summary' => [
         'profile' => (string) ($validation['profile'] ?? $context->validationProfile),

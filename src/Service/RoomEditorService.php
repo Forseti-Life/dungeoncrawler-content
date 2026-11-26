@@ -47,6 +47,14 @@ class RoomEditorService {
   ];
 
   private const SIZE_CATEGORIES = ['tiny', 'small', 'medium', 'large', 'huge', 'gargantuan'];
+  private const SIZE_HEX_RANGES = [
+    'tiny' => [1, 12],
+    'small' => [1, 24],
+    'medium' => [1, 45],
+    'large' => [7, 75],
+    'huge' => [20, 120],
+    'gargantuan' => [40, 500],
+  ];
 
   /**
    * Placeholder identity of a new room; not yet the author's own.
@@ -68,6 +76,9 @@ class RoomEditorService {
     'room_id_invalid' => 'draft_command',
     'room_name_invalid' => 'draft_command',
     'room_description_invalid' => 'draft_command',
+    'room_description_insufficient' => 'draft_command',
+    'room_geometry_scale_mismatch' => 'draft_command',
+    'room_geometry_shape_mismatch' => 'draft_command',
     'room_type_invalid' => 'draft_command',
     'size_category_invalid' => 'draft_command',
     'room_terrain_invalid' => 'draft_command',
@@ -136,7 +147,6 @@ class RoomEditorService {
       ->execute()
       ->fetchAll());
   }
-
   /**
    * Active drafts, optionally limited to those the given author created.
    *
@@ -482,7 +492,8 @@ class RoomEditorService {
       'contents' => $counts['placements'] > 0,
       'valid' => $validation['is_valid'],
     ];
-    // Whatever is placed must exist in the library; nothing has to be placed.
+    // Whatever is placed must exist in the library. Missing furnishing is a
+    // recommendation phase, not an automatic room-content write.
     $contents_resolve = array_filter(
       $validation['findings'],
       static fn(array $finding): bool => $finding['severity'] === 'error' && $finding['route'] === 'definition_editor',
@@ -571,6 +582,7 @@ class RoomEditorService {
     }
     usort($contents, static fn(array $a, array $b): int => [$a['family'], $a['name']] <=> [$b['family'], $b['name']]);
     $result['contents'] = $contents;
+    $result['furnishing_recommendations'] = $this->furnishingRecommendations($room);
     $result['next_steps'] = self::recommendNextAuthoringAction($result);
     return $result;
   }
@@ -601,7 +613,172 @@ class RoomEditorService {
     if (($state['open_warning_count'] ?? $state['warning_count']) > 0) {
       return ['Have the GM address the next validation warning.'];
     }
+    if ($state['furnishing_recommendations'] !== []) {
+      $labels = array_column(array_slice($state['furnishing_recommendations'], 0, 3), 'label');
+      return [sprintf(
+        'Before publication, have the GM review the room-fleshing recommendations and place or dismiss: %s.',
+        implode(', ', array_filter($labels)),
+      )];
+    }
     return ['Review the room and check its publication readiness.'];
+  }
+
+  public function furnishingRecommendations(array $room): array {
+    if ($this->definitions === NULL) {
+      return [];
+    }
+    $placements = array_values(array_filter((array) ($room['placements'] ?? []), 'is_array'));
+    $placed = [];
+    foreach ($placements as $placement) {
+      $family = (string) ($placement['definition_ref']['family'] ?? '');
+      $id = (string) ($placement['definition_ref']['definition_id'] ?? '');
+      if ($family !== '' && $id !== '') {
+        $placed[$family . ':' . $id] = TRUE;
+      }
+    }
+    $text = mb_strtolower(trim(
+      (string) ($room['name'] ?? '')
+      . ' '
+      . (string) ($room['description'] ?? '')
+      . ' '
+      . (string) ($room['room_type'] ?? ''),
+    ));
+    $tokens = array_values(array_unique(array_filter(
+      preg_split('/[^a-z0-9]+/u', $text) ?: [],
+      static fn(string $token): bool => strlen($token) >= 4
+        && !in_array($token, [
+          'room', 'this', 'that', 'with', 'from', 'their', 'there', 'where', 'into',
+          'chamber', 'hall', 'floor', 'entrance', 'exit', 'large', 'small', 'medium',
+          'bright', 'light', 'stone', 'space', 'inside', 'standing', 'through',
+          'rows', 'wait', 'like', 'ordered', 'future', 'hangs', 'pale',
+        ], TRUE),
+    )));
+    $semantic_groups = [
+      'wheelwright' => ['wheel', 'wagon', 'cart', 'axle', 'rim', 'timber', 'tool', 'workbench'],
+      'cartwright' => ['wheel', 'wagon', 'cart', 'axle', 'rim', 'timber', 'tool', 'workbench'],
+      'smith' => ['forge', 'anvil', 'hammer', 'metal', 'tool', 'iron'],
+      'tavern' => ['table', 'stool', 'bar', 'bottle', 'barrel', 'tankard', 'hearth'],
+      'kitchen' => ['table', 'stove', 'barrel', 'pot', 'pan', 'shelf', 'crate'],
+      'library' => ['book', 'shelf', 'desk', 'scroll', 'lectern'],
+      'workshop' => ['bench', 'tool', 'rack', 'work', 'timber', 'parts'],
+    ];
+    foreach ($semantic_groups as $trigger => $related) {
+      if (str_contains($text, $trigger)) {
+        $tokens = array_values(array_unique(array_merge($tokens, $related)));
+      }
+    }
+    $catalog = [];
+    foreach (CanonicalDefinitionService::FAMILIES as $family) {
+      $catalog = array_merge(
+        $catalog,
+        (array) ($this->definitions->catalog($family, '', 250, 0)['definitions'] ?? []),
+      );
+    }
+    $families = CanonicalDefinitionService::FAMILIES;
+    $selected = [];
+    foreach ($families as $family) {
+      $candidates = [];
+      foreach ($catalog as $entry) {
+        if ((string) ($entry['family'] ?? '') !== $family) {
+          continue;
+        }
+        $key = $family . ':' . (string) ($entry['definition_id'] ?? '');
+        if (isset($placed[$key]) || trim((string) ($entry['definition_id'] ?? '')) === '') {
+          continue;
+        }
+        $haystack = mb_strtolower(implode(' ', array_filter([
+          (string) ($entry['label'] ?? ''),
+          (string) ($entry['category'] ?? ''),
+          (string) ($entry['description'] ?? ''),
+          (string) ($entry['definition_id'] ?? ''),
+        ])));
+        $haystack_tokens = array_values(array_filter(
+          preg_split('/[^a-z0-9]+/u', $haystack) ?: [],
+          static fn(string $token): bool => strlen($token) >= 4,
+        ));
+        $score = count(array_filter(
+          $tokens,
+          static function (string $token) use ($haystack_tokens): bool {
+            $stem = rtrim($token, 's');
+            foreach ($haystack_tokens as $candidate) {
+              if ($candidate === $token || rtrim($candidate, 's') === $stem) {
+                return TRUE;
+              }
+            }
+            return FALSE;
+          },
+        ));
+        $minimum_score = $family === 'actor' ? 3 : 1;
+        if ($score >= $minimum_score) {
+          if ($family === 'actor'
+            && preg_match('/\b(guard|worker|merchant|craftsperson|smith|keeper|owner|patron)\b/u', $text) !== 1) {
+            continue;
+          }
+          $candidates[] = $entry + ['recommendation_score' => $score];
+        }
+      }
+      usort($candidates, static fn(array $a, array $b): int =>
+        [$b['recommendation_score'], $a['label']] <=> [$a['recommendation_score'], $b['label']]);
+      if ($candidates !== []) {
+        $selected[] = $candidates[0];
+      }
+    }
+    if ($selected === []) {
+      return [];
+    }
+    $anchors = $this->recommendedPlacementHexes($room, count($selected));
+    return array_values(array_map(
+      static fn(array $entry, int $index): array => [
+        'family' => (string) $entry['family'],
+        'definition_id' => (string) $entry['definition_id'],
+        'version' => (string) ($entry['version'] ?? ''),
+        'label' => (string) ($entry['label'] ?? $entry['definition_id']),
+        'category' => (string) ($entry['category'] ?? ''),
+        'why' => sprintf(
+          'Matches the room name, description, or type: %s.',
+          (string) ($entry['description'] ?: $entry['category'] ?: $entry['family']),
+        ),
+        'anchor_hex' => $anchors[$index] ?? NULL,
+      ],
+      $selected,
+      array_keys($selected),
+    ));
+  }
+
+  private function recommendedPlacementHexes(array $room, int $count): array {
+    $hexes = array_values(array_filter((array) ($room['hexes'] ?? []), 'is_array'));
+    if ($hexes === [] || $count <= 0) {
+      return [];
+    }
+    $occupied = [];
+    foreach ((array) ($room['placements'] ?? []) as $placement) {
+      if (!is_array($placement)) {
+        continue;
+      }
+      $hex = $placement['anchor_hex'] ?? NULL;
+      if (is_array($hex)) {
+        $occupied[(int) ($hex['q'] ?? 0) . ':' . (int) ($hex['r'] ?? 0)] = TRUE;
+      }
+    }
+    $available = array_values(array_filter(
+      $hexes,
+      static fn(array $hex): bool => !isset($occupied[(int) ($hex['q'] ?? 0) . ':' . (int) ($hex['r'] ?? 0)]),
+    ));
+    if ($available === []) {
+      $available = $hexes;
+    }
+    $center_q = array_sum(array_column($available, 'q')) / count($available);
+    $center_r = array_sum(array_column($available, 'r')) / count($available);
+    usort($available, static fn(array $a, array $b): int =>
+      (abs((int) $a['q'] - $center_q) + abs((int) $a['r'] - $center_r))
+      <=> (abs((int) $b['q'] - $center_q) + abs((int) $b['r'] - $center_r)));
+    $step = max(1, intdiv(count($available), $count));
+    $anchors = [];
+    for ($index = 0; $index < $count; $index++) {
+      $hex = $available[min(($index * $step), count($available) - 1)];
+      $anchors[] = ['q' => (int) $hex['q'], 'r' => (int) $hex['r']];
+    }
+    return $anchors;
   }
 
   /**
@@ -1207,6 +1384,58 @@ class RoomEditorService {
     $max_hexes = ($room['room_type'] ?? NULL) === 'street' ? self::MAX_STREET_HEXES : self::MAX_ROOM_HEXES;
     if (count($hexes) < 1 || count($hexes) > $max_hexes) {
       $errors[] = $this->finding('room_hex_count_invalid', '/hexes', sprintf('This room type requires 1 through %d hexes.', $max_hexes));
+    }
+    $description = is_string($room['description'] ?? NULL) ? trim((string) $room['description']) : '';
+    $description_words = $description === '' ? [] : (preg_split('/\s+/u', $description) ?: []);
+    if (
+      $description === self::BLANK_DESCRIPTION
+      || mb_strlen($description) < 40
+      || count($description_words) < 8
+    ) {
+      $errors[] = $this->finding(
+        'room_description_insufficient',
+        '/description',
+        'Room description is too vague for layout review. Describe purpose, atmosphere, key features, occupants, and how the space is used in at least 8 words.',
+      );
+    }
+    $size_category = (string) ($room['size_category'] ?? '');
+    $size_range = self::SIZE_HEX_RANGES[$size_category] ?? NULL;
+    if (
+      $size_range !== NULL
+      && (count($hexes) < $size_range[0] || count($hexes) > $size_range[1])
+    ) {
+      $errors[] = $this->finding(
+        'room_geometry_scale_mismatch',
+        '/hexes',
+        sprintf(
+          'Room geometry has %d hexes, which is inconsistent with size category "%s". Expected approximately %d through %d hexes, or choose a more accurate category.',
+          count($hexes),
+          $size_category,
+          $size_range[0],
+          $size_range[1],
+        ),
+      );
+    }
+    $room_text = mb_strtolower(trim(
+      (string) ($room['name'] ?? '') . ' ' . $description . ' ' . (string) ($room['room_type'] ?? ''),
+    ));
+    $wants_linear = preg_match('/\b(corridor|hallway|passage|tunnel|street|alley|bridge)\b/u', $room_text) === 1;
+    if ($wants_linear && count($hexes) >= 7) {
+      $qs = array_values(array_map(static fn(array $hex): int => (int) ($hex['q'] ?? 0), array_filter($hexes, 'is_array')));
+      $rs = array_values(array_map(static fn(array $hex): int => (int) ($hex['r'] ?? 0), array_filter($hexes, 'is_array')));
+      if ($qs !== [] && $rs !== []) {
+        $span_q = max($qs) - min($qs);
+        $span_r = max($rs) - min($rs);
+        $longest = max($span_q, $span_r, 1);
+        $shortest = max(min($span_q, $span_r), 1);
+        if (($longest / $shortest) < 1.6) {
+          $errors[] = $this->finding(
+            'room_geometry_shape_mismatch',
+            '/hexes',
+            'Room name, description, or type implies a corridor/street-like space, but the footprint is not meaningfully longer than it is wide.',
+          );
+        }
+      }
     }
     if (count((array) ($room['placements'] ?? [])) > self::MAX_PLACEMENTS) {
       $errors[] = $this->finding('room_placement_count_invalid', '/placements', 'Rooms support at most ' . self::MAX_PLACEMENTS . ' placements.');

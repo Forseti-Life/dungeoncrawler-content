@@ -35,7 +35,7 @@ class RoomEditorStatusTest extends TestCase {
         'schema_version' => 'canonical-room-v1',
         'room_id' => 'status_room',
         'name' => 'Untitled Room',
-        'description' => 'A new canonical room.',
+        'description' => 'A canonical chamber with clear floor space, an outward-facing entrance, usable exits, and room for context-appropriate contents.',
         'room_type' => 'chamber',
         'size_category' => 'small',
         'hexes' => [
@@ -114,9 +114,44 @@ class RoomEditorStatusTest extends TestCase {
     $this->assertNotContains('room_hex_count_invalid', array_column($service->validateAggregate($room)['findings'], 'code'));
   }
 
+  public function testVagueDescriptionBlocksRoomValidation(): void {
+    $validation = $this->service()->validateAggregate(
+      $this->draft(['description' => 'A room.'])['room'],
+    );
+
+    $codes = array_column($validation['findings'], 'code');
+    $this->assertContains('room_description_insufficient', $codes);
+    $this->assertFalse($validation['is_valid']);
+  }
+
+  public function testGeometryMustAgreeWithDeclaredScaleAndLinearShape(): void {
+    $hexes = [];
+    for ($q = 0; $q < 5; $q++) {
+      for ($r = 0; $r < 5; $r++) {
+        $hexes[] = [
+          'q' => $q,
+          'r' => $r,
+          'terrain_type' => 'stone_floor',
+          'elevation_ft' => 0,
+        ];
+      }
+    }
+    $service = $this->service();
+    $room = $this->draft([
+      'name' => 'North Hallway',
+      'description' => 'A long, narrow hallway connecting the guard rooms through a single passage with stone walls.',
+      'size_category' => 'gargantuan',
+      'hexes' => $hexes,
+    ])['room'];
+
+    $codes = array_column($service->validateAggregate($room)['findings'], 'code');
+    $this->assertContains('room_geometry_scale_mismatch', $codes);
+    $this->assertContains('room_geometry_shape_mismatch', $codes);
+  }
+
   public function testStatusOfANewRoomStartsAtIdentity(): void {
     $service = $this->service();
-    $draft = $this->draft([]);
+    $draft = $this->draft(['description' => '']);
 
     $status = $service->summarizeDraftState($draft, ['profile' => 'editing'] + $service->validateAggregate($draft['room']));
 
@@ -125,14 +160,14 @@ class RoomEditorStatusTest extends TestCase {
     $this->assertSame(1, $status['current_stage']);
     // An empty room is not missing anything: placing objects is optional.
     $this->assertSame(['Room name', 'Room description'], $status['missing_content']);
-    $this->assertSame([0, 100, 100, 100, 100, 50], array_column($status['stages'], 'completion_percent'));
-    $this->assertSame(75, $status['completion_percent']);
+    $this->assertSame([0, 100, 100, 100, 0, 0], array_column($status['stages'], 'completion_percent'));
+    $this->assertSame(50, $status['completion_percent']);
     $this->assertSame(['Choose a name for this room.'], $status['next_steps']);
   }
 
   public function testStatusOfAFurnishedRoomWaitsOnItsValidationFinding(): void {
     $service = $this->service();
-    $draft = $this->draft(['name' => 'Guard Post', 'description' => 'A cramped guard post.', 'placements' => [$this->object()]]);
+    $draft = $this->draft(['name' => 'Guard Post', 'description' => 'A cramped guard post where sentries watch the approach from behind a stone barricade and prepare patrol equipment.', 'placements' => [$this->object()]]);
 
     $status = $service->summarizeDraftState($draft, ['profile' => 'editing'] + $service->validateAggregate($draft['room']));
 
