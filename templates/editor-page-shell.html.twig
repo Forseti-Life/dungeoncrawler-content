@@ -69,6 +69,7 @@
             <div><dt>{{ 'Validity'|t }}</dt><dd data-editor-status-validity>{{ 'No draft'|t }}</dd></div>
             <div><dt>{{ 'Current stage'|t }}</dt><dd data-editor-status-stage>—</dd></div>
           </dl>
+          <p><a data-editor-warning-review hidden>{{ 'Review warnings'|t }}</a></p>
           <p class="gm-storyline-status__label"><strong>{{ 'Minimum content still needed'|t }}</strong></p>
           <ul data-editor-status-missing><li>{{ 'Create or load a draft.'|t }}</li></ul>
         </section>
@@ -109,7 +110,9 @@
         {% block heading %}
           <h2 class="character-setup-page__panel-title" data-editor-status-name>{{ 'No @thing loaded'|t({'@thing': thing}) }}</h2>
         {% endblock %}
-        <p class="character-setup-page__panel-meta">{{ panel_meta }}</p>
+        {% if panel_meta %}
+          <p class="character-setup-page__panel-meta">{{ panel_meta }}</p>
+        {% endif %}
       </div>
       <div class="character-setup-page__frame-shell">
         {% block frame %}

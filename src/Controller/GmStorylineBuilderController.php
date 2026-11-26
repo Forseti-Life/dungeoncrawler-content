@@ -656,7 +656,6 @@ TWIG,
         'back_url' => Url::fromRoute('dungeoncrawler_content.storyline_management')->toString(),
         'back_label' => $this->t('Back to Storyline Manager'),
         'stages_title' => $this->t('Storyline process and current state'),
-        'panel_meta' => $this->t('Guided creation with structured data controls below'),
         'quick_links' => array_values(array_filter([
       $quick_link('Storyline Explorer', 'dungeoncrawler_content.storyline_explorer'),
       $quick_link('Analysis Explorer Hub', 'dungeoncrawler_content.analysis_explorer_home'),
