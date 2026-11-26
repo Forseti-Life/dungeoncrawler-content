@@ -79,6 +79,7 @@ class RoomEditorService {
     'room_description_insufficient' => 'draft_command',
     'room_geometry_scale_mismatch' => 'draft_command',
     'room_geometry_shape_mismatch' => 'draft_command',
+    'room_empty_description_missing' => 'draft_command',
     'room_type_invalid' => 'draft_command',
     'size_category_invalid' => 'draft_command',
     'room_terrain_invalid' => 'draft_command',
@@ -1439,6 +1440,16 @@ class RoomEditorService {
     }
     if (count((array) ($room['placements'] ?? [])) > self::MAX_PLACEMENTS) {
       $errors[] = $this->finding('room_placement_count_invalid', '/placements', 'Rooms support at most ' . self::MAX_PLACEMENTS . ' placements.');
+    }
+    if (
+      count((array) ($room['placements'] ?? [])) === 0
+      && preg_match('/\b(empty|bare|unfurnished|no (?:objects|contents|furnishings)|without (?:objects|contents|furnishings))\b/iu', $description) !== 1
+    ) {
+      $errors[] = $this->finding(
+        'room_empty_description_missing',
+        '/description',
+        'The room has no placements, but its description does not state that it is empty, bare, or unfurnished. Add that intent explicitly or place appropriate contents.',
+      );
     }
     if (count((array) ($room['entry_ports'] ?? [])) > 20) {
       $errors[] = $this->finding('room_entry_port_count_invalid', '/entry_ports', 'Rooms support at most 20 entry ports.');

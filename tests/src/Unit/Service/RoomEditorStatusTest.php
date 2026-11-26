@@ -124,6 +124,17 @@ class RoomEditorStatusTest extends TestCase {
     $this->assertFalse($validation['is_valid']);
   }
 
+  public function testUnexplainedEmptyRoomIsInvalid(): void {
+    $room = $this->draft([])['room'];
+    $validation = $this->service()->validateAggregate($room);
+
+    $this->assertContains('room_empty_description_missing', array_column($validation['findings'], 'code'));
+
+    $room['description'] .= ' It is an intentionally bare, empty chamber with no furnishings or contents.';
+    $validation = $this->service()->validateAggregate($room);
+    $this->assertNotContains('room_empty_description_missing', array_column($validation['findings'], 'code'));
+  }
+
   public function testGeometryMustAgreeWithDeclaredScaleAndLinearShape(): void {
     $hexes = [];
     for ($q = 0; $q < 5; $q++) {
