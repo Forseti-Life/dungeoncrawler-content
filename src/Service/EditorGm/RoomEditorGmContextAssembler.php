@@ -62,6 +62,7 @@ final class RoomEditorGmContextAssembler implements EditorGmContextAssemblerInte
       ],
       array_filter((array) ($room['placements'] ?? []), 'is_array'),
     ));
+    $furnishing_recommendations = $context->roomEditor->furnishingRecommendations($room);
 
     return [
       'tool_id' => RoomEditorGmSurface::ID,
@@ -88,7 +89,10 @@ final class RoomEditorGmContextAssembler implements EditorGmContextAssemblerInte
         'exit_ports' => array_values((array) ($room['exit_ports'] ?? [])),
       ],
       'current_state' => $context->status(),
-      'furnishing_recommendations' => $context->roomEditor->furnishingRecommendations($room),
+      'furnishing_recommendations' => $furnishing_recommendations,
+      'empty_room_recommendations' => $placements === []
+        ? $context->roomEditor->emptyRoomRecommendations($room, $furnishing_recommendations)
+        : NULL,
       'troubleshooting' => RoomValidationTroubleshootingGuide::packet($context),
       'validation_summary' => [
         'profile' => (string) ($validation['profile'] ?? $context->validationProfile),

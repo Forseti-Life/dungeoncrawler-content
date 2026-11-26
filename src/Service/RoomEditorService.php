@@ -624,6 +624,22 @@ class RoomEditorService {
     return ['Review the room and check its publication readiness.'];
   }
 
+  /**
+   * Supplies actionable furnishing choices whenever validation sees no content.
+   *
+   * @return array{recommended_features: array, catalog_matches: array}
+   */
+  public function emptyRoomRecommendations(array $room, ?array $catalog_matches = NULL): array {
+    return [
+      'recommended_features' => $this->recommendedEmptyRoomFeatures($room),
+      'catalog_matches' => array_slice(
+        $catalog_matches ?? $this->furnishingRecommendations($room),
+        0,
+        5,
+      ),
+    ];
+  }
+
   public function furnishingRecommendations(array $room): array {
     if ($this->definitions === NULL) {
       return [];
@@ -651,7 +667,9 @@ class RoomEditorService {
           'room', 'this', 'that', 'with', 'from', 'their', 'there', 'where', 'into',
           'chamber', 'hall', 'floor', 'entrance', 'exit', 'large', 'small', 'medium',
           'bright', 'light', 'stone', 'space', 'inside', 'standing', 'through',
-          'rows', 'wait', 'like', 'ordered', 'future', 'hangs', 'pale',
+          'rows', 'wait', 'like', 'ordered', 'future', 'hangs', 'pale', 'used',
+          'makes', 'made', 'make', 'have', 'hold', 'held', 'sometimes', 'called',
+          'which', 'would', 'could', 'also', 'only', 'more', 'than', 'main',
         ], TRUE),
     )));
     $semantic_groups = [
@@ -670,15 +688,17 @@ class RoomEditorService {
     }
     $catalog = [];
     foreach (CanonicalDefinitionService::FAMILIES as $family) {
-      $catalog = array_merge(
-        $catalog,
-        (array) ($this->definitions->catalog($family, '', 250, 0)['definitions'] ?? []),
-      );
+      $offset = 0;
+      do {
+        $page = $this->definitions->catalog($family, '', 250, $offset);
+        $definitions = array_values(array_filter((array) ($page['definitions'] ?? []), 'is_array'));
+        $catalog = array_merge($catalog, $definitions);
+        $offset += count($definitions);
+      } while ($definitions !== [] && $offset < (int) ($page['total'] ?? $offset));
     }
-    $families = CanonicalDefinitionService::FAMILIES;
-    $selected = [];
-    foreach ($families as $family) {
-      $candidates = [];
+    $candidates = [];
+    $fallback = [];
+    foreach (CanonicalDefinitionService::FAMILIES as $family) {
       foreach ($catalog as $entry) {
         if ((string) ($entry['family'] ?? '') !== $family) {
           continue;
@@ -709,6 +729,10 @@ class RoomEditorService {
             return FALSE;
           },
         ));
+        $fallback_score = preg_match(
+          '/\b(table|chair|bench|rack|shelf|crate|barrel|chest|lantern|brazier|candle)\b/u',
+          mb_strtolower((string) ($entry['label'] ?? $entry['definition_id'] ?? '')),
+        );
         $minimum_score = $family === 'actor' ? 3 : 1;
         if ($score >= $minimum_score) {
           if ($family === 'actor'
@@ -717,16 +741,30 @@ class RoomEditorService {
           }
           $candidates[] = $entry + ['recommendation_score' => $score];
         }
+        elseif ($fallback_score === 1 && $family !== 'actor') {
+          $fallback[] = $entry + ['recommendation_score' => 0];
+        }
       }
-      usort($candidates, static fn(array $a, array $b): int =>
-        [$b['recommendation_score'], $a['label']] <=> [$a['recommendation_score'], $b['label']]);
-      if ($candidates !== []) {
-        $selected[] = $candidates[0];
+    }
+    usort($candidates, static fn(array $a, array $b): int =>
+      [$b['recommendation_score'], $a['label']] <=> [$a['recommendation_score'], $b['label']]);
+    usort($fallback, static fn(array $a, array $b): int =>
+      [$a['label'], $a['family'], $a['definition_id']] <=> [$b['label'], $b['family'], $b['definition_id']]);
+    $selected = [];
+    foreach (array_merge($candidates, $fallback) as $entry) {
+      $key = (string) $entry['family'] . ':' . (string) $entry['definition_id'];
+      if (isset($selected[$key])) {
+        continue;
+      }
+      $selected[$key] = $entry;
+      if (count($selected) === 5) {
+        break;
       }
     }
     if ($selected === []) {
       return [];
     }
+    $selected = array_values($selected);
     $anchors = $this->recommendedPlacementHexes($room, count($selected));
     return array_values(array_map(
       static fn(array $entry, int $index): array => [
@@ -744,6 +782,74 @@ class RoomEditorService {
       $selected,
       array_keys($selected),
     ));
+  }
+
+  private function recommendedEmptyRoomFeatures(array $room): array {
+    $text = mb_strtolower(implode(' ', array_filter([
+      (string) ($room['name'] ?? ''),
+      (string) ($room['description'] ?? ''),
+      (string) ($room['room_type'] ?? ''),
+    ])));
+    $sets = [
+      ['triggers' => ['wheelwright', 'cartwright'], 'features' => [
+        'Assembly workbench' => 'Gives the room a clear wheel- and frame-building purpose.',
+        'Hanging and bench hand tools' => 'Shows active craft use without inventing a catalog object.',
+        'Wheel or axle storage' => 'Adds the large components implied by cart construction.',
+        'Timber and metal stock' => 'Provides raw materials and unfinished work around the shop.',
+        'Finished cart frame or fallen wheel' => 'Creates a focal object and makes recent work visible.',
+      ]],
+      ['triggers' => ['smith', 'forge', 'armory'], 'features' => [
+        'Forge or brazier' => 'Establishes the heat and working center of the room.',
+        'Anvil or workbench' => 'Provides the primary durable work surface.',
+        'Hammers and tongs' => 'Signals the tools used at the station.',
+        'Metal stock or scrap' => 'Shows materials in progress and supplies the room with texture.',
+        'Quenching vessel or rack' => 'Completes the workflow and provides a secondary furnishing.',
+      ]],
+      ['triggers' => ['tavern', 'inn', 'taproom'], 'features' => [
+        'Serving bar' => "Defines the room's main service point.",
+        'Tables and seating' => 'Creates social clusters and navigation choices.',
+        'Drink storage' => 'Makes barrels, bottles, or crates visibly serve the room.',
+        'Hearth or lighting' => 'Provides warmth and a recognizable visual anchor.',
+        'Staff or patron activity area' => 'Leaves a purposeful place for occupants.',
+      ]],
+      ['triggers' => ['library', 'archive', 'study'], 'features' => [
+        'Book shelving' => "Establishes the room's storage and subject matter.",
+        'Reading table or desk' => 'Creates the primary activity surface.',
+        'Lamp or candlelight' => 'Provides a practical light source for study.',
+        'Scroll or document rack' => 'Adds a distinct secondary storage form.',
+        'Lectern or display stand' => 'Creates a focal point for a significant work.',
+      ]],
+      ['triggers' => ['kitchen', 'pantry'], 'features' => [
+        'Preparation table' => 'Defines the central working surface.',
+        'Stove, hearth, or oven' => 'Provides the heat source and main room anchor.',
+        'Food or supply storage' => 'Makes sacks, crates, and shelves purposeful.',
+        'Pots and cooking tools' => "Shows the room's active use.",
+        'Wash basin or waste container' => 'Completes the practical workflow.',
+      ]],
+    ];
+    foreach ($sets as $set) {
+      foreach ($set['triggers'] as $trigger) {
+        if (str_contains($text, $trigger)) {
+          return array_map(
+            static fn(string $why, string $label): array => ['label' => $label, 'why' => $why],
+            $set['features'],
+            array_keys($set['features']),
+          );
+        }
+      }
+    }
+    $generic = [
+      'Primary activity surface' => 'Give the room one clear table, bench, altar, desk, or counter.',
+      'Purpose-built storage' => 'Add shelves, a chest, rack, crate, or other storage fitting the room.',
+      'Practical hand tool or implement' => 'Use one object that demonstrates what someone does here.',
+      'Light source' => 'Add a lamp, brazier, candles, or another grounded light source.',
+      'Distinctive focal object' => "Choose one memorable item that supports the room's story or danger.",
+    ];
+    return array_map(
+      static fn(string $why, string $label): array => ['label' => $label, 'why' => $why],
+      $generic,
+      array_keys($generic),
+    );
   }
 
   private function recommendedPlacementHexes(array $room, int $count): array {
@@ -1449,6 +1555,8 @@ class RoomEditorService {
         'room_empty_description_missing',
         '/description',
         'The room has no placements, but its description does not state that it is empty, bare, or unfurnished. Add that intent explicitly or place appropriate contents.',
+        'error',
+        $this->emptyRoomRecommendations($room),
       );
     }
     if (count((array) ($room['entry_ports'] ?? [])) > 20) {
@@ -1630,7 +1738,13 @@ class RoomEditorService {
       $errors[] = $this->finding('default_entry_required', '/entry_ports', 'Published rooms require exactly one default entry.');
     }
     if ($profile === 'publication' && ($room['placements'] ?? []) === []) {
-      $warnings[] = $this->finding('room_has_no_placements', '/placements', 'Room has no placeable objects.', 'warning');
+      $warnings[] = $this->finding(
+        'room_has_no_placements',
+        '/placements',
+        'Room has no placeable objects.',
+        'warning',
+        $this->emptyRoomRecommendations($room),
+      );
     }
     return self::validationResult(array_merge($errors, $warnings));
   }

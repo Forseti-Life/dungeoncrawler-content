@@ -579,7 +579,7 @@ class RoomEditorContractTest extends UnitTestCase {
       'schema_version' => 'canonical-room-v1',
       'room_id' => 'contract_room',
       'name' => 'Contract Room',
-      'description' => 'A contract test room.',
+      'description' => 'A deliberately empty contract test chamber with no furnishings, kept bare so its port geometry can be repaired in isolation.',
       'room_type' => 'chamber',
       'size_category' => 'small',
       'hexes' => [

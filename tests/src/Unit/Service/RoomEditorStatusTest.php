@@ -135,6 +135,47 @@ class RoomEditorStatusTest extends TestCase {
     $this->assertNotContains('room_empty_description_missing', array_column($validation['findings'], 'code'));
   }
 
+  public function testEmptyRoomFindingOffersFiveIdeasAndFiveCatalogMatches(): void {
+    $definitions = $this->createMock(CanonicalDefinitionService::class);
+    $definitions->method('catalog')->willReturnCallback(
+      static fn(string $family): array => $family === 'item' ? [
+        'definitions' => array_map(
+          static fn(int $index): array => [
+            'family' => 'item',
+            'definition_id' => 'workshop-tool-' . $index,
+            'version' => '1.0.0',
+            'label' => 'Workshop Tool ' . $index,
+            'category' => 'tool',
+            'description' => 'A useful wheelwright bench tool.',
+          ],
+          range(1, 6),
+        ),
+      ] : ['definitions' => []],
+    );
+    $service = new RoomEditorService(
+      $this->createMock(Connection::class),
+      $this->createMock(AccountProxyInterface::class),
+      $this->createMock(UuidInterface::class),
+      $definitions,
+    );
+    $room = $this->draft([
+      'name' => 'Cartwright Workshop',
+      'description' => 'A stone chamber used by a wheelwright to assemble carts and wheels.',
+    ])['room'];
+
+    $validation = $service->validateAggregate($room);
+    $finding = array_values(array_filter(
+      $validation['findings'],
+      static fn(array $item): bool => $item['code'] === 'room_empty_description_missing',
+    ))[0];
+
+    $this->assertCount(5, $finding['context']['recommended_features']);
+    $this->assertCount(5, $finding['context']['catalog_matches']);
+    $this->assertSame('Assembly workbench', $finding['context']['recommended_features'][0]['label']);
+    $this->assertSame('item', $finding['context']['catalog_matches'][0]['family']);
+    $this->assertNotSame('', $finding['context']['catalog_matches'][0]['why']);
+  }
+
   public function testGeometryMustAgreeWithDeclaredScaleAndLinearShape(): void {
     $hexes = [];
     for ($q = 0; $q < 5; $q++) {
