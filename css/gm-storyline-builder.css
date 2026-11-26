@@ -308,6 +308,51 @@
   grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
 }
 
+.gm-storyline-wizard__rows > .gm-storyline-wizard__row {
+  padding: 0.85rem;
+  border: 1px solid rgba(186, 143, 76, 0.3);
+  border-radius: 12px;
+  background: rgba(8, 12, 22, 0.46);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.16);
+}
+
+.gm-storyline-wizard__collection[data-collection="institution_entries"] > .gm-storyline-wizard__rows > .gm-storyline-wizard__row {
+  border-color: rgba(240, 200, 122, 0.54);
+  background: linear-gradient(135deg, rgba(48, 39, 24, 0.46), rgba(8, 12, 22, 0.62));
+}
+
+.gm-storyline-wizard__row-headline {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid rgba(186, 143, 76, 0.26);
+}
+
+.gm-storyline-wizard__row-category {
+  flex: 0 0 auto;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid rgba(240, 200, 122, 0.38);
+  border-radius: 999px;
+  color: #f8dfae;
+  background: rgba(87, 65, 28, 0.42);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.035em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.gm-storyline-wizard__row-name {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #fff4dc;
+  font-size: 1rem;
+}
+
 .gm-storyline-wizard__row--five {
   grid-template-columns: repeat(5, minmax(0, 1fr)) auto;
 }

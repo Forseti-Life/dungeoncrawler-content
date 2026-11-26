@@ -619,6 +619,70 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
             }));
         }
 
+        const collectionHeadlineContracts = {
+          journal_entries: { label: 'Scene', name: ['title', 'scene_id'] },
+          conflict_entries: { label: 'Conflict', name: ['title', 'conflict_id'] },
+          relationship_entries: { label: 'Relationship', name: ['source_actor_id', 'target_actor_id'], separator: ' → ' },
+          task_entries: { label: 'Quest', name: ['goal_text', 'task_id'], category: 'status' },
+          branch_choice_entries: { label: 'Choice', name: ['label', 'choice_id'] },
+          branch_actor_effect_entries: { label: 'Actor effect', name: ['actor_id', 'choice_id'], separator: ' · ' },
+          branch_environment_effect_entries: { label: 'Environment effect', name: ['target_id', 'choice_id'], separator: ' · ' },
+          branch_storyline_effect_entries: { label: 'Storyline effect', name: ['target_id', 'choice_id'], separator: ' · ' },
+          objective_entries: { label: 'Objective', name: ['description', 'objective_id'], category: 'type' },
+          institution_entries: { label: 'Institution', name: ['name', 'institution_id'], category: 'domain' },
+          actor_entries: { label: 'Actor', name: ['display_name', 'actor_id', 'contact_id'], category: 'role' },
+          dungeon_entries: { label: 'Dungeon', name: ['dungeon_id'], category: 'purpose' },
+          room_entries: { label: 'Room', name: ['room_id'], category: 'scene_id' },
+          item_entries: { label: 'Item', name: ['item_id'], category: 'purpose' },
+        };
+
+        function collectionHeadlineValue(row, fields, separator = ' · ') {
+          const values = fields
+            .map((field) => row.querySelector(`[data-col-field="${field}"]`)?.value.trim() || '')
+            .filter(Boolean);
+          return values.length > 1 && separator === ' · '
+            ? values[0]
+            : values.join(separator);
+        }
+
+        function collectionCategoryValue(row, field) {
+          if (!field) return '';
+          const control = row.querySelector(`[data-col-field="${field}"]`);
+          if (control instanceof HTMLSelectElement) {
+            const option = control.selectedOptions[0];
+            return option?.dataset.short || option?.textContent?.trim() || '';
+          }
+          return control?.value.trim() || '';
+        }
+
+        function updateCollectionRowHeadline(collection, row) {
+          const contract = collectionHeadlineContracts[collection];
+          if (!contract || !row) return;
+          let headline = row.querySelector(':scope > .gm-storyline-wizard__row-headline');
+          if (!headline) {
+            headline = document.createElement('header');
+            headline.className = 'gm-storyline-wizard__row-headline';
+            const label = document.createElement('span');
+            label.className = 'gm-storyline-wizard__row-category';
+            const name = document.createElement('h4');
+            name.className = 'gm-storyline-wizard__row-name';
+            headline.append(label, name);
+            row.prepend(headline);
+          }
+          const siblings = Array.from(row.parentElement?.children || []);
+          const fallback = `${contract.label} ${Math.max(1, siblings.indexOf(row) + 1)}`;
+          const name = collectionHeadlineValue(row, contract.name, contract.separator);
+          const category = collectionCategoryValue(row, contract.category);
+          headline.querySelector('.gm-storyline-wizard__row-category').textContent = category
+            ? `${contract.label} · ${category}`
+            : contract.label;
+          headline.querySelector('.gm-storyline-wizard__row-name').textContent = name || fallback;
+        }
+
+        function refreshCollectionHeadlines(container, collection) {
+          Array.from(container?.children || []).forEach((row) => updateCollectionRowHeadline(collection, row));
+        }
+
         function addCollectionRow(collection, seed = {}) {
           const template = wizard.querySelector(`[data-row-template="${collection}"]`);
           const target = wizard.querySelector(`[data-rows="${collection}"]`);
@@ -662,6 +726,7 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
           }
           if (row) {
             target.appendChild(row);
+            updateCollectionRowHeadline(collection, row);
           }
           return row || null;
         }
@@ -696,6 +761,8 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
               order.value = String(index + 1);
             }
           });
+          const collection = container.getAttribute('data-rows');
+          refreshCollectionHeadlines(container, collection);
         }
 
         function clearCollection(collection) {
@@ -2289,7 +2356,11 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
           if (removeRow) {
             event.preventDefault();
             const row = removeRow.closest('.gm-storyline-wizard__row');
+            const container = row?.parentElement;
             row?.remove();
+            if (container) {
+              refreshCollectionHeadlines(container, container.getAttribute('data-rows'));
+            }
             markDraftDirty();
             refreshObjectEditorLinks();
             if (activeStep === maxStep) {
@@ -2647,8 +2718,19 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
             refreshPreview();
           }
           if (event.target instanceof Element && event.target.closest('.gm-storyline-wizard__row')) {
+            const row = event.target.closest('.gm-storyline-wizard__row');
+            const collection = row.closest('[data-rows]')?.getAttribute('data-rows');
+            updateCollectionRowHeadline(collection, row);
             markDraftDirty();
             refreshObjectEditorLinks();
+          }
+        });
+        wizard.addEventListener('change', (event) => {
+          const row = event.target instanceof Element
+            ? event.target.closest('.gm-storyline-wizard__row')
+            : null;
+          if (row) {
+            updateCollectionRowHeadline(row.closest('[data-rows]')?.getAttribute('data-rows'), row);
           }
         });
 
