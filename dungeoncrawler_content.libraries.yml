@@ -101,7 +101,7 @@ character-setup-tabs:
     - core/drupal.ajax
 
 editor-gm-chat-style:
-  version: 20261126-main-row-previews-1
+  version: 20261126-compact-actor-portraits-1
   css:
     theme:
       css/gm-storyline-builder.css: {}

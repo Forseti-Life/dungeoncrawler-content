@@ -7016,3 +7016,92 @@ function dungeoncrawler_content_update_10234(): string {
   $schema->changeField('dc_campaign_quests', 'source_template_id', 'source_template_id', array_replace($required, ['not null' => FALSE]));
   return 'Widened canonical quest IDs and their references to 128 characters.';
 }
+
+/**
+ * Promotes established runtime NPC portraits onto canonical actor records.
+ */
+function dungeoncrawler_content_update_10235(): string {
+  $database = \Drupal::database();
+  $canonical_rows = $database->select('dc_campaign_characters', 'c')
+    ->fields('c', ['id', 'uid', 'instance_id', 'portrait'])
+    ->condition('campaign_id', 0)
+    ->condition('lifecycle_state', 'canonical_template')
+    ->execute()
+    ->fetchAll(\PDO::FETCH_ASSOC);
+  $promoted = 0;
+  $links = 0;
+  foreach ($canonical_rows as $canonical) {
+    $instance_id = trim((string) $canonical['instance_id']);
+    if ($instance_id === '') {
+      continue;
+    }
+    $aliases = [$instance_id, 'npc_' . $instance_id];
+    if (str_starts_with($instance_id, 'npc_')) {
+      $aliases[] = substr($instance_id, 4);
+    }
+    $runtime = $database->select('dc_campaign_characters', 'c')
+      ->fields('c', ['id', 'portrait'])
+      ->condition('campaign_id', 0, '>')
+      ->condition('instance_id', array_values(array_unique($aliases)), 'IN')
+      ->condition('portrait', NULL, 'IS NOT NULL')
+      ->condition('portrait', '', '<>')
+      ->orderBy('id', 'DESC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!is_array($runtime)) {
+      continue;
+    }
+    if (trim((string) $canonical['portrait']) === '') {
+      $database->update('dc_campaign_characters')
+        ->fields(['portrait' => (string) $runtime['portrait'], 'changed' => \Drupal::time()->getRequestTime()])
+        ->condition('id', (int) $canonical['id'])
+        ->execute();
+      $promoted++;
+    }
+
+    $canonical_link = $database->select('dc_generated_image_links', 'l')
+      ->fields('l', ['id'])
+      ->condition('table_name', 'dc_campaign_characters')
+      ->condition('object_id', (string) $canonical['id'])
+      ->condition('slot', 'portrait')
+      ->condition('variant', 'original')
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+    if ($canonical_link !== FALSE) {
+      continue;
+    }
+    $link = $database->select('dc_generated_image_links', 'l')
+      ->fields('l', ['image_id', 'scope_type', 'visibility', 'is_primary', 'sort_weight'])
+      ->condition('table_name', 'dc_campaign_characters')
+      ->condition('object_id', (string) $runtime['id'])
+      ->condition('slot', 'portrait')
+      ->condition('variant', 'original')
+      ->orderBy('is_primary', 'DESC')
+      ->orderBy('id', 'DESC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (is_array($link) && (int) ($link['image_id'] ?? 0) > 0) {
+      $now = \Drupal::time()->getRequestTime();
+      $database->insert('dc_generated_image_links')->fields([
+        'image_id' => (int) $link['image_id'],
+        'scope_type' => 'campaign',
+        'campaign_id' => NULL,
+        'table_name' => 'dc_campaign_characters',
+        'object_id' => (string) $canonical['id'],
+        'slot' => 'portrait',
+        'variant' => 'original',
+        'is_primary' => 1,
+        'sort_weight' => 0,
+        'visibility' => 'owner',
+        'created' => $now,
+        'updated' => $now,
+      ])->execute();
+      $links++;
+    }
+  }
+
+  return sprintf('Promoted %d established NPC portraits and %d image links onto canonical actor records.', $promoted, $links);
+}
