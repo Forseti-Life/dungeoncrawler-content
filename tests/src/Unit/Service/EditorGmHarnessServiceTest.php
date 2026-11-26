@@ -11,6 +11,29 @@ use Drupal\Tests\UnitTestCase;
  */
 class EditorGmHarnessServiceTest extends UnitTestCase {
 
+  public function testRoomFurnishingDirectiveBuildsCatalogLookups(): void {
+    $surface = $this->createMock(\Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmSurfaceInterface::class);
+    $surface->method('id')->willReturn('room_editor');
+    $harness = (new \ReflectionClass(EditorGmHarnessService::class))->newInstanceWithoutConstructor();
+    $method = new \ReflectionMethod($harness, 'roomFurnishingLookupTasks');
+
+    $tasks = $method->invoke(
+      $harness,
+      $surface,
+      'Put workman tools, wheels, metal strips, and a fallen pillar in this room.',
+    );
+
+    $this->assertSame(
+      ['pillar', 'wheel', 'tool', 'metal strip'],
+      array_column(array_column($tasks, 'arguments'), 'search'),
+    );
+    $this->assertSame(
+      ['list_catalog_definitions'],
+      array_values(array_unique(array_column($tasks, 'tool_name'))),
+    );
+    $this->assertSame([], $method->invoke($harness, $surface, 'Describe the workshop furnishings.'));
+  }
+
   /**
    * Searches the real room tool, preserving its unfiltered listing behavior.
    *

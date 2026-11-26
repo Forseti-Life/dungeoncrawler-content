@@ -381,6 +381,19 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     if (isset($scope['lookup_evidence'])) {
       $snapshot['lookup_evidence'] = $scope['lookup_evidence'];
     }
+    $furnishing_lookups = $this->roomFurnishingLookupTasks($surface, $author_message);
+    if ($furnishing_lookups !== []) {
+      return $this->continueStorylineLookups(
+        $surface,
+        $draft_id,
+        $profile,
+        $furnishing_lookups,
+        $utterance,
+        $author_message,
+        $scope,
+        $dry_run,
+      );
+    }
     $conversation_context = trim((string) ($scope['conversation_context'] ?? ''));
     if ($conversation_context !== '') {
       $snapshot['conversation_context'] = $conversation_context;
@@ -418,7 +431,11 @@ class EditorGmHarnessService implements AgentHarnessInterface {
       );
     }
     if ($intent['type'] === 'task_queue') {
-      $lookups = in_array($surface->id(), [StorylineBuilderGmSurface::ID, DungeonEditorGmSurface::ID], TRUE)
+      $lookups = in_array($surface->id(), [
+        StorylineBuilderGmSurface::ID,
+        DungeonEditorGmSurface::ID,
+        RoomEditorGmSurface::ID,
+      ], TRUE)
         ? $this->leadingLookupTasks($surface, (array) $intent['tasks']) : [];
       if ($lookups !== []) {
         return $this->continueStorylineLookups($surface, $draft_id, $profile, $lookups, $utterance, $author_message, $scope, $dry_run);
@@ -470,7 +487,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         [],
       );
     }
-    if (in_array($surface->id(), [StorylineBuilderGmSurface::ID, DungeonEditorGmSurface::ID], TRUE)
+    if (in_array($surface->id(), [StorylineBuilderGmSurface::ID, DungeonEditorGmSurface::ID, RoomEditorGmSurface::ID], TRUE)
       && !$definition->mutating && $definition->family === EditorGmToolDefinition::FAMILY_CONTEXT) {
       return $this->continueStorylineLookups($surface, $draft_id, $profile, [$intent], $utterance, $author_message, $scope, $dry_run);
     }
@@ -758,7 +775,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
       return FALSE;
     }
     return preg_match(
-      '/\\b(?:fix|move|place|add|remove|delete|rotate|set|update|change|create|generate|apply|go ahead|do it)\\b/u',
+      '/\\b(?:fix|move|place|put|add|remove|delete|rotate|set|update|change|create|generate|furnish|apply|go ahead|do it)\\b/u',
       $message,
     ) === 1;
   }
@@ -899,6 +916,70 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         $evidence[] = ['tool' => $name, 'arguments' => $arguments, 'result' => $tool_result];
       }
       $scope['lookup_evidence'] = $evidence;
+      $furnishing_plan = $this->roomFurnishingCommandPlan(
+        $surface,
+        $draft_id,
+        $profile,
+        $author_message,
+        $evidence,
+      );
+      if ($furnishing_plan !== NULL) {
+        if (($furnishing_plan['no_changes'] ?? FALSE) === TRUE) {
+          $missing = array_values((array) ($furnishing_plan['missing_concepts'] ?? []));
+          $result['tool_result']['assistant_response'] = $missing === []
+            ? 'The requested catalog objects are already placed in this room. The draft is unchanged.'
+            : sprintf(
+              'No catalog-backed changes were needed. The requested catalog entries are already present, and no definitions are available for: %s. The draft is unchanged.',
+              implode(', ', $missing),
+            );
+          $result['tool_result']['next_steps'] = [];
+          $result['tool_result']['tool_calls'] = $tool_calls;
+          $result['tool_result']['changed'] = FALSE;
+          $result['tool_calls'] = $tool_calls;
+          return $this->envelope(
+            $surface,
+            $result['route_family'],
+            $result['context_snapshot'],
+            $result['tool_result'],
+            $result['validation'],
+            $result['messages'],
+            $result['command_plan'],
+            $tool_calls,
+          );
+        }
+        $execution = $this->executeTool(
+          $surface,
+          $draft_id,
+          $profile,
+          'apply_room_commands',
+          $furnishing_plan,
+          $dry_run,
+          'Apply the available catalog matches for the explicitly requested room furnishings.',
+          $scope,
+          [],
+          '',
+          $tool_calls,
+        );
+        $placed = array_values((array) ($furnishing_plan['placed_labels'] ?? []));
+        $missing = array_values((array) ($furnishing_plan['missing_concepts'] ?? []));
+        $execution['tool_result']['assistant_response'] = sprintf(
+          'Placed %d catalog-backed object%s in the room: %s. The draft is saved at revision %d.',
+          count($placed),
+          count($placed) === 1 ? '' : 's',
+          implode(', ', $placed),
+          (int) ($execution['tool_result']['final_revision'] ?? 0),
+        );
+        if ($missing !== []) {
+          $execution['tool_result']['assistant_response'] .= sprintf(
+            ' No catalog definitions were available for: %s.',
+            implode(', ', $missing),
+          );
+        }
+        $execution['tool_result']['next_steps'] = $missing === []
+          ? []
+          : ['Add or select an available catalog definition for the unmatched request before publishing.'];
+        return $execution;
+      }
       $room_route = $this->missingPublishedRoomEditorRoute($surface, $author_message, $evidence);
       if ($room_route !== NULL) {
         if ($room_route !== '') {
@@ -975,7 +1056,12 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         if ($tasks !== []) {
           continue;
         }
-        $preview = $dry_run || !$this->authorizesStorylineLookupChanges($intent, $scope);
+        $preview = $dry_run || !$this->authorizesEditorLookupChanges(
+          $surface,
+          $intent,
+          $scope,
+          $author_message,
+        );
         return $this->executeTaskQueue($surface, $draft_id, $profile, (array) $intent['tasks'], (string) $intent['reasoning'], (array) ($intent['next_steps'] ?? []), $scope, $author_message, $preview, $tool_calls);
       }
       $name = (string) $intent['tool_name'];
@@ -997,7 +1083,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
       }
       return $this->executeTool(
         $surface, $draft_id, $profile, $name, (array) $intent['arguments'],
-        $dry_run || !$this->authorizesStorylineLookupChanges($intent, $scope),
+        $dry_run || !$this->authorizesEditorLookupChanges($surface, $intent, $scope, $author_message),
         (string) $intent['reasoning'], $scope, (array) ($intent['next_steps'] ?? []), $author_message, $tool_calls,
       );
     }
@@ -1019,6 +1105,199 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     return $tools !== [] && array_diff($tools, [
       'plan_storyline_draft_operations', 'plan_storyline_work', 'plan_storyline_remediation',
     ]) === [];
+  }
+
+  private function roomFurnishingCommandPlan(
+      EditorGmSurfaceInterface $surface,
+      ?string $draft_id,
+      string $profile,
+      string $author_message,
+      array $evidence,
+    ): ?array {
+      if ($surface->id() !== RoomEditorGmSurface::ID
+        || $draft_id === NULL
+        || !$this->isDirectEditorMutationDirective($author_message)) {
+        return NULL;
+      }
+      $text = mb_strtolower($author_message);
+      $definitions = [];
+      foreach ($evidence as $lookup) {
+        foreach ((array) ($lookup['result']['definitions'] ?? []) as $definition) {
+          if (is_array($definition)) {
+            $definitions[] = $definition;
+          }
+        }
+      }
+      $concepts = [
+        'fallen pillar' => ['fallen pillar', 'pillar'],
+        'wheel' => ['wheel', 'rimmed oak wheels'],
+        'tool' => ['tool rack', 'tool belt', 'tool (long)', 'tool (short)'],
+        'metal strip' => ['metal strip', 'iron strip'],
+      ];
+      $wanted = [];
+      $missing = [];
+      foreach ($concepts as $requested => $aliases) {
+        if (!str_contains($text, $requested)
+          && !array_filter($aliases, static fn(string $alias): bool => str_contains($text, $alias))) {
+          continue;
+        }
+        $matches = array_values(array_filter(
+          $definitions,
+          static function (array $definition) use ($aliases): bool {
+            $label = mb_strtolower((string) ($definition['label'] ?? $definition['definition_id'] ?? ''));
+            foreach ($aliases as $alias) {
+              if (str_contains($label, $alias)) {
+                return TRUE;
+              }
+            }
+            return FALSE;
+          },
+        ));
+        usort($matches, static function (array $a, array $b) use ($aliases): int {
+          $rank = static fn(array $entry): int => (
+            (string) ($entry['family'] ?? '') === 'actor' ? 100 : 0
+          ) + (
+            str_contains(mb_strtolower((string) ($entry['label'] ?? '')), $aliases[0]) ? 0 : 10
+          );
+          return $rank($a) <=> $rank($b);
+        });
+        if ($matches !== []) {
+          $wanted[] = $matches[0];
+        }
+        else {
+          $missing[] = $requested;
+        }
+      }
+      if ($wanted === []) {
+        return [
+          'no_changes' => TRUE,
+          'missing_concepts' => $missing,
+        ];
+      }
+      $context = $surface->createContext($draft_id, $profile);
+      $room_context = RoomEditorGmToolContext::of($context);
+      $draft = $room_context->draft();
+      $room = $room_context->room();
+      $occupied = [];
+      $occupied_definitions = [];
+      foreach ((array) ($room['placements'] ?? []) as $placement) {
+        $anchor = $placement['anchor_hex'] ?? NULL;
+        if (is_array($anchor)) {
+          $occupied[(int) ($anchor['q'] ?? 0) . ':' . (int) ($anchor['r'] ?? 0)] = TRUE;
+        }
+        $definition_ref = $placement['definition_ref'] ?? NULL;
+        if (is_array($definition_ref)) {
+          $occupied_definitions[(string) ($definition_ref['family'] ?? '') . ':' . (string) ($definition_ref['definition_id'] ?? '')] = TRUE;
+        }
+      }
+      foreach (array_merge(
+        (array) ($room['entry_ports'] ?? []),
+        (array) ($room['exit_ports'] ?? []),
+      ) as $port) {
+        $anchor = $port['hex'] ?? NULL;
+        if (is_array($anchor)) {
+          $occupied[(int) ($anchor['q'] ?? 0) . ':' . (int) ($anchor['r'] ?? 0)] = TRUE;
+        }
+      }
+      $available = array_values(array_filter(
+        (array) ($room['hexes'] ?? []),
+        static fn(mixed $hex): bool => is_array($hex)
+          && !isset($occupied[(int) ($hex['q'] ?? 0) . ':' . (int) ($hex['r'] ?? 0)]),
+      ));
+      usort($available, static fn(array $a, array $b): int =>
+        (abs((int) ($a['q'] ?? 0)) + abs((int) ($a['r'] ?? 0)))
+        <=> (abs((int) ($b['q'] ?? 0)) + abs((int) ($b['r'] ?? 0))));
+      if (count($available) < count($wanted)) {
+        return NULL;
+      }
+      $placements = [];
+      $placed_labels = [];
+      foreach ($wanted as $index => $definition) {
+        $definition_key = (string) ($definition['family'] ?? '') . ':' . (string) ($definition['definition_id'] ?? '');
+        if (isset($occupied_definitions[$definition_key])) {
+          continue;
+        }
+        $version = trim((string) ($definition['definition_version'] ?? $definition['version'] ?? ''));
+        $hex = $available[$index * max(1, intdiv(count($available), count($wanted)))];
+        $placements[] = [
+          'family' => (string) $definition['family'],
+          'definition_id' => (string) $definition['definition_id'],
+          'version' => $version !== '' ? $version : '1.0.0',
+          'anchor_hex' => ['q' => (int) $hex['q'], 'r' => (int) $hex['r']],
+          'facing' => 0,
+        ];
+        $placed_labels[] = (string) ($definition['label'] ?? $definition['definition_id']);
+      }
+      if ($placements === []) {
+        return [
+          'no_changes' => TRUE,
+          'missing_concepts' => $missing,
+        ];
+      }
+      $plan = $surface->registry()->get('plan_room_commands')->execute(
+        [
+          'goal' => 'place_objects',
+          'parameters' => ['placements' => $placements],
+        ],
+        $context,
+      );
+      $commands = array_map(
+        static fn(array $step): array => [
+          'type' => (string) $step['command_type'],
+          'payload' => (array) $step['payload'],
+        ],
+        (array) ($plan['command_plan']['steps'] ?? []),
+      );
+      return [
+        'expected_revision' => (int) ($draft['revision'] ?? 0),
+        'commands' => $commands,
+        'placed_labels' => $placed_labels,
+        'missing_concepts' => $missing,
+      ];
+    }
+
+  private function roomFurnishingLookupTasks(
+    EditorGmSurfaceInterface $surface,
+    string $author_message,
+  ): array {
+    if ($surface->id() !== RoomEditorGmSurface::ID
+      || !$this->isDirectEditorMutationDirective($author_message)) {
+      return [];
+    }
+    $text = mb_strtolower($author_message);
+    $searches = [
+      'fallen pillar' => 'pillar',
+      'wheel' => 'wheel',
+      'tool' => 'tool',
+      'metal strip' => 'metal strip',
+    ];
+    $tasks = [];
+    foreach ($searches as $concept => $search) {
+      if ($concept === 'wheel' && !preg_match('/\\bwheels?\\b/u', $text)) {
+        continue;
+      }
+      if ($concept !== 'wheel' && !str_contains($text, $concept)) {
+        continue;
+      }
+      $tasks[] = [
+        'tool_name' => 'list_catalog_definitions',
+        'arguments' => ['search' => $search, 'limit' => 250],
+        'reasoning' => sprintf('Ground the requested %s in the placeable catalog.', $concept),
+      ];
+    }
+    return $tasks;
+  }
+
+  private function authorizesEditorLookupChanges(
+    EditorGmSurfaceInterface $surface,
+    array $intent,
+    array $scope,
+    string $author_message,
+  ): bool {
+    if (in_array($surface->id(), [RoomEditorGmSurface::ID, DungeonEditorGmSurface::ID], TRUE)) {
+      return $this->isDirectEditorMutationDirective($author_message);
+    }
+    return $this->authorizesStorylineLookupChanges($intent, $scope);
   }
 
   private function leadingLookupTasks(EditorGmSurfaceInterface $surface, array $tasks): array {
