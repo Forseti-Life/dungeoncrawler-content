@@ -483,9 +483,9 @@ class RoomEditorContractTest extends UnitTestCase {
   }
 
   /**
-   * Verifies every one of the 19 Room Editor commands can be planned via PlanRoomCommandsTool.
+   * Verifies every Room Editor command can be planned via PlanRoomCommandsTool.
    */
-  public function testPlanRoomCommandsToolPlansAllNineteenCommandTypes(): void {
+  public function testPlanRoomCommandsToolPlansAllCommandTypes(): void {
     $room_editor = $this->createMock(RoomEditorService::class);
     $room_editor->method('getDraft')->willReturn([
       'draft_id' => '11111111-1111-4111-8111-111111111111',
@@ -576,6 +576,27 @@ class RoomEditorContractTest extends UnitTestCase {
       $this->assertSame($case['expected'], $result['command_plan']['steps'][0]['command_type']);
       $planned_types[] = $result['command_plan']['steps'][0]['command_type'];
     }
+    $street_hexes = [];
+    for ($q = -20; $q <= 20; $q++) {
+      for ($r = -2; $r <= 2; $r++) {
+        $street_hexes[] = [
+          'q' => $q,
+          'r' => $r,
+          'terrain_type' => 'stone_floor',
+          'elevation_ft' => 0,
+        ];
+      }
+    }
+    $reshape = new \ReflectionMethod($tool, 'planReshapeStreetFootprint');
+    $street_steps = $reshape->invoke($tool, [], [
+      'room_type' => 'street',
+      'hexes' => $street_hexes,
+      'entry_ports' => [[
+        'hex' => ['q' => -20, 'r' => 0],
+      ]],
+    ]);
+    $this->assertSame('set_street_footprint', $street_steps[0]['command_type']);
+    array_splice($planned_types, 3, 0, ['set_street_footprint']);
 
     $this->assertSame(
       \Drupal\dungeoncrawler_content\Service\EditorGm\RoomEditorGmSurface::SUPPORTED_COMMAND_TYPES,

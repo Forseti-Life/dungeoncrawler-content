@@ -21,6 +21,7 @@ final class PlanRoomCommandsTool implements EditorGmToolInterface {
     'set_metadata',
     'expand_footprint',
     'shrink_footprint',
+    'reshape_street_footprint',
     'retheme_terrain',
     'level_elevation',
     'place_objects',
@@ -54,6 +55,7 @@ final class PlanRoomCommandsTool implements EditorGmToolInterface {
     'set_metadata' => 'at least one of room_id, name, description, room_type (use street for a district street), size_category, terrain_type, lighting_level, ceiling_height_ft (1..200), tags [string], safe_for_rest, visibility (visible|hidden), background {url, width, height, alt} (the street art the party walks on; required for a street)',
     'expand_footprint' => 'hexes: [{q, r}] (required), terrain_type (optional)',
     'shrink_footprint' => 'hexes: [{q, r}] (required; must not contain placements or ports)',
+    'reshape_street_footprint' => 'length_hexes (optional), width_hexes (optional, defaults to 5), axis (q|r, optional), entry_hex {q, r} (optional; defaults to current entry). Builds one long street band inside the current footprint and preserves a single street entrance.',
     'retheme_terrain' => 'terrain_type (required), from_terrain_type (optional), hexes: [{q, r}] (optional)',
     'level_elevation' => 'elevation_ft (required), hexes: [{q, r}] (optional)',
     'place_objects' => 'placements: [{family, definition_id, version (optional, default 1.0.0), anchor_hex: {q, r}, facing (optional, 0-5)}] OR top-level family, definition_id, version (optional), facing (optional), hexes: [{q, r}]',
@@ -114,6 +116,7 @@ final class PlanRoomCommandsTool implements EditorGmToolInterface {
       'set_metadata' => $this->planSetMetadata($parameters),
       'expand_footprint' => $this->planExpandFootprint($parameters, $room),
       'shrink_footprint' => $this->planShrinkFootprint($parameters, $room),
+      'reshape_street_footprint' => $this->planReshapeStreetFootprint($parameters, $room),
       'retheme_terrain' => $this->planRethemeTerrain($parameters, $room),
       'level_elevation' => $this->planLevelElevation($parameters, $room),
       'place_objects' => $this->planPlaceObjects($parameters, $room),
@@ -257,6 +260,80 @@ final class PlanRoomCommandsTool implements EditorGmToolInterface {
       );
     }
     return $steps;
+  }
+
+  private function planReshapeStreetFootprint(array $parameters, array $room): array {
+    if (($room['room_type'] ?? '') !== 'street') {
+      throw new \DomainException('street_footprint_room_type_required');
+    }
+    $existing = $this->hexKeys($room);
+    $entries = array_values(array_filter(
+      (array) ($room['entry_ports'] ?? []),
+      static fn(mixed $port): bool => is_array($port),
+    ));
+    if (count($entries) !== 1 || !is_array($entries[0]['hex'] ?? NULL)) {
+      throw new \DomainException('street_footprint_single_entry_required');
+    }
+    $entry = isset($parameters['entry_hex'])
+      ? EditorGmToolContext::requireArray($parameters, 'entry_hex')
+      : (array) $entries[0]['hex'];
+    if (!is_int($entry['q'] ?? NULL) || !is_int($entry['r'] ?? NULL)) {
+      throw new \InvalidArgumentException('entry_hex_invalid');
+    }
+    if (!isset($existing[$this->key($entry)])) {
+      throw new \DomainException('street_entry_outside_current_footprint');
+    }
+    $axis = (string) ($parameters['axis'] ?? 'q');
+    if (!in_array($axis, ['q', 'r'], TRUE)) {
+      throw new \InvalidArgumentException('street_axis_invalid');
+    }
+    $width = isset($parameters['width_hexes'])
+      ? EditorGmToolContext::requireInt($parameters, 'width_hexes')
+      : 5;
+    $length = isset($parameters['length_hexes'])
+      ? EditorGmToolContext::requireInt($parameters, 'length_hexes')
+      : 41;
+    if ($width < 1 || $width > 19 || $width % 2 !== 1) {
+      throw new \InvalidArgumentException('street_width_invalid');
+    }
+    if ($length < 9 || $length > 250 || $length <= $width) {
+      throw new \InvalidArgumentException('street_length_invalid');
+    }
+    $axis_values = array_column((array) ($room['hexes'] ?? []), $axis);
+    if ($axis_values === [] || min($axis_values) > (int) $entry[$axis] || max($axis_values) < (int) $entry[$axis]) {
+      throw new \DomainException('street_entry_not_on_axis');
+    }
+    $start = max(
+      min((int) $entry[$axis], min($axis_values)),
+      min($axis_values),
+    );
+    $max_start = max($axis_values) - $length + 1;
+    if ($start > $max_start) {
+      $start = max(min($axis_values), $max_start);
+    }
+    $half_width = intdiv($width - 1, 2);
+    $cross_axis = $axis === 'q' ? 'r' : 'q';
+    $entry_cross = (int) $entry[$cross_axis];
+    $hexes = [];
+    for ($primary = $start; $primary < $start + $length; $primary++) {
+      for ($offset = -$half_width; $offset <= $half_width; $offset++) {
+        $hex = $axis === 'q'
+          ? ['q' => $primary, 'r' => $entry_cross + $offset]
+          : ['q' => $entry_cross + $offset, 'r' => $primary];
+        if (isset($existing[$this->key($hex)])) {
+          $hexes[] = $hex;
+        }
+      }
+    }
+    if (count($hexes) < 40) {
+      throw new \DomainException('street_footprint_below_gargantuan_range');
+    }
+    return [$this->step(
+      1,
+      'set_street_footprint',
+      ['hexes' => $hexes, 'entry_hex' => ['q' => (int) $entry['q'], 'r' => (int) $entry['r']]],
+      sprintf('Replace the street with a %d by %d hex band while preserving its entrance.', $length, $width),
+    )];
   }
 
   private function planRethemeTerrain(array $parameters, array $room): array {

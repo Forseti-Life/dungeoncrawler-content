@@ -59,6 +59,7 @@ final class RoomEditorGmSurface implements EditorGmSurfaceInterface {
     'set_room_metadata',
     'add_hex',
     'remove_hex',
+    'set_street_footprint',
     'set_hex_terrain',
     'set_hexes_terrain',
     'set_hex_elevation',

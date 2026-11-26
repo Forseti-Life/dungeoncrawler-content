@@ -381,6 +381,26 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     if (isset($scope['lookup_evidence'])) {
       $snapshot['lookup_evidence'] = $scope['lookup_evidence'];
     }
+    $street_plan = $this->roomStreetFootprintCommandPlan(
+      $surface,
+      $draft_id,
+      $profile,
+      $author_message,
+    );
+    if ($street_plan !== NULL) {
+      return $this->executeTool(
+        $surface,
+        $draft_id,
+        $profile,
+        'apply_room_commands',
+        $street_plan,
+        $dry_run,
+        'Reshape the district street into a long band while preserving its entrance.',
+        $scope,
+        [],
+        $author_message,
+      );
+    }
     $furnishing_lookups = $this->roomFurnishingLookupTasks($surface, $author_message);
     if ($furnishing_lookups !== []) {
       return $this->continueStorylineLookups(
@@ -1207,6 +1227,47 @@ class EditorGmHarnessService implements AgentHarnessInterface {
       'reasoning' => sprintf('Generate and create the explicitly requested %s definition.', $family),
       'next_steps' => [],
       'authorizes_changes' => TRUE,
+    ];
+  }
+
+  private function roomStreetFootprintCommandPlan(
+    EditorGmSurfaceInterface $surface,
+    ?string $draft_id,
+    string $profile,
+    string $author_message,
+  ): ?array {
+    if ($surface->id() !== RoomEditorGmSurface::ID
+      || $draft_id === NULL
+      || preg_match('/\b(?:shrink|reshape|street-shaped|longer than wide|fix the footprint|keep the street)\b/iu', $author_message) !== 1) {
+      return NULL;
+    }
+    $context = $surface->createContext($draft_id, $profile);
+    $room_context = RoomEditorGmToolContext::of($context);
+    if (($room_context->room()['room_type'] ?? '') !== 'street') {
+      return NULL;
+    }
+    $draft = $room_context->draft();
+    $plan = $surface->registry()->get('plan_room_commands')->execute(
+      [
+        'goal' => 'reshape_street_footprint',
+        'parameters' => [
+          'axis' => 'q',
+          'width_hexes' => 5,
+          'length_hexes' => 41,
+        ],
+      ],
+      $context,
+    );
+    $commands = array_map(
+      static fn(array $step): array => [
+        'type' => (string) $step['command_type'],
+        'payload' => (array) $step['payload'],
+      ],
+      (array) ($plan['command_plan']['steps'] ?? []),
+    );
+    return [
+      'expected_revision' => (int) ($draft['revision'] ?? 0),
+      'commands' => $commands,
     ];
   }
 
