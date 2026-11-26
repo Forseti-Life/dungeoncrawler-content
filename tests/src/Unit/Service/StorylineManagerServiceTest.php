@@ -1284,7 +1284,7 @@ class StorylineManagerServiceTest extends UnitTestCase {
         ];
       }
 
-      protected function validateReferencedLocationEntityContractStub(string $entity_type, string $entity_id, array $context): array {
+      protected function validateReferencedLocationEntityContractStub(string $entity_type, string $entity_id, array $context, array &$findings = []): array {
         $this->validatedRooms[] = [
           'entity_type' => $entity_type,
           'entity_id' => $entity_id,
@@ -2207,7 +2207,8 @@ class StorylineManagerServiceTest extends UnitTestCase {
 
     $method = new \ReflectionMethod(StorylineManagerService::class, 'validateEntityLinkageStage');
     $method->setAccessible(TRUE);
-    $errors = $method->invoke($service, [
+    $findings = [];
+    $errors = $method->invokeArgs($service, [[
       'linked_quests' => [
         'guide-quest' => ['quest_id' => 'guide-quest'],
       ],
@@ -2230,13 +2231,20 @@ class StorylineManagerServiceTest extends UnitTestCase {
           'quest_ids' => ['guide-quest'],
         ]],
       ]],
-    ], 'definition');
+    ], 'definition', &$findings]);
 
     $error_text = implode('; ', $errors);
     $this->assertStringContainsString('DCV_ACTOR_RUNTIME_MATERIALIZATION_REQUIRED_FLAG', $error_text);
     $this->assertStringContainsString('DCV_ACTOR_RUNTIME_MATERIALIZATION_MISSING_REGISTRY_TYPE', $error_text);
     $this->assertStringContainsString('DCV_ACTOR_RUNTIME_MATERIALIZATION_MISSING_ACTOR', $error_text);
     $this->assertStringContainsString('DCV_ACTOR_RUNTIME_MATERIALIZATION_MISSING_LOCATION', $error_text);
+    $this->assertSame([
+      'DCV_ACTOR_RUNTIME_MATERIALIZATION_REQUIRED_FLAG',
+      'DCV_ACTOR_RUNTIME_MATERIALIZATION_MISSING_REGISTRY_TYPE',
+      'DCV_ACTOR_RUNTIME_MATERIALIZATION_MISSING_ACTOR',
+      'DCV_ACTOR_RUNTIME_MATERIALIZATION_MISSING_LOCATION',
+    ], array_column($findings, 'code'));
+    $this->assertSame('npc-guide', $findings[0]['entity_id']);
   }
 
   /**

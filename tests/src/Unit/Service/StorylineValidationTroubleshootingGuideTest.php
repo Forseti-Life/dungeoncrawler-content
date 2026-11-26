@@ -84,6 +84,37 @@ class StorylineValidationTroubleshootingGuideTest extends UnitTestCase {
     $this->assertStringContainsString('Do not alter storyline data', $packet['coding_handoff']['scope']);
   }
 
+  public function testRuntimeMaterializationUsesActorProjectionWithoutPatchingDerivedFields(): void {
+    $warning = "quest.whispers: DCV_ACTOR_RUNTIME_MATERIALIZATION_REQUIRED_FLAG contact 'gribbles' must set required_before_activation=true.";
+    $packet = StorylineValidationTroubleshootingGuide::packet([
+      'objects' => ['actors' => ['generation_specs' => [[
+        'actor_id' => 'gribbles',
+        'contact_id' => 'gribbles',
+        'display_name' => 'Gribbles',
+        'location_id' => 'tavern',
+      ]]]],
+    ], [
+      'stages' => [[
+        'stage' => 'entity_linkage',
+        'route' => 'draft_operation',
+        'warnings' => [$warning],
+        'findings' => [[
+          'severity' => 'warning',
+          'code' => 'DCV_ACTOR_RUNTIME_MATERIALIZATION_REQUIRED_FLAG',
+          'message' => $warning,
+          'entity_type' => 'storyline_actor_materialization',
+          'entity_id' => 'gribbles',
+          'contact_id' => 'gribbles',
+        ]],
+      ]],
+    ], ['first_open_warning' => $warning]);
+    $this->assertTrue($packet['system_resolves']);
+    $this->assertSame([], $packet['editable']);
+    $this->assertSame('npc_template', $packet['derived_contract']['entity_type']);
+    $this->assertSame('gribbles', $packet['derived_contract']['canonical_actor_id']);
+    $this->assertFalse($packet['code_change_required']);
+  }
+
   public function testBlockingObjectiveErrorPrecedesWarningsAndProvidesAReplacement(): void {
     $error = "Objective 'collect_resonance_samples' has type 'interact' but sets 'item', which that type does not use. Use 'target'.";
     $warning = '[DCV_OBJ_PLAYABILITY_MISSING_TARGET_LABEL] quest.other.phase[0].objective[0]: missing label.';

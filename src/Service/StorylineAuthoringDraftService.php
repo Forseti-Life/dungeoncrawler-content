@@ -4043,7 +4043,7 @@ class StorylineAuthoringDraftService {
       if ($contact_id === '') {
         $contact_id = 'contact-' . ($index + 1);
       }
-      $contacts[] = [
+      $contact = [
         'contact_id' => $contact_id,
         'entity_type' => 'campaign_npc',
         'entity_id' => $entity_id,
@@ -4069,6 +4069,8 @@ class StorylineAuthoringDraftService {
         ],
         'introduces_to' => $this->contactRelationships($entity_id, $payload),
       ];
+      $this->completeActorRuntimeMaterializationContract($contact, $actor);
+      $contacts[] = $contact;
     }
 
     $asset_references = [];
@@ -4930,6 +4932,7 @@ class StorylineAuthoringDraftService {
         : [];
       $contact['relationship_state']['runtime_materialization']['canonical_actor_id'] = $actor_id;
       $contact['relationship_state']['runtime_materialization']['canonical_location_id'] = trim((string) ($row['location_id'] ?? ''));
+      $this->completeActorRuntimeMaterializationContract($contact, $row);
       $contact['relationship_state']['authored_details'] = [
         'dialogue' => trim((string) ($row['dialogue'] ?? '')),
         'knowledge' => trim((string) ($row['knowledge'] ?? '')),
@@ -5030,6 +5033,28 @@ class StorylineAuthoringDraftService {
     }
     $template['asset_references'] = $asset_refs;
     return $template;
+  }
+
+  /**
+   * Completes the derived runtime contract for one authored actor contact.
+   */
+  private function completeActorRuntimeMaterializationContract(array &$contact, array $actor): void {
+    $actor_id = trim((string) ($actor['actor_id'] ?? $contact['entity_id'] ?? ''));
+    $location_id = trim((string) ($actor['location_id'] ?? ''));
+    if (!is_array($contact['relationship_state'] ?? NULL)) {
+      $contact['relationship_state'] = [];
+    }
+    if (!is_array($contact['relationship_state']['runtime_materialization'] ?? NULL)) {
+      $contact['relationship_state']['runtime_materialization'] = [];
+    }
+    $contract = &$contact['relationship_state']['runtime_materialization'];
+    $contact['entity_id'] = $actor_id;
+    $contact['entity_type'] = 'npc_template';
+    $contact['relationship_state']['location_id'] = $location_id;
+    $contract['required_before_activation'] = TRUE;
+    $contract['registry_entity_type'] = 'campaign_npc';
+    $contract['canonical_actor_id'] = $actor_id;
+    $contract['canonical_location_id'] = $location_id;
   }
 
   /**

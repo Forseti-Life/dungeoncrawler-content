@@ -87,7 +87,64 @@ final class StorylineValidationTroubleshootingGuide {
       ];
       $packet['user_action'] = 'Open the owning editor and have its GM create or update this canonical object, then return to revalidate.';
     }
+    if (($entry['resolver'] ?? 'generic') === 'storyline_actor_materialization'
+      && ($finding['entity_type'] ?? '') === 'storyline_actor_materialization') {
+      $packet += self::actorMaterializationPacket($payload, $finding, $entry);
+    }
     return $packet;
+  }
+
+  private static function actorMaterializationPacket(array $payload, array $finding, array $entry): array {
+    $actor_id = (string) ($finding['entity_id'] ?? '');
+    $actor = NULL;
+    foreach ((array) ($payload['objects']['actors']['generation_specs'] ?? []) as $row) {
+      if (is_array($row) && ($row['actor_id'] ?? '') === $actor_id) {
+        $actor = $row;
+        break;
+      }
+    }
+    if ($actor === NULL) {
+      return [
+        'code_change_required' => TRUE,
+        'coding_handoff' => [
+          'required' => TRUE,
+          'reason' => 'The runtime materialization warning names an actor not present in the authored actor rows.',
+          'scope' => 'Expose a safe actor projection resolver for this finding.',
+          'defect_tool' => 'submit_backlog_suggestion',
+        ],
+      ];
+    }
+    $fields = array_values((array) ($entry['fields'] ?? []));
+    $location_id = trim((string) ($actor['location_id'] ?? ''));
+    $derived_only = $fields === [];
+    return [
+      'object' => [
+        'type' => 'storyline_actor',
+        'id' => $actor_id,
+        'current' => $actor,
+      ],
+      'editable' => $derived_only ? [] : [
+        'path' => '/objects/actors/generation_specs',
+        'match' => ['field' => 'actor_id', 'value' => $actor_id],
+        'fields' => $fields,
+        'tool' => 'plan_storyline_draft_operations',
+      ],
+      'derived_contract' => [
+        'entity_type' => 'npc_template',
+        'required_before_activation' => TRUE,
+        'registry_entity_type' => 'campaign_npc',
+        'canonical_actor_id' => $actor_id,
+        'canonical_location_id' => $location_id,
+      ],
+      'system_resolves' => $derived_only,
+      'suggested_values' => [],
+      'user_question' => $location_id === '' && in_array('location_id', $fields, TRUE)
+        ? 'Which storyline location is this actor materialized in?'
+        : NULL,
+      'verification_codes' => [(string) ($finding['code'] ?? '')],
+      'code_change_required' => FALSE,
+      'coding_handoff' => [],
+    ];
   }
 
   private static function findRelatedFinding(array $validation, string $code, string $entity_id): array {
@@ -272,14 +329,14 @@ final class StorylineValidationTroubleshootingGuide {
     foreach ($registry['stages'] as $stage => $entry) {
       if (!is_array($entry)
         || !isset($registry['routes'][$entry['route'] ?? ''])
-        || !in_array($entry['resolver'] ?? '', ['generic', 'storyline_quest_objective', 'editor_route'], TRUE)) {
+        || !in_array($entry['resolver'] ?? '', ['generic', 'storyline_quest_objective', 'storyline_actor_materialization', 'editor_route'], TRUE)) {
         throw new \UnexpectedValueException('storyline_validation_troubleshooting_stage_invalid:' . $stage);
       }
     }
     foreach ($registry['findings'] as $code => $entry) {
       if (!is_array($entry)
         || !isset($registry['routes'][$entry['route'] ?? ''])
-        || !in_array($entry['resolver'] ?? '', ['generic', 'storyline_quest_objective', 'editor_route'], TRUE)) {
+        || !in_array($entry['resolver'] ?? '', ['generic', 'storyline_quest_objective', 'storyline_actor_materialization', 'editor_route'], TRUE)) {
         throw new \UnexpectedValueException('storyline_validation_troubleshooting_entry_invalid:' . $code);
       }
     }

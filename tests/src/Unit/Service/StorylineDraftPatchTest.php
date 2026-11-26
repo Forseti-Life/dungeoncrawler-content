@@ -153,6 +153,26 @@ class StorylineDraftPatchTest extends UnitTestCase {
     $this->assertSame(['scene_room_missing'], array_column($findings, 'code'));
   }
 
+  public function testGeneratedStorylineContactsShareRuntimeMaterializationInvariant(): void {
+    [$service, $draft] = $this->fixture();
+    $manager = $this->createMock(StorylineManagerService::class);
+    $manager->method('resolveAuthoredRoomDungeonBindings')->willReturn(['rooms' => []]);
+    (new \ReflectionProperty(StorylineAuthoringDraftService::class, 'storylineManager'))->setValue($service, $manager);
+    $payload = $draft['payload'];
+    $payload['objects']['actors']['generation_specs'][0]['location_id'] = 'village-square';
+    $definition = (new \ReflectionMethod($service, 'buildTemplateDefinitionFromDraftPayload'))->invoke($service, $payload);
+    $contact = array_values(array_filter(
+      $definition['contacts'],
+      static fn(array $row): bool => ($row['contact_id'] ?? '') === 'contact-first',
+    ))[0];
+
+    $this->assertSame('npc_template', $contact['entity_type']);
+    $this->assertTrue($contact['relationship_state']['runtime_materialization']['required_before_activation']);
+    $this->assertSame('campaign_npc', $contact['relationship_state']['runtime_materialization']['registry_entity_type']);
+    $this->assertSame('actor-first', $contact['relationship_state']['runtime_materialization']['canonical_actor_id']);
+    $this->assertSame('village-square', $contact['relationship_state']['runtime_materialization']['canonical_location_id']);
+  }
+
   /**
    * Importing canonical quests must not invent objective rows.
    */

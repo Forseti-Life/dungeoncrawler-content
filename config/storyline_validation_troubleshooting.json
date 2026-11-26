@@ -87,6 +87,42 @@
       "route": "dungeon_editor",
       "fields": [],
       "verification": "selected_code"
+    },
+    "DCV_ACTOR_RUNTIME_MATERIALIZATION_REQUIRED_FLAG": {
+      "resolver": "storyline_actor_materialization",
+      "route": "draft_operation",
+      "fields": [],
+      "verification": "same_object"
+    },
+    "DCV_ACTOR_RUNTIME_MATERIALIZATION_ENTITY_TYPE_INVALID": {
+      "resolver": "storyline_actor_materialization",
+      "route": "draft_operation",
+      "fields": [],
+      "verification": "same_object"
+    },
+    "DCV_ACTOR_RUNTIME_MATERIALIZATION_MISSING_REGISTRY_TYPE": {
+      "resolver": "storyline_actor_materialization",
+      "route": "draft_operation",
+      "fields": [],
+      "verification": "same_object"
+    },
+    "DCV_ACTOR_RUNTIME_MATERIALIZATION_MISSING_ACTOR": {
+      "resolver": "storyline_actor_materialization",
+      "route": "draft_operation",
+      "fields": ["actor_id"],
+      "verification": "same_object"
+    },
+    "DCV_ACTOR_RUNTIME_MATERIALIZATION_MISSING_LOCATION": {
+      "resolver": "storyline_actor_materialization",
+      "route": "draft_operation",
+      "fields": ["location_id"],
+      "verification": "same_object"
+    },
+    "DCV_ACTOR_RUNTIME_MATERIALIZATION_LOCATION_UNANCHORED": {
+      "resolver": "storyline_actor_materialization",
+      "route": "draft_operation",
+      "fields": ["location_id"],
+      "verification": "same_object"
     }
   },
   "default": {

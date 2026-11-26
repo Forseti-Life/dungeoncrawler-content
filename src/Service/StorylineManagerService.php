@@ -823,10 +823,12 @@ class StorylineManagerService {
       'findings' => $this->objectivePlayabilityFindings($objective_playability_errors),
     ];
 
-    $entity_linkage_errors = $this->validateEntityLinkageStage($storyline_data, $normalized_payload_type);
+    $entity_linkage_findings = [];
+    $entity_linkage_errors = $this->validateEntityLinkageStage($storyline_data, $normalized_payload_type, $entity_linkage_findings);
     $stages['entity_linkage'] = [
       'valid' => $entity_linkage_errors === [],
       'errors' => $entity_linkage_errors,
+      'findings' => $entity_linkage_findings,
     ];
 
     $dungeon_room_contract_errors = $this->validateDungeonRoomContractsStage($storyline_data, $normalized_payload_type);
@@ -1847,7 +1849,7 @@ class StorylineManagerService {
    * @return array<int, string>
    *   Validation errors for this stage.
    */
-  protected function validateEntityLinkageStage(array $storyline_data, string $payload_type): array {
+  protected function validateEntityLinkageStage(array $storyline_data, string $payload_type, array &$findings = []): array {
     if ($payload_type !== 'definition') {
       return [];
     }
@@ -1968,6 +1970,29 @@ class StorylineManagerService {
       }
     }
 
+    foreach ($errors as $error) {
+      if (preg_match("/(DCV_ACTOR_RUNTIME_MATERIALIZATION_[A-Z_]+) contact '([^']+)'/", (string) $error, $match) !== 1) {
+        continue;
+      }
+      $contact_id = $match[2];
+      $actor_id = '';
+      foreach ((array) ($storyline_data['contacts'] ?? []) as $contact) {
+        if (is_array($contact) && ($contact['contact_id'] ?? '') === $contact_id) {
+          $actor_id = trim((string) ($contact['entity_id'] ?? ''));
+          break;
+        }
+      }
+      $findings[] = [
+        'severity' => 'warning',
+        'code' => $match[1],
+        'message' => (string) $error,
+        'entity_type' => 'storyline_actor_materialization',
+        'entity_id' => $actor_id !== '' ? $actor_id : $contact_id,
+        'contact_id' => $contact_id,
+        'owner' => 'storyline_actor_projection',
+        'field' => str_contains($match[1], 'LOCATION') ? 'location_id' : NULL,
+      ];
+    }
     return array_values(array_unique($errors));
   }
 
