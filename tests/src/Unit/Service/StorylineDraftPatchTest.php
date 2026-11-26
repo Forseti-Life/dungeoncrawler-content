@@ -8,6 +8,7 @@ use Drupal\Core\Database\Connection;
 use Drupal\Core\Database\Query\SelectInterface;
 use Drupal\Core\Database\StatementInterface;
 use Drupal\Core\Session\AccountProxyInterface;
+use Drupal\dungeoncrawler_content\Service\Actor\ActorDefinitionMirror;
 use Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessManagementService;
 use Drupal\dungeoncrawler_content\Service\CanonicalQuestTemplateService;
 use Drupal\dungeoncrawler_content\Service\CharacterCreationGmService;
@@ -1161,6 +1162,54 @@ class StorylineDraftPatchTest extends UnitTestCase {
     $this->assertSame('goblin', $actor['ancestry']);
     $this->assertSame(7, $actor['character_sheet_revision']);
     $this->assertSame(StorylineAuthoringDraftService::actorSpecHash($actor), $actor['character_sheet_spec_hash']);
+  }
+
+  public function testDraftProjectionAdoptsCanonicalSheetWhenTemplateLinkIsMissing(): void {
+    $characters = $this->createMock(CharacterCreationGmService::class);
+    $characters->method('getDraft')->with(5841)->willReturn([
+      'revision' => 7,
+      'payload' => [
+        'name' => 'Gribbles Rindsworth',
+        'class' => 'rogue',
+        'ancestry' => 'goblin',
+        'level' => 3,
+        'alignment' => 'CN',
+      ],
+    ]);
+    $mirror = $this->createMock(ActorDefinitionMirror::class);
+    $mirror->method('libraryRow')->with('gribbles_rindsworth')->willReturn(['id' => 5841]);
+    $service = new StorylineAuthoringDraftService(
+      $this->createMock(Connection::class),
+      $this->createMock(StorylineManagerService::class),
+      $this->createMock(AccountProxyInterface::class),
+      $this->createMock(UuidInterface::class),
+      $this->createMock(TimeInterface::class),
+      NULL, NULL, NULL, NULL, NULL,
+      $characters,
+      NULL,
+      $mirror,
+    );
+    $project = new \ReflectionMethod($service, 'projectOwnership');
+    $project->setAccessible(TRUE);
+    $draft = $project->invoke($service, [
+      'owner_uid' => 0,
+      'status' => 'editing',
+      'payload' => [
+        'objects' => [
+          'actors' => [
+            'generation_specs' => [[
+              'actor_id' => 'gribbles_rindsworth',
+              'display_name' => 'Gribbles Rindsworth',
+            ]],
+          ],
+        ],
+      ],
+    ]);
+    $actor = $draft['payload']['objects']['actors']['generation_specs'][0];
+
+    $this->assertSame(5841, $actor['character_id']);
+    $this->assertSame(7, $actor['character_sheet_revision']);
+    $this->assertSame('goblin', $actor['ancestry']);
   }
 
   /**

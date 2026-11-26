@@ -6,6 +6,7 @@ use Drupal\dungeoncrawler_content\Service\EditorGm\EditorDraftStatusProjection;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorWarningReview;
 use Drupal\Component\Datetime\TimeInterface;
 use Drupal\Component\Uuid\UuidInterface;
+use Drupal\dungeoncrawler_content\Service\Actor\ActorDefinitionMirror;
 use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\Core\Database\Connection;
 use Drupal\dungeoncrawler_content\Exception\StorylineDraftValidationException;
@@ -125,6 +126,7 @@ class StorylineAuthoringDraftService {
     protected ?InstitutionLibraryService $institutionLibrary = NULL,
     protected ?CharacterCreationGmService $characters = NULL,
     protected ?EditorWarningReview $warningReview = NULL,
+    protected ?ActorDefinitionMirror $actorMirror = NULL,
   ) {}
 
   /**
@@ -4438,6 +4440,12 @@ class StorylineAuthoringDraftService {
     $payload['process_flow']['conflicts'] = array_values(array_filter((array) ($analysis['conflicts'] ?? []), 'is_array'));
     $payload['process_flow']['narrative_architecture'] = $this->normalizeNarrativeArchitecture($builder['narrative_architecture'] ?? []);
     $payload['objects']['actors']['generation_specs'] = $actors;
+    foreach ($payload['objects']['actors']['generation_specs'] as &$actor) {
+      if (is_array($actor)) {
+        $this->projectLinkedActorSheet($actor);
+      }
+    }
+    unset($actor);
     $payload['objects']['actors']['relationships'] = $actor_relationships;
     $payload['objects']['institutions'] = array_values(array_filter((array) ($builder['institutions'] ?? []), 'is_array'));
     $payload['objects']['actors']['validation_criteria'] = array_values((array) ($builder['actor_validation_criteria'] ?? []));
@@ -5429,18 +5437,10 @@ class StorylineAuthoringDraftService {
     if ($this->characters !== NULL) {
       $generation_specs = (array) ($payload['objects']['actors']['generation_specs'] ?? []);
       foreach ($generation_specs as &$actor) {
-        if (!is_array($actor) || (int) ($actor['character_id'] ?? 0) <= 0) {
+        if (!is_array($actor)) {
           continue;
         }
-        $sheet = $this->characters->getDraft((int) $actor['character_id']);
-        $actor['display_name'] = (string) ($sheet['payload']['name'] ?? $actor['display_name'] ?? '');
-        foreach (['class', 'ancestry', 'level', 'alignment'] as $field) {
-          if (array_key_exists($field, (array) ($sheet['payload'] ?? []))) {
-            $actor[$field] = $sheet['payload'][$field];
-          }
-        }
-        $actor['character_sheet_revision'] = (int) ($sheet['revision'] ?? 0);
-        $actor['character_sheet_spec_hash'] = self::actorSpecHash($actor);
+        $this->projectLinkedActorSheet($actor);
       }
       unset($actor);
       $payload['objects']['actors']['generation_specs'] = $generation_specs;
@@ -5451,6 +5451,35 @@ class StorylineAuthoringDraftService {
     $draft['can_edit'] = $uid > 0 && (string) ($draft['status'] ?? '') === 'editing';
     $draft['can_copy'] = (string) ($draft['status'] ?? '') !== 'editing';
     return $draft;
+  }
+
+  private function projectLinkedActorSheet(array &$actor): void {
+    $actor_id = trim((string) ($actor['actor_id'] ?? ''));
+    $character_id = (int) ($actor['character_id'] ?? 0);
+    $mirror_row = $actor_id !== '' && $this->actorMirror !== NULL
+      ? $this->actorMirror->libraryRow($actor_id)
+      : NULL;
+    if ($character_id <= 0 && $mirror_row !== NULL) {
+      $character_id = (int) $mirror_row['id'];
+      $actor['character_id'] = $character_id;
+    }
+    if ($character_id <= 0 || $this->characters === NULL) {
+      return;
+    }
+    if ($mirror_row !== NULL && (int) $mirror_row['id'] !== $character_id) {
+      throw new \LogicException(
+        sprintf('storyline_actor_sheet_link_conflict:%s:%d:%d', $actor_id, $character_id, (int) $mirror_row['id']),
+      );
+    }
+    $sheet = $this->characters->getDraft($character_id);
+    $actor['display_name'] = (string) ($sheet['payload']['name'] ?? $actor['display_name'] ?? '');
+    foreach (['class', 'ancestry', 'level', 'alignment'] as $field) {
+      if (array_key_exists($field, (array) ($sheet['payload'] ?? []))) {
+        $actor[$field] = $sheet['payload'][$field];
+      }
+    }
+    $actor['character_sheet_revision'] = (int) ($sheet['revision'] ?? 0);
+    $actor['character_sheet_spec_hash'] = self::actorSpecHash($actor);
   }
 
   /**

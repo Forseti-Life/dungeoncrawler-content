@@ -1554,6 +1554,7 @@ services:
       - '@dungeoncrawler_content.institution_library'
       - '@dungeoncrawler_content.character_creation_gm'
       - '@dungeoncrawler_content.editor_warning_review'
+      - '@dungeoncrawler_content.actor_definition_mirror'
 
   dungeoncrawler_content.institution_library:
     class: Drupal\dungeoncrawler_content\Service\InstitutionLibraryService
