@@ -34,6 +34,7 @@ class DungeonEditorGmContractTest extends TestCase {
 
   private const DUNGEON_TOOLS = [
     'load_dungeon_draft',
+    'route_to_editor',
     'summarize_level_topology',
     'list_published_rooms',
     'inspect_room_version',
@@ -48,6 +49,9 @@ class DungeonEditorGmContractTest extends TestCase {
     'plan_dungeon_commands',
     'plan_room_placement',
     'plan_port_links',
+    'plan_district_building',
+    'plan_district_buildings',
+    'inspect_district',
     'preview_command_plan',
     'plan_canonical_definition_patch',
     'apply_dungeon_commands',
@@ -74,9 +78,10 @@ class DungeonEditorGmContractTest extends TestCase {
     $parser = $this->parser();
     $definitions = $this->createMock(CanonicalDefinitionService::class);
     $generation = $this->createMock(EditorCanonicalGenerationPlanService::class);
+    $suite = $this->createMock(EditorSuiteService::class);
     return new EditorGmHarnessService([
       new RoomEditorGmSurface($this->createMock(RoomEditorService::class), $definitions, $parser, new Php(), $generation),
-      new DungeonEditorGmSurface($this->createMock(DungeonEditorService::class), $definitions, $parser, new Php(), $generation),
+      new DungeonEditorGmSurface($this->createMock(DungeonEditorService::class), $definitions, $parser, new Php(), $generation, NULL, NULL, $suite),
       new DefinitionEditorGmSurface($definitions, $parser),
       new EditorSuiteGmSurface($this->createMock(EditorSuiteService::class), $this->createMock(EditorReviewFlagService::class), $definitions, $parser),
     ], $parser);
@@ -93,6 +98,7 @@ class DungeonEditorGmContractTest extends TestCase {
     foreach (glob($this->root() . '/src/Service/EditorGm/Tool/Dungeon/Plan*Tool.php') as $path) {
       $planning_source .= (string) file_get_contents($path);
     }
+
     foreach ($schema['properties']['type']['enum'] as $type) {
       $this->assertStringContainsString(
         "'" . $type . "'",
@@ -110,6 +116,14 @@ class DungeonEditorGmContractTest extends TestCase {
       $this->assertStringNotContainsString('$this->database', $source, basename($path) . ' must resolve all state through DungeonEditorService.');
       $this->assertStringNotContainsString('RoomEditorService', $source, basename($path) . ' must not reach the room authority.');
     }
+  }
+
+  public function testDungeonCanSearchPublishedRoomsAndRouteMissingRooms(): void {
+    $manifest = $this->harness()->manifest('dungeon_editor');
+    $tools = array_merge(...array_values($manifest['families']));
+    $by_name = array_column($tools, NULL, 'name');
+    $this->assertContains('search', array_column($by_name['list_published_rooms']['arguments'], 'name'));
+    $this->assertArrayHasKey('route_to_editor', $by_name);
   }
 
   /**
@@ -136,7 +150,7 @@ class DungeonEditorGmContractTest extends TestCase {
     sort($expected);
     $this->assertSame($expected, $names);
 
-    foreach (['plan_dungeon_commands', 'plan_room_placement', 'plan_port_links', 'preview_command_plan', 'plan_canonical_definition_patch'] as $planning) {
+    foreach (['plan_dungeon_commands', 'plan_room_placement', 'plan_port_links', 'plan_district_building', 'preview_command_plan', 'plan_canonical_definition_patch'] as $planning) {
       $this->assertSame('planning', $by_name[$planning]['family_key']);
       $this->assertFalse($by_name[$planning]['mutating'], $planning . ' must be a proposal.');
     }

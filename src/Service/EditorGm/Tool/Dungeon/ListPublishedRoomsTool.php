@@ -21,6 +21,7 @@ final class ListPublishedRoomsTool implements EditorGmToolInterface {
       'DungeonEditorService::roomLibrary()',
       [
         EditorGmToolDefinition::argument('room_type', 'string', FALSE, 'Restrict to one room_type.'),
+        EditorGmToolDefinition::argument('search', 'string', FALSE, 'Distinctive words from the room ID or name. All words must match.'),
         EditorGmToolDefinition::argument('include_geometry', 'boolean', FALSE, 'Include room-local footprint hexes and ports (default false).'),
       ],
     );
@@ -29,11 +30,17 @@ final class ListPublishedRoomsTool implements EditorGmToolInterface {
   public function execute(array $arguments, EditorGmToolContext $context): array {
     $context = DungeonEditorGmToolContext::of($context);
     $room_type = isset($arguments['room_type']) ? trim((string) $arguments['room_type']) : '';
+    $search = isset($arguments['search']) ? mb_strtolower(trim((string) $arguments['search'])) : '';
+    $terms = preg_split('/\s+/', $search, -1, PREG_SPLIT_NO_EMPTY) ?: [];
     $include_geometry = !empty($arguments['include_geometry']);
 
     $rooms = [];
     foreach ($context->roomLibrary() as $entry) {
       if ($room_type !== '' && ($entry['room_type'] ?? NULL) !== $room_type) {
+        continue;
+      }
+      $haystack = mb_strtolower((string) (($entry['room_id'] ?? '') . ' ' . ($entry['name'] ?? '')));
+      if (array_filter($terms, static fn(string $term): bool => !str_contains($haystack, $term)) !== []) {
         continue;
       }
       if (!$include_geometry) {

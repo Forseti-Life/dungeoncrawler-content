@@ -18,6 +18,15 @@ use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\InspectRoomVersi
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\ListPublishedRoomsTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\LoadDungeonDraftTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\PlanDungeonCommandsTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\BuildDistrictStreetTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\MoveRoomPortTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\PaintDistrictTerrainTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\CarveDistrictCorridorTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\RingDistrictTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\ResizeRoomTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\InspectDistrictTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\PlanDistrictBuildingTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\PlanDistrictBuildingsTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\PlanPortLinksTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\PlanRoomPlacementTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\PreviewDungeonCommandPlanTool;
@@ -29,6 +38,8 @@ use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\ListCatalogDefinitionsTo
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\LoadCanonicalDefinitionTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\PlanCanonicalDefinitionPatchTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\UpdateCanonicalDefinitionTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Suite\RouteToEditorTool;
+use Drupal\dungeoncrawler_content\Service\EditorSuite\EditorSuiteService;
 
 /**
  * Dungeon Editor GM surface (20-gm-harness-extension.md §dungeon_editor).
@@ -64,9 +75,11 @@ final class DungeonEditorGmSurface implements EditorGmSurfaceInterface {
     ?EditorCanonicalGenerationPlanService $generation = NULL,
     ?StorylineAuthoringDraftService $storylines = NULL,
     ?CanonicalRoomBuildService $roomBuild = NULL,
+    ?EditorSuiteService $suite = NULL,
   ) {
     $tools = [
       new LoadDungeonDraftTool(),
+      ...($suite === NULL ? [] : [new RouteToEditorTool($suite)]),
       new SummarizeLevelTopologyTool(),
       new ListPublishedRoomsTool(),
       new InspectRoomVersionTool(),
@@ -80,6 +93,9 @@ final class DungeonEditorGmSurface implements EditorGmSurfaceInterface {
       new PlanDungeonCommandsTool(),
       new PlanRoomPlacementTool(),
       new PlanPortLinksTool(),
+      new PlanDistrictBuildingTool($uuid),
+      new PlanDistrictBuildingsTool($uuid),
+      new InspectDistrictTool(),
       new PreviewDungeonCommandPlanTool($uuid),
       new PlanCanonicalDefinitionPatchTool(),
       new ApplyDungeonCommandsTool($uuid),
@@ -93,6 +109,14 @@ final class DungeonEditorGmSurface implements EditorGmSurfaceInterface {
     }
     if ($storylines !== NULL && $roomBuild !== NULL && $generation !== NULL) {
       $tools[] = new BuildSiteFromStoryBriefTool($storylines, $roomBuild, $generation, $uuid);
+    }
+    if ($roomBuild !== NULL) {
+      $tools[] = new BuildDistrictStreetTool($roomBuild);
+      $tools[] = new ResizeRoomTool($roomBuild);
+      $tools[] = new MoveRoomPortTool($roomBuild);
+      $tools[] = new PaintDistrictTerrainTool($roomBuild);
+      $tools[] = new CarveDistrictCorridorTool($roomBuild);
+      $tools[] = new RingDistrictTool($roomBuild);
     }
     if ($generation !== NULL) {
       array_splice($tools, 11, 0, [new GenerateDungeonLayoutTool($generation)]);

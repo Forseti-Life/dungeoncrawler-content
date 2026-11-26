@@ -364,8 +364,8 @@ class EditorGmHarnessService implements AgentHarnessInterface {
       );
     }
     if ($intent['type'] === 'task_queue') {
-      $lookups = $surface->id() === StorylineBuilderGmSurface::ID
-        ? $this->leadingStorylineLookups($surface, (array) $intent['tasks']) : [];
+      $lookups = in_array($surface->id(), [StorylineBuilderGmSurface::ID, DungeonEditorGmSurface::ID], TRUE)
+        ? $this->leadingLookupTasks($surface, (array) $intent['tasks']) : [];
       if ($lookups !== []) {
         return $this->continueStorylineLookups($surface, $draft_id, $profile, $lookups, $utterance, $author_message, $scope, $dry_run);
       }
@@ -398,7 +398,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     }
 
     $definition = $surface->registry()->get($intent['tool_name'])->definition();
-    if ($surface->id() === StorylineBuilderGmSurface::ID
+    if (in_array($surface->id(), [StorylineBuilderGmSurface::ID, DungeonEditorGmSurface::ID], TRUE)
       && !$definition->mutating && $definition->family === EditorGmToolDefinition::FAMILY_CONTEXT) {
       return $this->continueStorylineLookups($surface, $draft_id, $profile, [$intent], $utterance, $author_message, $scope, $dry_run);
     }
@@ -668,6 +668,22 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         $evidence[] = ['tool' => $name, 'arguments' => $arguments, 'result' => $tool_result];
       }
       $scope['lookup_evidence'] = $evidence;
+      $room_route = $this->missingPublishedRoomEditorRoute($surface, $author_message, $evidence);
+      if ($room_route !== NULL) {
+        return $this->executeTool(
+          $surface,
+          $draft_id,
+          $profile,
+          'route_to_editor',
+          ['kind' => 'room', 'id' => $room_route],
+          FALSE,
+          'The requested room has no published version; continue in the Room Editor before placement.',
+          $scope,
+          [],
+          $author_message,
+          $tool_calls,
+        );
+      }
       $context = $this->createContext($surface, $draft_id, $profile, $scope);
       $snapshot = $surface->assembler()->assemble($context);
       $snapshot['lookup_evidence'] = $evidence;
@@ -699,7 +715,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         ], $context->validation(), [['level' => 'info', 'text' => $intent['question']]], [], $tool_calls);
       }
       if ($intent['type'] === 'task_queue') {
-        $tasks = $this->leadingStorylineLookups($surface, (array) $intent['tasks']);
+        $tasks = $this->leadingLookupTasks($surface, (array) $intent['tasks']);
         if ($tasks !== []) {
           continue;
         }
@@ -745,7 +761,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     ]) === [];
   }
 
-  private function leadingStorylineLookups(EditorGmSurfaceInterface $surface, array $tasks): array {
+  private function leadingLookupTasks(EditorGmSurfaceInterface $surface, array $tasks): array {
     $lookups = [];
     foreach ($tasks as $task) {
       $name = (string) ($task['tool_name'] ?? '');
@@ -759,6 +775,40 @@ class EditorGmHarnessService implements AgentHarnessInterface {
       $lookups[] = $task;
     }
     return $lookups;
+  }
+
+  private function missingPublishedRoomEditorRoute(
+    EditorGmSurfaceInterface $surface,
+    string $author_message,
+    array $evidence,
+  ): ?string {
+    if ($surface->id() !== DungeonEditorGmSurface::ID) {
+      return NULL;
+    }
+    foreach ($evidence as $lookup) {
+      if (($lookup['tool'] ?? '') !== 'list_published_rooms'
+        || (int) ($lookup['result']['room_count'] ?? -1) !== 0) {
+        continue;
+      }
+      $search = mb_strtolower(trim((string) ($lookup['arguments']['search'] ?? '')));
+      $identifiers = [];
+      if (preg_match_all('/\b[a-z0-9]+(?:_[a-z0-9]+)+\b/i', $author_message, $matches) === 1
+        || $matches[0] !== []) {
+        $identifiers = $matches[0];
+      }
+      foreach ($identifiers as $identifier) {
+        $identifier = mb_strtolower($identifier);
+        if ($search === '' || str_contains($identifier, preg_replace('/\s+/', '_', $search) ?? '')
+          || array_filter(preg_split('/\s+/', $search) ?: [], static fn(string $term): bool => str_contains($identifier, $term)) !== []) {
+          return $identifier;
+        }
+      }
+      if (str_contains($search, '_')) {
+        return $search;
+      }
+      return '';
+    }
+    return NULL;
   }
 
   private static function normalizeLookupArguments(array $arguments): array {

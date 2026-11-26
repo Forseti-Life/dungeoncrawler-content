@@ -585,6 +585,10 @@ services:
     class: Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService
     arguments: ['@database', '@dungeoncrawler_content.definition_schema_validator']
 
+  dungeoncrawler_content.editor_warning_review:
+    class: Drupal\dungeoncrawler_content\Service\EditorGm\EditorWarningReview
+    arguments: ['@keyvalue']
+
   dungeoncrawler_content.room_editor:
     class: Drupal\dungeoncrawler_content\Service\RoomEditorService
     arguments:
@@ -594,6 +598,7 @@ services:
       - '@dungeoncrawler_content.canonical_definitions'
       - '@dungeoncrawler_content.storyline_authoring_drafts'
       - '@dungeoncrawler_content.dungeon_editor'
+      - '@dungeoncrawler_content.editor_warning_review'
 
   dungeoncrawler_content.connector_projection:
     class: Drupal\dungeoncrawler_content\Service\ConnectorProjectionService
@@ -614,6 +619,7 @@ services:
       - ~
       - '@dungeoncrawler_content.connector_projection'
       - '@dungeoncrawler_content.storyline_authoring_drafts'
+      - '@dungeoncrawler_content.editor_warning_review'
 
   dungeoncrawler_content.agent_harness_management:
     class: Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessManagementService
@@ -734,6 +740,7 @@ services:
       - '@dungeoncrawler_content.editor_canonical_generation_plan'
       - '@dungeoncrawler_content.storyline_authoring_drafts'
       - '@dungeoncrawler_content.canonical_room_build'
+      - '@dungeoncrawler_content.editor_suite'
 
   dungeoncrawler_content.editor_gm_surface.definition_editor:
     class: Drupal\dungeoncrawler_content\Service\EditorGm\DefinitionEditorGmSurface
@@ -1508,6 +1515,7 @@ services:
       - '@dungeoncrawler_content.canonical_definitions'
       - '@dungeoncrawler_content.institution_library'
       - '@dungeoncrawler_content.character_creation_gm'
+      - '@dungeoncrawler_content.editor_warning_review'
 
   dungeoncrawler_content.institution_library:
     class: Drupal\dungeoncrawler_content\Service\InstitutionLibraryService
