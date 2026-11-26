@@ -226,6 +226,9 @@ class VertexImageGenerationService {
       $parsed_output = $uses_gemini_generate_content
         ? $this->extractGeminiOutput($decoded)
         : $this->extractOutput($decoded);
+      if ($parsed_output['image_data_uri'] === NULL && $parsed_output['image_url'] === NULL) {
+        throw new \RuntimeException('Vertex API response completed without an image.');
+      }
 
       $this->storeCacheEntry($normalized_payload, $model, $decoded, $parsed_output, 'ready');
 
@@ -320,6 +323,19 @@ class VertexImageGenerationService {
     }
 
     if (empty($output_payload)) {
+      return NULL;
+    }
+    if (
+      trim((string) ($output_payload['image_url'] ?? '')) === ''
+      && trim((string) ($output_payload['image_data_uri'] ?? '')) === ''
+    ) {
+      $this->database->update($this->getPromptCacheTable())
+        ->fields([
+          'status' => 'failed',
+          'updated' => $this->time->getCurrentTime(),
+        ])
+        ->condition('id', (int) $record['id'])
+        ->execute();
       return NULL;
     }
 

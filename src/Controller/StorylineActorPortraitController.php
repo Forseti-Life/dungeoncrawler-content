@@ -72,14 +72,18 @@ final class StorylineActorPortraitController extends ControllerBase {
       ],
     );
     if (empty($result['storage']['stored'])) {
+      $reason = (string) ($result['storage']['reason'] ?? $result['reason'] ?? 'portrait_generation_failed');
+      $provider_message = trim((string) (
+        $result['storage']['message']
+        ?? $result['result']['message']
+        ?? ''
+      ));
       return new JsonResponse([
         'error' => [
-          'code' => (string) ($result['reason'] ?? 'portrait_generation_failed'),
-          'message' => trim((string) (
-            $result['storage']['message']
-            ?? $result['result']['message']
-            ?? 'Portrait generation did not produce a stored image.'
-          )),
+          'code' => $reason,
+          'message' => $provider_message !== ''
+            ? sprintf('Portrait was not stored (%s). %s', $reason, $provider_message)
+            : sprintf('Portrait was not stored (%s).', $reason),
         ],
       ], 503);
     }

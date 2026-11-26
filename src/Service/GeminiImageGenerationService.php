@@ -157,6 +157,9 @@ class GeminiImageGenerationService {
       }
 
       $parsed_output = $this->extractOutput($decoded);
+      if ($parsed_output['image_data_uri'] === NULL && $parsed_output['image_url'] === NULL) {
+        throw new \RuntimeException('Gemini API response completed without an image.');
+      }
 
       $this->loggerFactory->get('dungeoncrawler_content')->notice('Gemini image generation live request completed.', [
         'request_id' => $request_id,

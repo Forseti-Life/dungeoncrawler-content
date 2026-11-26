@@ -151,6 +151,27 @@ class CharacterPortraitGenerationService {
           ],
         ];
       }
+      $output = is_array($result['output'] ?? NULL) ? $result['output'] : [];
+      if (
+        trim((string) ($output['image_url'] ?? '')) === ''
+        && trim((string) ($output['image_data_uri'] ?? '')) === ''
+      ) {
+        return [
+          'attempted' => TRUE,
+          'reason' => 'provider_response_without_image',
+          'provider' => $provider,
+          'result' => $result,
+          'storage' => [
+            'stored' => FALSE,
+            'reason' => 'provider_response_without_image',
+            'message' => sprintf(
+              '%s returned a completed response without an image. No portrait was saved.',
+              strtoupper($provider),
+            ),
+            'status' => 'failed',
+          ],
+        ];
+      }
 
       $reused_storage = $this->reuseCachedPromptImage($result, $payload, $character_id, $owner_uid, $campaign_id);
       if (is_array($reused_storage)) {
