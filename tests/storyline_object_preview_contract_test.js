@@ -39,11 +39,17 @@ assert(
   'actor portraits use dedicated graph and panel styling',
 );
 assert(
-  builder.includes("['dungeon_entries', 'room_entries']")
+  builder.includes("['actor_entries', 'dungeon_entries', 'room_entries']")
     && builder.includes('Generate / Regenerate in Dungeon Editor')
     && builder.includes('Generate / Regenerate in Room Editor')
     && builder.includes('objectEditorTemplates[kind]'),
   'room and dungeon rows expose preview space plus generation/editor handoff links',
+);
+assert(
+  builder.includes("['actor_entries', 'dungeon_entries', 'room_entries']")
+    && builder.includes('Waiting on image provider…')
+    && builder.includes('source.portrait_url'),
+  'main Builder Step 4 actor rows show portraits and Generate or Regenerate controls',
 );
 assert(
   builderCss.includes('.gm-storyline-wizard__object-media')

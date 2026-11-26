@@ -101,7 +101,7 @@ character-setup-tabs:
     - core/drupal.ajax
 
 editor-gm-chat-style:
-  version: 20261126-place-previews-1
+  version: 20261126-main-row-previews-1
   css:
     theme:
       css/gm-storyline-builder.css: {}
@@ -131,7 +131,7 @@ gm-storyline-scene-review:
       css/gm-storyline-scene-review.css: {}
 
 gm-storyline-builder:
-  version: 20261126-place-previews-1
+  version: 20261126-main-row-previews-1
   js:
     js/gm-storyline-builder.js: { attributes: { type: module } }
   dependencies:

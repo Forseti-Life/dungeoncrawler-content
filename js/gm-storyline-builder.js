@@ -211,6 +211,7 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
         const draftsSettings = settings.drafts || {};
         const publishSettings = settings.publish || {};
         const objectEditorTemplates = settings.objectEditors || {};
+        const actorPortraitUrlTemplate = settings.actorPortraitUrlTemplate || '';
         const objectLabels = settings.objectLabels || {};
         const objectEditorLinks = document.querySelector('[data-storyline-object-editor-links]');
 
@@ -696,9 +697,9 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
         }
 
         function updateCollectionObjectMedia(collection, row, fallbackLabel) {
-          if (!['dungeon_entries', 'room_entries'].includes(collection)) return;
-          const kind = collection === 'dungeon_entries' ? 'dungeon' : 'room';
-          const idField = kind === 'dungeon' ? 'dungeon_id' : 'room_id';
+          if (!['actor_entries', 'dungeon_entries', 'room_entries'].includes(collection)) return;
+          const kind = collection === 'actor_entries' ? 'actor' : (collection === 'dungeon_entries' ? 'dungeon' : 'room');
+          const idField = kind === 'actor' ? 'actor_id' : (kind === 'dungeon' ? 'dungeon_id' : 'room_id');
           const id = (row.querySelector(`[data-col-field="${idField}"]`)?.value || '').trim();
           let media = row.querySelector(':scope > .gm-storyline-wizard__object-media');
           if (!media) {
@@ -711,13 +712,59 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
             preview.appendChild(label);
             const actions = document.createElement('div');
             actions.className = 'gm-storyline-wizard__object-actions';
-            const generate = document.createElement('a');
+            const generate = document.createElement(kind === 'actor' ? 'button' : 'a');
             generate.className = 'btn btn-primary btn-sm';
-            generate.target = '_blank';
-            generate.rel = 'noopener';
-            generate.textContent = kind === 'dungeon'
-              ? 'Generate / Regenerate in Dungeon Editor'
-              : 'Generate / Regenerate in Room Editor';
+            if (kind === 'actor') {
+              generate.type = 'button';
+              generate.addEventListener('click', async () => {
+                const actorId = (row.querySelector('[data-col-field="actor_id"]')?.value || '').trim();
+                if (!draftId || !actorId || !actorPortraitUrlTemplate) {
+                  label.textContent = 'Load a saved actor before generating a portrait.';
+                  return;
+                }
+                generate.disabled = true;
+                generate.textContent = 'Waiting on image provider…';
+                label.textContent = 'Generating portrait…';
+                try {
+                  if (!csrfToken) csrfToken = await fetchCsrfToken();
+                  const response = await fetch(
+                    actorPortraitUrlTemplate
+                      .replace('{draft_id}', encodeURIComponent(draftId))
+                      .replace('{actor_id}', encodeURIComponent(actorId)),
+                    {
+                      method: 'POST',
+                      credentials: 'same-origin',
+                      headers: { 'X-CSRF-Token': csrfToken },
+                    },
+                  );
+                  const body = await response.json().catch(() => ({}));
+                  if (!response.ok) {
+                    throw new Error(body?.error?.message || body?.error?.code || `portrait_${response.status}`);
+                  }
+                  const source = rowSource.get(row) || {};
+                  source.portrait_url = body.data.portrait_url;
+                  rowSource.set(row, source);
+                  label.textContent = 'Portrait generated.';
+                  generate.textContent = 'Regenerate portrait';
+                  updateCollectionObjectMedia(collection, row, fallbackLabel);
+                } catch (error) {
+                  label.textContent = `Portrait generation failed: ${error.message}`;
+                } finally {
+                  generate.disabled = false;
+                  if (generate.textContent === 'Waiting on image provider…') {
+                    generate.textContent = 'Generate portrait';
+                  }
+                }
+              });
+            } else {
+              generate.target = '_blank';
+              generate.rel = 'noopener';
+            }
+            generate.textContent = kind === 'actor'
+              ? 'Generate portrait'
+              : (kind === 'dungeon'
+                ? 'Generate / Regenerate in Dungeon Editor'
+                : 'Generate / Regenerate in Room Editor');
             const open = document.createElement('a');
             open.className = 'btn btn-secondary btn-sm';
             open.target = '_blank';
@@ -729,8 +776,23 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
           }
           const template = String(objectEditorTemplates[kind] || '');
           const href = id && template ? template.replace('{object_id}', encodeURIComponent(id)) : '';
-          media.querySelector('.gm-storyline-wizard__object-preview-label').textContent =
-            `${kind === 'dungeon' ? 'Dungeon' : 'Room'} preview · ${fallbackLabel}`;
+          const source = rowSource.get(row) || {};
+          const preview = media.querySelector('.gm-storyline-wizard__object-preview');
+          const label = preview.querySelector('.gm-storyline-wizard__object-preview-label');
+          preview.querySelectorAll('img').forEach((image) => image.remove());
+          if (kind === 'actor' && source.portrait_url) {
+            const image = document.createElement('img');
+            image.src = source.portrait_url;
+            image.alt = `${fallbackLabel} portrait`;
+            image.className = 'gm-storyline-wizard__object-portrait';
+            preview.prepend(image);
+            label.textContent = `${fallbackLabel} portrait`;
+            media.querySelector('button').textContent = 'Regenerate portrait';
+          } else {
+            label.textContent = kind === 'actor'
+              ? `Portrait not generated · ${fallbackLabel}`
+              : `${kind === 'dungeon' ? 'Dungeon' : 'Room'} preview · ${fallbackLabel}`;
+          }
           media.querySelectorAll('a').forEach((link) => {
             link.href = href || '#';
             link.setAttribute('aria-disabled', href ? 'false' : 'true');

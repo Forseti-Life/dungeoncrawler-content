@@ -612,6 +612,17 @@ TWIG,
               'publishUrlTemplate' => str_replace('00000000-0000-4000-8000-000000000000', '{draft_id}', Url::fromRoute('dungeoncrawler_content.api.storyline_builder_draft_publish', ['draft_id' => '00000000-0000-4000-8000-000000000000'])->toString()),
               'validateUrlTemplate' => str_replace('00000000-0000-4000-8000-000000000000', '{draft_id}', Url::fromRoute('dungeoncrawler_content.api.storyline_builder_draft_validate', ['draft_id' => '00000000-0000-4000-8000-000000000000'])->toString()),
             ],
+            'actorPortraitUrlTemplate' => str_replace(
+              ['00000000-0000-4000-8000-000000000000', 'ACTORID'],
+              ['{draft_id}', '{actor_id}'],
+              Url::fromRoute(
+                'dungeoncrawler_content.gm_storyline_actor_portrait',
+                [
+                  'draft_id' => '00000000-0000-4000-8000-000000000000',
+                  'actor_id' => 'ACTORID',
+                ],
+              )->toString(),
+            ),
             'objectEditors' => [
               'actor' => $this->editorUrlTemplate(
                 'dungeoncrawler_content.actor_view',

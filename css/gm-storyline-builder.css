@@ -417,6 +417,13 @@
   text-align: center;
 }
 
+.gm-storyline-wizard__object-portrait {
+  width: 100%;
+  max-height: 13rem;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
 .gm-storyline-wizard__object-actions {
   display: grid;
   align-content: center;
