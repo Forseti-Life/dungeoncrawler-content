@@ -943,6 +943,7 @@ class RoomEditorService {
       throw new \DomainException('publication_validation_failed');
     }
     $version_id = $this->uuid->generate();
+    $rebased_from_version_id = NULL;
     $transaction = $this->database->startTransaction();
     try {
       $current = $this->database->select('dungeoncrawler_content_rooms', 'r')
@@ -950,8 +951,16 @@ class RoomEditorService {
         ->condition('room_id', $room_id)
         ->execute()
         ->fetchField();
-      if (($current ?: NULL) !== $draft['base_version_id']) {
-        throw new \RuntimeException('base_version_conflict');
+      $current_base = $current ?: NULL;
+      if ($current_base !== $draft['base_version_id']) {
+        $previous_base = $this->loadPublishedPayload((string) ($draft['base_version_id'] ?? ''));
+        $current_published = $this->loadPublishedPayload((string) ($current_base ?? ''));
+        if ($previous_base === NULL
+          || $current_published === NULL
+          || !$this->draftContainsPublishedChanges($previous_base, $current_published, $room)) {
+          throw new \RuntimeException('base_version_conflict');
+        }
+        $rebased_from_version_id = $draft['base_version_id'];
       }
       $latest_version = $this->database->select('dungeoncrawler_content_room_versions', 'v')
         ->fields('v', ['version'])
@@ -1032,7 +1041,119 @@ class RoomEditorService {
       'payload_hash' => $hash,
       'published_at' => gmdate(DATE_RFC3339),
       'published_by' => (int) $this->currentUser->id(),
+      'base_version_id' => $rebased_from_version_id === NULL
+        ? $draft['base_version_id']
+        : $current_base,
+      'rebased_from_version_id' => $rebased_from_version_id,
     ];
+  }
+
+  /**
+   * Checks that every upstream published change is already present in a draft.
+   *
+   * Unchanged data and unrelated draft additions are ignored. A changed,
+   * removed, or absent upstream value without an exact draft match is a
+   * conflict and publication remains blocked.
+   */
+  private function draftContainsPublishedChanges(mixed $base, mixed $latest, mixed $draft, string $path = ''): bool {
+    if ($base === $latest) {
+      return TRUE;
+    }
+    if (is_array($base) && is_array($latest) && !array_is_list($base) && !array_is_list($latest)) {
+      if (!is_array($draft) || array_is_list($draft)) {
+        return FALSE;
+      }
+      $keys = array_values(array_unique(array_merge(array_keys($base), array_keys($latest))));
+      foreach ($keys as $key) {
+        $base_has = array_key_exists($key, $base);
+        $latest_has = array_key_exists($key, $latest);
+        $draft_has = array_key_exists($key, $draft);
+        if ($base_has && !$latest_has) {
+          if ($draft_has) {
+            return FALSE;
+          }
+          continue;
+        }
+        if (!$latest_has) {
+          continue;
+        }
+        if (!$draft_has || !$this->draftContainsPublishedChanges(
+          $base_has ? $base[$key] : NULL,
+          $latest[$key],
+          $draft[$key],
+          $path . '/' . $key,
+        )) {
+          return FALSE;
+        }
+      }
+      return TRUE;
+    }
+    if (is_array($base) && is_array($latest)
+      && array_is_list($base) && array_is_list($latest)
+      && is_array($draft) && array_is_list($draft)) {
+      $identity = $this->roomListIdentityResolver($path);
+      if ($identity === NULL) {
+        return $draft === $latest;
+      }
+      $base_by_id = $this->indexRoomList($base, $identity);
+      $latest_by_id = $this->indexRoomList($latest, $identity);
+      $draft_by_id = $this->indexRoomList($draft, $identity);
+      if ($base_by_id === NULL || $latest_by_id === NULL || $draft_by_id === NULL) {
+        return FALSE;
+      }
+      foreach ($base_by_id as $id => $item) {
+        if (!isset($latest_by_id[$id]) && isset($draft_by_id[$id])) {
+          return FALSE;
+        }
+      }
+      foreach ($latest_by_id as $id => $item) {
+        if (!isset($draft_by_id[$id])
+          || !$this->draftContainsPublishedChanges(
+            $base_by_id[$id] ?? NULL,
+            $item,
+            $draft_by_id[$id],
+            $path . '/*',
+          )) {
+          return FALSE;
+        }
+      }
+      return TRUE;
+    }
+    return $draft === $latest;
+  }
+
+  private function roomListIdentityResolver(string $path): ?callable {
+    $bucket = basename($path);
+    return match ($bucket) {
+      'placements' => static fn(array $item): ?string => is_string($item['instance_id'] ?? NULL)
+        ? $item['instance_id']
+        : NULL,
+      'entry_ports', 'exit_ports' => static fn(array $item): ?string => is_string($item['port_id'] ?? NULL)
+        ? $item['port_id']
+        : NULL,
+      'hexes' => static fn(array $item): ?string => is_int($item['q'] ?? NULL) && is_int($item['r'] ?? NULL)
+        ? $item['q'] . ':' . $item['r']
+        : NULL,
+      'light_sources', 'environmental_effects' => static fn(array $item): ?string => is_string($item['id'] ?? NULL)
+        ? $item['id']
+        : NULL,
+      default => NULL,
+    };
+  }
+
+  private function indexRoomList(array $items, callable $identity): ?array {
+    $indexed = [];
+    foreach ($items as $item) {
+      if (!is_array($item)) {
+        return NULL;
+      }
+      $id = $identity($item);
+      if ($id === NULL || $id === '' || isset($indexed[$id])) {
+        return NULL;
+      }
+      $indexed[$id] = $item;
+    }
+    return $indexed;
   }
 
 

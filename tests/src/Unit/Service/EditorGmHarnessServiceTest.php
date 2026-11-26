@@ -1279,6 +1279,20 @@ class EditorGmHarnessServiceTest extends UnitTestCase {
     );
     $this->assertStringContainsString('Storm-Glass Nest created', $definition_summary['answer']);
     $this->assertStringContainsString('canonical obstacle catalog', $definition_summary['answer']);
+    $publication_summary = $manager->synthesizeDeterministicMutationResponse(
+      'publish_room_version',
+      [
+        'publication' => [
+          'room_id' => 'wheelwright',
+          'version' => '1.0.2',
+          'rebased_from_version_id' => 'old-base',
+        ],
+      ],
+      [],
+      'Room Editor',
+    );
+    $this->assertStringContainsString('Room version 1.0.2 published', $publication_summary['answer']);
+    $this->assertStringContainsString('safely fast-forwarded', $publication_summary['answer']);
 
     // 6. Operation-to-profile mapping covers runtime, psychology, validation, and generation operations.
     $this->assertSame(

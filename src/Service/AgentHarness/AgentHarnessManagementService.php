@@ -750,6 +750,22 @@ class AgentHarnessManagementService {
           : [],
       ];
     }
+    if ($surface_label === 'Room Editor' && $tool_name === 'publish_room_version') {
+      $publication = is_array($tool_result['publication'] ?? NULL) ? $tool_result['publication'] : [];
+      $version = trim((string) ($publication['version'] ?? $tool_result['published_version'] ?? ''));
+      $room_id = trim((string) ($publication['room_id'] ?? ''));
+      return [
+        'answer' => sprintf(
+          "%s published\nThe validated room was published%s with three authoritative version checks intact%s.",
+          $version !== '' ? 'Room version ' . $version : 'Room',
+          $room_id !== '' ? " as {$room_id}" : '',
+          !empty($publication['rebased_from_version_id'])
+            ? '; the stale base was safely fast-forwarded because all upstream changes were already present'
+            : '',
+        ),
+        'next_steps' => [],
+      ];
+    }
 
     if ($surface_label !== 'Storyline Builder') {
       return NULL;

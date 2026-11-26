@@ -153,6 +153,25 @@ class RoomEditorStatusTest extends TestCase {
     $this->assertContains('room_ceiling_height_invalid', array_column($validation['findings'], 'code'));
   }
 
+  public function testPublicationCanFastForwardOnlyWhenDraftAlreadyContainsUpstreamChanges(): void {
+    $service = $this->service();
+    $merge = new \ReflectionMethod($service, 'draftContainsPublishedChanges');
+    $merge->setAccessible(TRUE);
+    $base = $this->draft(['entry_ports' => [[
+      'port_id' => 'entry-1',
+      'hex' => ['q' => 0, 'r' => 0],
+      'edge' => 0,
+    ]]])['room'];
+    $latest = $base;
+    $latest['entry_ports'][0]['edge'] = 3;
+    $draft = $latest;
+    $draft['placements'] = [$this->object()];
+
+    $this->assertTrue($merge->invoke($service, $base, $latest, $draft));
+    $draft['entry_ports'][0]['edge'] = 0;
+    $this->assertFalse($merge->invoke($service, $base, $latest, $draft));
+  }
+
   public function testEmptyRoomFindingOffersFiveIdeasAndFiveCatalogMatches(): void {
     $definitions = $this->createMock(CanonicalDefinitionService::class);
     $definitions->method('catalog')->willReturnCallback(
