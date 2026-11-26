@@ -32,9 +32,9 @@
 
 /* global PIXI */
 
-import { GameEventBus } from '../GameEventBus.js?v=20261126-image-versions-1';
-import { HexCanvas } from '../canvas/HexCanvas.js?v=20261126-image-versions-1';
-import { SpriteService } from '../../SpriteService.js?v=20261126-image-versions-1';
+import { GameEventBus } from '../GameEventBus.js?v=20261126-room-metadata-1';
+import { HexCanvas } from '../canvas/HexCanvas.js?v=20261126-room-metadata-1';
+import { SpriteService } from '../../SpriteService.js?v=20261126-room-metadata-1';
 import {
   appendEditorGmMessage,
   bindEditorGmPrompts,
@@ -48,8 +48,8 @@ import {
   restoreEditorGmConversation,
   selectEditorGmTool,
   shouldSubmitEditorGmKey,
-} from './EditorGmChatClient.js?v=20261126-image-versions-1';
-import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261126-image-versions-1';
+} from './EditorGmChatClient.js?v=20261126-room-metadata-1';
+import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261126-room-metadata-1';
 
 const FAMILIES = ['actor', 'item', 'obstacle', 'trap', 'hazard'];
 const SOLID_FAMILIES = ['actor', 'obstacle'];
@@ -139,35 +139,6 @@ function makeOption(value, label, selected) {
     option.selected = true;
   }
   return option;
-}
-
-function sanitizeIdentifier(value) {
-  const raw = String(value || '').trim().toLowerCase();
-  if (!raw) {
-    return '';
-  }
-  let normalized = raw;
-  if (typeof normalized.normalize === 'function') {
-    normalized = normalized.normalize('NFKD').replace(/[\u0300-\u036f]/g, '');
-  }
-  return normalized
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .replace(/-{2,}/g, '-');
-}
-
-function nextAvailableIdentifier(preferred, existing, fallback = 'id') {
-  const base = sanitizeIdentifier(preferred) || sanitizeIdentifier(fallback) || 'id';
-  const used = new Set((Array.isArray(existing) ? existing : [])
-    .map((value) => String(value || '').trim())
-    .filter((value) => value !== ''));
-  let candidate = base;
-  let suffix = 2;
-  while (used.has(candidate)) {
-    candidate = `${base}-${suffix}`;
-    suffix += 1;
-  }
-  return candidate;
 }
 
 export class RoomEditorShell {
@@ -346,6 +317,8 @@ export class RoomEditorShell {
       placeVersion: q('[data-room-editor-place-version]'),
       placeVersionField: q('[data-room-editor-place-version-field]'),
       placeImageBtn: q('[data-room-editor-action="place-image"]'),
+      metadataForm: q('[data-room-editor-metadata-form]'),
+      metadataElevation: q('[data-room-editor-meta-elevation]'),
       roomSelect: q('[data-room-editor-room-select]'),
       undoBtn: q('[data-room-editor-action="undo"]'),
       selectionBar: q('[data-room-editor-selection-bar]'),
@@ -408,6 +381,14 @@ export class RoomEditorShell {
     TERRAIN_TYPES.forEach((value) => {
       this._dom.terrainValue?.appendChild(makeOption(value, value.replace(/_/g, ' '), value === 'stone_floor'));
     });
+    const populate = (selector, values) => {
+      const select = this._dom.metadataForm?.querySelector(selector);
+      if (!select) return;
+      values.forEach((value) => select.appendChild(makeOption(value, value.replace(/_/g, ' '))));
+    };
+    populate('[data-room-editor-meta="room_type"]', ROOM_TYPES);
+    populate('[data-room-editor-meta="size_category"]', SIZE_CATEGORIES);
+    populate('[data-room-editor-meta="terrain_type"]', TERRAIN_TYPES);
   }
 
   _bindHeaderEvents() {
@@ -424,6 +405,10 @@ export class RoomEditorShell {
         this._dom.placeImage.src = url;
         this._dom.placeStatus.textContent = `Showing image ${option.textContent}.`;
       }
+    });
+    this._dom.metadataForm?.addEventListener('submit', (event) => {
+      event.preventDefault();
+      this._saveRoomMetadata();
     });
     this._dom.newRoomBtn?.addEventListener('click', () => this.createNewRoom());
     this._dom.loadRoomBtn?.addEventListener('click', () => {
@@ -1607,11 +1592,93 @@ export class RoomEditorShell {
         step: [{ q: this.selection.q, r: this.selection.r }],
       });
     }
+    this._syncRoomMetadataForm();
     this._renderInspector();
     if (statusMessage) {
       this._setStatus(statusMessage, 'success');
     }
     this._refreshGmContext();
+  }
+
+  _syncRoomMetadataForm() {
+    const form = this._dom.metadataForm;
+    if (!form) return;
+    const room = this.draft?.room || null;
+    const fields = Object.fromEntries(Array.from(form.querySelectorAll('[data-room-editor-meta]'))
+      .map((control) => [control.dataset.roomEditorMeta, control]));
+    const set = (name, value) => {
+      const control = fields[name];
+      if (!control) return;
+      if (control.type === 'checkbox') {
+        control.checked = Boolean(value);
+      } else {
+        control.value = value === null || value === undefined ? '' : String(value);
+      }
+      control.disabled = !room;
+    };
+    set('room_id', room?.room_id);
+    set('name', room?.name);
+    set('description', room?.description);
+    set('room_type', room?.room_type);
+    set('size_category', room?.size_category);
+    set('terrain_type', room?.terrain?.type);
+    set('lighting_level', room?.lighting?.level);
+    set('ceiling_height_ft', room?.metadata?.ceiling_height_ft);
+    set('tags', Array.isArray(room?.metadata?.tags) ? room.metadata.tags.join(', ') : '');
+    set('safe_for_rest', room?.gameplay_defaults?.safe_for_rest);
+    set('visibility', room?.gameplay_defaults?.visibility);
+    set('background_url', room?.metadata?.background?.url);
+    set('background_width', room?.metadata?.background?.width);
+    set('background_height', room?.metadata?.background?.height);
+    set('background_alt', room?.metadata?.background?.alt);
+    form.querySelector('button[type="submit"]').disabled = !room || this._busy;
+    if (this._dom.metadataElevation) {
+      const elevations = (room?.hexes || [])
+        .map((hex) => Number(hex.elevation_ft || 0));
+      const minimum = elevations.length ? Math.min(...elevations) : 0;
+      const maximum = elevations.length ? Math.max(...elevations) : 0;
+      this._dom.metadataElevation.textContent = room
+        ? `Floor elevation: ${minimum} to ${maximum} ft across ${room.hexes?.length || 0} hexes.`
+        : 'Load a room to see floor elevation range.';
+    }
+  }
+
+  async _saveRoomMetadata() {
+    if (!this.draft || !this._dom.metadataForm) return;
+    const form = this._dom.metadataForm;
+    const value = (name) => String(form.querySelector(`[data-room-editor-meta="${name}"]`)?.value || '').trim();
+    const numberOrNull = (name) => {
+      const raw = value(name);
+      return raw === '' ? null : Number.parseInt(raw, 10);
+    };
+    const backgroundUrl = value('background_url');
+    const background = backgroundUrl
+      ? {
+          url: backgroundUrl,
+          width: numberOrNull('background_width'),
+          height: numberOrNull('background_height'),
+          alt: value('background_alt'),
+        }
+      : null;
+    await this._sendCommand('set_room_metadata', {
+      changes: {
+        name: value('name'),
+        description: value('description'),
+        room_type: value('room_type'),
+        size_category: value('size_category'),
+        terrain: { type: value('terrain_type') },
+        lighting: { level: value('lighting_level') },
+        gameplay_defaults: {
+          safe_for_rest: Boolean(form.querySelector('[data-room-editor-meta="safe_for_rest"]')?.checked),
+          visibility: value('visibility'),
+        },
+        metadata: {
+          ceiling_height_ft: numberOrNull('ceiling_height_ft'),
+          tags: value('tags').split(',').map((tag) => tag.trim()).filter(Boolean),
+          background,
+        },
+      },
+    });
   }
 
   async _refreshPlaceImage(generate = false) {
@@ -2166,11 +2233,9 @@ export class RoomEditorShell {
     status.textContent = `Draft ${this.draft.draft_id} - revision ${this.draft.revision} - status ${this.draft.status}`;
     wrapper.appendChild(status);
 
-    wrapper.appendChild(this._labeledInput('room-id', 'Room ID (auto if blank)', 'text', room.room_id || ''));
-    wrapper.appendChild(this._labeledInput('room-name', 'Name', 'text', room.name || ''));
-    wrapper.appendChild(this._labeledTextarea('room-description', 'Description', room.description || ''));
-    wrapper.appendChild(this._labeledSelect('room-type', 'Room type', ROOM_TYPES, room.room_type || ''));
-    wrapper.appendChild(this._labeledSelect('room-size', 'Size category', SIZE_CATEGORIES, room.size_category || ''));
+    const summary = document.createElement('p');
+    summary.textContent = `${room.name || room.room_id || 'Untitled room'} - ${room.room_type || 'room'}, ${room.size_category || 'unsized'}. ${room.description || 'No description.'}`;
+    wrapper.appendChild(summary);
     if (room.metadata?.generated_by) {
       const provenance = document.createElement('p');
       provenance.className = 'room-editor__hint';
@@ -2178,12 +2243,12 @@ export class RoomEditorShell {
       wrapper.appendChild(provenance);
     }
 
-    const applyBtn = document.createElement('button');
-    applyBtn.type = 'button';
-    applyBtn.className = 'room-editor__button';
-    applyBtn.textContent = 'Apply room metadata';
-    applyBtn.setAttribute('data-room-editor-inspector-action', 'apply-room-metadata');
-    wrapper.appendChild(applyBtn);
+    const editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.className = 'room-editor__button';
+    editBtn.textContent = 'Edit room metadata';
+    editBtn.setAttribute('data-room-editor-inspector-action', 'focus-room-metadata');
+    wrapper.appendChild(editBtn);
 
     wrapper.appendChild(this._buildPortSummary('Entry ports', room.entry_ports || [], 'entry'));
     wrapper.appendChild(this._buildPortSummary('Exit ports', room.exit_ports || [], 'exit'));
@@ -2499,28 +2564,9 @@ export class RoomEditorShell {
     const val = (name) => body.querySelector(`#room-editor-${name}`)?.value;
 
     switch (action) {
-      case 'apply-room-metadata':
-        {
-          const submittedRoomId = String(val('room-id') || '').trim();
-          const generatedRoomId = submittedRoomId || this.draft?.room?.room_id || nextAvailableIdentifier(
-            val('room-name'),
-            [this.draft?.room?.room_id],
-            'room'
-          );
-          const roomIdInput = body.querySelector('#room-editor-room-id');
-          if (roomIdInput && submittedRoomId === '') {
-            roomIdInput.value = generatedRoomId;
-          }
-        this._sendCommand('set_room_metadata', {
-          changes: {
-            room_id: generatedRoomId,
-            name: val('room-name'),
-            description: val('room-description'),
-            room_type: val('room-type'),
-            size_category: val('room-size'),
-          },
-        });
-        }
+      case 'focus-room-metadata':
+        this._dom.metadataForm?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        this._dom.metadataForm?.querySelector('[data-room-editor-meta="name"]')?.focus();
         break;
       case 'apply-hex-terrain':
         if (this.selection?.type === 'hex') {

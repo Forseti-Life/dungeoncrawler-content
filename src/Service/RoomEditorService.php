@@ -115,6 +115,7 @@ class RoomEditorService {
     'default_entry_required' => 'draft_command',
     'room_has_no_placements' => 'draft_command',
     'room_background_invalid' => 'draft_command',
+    'room_ceiling_height_invalid' => 'draft_command',
     'street_background_missing' => 'draft_command',
     'street_has_no_doors' => 'draft_command',
     // Raised by the GM tools around a draft, not by aggregate validation.
@@ -1059,6 +1060,36 @@ class RoomEditorService {
             $changes['metadata']
           );
         }
+        if (array_key_exists('terrain', $changes)) {
+          $terrain = $changes['terrain'];
+          if (!is_array($terrain) || array_is_list($terrain)) {
+            throw new \InvalidArgumentException('room_terrain_metadata_invalid');
+          }
+          $room['terrain'] = array_replace_recursive(
+            is_array($room['terrain'] ?? NULL) ? $room['terrain'] : [],
+            $terrain,
+          );
+        }
+        if (array_key_exists('lighting', $changes)) {
+          $lighting = $changes['lighting'];
+          if (!is_array($lighting) || array_is_list($lighting)) {
+            throw new \InvalidArgumentException('room_lighting_metadata_invalid');
+          }
+          $room['lighting'] = array_replace_recursive(
+            is_array($room['lighting'] ?? NULL) ? $room['lighting'] : [],
+            $lighting,
+          );
+        }
+        if (array_key_exists('gameplay_defaults', $changes)) {
+          $defaults = $changes['gameplay_defaults'];
+          if (!is_array($defaults) || array_is_list($defaults)) {
+            throw new \InvalidArgumentException('room_gameplay_defaults_invalid');
+          }
+          $room['gameplay_defaults'] = array_replace_recursive(
+            is_array($room['gameplay_defaults'] ?? NULL) ? $room['gameplay_defaults'] : [],
+            $defaults,
+          );
+        }
         if (array_key_exists('room_id', $changes)) {
           foreach ($room['placements'] as &$placement) {
             $placement['room_id'] = (string) $room['room_id'];
@@ -1643,6 +1674,15 @@ class RoomEditorService {
       || count($tags) > 50
       || count(array_unique($tags)) !== count($tags)) {
       $errors[] = $this->finding('metadata_tags_invalid', '/metadata/tags', 'Room tags must be unique and contain at most 50 values.');
+    }
+    $ceiling_height = $room['metadata']['ceiling_height_ft'] ?? NULL;
+    if ($ceiling_height !== NULL
+      && (!is_int($ceiling_height) || $ceiling_height < 1 || $ceiling_height > 200)) {
+      $errors[] = $this->finding(
+        'room_ceiling_height_invalid',
+        '/metadata/ceiling_height_ft',
+        'Room ceiling height must be an integer from 1 through 200 feet.',
+      );
     }
     if (!is_bool($room['gameplay_defaults']['safe_for_rest'] ?? NULL)
       || !in_array($room['gameplay_defaults']['visibility'] ?? NULL, ['visible', 'hidden'], TRUE)) {

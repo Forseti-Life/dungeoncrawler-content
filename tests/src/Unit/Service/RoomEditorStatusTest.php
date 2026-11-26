@@ -135,6 +135,24 @@ class RoomEditorStatusTest extends TestCase {
     $this->assertNotContains('room_empty_description_missing', array_column($validation['findings'], 'code'));
   }
 
+  public function testCeilingHeightIsCanonicalRoomMetadata(): void {
+    $service = $this->service();
+    $room = $this->draft([
+      'metadata' => [
+        'tags' => [],
+        'provenance' => ['source' => 'test'],
+        'ceiling_height_ft' => 35,
+      ],
+    ])['room'];
+
+    $validation = $service->validateAggregate($room);
+    $this->assertNotContains('room_ceiling_height_invalid', array_column($validation['findings'], 'code'));
+
+    $room['metadata']['ceiling_height_ft'] = 0;
+    $validation = $service->validateAggregate($room);
+    $this->assertContains('room_ceiling_height_invalid', array_column($validation['findings'], 'code'));
+  }
+
   public function testEmptyRoomFindingOffersFiveIdeasAndFiveCatalogMatches(): void {
     $definitions = $this->createMock(CanonicalDefinitionService::class);
     $definitions->method('catalog')->willReturnCallback(

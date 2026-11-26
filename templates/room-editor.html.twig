@@ -131,6 +131,48 @@
           </div>
         </section>
 
+        <section class="room-editor__metadata-panel" data-room-editor-metadata aria-label="{{ 'Room metadata'|t }}">
+          <div class="room-editor__drawer-section">
+            <p class="room-editor__eyebrow">{{ 'Room metadata'|t }}</p>
+            <form data-room-editor-metadata-form>
+              <div class="room-editor__metadata-grid">
+                <label class="room-editor__field">{{ 'Room ID'|t }}<input type="text" data-room-editor-meta="room_id" readonly></label>
+                <label class="room-editor__field">{{ 'Name'|t }}<input type="text" data-room-editor-meta="name" maxlength="200" required></label>
+                <label class="room-editor__field room-editor__field--wide">{{ 'Description'|t }}<textarea data-room-editor-meta="description" rows="3" maxlength="2000" required></textarea></label>
+                <label class="room-editor__field">{{ 'Room type'|t }}<select data-room-editor-meta="room_type"></select></label>
+                <label class="room-editor__field">{{ 'Size category'|t }}<select data-room-editor-meta="size_category"></select></label>
+                <label class="room-editor__field">{{ 'Default terrain'|t }}<select data-room-editor-meta="terrain_type"></select></label>
+                <label class="room-editor__field">{{ 'Lighting'|t }}
+                  <select data-room-editor-meta="lighting_level">
+                    <option value="bright_light">{{ 'Bright light'|t }}</option>
+                    <option value="dim_light">{{ 'Dim light'|t }}</option>
+                    <option value="darkness">{{ 'Darkness'|t }}</option>
+                    <option value="magical_darkness">{{ 'Magical darkness'|t }}</option>
+                  </select>
+                </label>
+                <label class="room-editor__field">{{ 'Ceiling height (ft)'|t }}<input type="number" data-room-editor-meta="ceiling_height_ft" min="1" max="200" step="1" placeholder="{{ 'Optional'|t }}"></label>
+                <label class="room-editor__field">{{ 'Tags'|t }}<input type="text" data-room-editor-meta="tags" placeholder="{{ 'outdoor, lightning, boss room'|t }}"></label>
+                <label class="room-editor__field">{{ 'Visibility'|t }}
+                  <select data-room-editor-meta="visibility">
+                    <option value="visible">{{ 'Visible'|t }}</option>
+                    <option value="hidden">{{ 'Hidden'|t }}</option>
+                  </select>
+                </label>
+                <label class="room-editor__field room-editor__field--checkbox"><input type="checkbox" data-room-editor-meta="safe_for_rest"> {{ 'Safe for rest'|t }}</label>
+                <p class="room-editor__hint" data-room-editor-meta-elevation>{{ 'Load a room to see floor elevation range.'|t }}</p>
+                <details class="room-editor__field room-editor__field--wide">
+                  <summary>{{ 'Background image metadata'|t }}</summary>
+                  <label class="room-editor__field">{{ 'URL'|t }}<input type="url" data-room-editor-meta="background_url" maxlength="1024"></label>
+                  <label class="room-editor__field">{{ 'Width (px)'|t }}<input type="number" data-room-editor-meta="background_width" min="1" step="1"></label>
+                  <label class="room-editor__field">{{ 'Height (px)'|t }}<input type="number" data-room-editor-meta="background_height" min="1" step="1"></label>
+                  <label class="room-editor__field">{{ 'Alt text'|t }}<input type="text" data-room-editor-meta="background_alt" maxlength="500"></label>
+                </details>
+              </div>
+              <button type="submit" class="room-editor__button room-editor__button--primary">{{ 'Save room metadata'|t }}</button>
+            </form>
+          </div>
+        </section>
+
         <div class="game-shell__workspace room-editor__workspace room-editor__workspace--stacked" data-room-editor-workspace>
 
           <aside id="room-editor-author-drawer"

@@ -925,3 +925,24 @@ body.room-editor__body--dragging {
   font-size: var(--text-sm, 0.85em);
   font-weight: 600;
 }
+.room-editor__metadata-panel {
+  margin: 0 0 var(--space-4, 1rem);
+}
+
+.room-editor__metadata-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-3, 0.75rem);
+  margin-bottom: var(--space-3, 0.75rem);
+}
+
+.room-editor__metadata-grid .room-editor__field--wide {
+  grid-column: 1 / -1;
+}
+
+.room-editor__metadata-grid .room-editor__field--checkbox {
+  align-self: end;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}

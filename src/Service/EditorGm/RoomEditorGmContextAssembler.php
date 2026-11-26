@@ -63,6 +63,10 @@ final class RoomEditorGmContextAssembler implements EditorGmContextAssemblerInte
       array_filter((array) ($room['placements'] ?? []), 'is_array'),
     ));
     $furnishing_recommendations = $context->roomEditor->furnishingRecommendations($room);
+    $elevations = array_values(array_map(
+      static fn(array $hex): int => (int) ($hex['elevation_ft'] ?? 0),
+      array_filter((array) ($room['hexes'] ?? []), 'is_array'),
+    ));
 
     return [
       'tool_id' => RoomEditorGmSurface::ID,
@@ -80,6 +84,17 @@ final class RoomEditorGmContextAssembler implements EditorGmContextAssemblerInte
         'description' => (string) ($room['description'] ?? ''),
         'room_type' => (string) ($room['room_type'] ?? ''),
         'size_category' => (string) ($room['size_category'] ?? ''),
+        'terrain_type' => (string) ($room['terrain']['type'] ?? ''),
+        'lighting_level' => (string) ($room['lighting']['level'] ?? ''),
+        'ceiling_height_ft' => $room['metadata']['ceiling_height_ft'] ?? NULL,
+        'elevation_range_ft' => [
+          'minimum' => min($elevations ?: [0]),
+          'maximum' => max($elevations ?: [0]),
+        ],
+        'tags' => array_values((array) ($room['metadata']['tags'] ?? [])),
+        'gameplay_defaults' => is_array($room['gameplay_defaults'] ?? NULL)
+          ? $room['gameplay_defaults']
+          : [],
         'hex_count' => count((array) ($room['hexes'] ?? [])),
         'placement_count' => count($placements),
         'placements' => $placements,

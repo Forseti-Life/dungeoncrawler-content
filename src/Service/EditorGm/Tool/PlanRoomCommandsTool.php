@@ -51,7 +51,7 @@ final class PlanRoomCommandsTool implements EditorGmToolInterface {
    * instead of guessing it.
    */
   public const GOAL_PARAMETERS = [
-    'set_metadata' => 'at least one of room_id, name, description, room_type (use street for a district street), size_category, background {url, width, height, alt} (the street art the party walks on; required for a street)',
+    'set_metadata' => 'at least one of room_id, name, description, room_type (use street for a district street), size_category, terrain_type, lighting_level, ceiling_height_ft (1..200), tags [string], safe_for_rest, visibility (visible|hidden), background {url, width, height, alt} (the street art the party walks on; required for a street)',
     'expand_footprint' => 'hexes: [{q, r}] (required), terrain_type (optional)',
     'shrink_footprint' => 'hexes: [{q, r}] (required; must not contain placements or ports)',
     'retheme_terrain' => 'terrain_type (required), from_terrain_type (optional), hexes: [{q, r}] (optional)',
@@ -159,11 +159,32 @@ final class PlanRoomCommandsTool implements EditorGmToolInterface {
         $changes[$field] = $parameters[$field];
       }
     }
+    if (array_key_exists('terrain_type', $parameters)) {
+      $changes['terrain'] = ['type' => (string) $parameters['terrain_type']];
+    }
+    if (array_key_exists('lighting_level', $parameters)) {
+      $changes['lighting'] = ['level' => (string) $parameters['lighting_level']];
+    }
+    if (array_key_exists('safe_for_rest', $parameters) || array_key_exists('visibility', $parameters)) {
+      $changes['gameplay_defaults'] = array_filter([
+        'safe_for_rest' => $parameters['safe_for_rest'] ?? NULL,
+        'visibility' => $parameters['visibility'] ?? NULL,
+      ], static fn(mixed $value): bool => $value !== NULL);
+    }
+    foreach (['ceiling_height_ft', 'tags'] as $metadata_key) {
+      if (array_key_exists($metadata_key, $parameters)) {
+        $changes['metadata'] = array_merge($changes['metadata'] ?? [], [
+          $metadata_key => $parameters[$metadata_key],
+        ]);
+      }
+    }
     if (array_key_exists('background', $parameters)) {
       if (!is_array($parameters['background']) || array_is_list($parameters['background'])) {
         throw new \InvalidArgumentException('background_must_be_object');
       }
-      $changes['metadata'] = ['background' => $parameters['background']];
+      $changes['metadata'] = array_merge($changes['metadata'] ?? [], [
+        'background' => $parameters['background'],
+      ]);
     }
     if ($changes === []) {
       throw new \InvalidArgumentException('metadata_changes_required');

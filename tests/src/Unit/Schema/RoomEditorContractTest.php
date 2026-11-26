@@ -381,6 +381,25 @@ class RoomEditorContractTest extends UnitTestCase {
     $this->assertStringNotContainsString('EDGE_DIRECTIONS = ', $service, 'EDGE_DIRECTIONS has exactly one home.');
   }
 
+  public function testRoomEditorExposesAndSavesCanonicalMetadata(): void {
+    $template = (string) file_get_contents(dirname(__DIR__, 4) . '/templates/room-editor.html.twig');
+    $shell = (string) file_get_contents(dirname(__DIR__, 4) . '/js/v2/editor/RoomEditorShell.js');
+
+    foreach ([
+      'data-room-editor-meta="description"',
+      'data-room-editor-meta="size_category"',
+      'data-room-editor-meta="terrain_type"',
+      'data-room-editor-meta="lighting_level"',
+      'data-room-editor-meta="ceiling_height_ft"',
+      'data-room-editor-meta="safe_for_rest"',
+    ] as $field) {
+      $this->assertStringContainsString($field, $template);
+    }
+    $this->assertStringContainsString('_saveRoomMetadata()', $shell);
+    $this->assertStringContainsString("changes: {", $shell);
+    $this->assertStringContainsString("ceiling_height_ft: numberOrNull('ceiling_height_ft')", $shell);
+  }
+
   /**
    * Commands may repair legacy findings but may not introduce new ones.
    */
