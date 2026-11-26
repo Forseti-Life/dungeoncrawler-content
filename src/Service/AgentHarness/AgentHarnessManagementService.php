@@ -766,6 +766,20 @@ class AgentHarnessManagementService {
         'next_steps' => [],
       ];
     }
+    if ($surface_label === 'Room Editor' && $tool_name === 'apply_room_commands') {
+      $receipts = is_array($tool_result['receipts'] ?? NULL) ? $tool_result['receipts'] : [];
+      if ($receipts !== []
+        && count($receipts) === count(array_filter(
+          $receipts,
+          static fn(mixed $receipt): bool => is_array($receipt)
+            && ($receipt['command_type'] ?? '') === 'restore_published_base',
+        ))) {
+        return [
+          'answer' => 'Published room version restored\nThe active draft now reloads the exact published base revision as one audited command.',
+          'next_steps' => [],
+        ];
+      }
+    }
 
     if ($surface_label !== 'Storyline Builder') {
       return NULL;

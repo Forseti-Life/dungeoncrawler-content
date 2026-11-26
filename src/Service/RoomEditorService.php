@@ -403,7 +403,9 @@ class RoomEditorService {
 
       $before = json_decode($row['room_payload'], TRUE, 512, JSON_THROW_ON_ERROR);
       $after = $this->mutate($before, $type, $payload, $draft_id);
-      $this->assertNoIntroducedValidationErrors($before, $after);
+      if ($type !== 'restore_published_base') {
+        $this->assertNoIntroducedValidationErrors($before, $after);
+      }
       $encoded = $this->encodeRoom($after);
       $hash = hash('sha256', $encoded);
       $revision = ((int) $row['revision']) + 1;
@@ -1217,6 +1219,18 @@ class RoomEditorService {
           }
           unset($placement);
         }
+        break;
+
+      case 'restore_published_base':
+        $version_id = trim((string) ($payload['version_id'] ?? ''));
+        if ($version_id === '') {
+          throw new \InvalidArgumentException('room_base_version_id_required');
+        }
+        $published = $this->loadPublishedPayload($version_id);
+        if ($published === NULL || (string) ($published['room_id'] ?? '') !== (string) ($room['room_id'] ?? '')) {
+          throw new \DomainException('room_base_version_invalid');
+        }
+        $room = $published;
         break;
 
       case 'add_hex':
@@ -2105,6 +2119,13 @@ class RoomEditorService {
       ->execute()
       ->fetchField();
     return $this->loadPublishedPayload($version_id ?: NULL);
+  }
+
+  /**
+   * Loads one immutable published room revision for exact draft restoration.
+   */
+  public function publishedVersionPayload(string $version_id): ?array {
+    return $this->loadPublishedPayload($version_id);
   }
 
   /**

@@ -381,6 +381,44 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     if (isset($scope['lookup_evidence'])) {
       $snapshot['lookup_evidence'] = $scope['lookup_evidence'];
     }
+    $revert_plan = $this->roomPublishedBaseRevertPlan(
+      $surface,
+      $draft_id,
+      $profile,
+      $author_message,
+    );
+    if ($revert_plan !== NULL) {
+      if (($revert_plan['no_changes'] ?? FALSE) === TRUE) {
+        $tool_calls = [$this->describeToolCall('load_published_snapshot')];
+        return $this->envelope(
+          $surface,
+          'deterministic_editor_tool',
+          $snapshot,
+          [
+            'assistant_response' => 'The active draft already matches its exact published base version. No draft change was needed.',
+            'next_steps' => [],
+            'changed' => FALSE,
+            'tool_calls' => $tool_calls,
+          ],
+          $context->validation(),
+          [['level' => 'info', 'text' => 'Published base already loaded.']],
+          [],
+          $tool_calls,
+        );
+      }
+      return $this->executeTool(
+        $surface,
+        $draft_id,
+        $profile,
+        'apply_room_commands',
+        $revert_plan,
+        $dry_run,
+        'Restore the active room draft to its published base without losing command audit history.',
+        $scope,
+        [],
+        $author_message,
+      );
+    }
     $street_plan = $this->roomStreetFootprintCommandPlan(
       $surface,
       $draft_id,
@@ -1268,6 +1306,36 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     return [
       'expected_revision' => (int) ($draft['revision'] ?? 0),
       'commands' => $commands,
+    ];
+  }
+
+  private function roomPublishedBaseRevertPlan(
+    EditorGmSurfaceInterface $surface,
+    ?string $draft_id,
+    string $profile,
+    string $author_message,
+  ): ?array {
+    if ($surface->id() !== RoomEditorGmSurface::ID
+      || $draft_id === NULL
+      || preg_match('/\b(?:revert|restore)\b.*\b(?:previous|prior|published|base)\s+(?:version|state|draft)\b/iu', $author_message) !== 1) {
+      return NULL;
+    }
+    $context = RoomEditorGmToolContext::of($surface->createContext($draft_id, $profile));
+    $draft = $context->draft();
+    $version_id = trim((string) ($draft['base_version_id'] ?? ''));
+    if ($version_id === '') {
+      throw new \DomainException('room_revert_published_base_unavailable');
+    }
+    $base = $context->roomEditor->publishedVersionPayload($version_id);
+    if ($base === $context->room()) {
+      return ['no_changes' => TRUE];
+    }
+    return [
+      'expected_revision' => (int) ($draft['revision'] ?? 0),
+      'commands' => [[
+        'type' => 'restore_published_base',
+        'payload' => ['version_id' => $version_id],
+      ]],
     ];
   }
 

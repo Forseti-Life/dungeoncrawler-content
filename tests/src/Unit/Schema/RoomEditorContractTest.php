@@ -597,6 +597,12 @@ class RoomEditorContractTest extends UnitTestCase {
     ]);
     $this->assertSame('set_street_footprint', $street_steps[0]['command_type']);
     array_splice($planned_types, 3, 0, ['set_street_footprint']);
+    $restore = $tool->execute([
+      'goal' => 'restore_published_base',
+      'parameters' => ['version_id' => '44444444-4444-4444-8444-444444444444'],
+    ], $context);
+    $this->assertSame('restore_published_base', $restore['command_plan']['steps'][0]['command_type']);
+    array_splice($planned_types, 4, 0, ['restore_published_base']);
 
     $this->assertSame(
       \Drupal\dungeoncrawler_content\Service\EditorGm\RoomEditorGmSurface::SUPPORTED_COMMAND_TYPES,

@@ -22,6 +22,7 @@ final class PlanRoomCommandsTool implements EditorGmToolInterface {
     'expand_footprint',
     'shrink_footprint',
     'reshape_street_footprint',
+    'restore_published_base',
     'retheme_terrain',
     'level_elevation',
     'place_objects',
@@ -56,6 +57,7 @@ final class PlanRoomCommandsTool implements EditorGmToolInterface {
     'expand_footprint' => 'hexes: [{q, r}] (required), terrain_type (optional)',
     'shrink_footprint' => 'hexes: [{q, r}] (required; must not contain placements or ports)',
     'reshape_street_footprint' => 'length_hexes (optional), width_hexes (optional, defaults to 5), axis (q|r, optional), entry_hex {q, r} (optional; defaults to current entry). Builds one long street band inside the current footprint and preserves a single street entrance.',
+    'restore_published_base' => 'version_id (required; normally the draft base_version_id). Reloads that immutable published room payload into the active draft as one audited command.',
     'retheme_terrain' => 'terrain_type (required), from_terrain_type (optional), hexes: [{q, r}] (optional)',
     'level_elevation' => 'elevation_ft (required), hexes: [{q, r}] (optional)',
     'place_objects' => 'placements: [{family, definition_id, version (optional, default 1.0.0), anchor_hex: {q, r}, facing (optional, 0-5)}] OR top-level family, definition_id, version (optional), facing (optional), hexes: [{q, r}]',
@@ -117,6 +119,7 @@ final class PlanRoomCommandsTool implements EditorGmToolInterface {
       'expand_footprint' => $this->planExpandFootprint($parameters, $room),
       'shrink_footprint' => $this->planShrinkFootprint($parameters, $room),
       'reshape_street_footprint' => $this->planReshapeStreetFootprint($parameters, $room),
+      'restore_published_base' => $this->planRestorePublishedBase($parameters),
       'retheme_terrain' => $this->planRethemeTerrain($parameters, $room),
       'level_elevation' => $this->planLevelElevation($parameters, $room),
       'place_objects' => $this->planPlaceObjects($parameters, $room),
@@ -260,6 +263,15 @@ final class PlanRoomCommandsTool implements EditorGmToolInterface {
       );
     }
     return $steps;
+  }
+
+  private function planRestorePublishedBase(array $parameters): array {
+    return [$this->step(
+      1,
+      'restore_published_base',
+      ['version_id' => EditorGmToolContext::requireString($parameters, 'version_id')],
+      'Reload the published room version into this draft.',
+    )];
   }
 
   private function planReshapeStreetFootprint(array $parameters, array $room): array {
