@@ -125,7 +125,7 @@ gm-storyline-scene-review:
       css/gm-storyline-scene-review.css: {}
 
 gm-storyline-builder:
-  version: 20261126-process-state-menu-1
+  version: 20261126-process-state-hydration-1
   js:
     js/gm-storyline-builder.js: { attributes: { type: module } }
   dependencies:

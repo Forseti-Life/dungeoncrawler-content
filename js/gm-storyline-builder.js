@@ -1426,6 +1426,7 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
             applyDraftOwnershipState();
             updateDraftUrl();
             hydrateFromPayload(draft.payload || {});
+            renderCurrentState(draft.current_state, storylineStatusElements);
             refreshPreview();
             const redirected = String(draft.redirected_from_draft_id || '');
             setDraftStatus(redirected

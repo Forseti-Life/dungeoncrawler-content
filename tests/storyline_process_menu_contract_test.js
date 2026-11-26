@@ -12,6 +12,10 @@ const controller = fs.readFileSync(
   path.resolve(__dirname, '../src/Controller/GmStorylineBuilderController.php'),
   'utf8',
 );
+const draftController = fs.readFileSync(
+  path.resolve(__dirname, '../src/Controller/StorylineAuthoringDraftController.php'),
+  'utf8',
+);
 const script = fs.readFileSync(path.resolve(__dirname, '../js/gm-storyline-builder.js'), 'utf8');
 const stylesheet = fs.readFileSync(path.resolve(__dirname, '../css/gm-storyline-builder.css'), 'utf8');
 
@@ -41,6 +45,11 @@ assert(
     && script.includes('tab.classList.toggle(\'is-complete\', complete)')
     && script.includes('Complete'),
   'each process menu item reflects its completion state',
+);
+assert(
+  draftController.includes("$draft['current_state'] = $this->drafts->summarizeDraftStatus((string) $draft['draft_id'])")
+    && script.includes('renderCurrentState(draft.current_state, storylineStatusElements)'),
+  'the normal draft load hydrates status even when the GM assistant is read-only',
 );
 assert(
   stylesheet.includes('.gm-storyline-status--menu')
