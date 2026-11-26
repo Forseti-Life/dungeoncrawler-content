@@ -543,10 +543,9 @@ TWIG,
           <button type="button" class="character-setup-page__tab" data-step-tab="8" title="Review story progression, choices, and validation before publishing."><span class="character-setup-page__tab-number">8</span><span class="character-setup-page__tab-copy"><span class="character-setup-page__tab-name">Review Storyline</span><span class="character-setup-page__tab-description">Visual story review and publication.</span></span></button>
         </div>';
 
-  /** The "Current state" card, filled by js/gm-storyline-builder.js. */
+  /** Compact current state for the combined process menu. */
   private const STATUS_CARD_MARKUP = '
-        <section class="character-setup-page__sidebar-card gm-storyline-status" data-storyline-status aria-labelledby="storyline-status-title">
-          <h2 id="storyline-status-title" class="character-setup-page__sidebar-title">Current state</h2>
+        <div class="gm-storyline-status gm-storyline-status--menu" data-storyline-status aria-label="Current storyline state">
           <div class="gm-storyline-status__score"><strong data-storyline-status-percent>0%</strong><span>complete</span></div>
           <progress data-storyline-status-progress max="100" value="0">0%</progress>
           <dl>
@@ -555,10 +554,9 @@ TWIG,
             <div><dt>Objects</dt><dd data-storyline-status-counts>0 scenes · 0 actors · 0 rooms</dd></div>
           </dl>
           <p><a data-editor-warning-review hidden>Review warnings</a></p>
-          <ol class="gm-storyline-status__stages" data-storyline-status-stages></ol>
           <p class="gm-storyline-status__label"><strong>Minimum content still needed</strong></p>
           <ul data-storyline-status-missing><li>Create or load a draft.</li></ul>
-        </section>';
+        </div>';
 
   private function storylineEditorAttachments(): array {
     $initial_fields = $this->loadInitialWizardFields();
@@ -657,7 +655,7 @@ TWIG,
         'intro' => $this->t('Build storylines with one consolidated process flow showing available generation and validation tools at each stage.'),
         'back_url' => Url::fromRoute('dungeoncrawler_content.storyline_management')->toString(),
         'back_label' => $this->t('Back to Storyline Manager'),
-        'stages_title' => $this->t('Storyline process stages'),
+        'stages_title' => $this->t('Storyline process and current state'),
         'panel_meta' => $this->t('Guided creation with structured data controls below'),
         'quick_links' => array_values(array_filter([
       $quick_link('Storyline Explorer', 'dungeoncrawler_content.storyline_explorer'),
@@ -675,8 +673,8 @@ TWIG,
         ])),
       ],
       '#template' => "{% embed '@dungeoncrawler_content/editor-page-shell.html.twig' %}"
-        . '{% block stages %}' . self::STAGE_TABS_MARKUP . '{% endblock %}'
-        . '{% block state %}' . self::STATUS_CARD_MARKUP . '{% endblock %}'
+        . '{% block stages %}' . self::STATUS_CARD_MARKUP . self::STAGE_TABS_MARKUP . '{% endblock %}'
+        . '{% block state %}{% endblock %}'
         . '{% block links %}<h3 class="character-setup-page__sidebar-title">{{ "In this storyline"|t }}</h3>'
         . '<ul class="character-setup-page__quick-links" data-storyline-object-editor-links><li>Load a storyline to see its scenes, actors, sites and rooms.</li></ul>{% endblock %}'
         . '{% block heading %}<h2 class="character-setup-page__panel-title" data-storyline-heading>{{ "New storyline"|t }}</h2>{% endblock %}'

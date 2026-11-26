@@ -244,7 +244,6 @@
 
 [data-gm-storyline-step-tabs] .character-setup-page__tab {
   position: relative;
-  padding-right: 3.8rem;
   border-color: rgba(240, 200, 122, 0.38);
   background: linear-gradient(135deg, rgba(25, 38, 61, 0.98), rgba(15, 24, 41, 0.98));
   opacity: 1;
@@ -252,20 +251,22 @@
   pointer-events: auto;
 }
 
-[data-gm-storyline-step-tabs] .character-setup-page__tab::after {
-  content: "Open";
-  position: absolute;
-  top: 0.75rem;
-  right: 0.7rem;
-  color: #f7dfaf;
+.character-setup-page__tab-status {
+  display: block;
+  margin-top: 0.25rem;
+  color: rgba(247, 223, 175, 0.72);
   font-size: 0.68rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
-[data-gm-storyline-step-tabs] .character-setup-page__tab.is-active::after {
-  content: "Viewing";
+[data-gm-storyline-step-tabs] .character-setup-page__tab.is-complete {
+  border-color: rgba(105, 185, 134, 0.68);
+}
+
+[data-gm-storyline-step-tabs] .character-setup-page__tab.is-complete .character-setup-page__tab-status {
+  color: #9ee6b5;
 }
 
 [data-gm-storyline-step-tabs] .character-setup-page__tab:hover,
@@ -830,8 +831,22 @@
   width: 100%;
 }
 
-.gm-storyline-status dl > div,
-.gm-storyline-status__stage > div {
+.gm-storyline-status--menu {
+  margin-bottom: 0.9rem;
+  padding-bottom: 0.9rem;
+  border-bottom: 1px solid rgba(186, 143, 76, 0.28);
+}
+
+.gm-storyline-status--menu dl {
+  margin-bottom: 0.65rem;
+}
+
+.gm-storyline-status--menu > p,
+.gm-storyline-status--menu > ul {
+  margin-bottom: 0.5rem;
+}
+
+.gm-storyline-status dl > div {
   display: flex;
   justify-content: space-between;
   gap: 0.5rem;
@@ -840,27 +855,6 @@
 .gm-storyline-status dt,
 .gm-storyline-status dd {
   margin: 0;
-}
-
-.gm-storyline-status__stages {
-  margin: 1rem 0;
-  padding: 0;
-  list-style: none;
-}
-
-.gm-storyline-status__stage {
-  padding: 0.5rem 0;
-  border-top: 1px solid var(--color-border, #d7d7d7);
-}
-
-.gm-storyline-status__stage.is-complete strong::after {
-  content: " \2713";
-}
-
-.gm-storyline-status__stage small {
-  display: block;
-  margin-top: 0.2rem;
-  color: var(--color-text-muted, #5f6368);
 }
 
 .gm-storyline-status__label {

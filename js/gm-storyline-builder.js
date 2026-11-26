@@ -28,7 +28,7 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
       validity: storylineStatusValidity,
       focus: storylineStatusFocus,
       counts: storylineStatusCounts,
-      stages: storylineStatusStages,
+      tabs: storylineStatusTabs,
       missing: storylineStatusMissing,
     } = elements;
     renderWarningReview(elements.warningReview, current);
@@ -56,28 +56,31 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
       const counts = current.counts || {};
       storylineStatusCounts.textContent = `${Number(counts.scenes || 0)} scenes · ${Number(counts.conflicts || 0)} conflicts · ${Number(counts.narrative_beats_complete || 0)}/6 beats · ${Number(counts.adventure_requirements_complete || 0)}/4 adventure requirements`;
     }
-    if (storylineStatusStages) {
-      storylineStatusStages.replaceChildren();
-      (Array.isArray(current.stages) ? current.stages : []).forEach((stage) => {
-        const item = document.createElement('li');
-        item.className = 'gm-storyline-status__stage';
-        item.classList.toggle('is-complete', !!stage.complete);
-        const heading = document.createElement('div');
-        const label = document.createElement('strong');
-        label.textContent = `${stage.stage}. ${stage.label}`;
-        const percent = document.createElement('span');
-        percent.textContent = `${Number(stage.completion_percent || 0)}%`;
-        heading.append(label, percent);
-        const metrics = document.createElement('small');
-        const metricLabels = {
-          fields_complete: 'fields',
-          fields_total: 'required',
-        };
-        metrics.textContent = Object.entries(stage.metrics || {})
-          .map(([key, value]) => `${metricLabels[key] || key.replaceAll('_', ' ')}: ${value}`)
-          .join(' · ');
-        item.append(heading, metrics);
-        storylineStatusStages.appendChild(item);
+    if (storylineStatusTabs) {
+      const stages = new Map(
+        (Array.isArray(current.stages) ? current.stages : [])
+          .map((stage) => [Number(stage.stage || 0), stage]),
+      );
+      storylineStatusTabs.forEach((tab) => {
+        const step = Number(tab.getAttribute('data-step-tab') || 0);
+        const stage = stages.get(step);
+        const copy = tab.querySelector('.character-setup-page__tab-copy');
+        let status = copy?.querySelector('[data-step-tab-status]');
+        if (copy && !status) {
+          status = document.createElement('span');
+          status.className = 'character-setup-page__tab-status';
+          status.setAttribute('data-step-tab-status', '');
+          copy.appendChild(status);
+        }
+        const complete = stage?.complete === true;
+        tab.classList.toggle('is-complete', complete);
+        if (status) {
+          status.textContent = stage
+            ? `${Number(stage.completion_percent || 0)}% · ${complete ? 'Complete' : 'In progress'}`
+            : step === 8
+              ? (current.canonical_valid ? 'Ready to review' : 'Review pending')
+              : 'Not started';
+        }
       });
     }
     if (storylineStatusMissing) {
@@ -250,7 +253,6 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
         const storylineStatusValidity = document.querySelector('[data-storyline-status-validity]');
         const storylineStatusFocus = document.querySelector('[data-storyline-status-focus]');
         const storylineStatusCounts = document.querySelector('[data-storyline-status-counts]');
-        const storylineStatusStages = document.querySelector('[data-storyline-status-stages]');
         const storylineStatusMissing = document.querySelector('[data-storyline-status-missing]');
         const storylineStatusElements = {
           warningReview: document.querySelector('[data-storyline-status] [data-editor-warning-review]'),
@@ -259,7 +261,7 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
           validity: storylineStatusValidity,
           focus: storylineStatusFocus,
           counts: storylineStatusCounts,
-          stages: storylineStatusStages,
+          tabs: stepTabs,
           missing: storylineStatusMissing,
         };
 
