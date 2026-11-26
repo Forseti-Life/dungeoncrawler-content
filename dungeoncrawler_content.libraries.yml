@@ -126,7 +126,7 @@ gm-storyline-scene-review:
       css/gm-storyline-scene-review.css: {}
 
 gm-storyline-builder:
-  version: 20261126-objective-guidance-1
+  version: 20261126-dungeon-links-only-1
   js:
     js/gm-storyline-builder.js: { attributes: { type: module } }
   dependencies:

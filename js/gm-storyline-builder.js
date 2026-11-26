@@ -1026,20 +1026,13 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
           }
           const blueprint = buildBlueprint();
           refreshReferenceLists(blueprint);
-          // Sites and rooms are built in their own editors, by their own GM:
-          // each site is listed with its rooms beneath it.
-          const rooms = (blueprint.objects?.rooms?.generation_specs || [])
-            .map((room) => ({ id: String(room.room_id || '').trim(), site: String(room.dungeon_id || '').trim() }))
-            .filter((room) => room.id);
+          // Storylines link to the site editor; room work stays inside the
+          // Dungeon GM's delegated Room Editor workflow.
           const labelFor = (kind, id) => Object.hasOwn(objectLabels[kind] || {}, id) ? objectLabels[kind][id] : id;
-          const roomEntry = (room) => ({ kind: 'room', id: room.id, label: labelFor('room', room.id), nested: true });
-          const objects = [
-            ...(blueprint.objects?.dungeons?.generation_specs || []).flatMap((dungeon) => {
-              const id = String(dungeon.dungeon_id || '').trim();
-              return [{ kind: 'dungeon', id, label: labelFor('dungeon', id) }, ...rooms.filter((room) => room.site === id).map(roomEntry)];
-            }),
-            ...rooms.filter((room) => !(blueprint.objects?.dungeons?.generation_specs || []).some((dungeon) => String(dungeon.dungeon_id || '').trim() === room.site)).map(roomEntry),
-          ];
+          const objects = (blueprint.objects?.dungeons?.generation_specs || []).map((dungeon) => {
+            const id = String(dungeon.dungeon_id || '').trim();
+            return { kind: 'dungeon', id, label: labelFor('dungeon', id) };
+          });
           const unique = new Map();
           objects.forEach((object) => {
             if (object.id && objectEditorTemplates[object.kind]) {
@@ -1094,7 +1087,7 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
           }
           if (unique.size === 0) {
             const empty = document.createElement('li');
-            empty.textContent = 'Load a storyline to see its scenes, actors, sites and rooms.';
+            empty.textContent = 'Load a storyline to see its scenes, actors and sites.';
             objectEditorLinks.appendChild(empty);
             return;
           }
@@ -1105,13 +1098,9 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
             link.href = href;
             link.target = '_blank';
             link.rel = 'noopener';
-            const editorName = object.kind === 'dungeon' ? 'Dungeon Editor' : 'Room Editor';
-            link.textContent = `${object.kind === 'dungeon' ? 'Site' : 'Room'}: ${object.label}`;
-            link.title = `Open ${object.id} in the ${editorName}; its GM builds it from this story's brief`;
+            link.textContent = `Site: ${object.label}`;
+            link.title = `Open ${object.id} in the Dungeon Editor; its GM owns room creation and placement from this story's brief`;
             link.dataset.editorShortcut = `${object.kind}:${object.id}`;
-            if (object.nested) {
-              item.style.marginLeft = '14px';
-            }
             item.appendChild(link);
             objectEditorLinks.appendChild(item);
           });
