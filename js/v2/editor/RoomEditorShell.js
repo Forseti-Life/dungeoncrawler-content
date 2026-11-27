@@ -32,9 +32,9 @@
 
 /* global PIXI */
 
-import { GameEventBus } from '../GameEventBus.js?v=20261127-room-large-zoom-1';
-import { HexCanvas } from '../canvas/HexCanvas.js?v=20261127-room-large-zoom-1';
-import { SpriteService } from '../../SpriteService.js?v=20261127-room-large-zoom-1';
+import { GameEventBus } from '../GameEventBus.js?v=20261127-editor-loading-1';
+import { HexCanvas } from '../canvas/HexCanvas.js?v=20261127-editor-loading-1';
+import { SpriteService } from '../../SpriteService.js?v=20261127-editor-loading-1';
 import {
   appendEditorGmMessage,
   bindEditorGmPrompts,
@@ -48,8 +48,8 @@ import {
   restoreEditorGmConversation,
   selectEditorGmTool,
   shouldSubmitEditorGmKey,
-} from './EditorGmChatClient.js?v=20261127-room-large-zoom-1';
-import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261127-room-large-zoom-1';
+} from './EditorGmChatClient.js?v=20261127-editor-loading-1';
+import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261127-editor-loading-1';
 
 const FAMILIES = ['actor', 'item', 'obstacle', 'trap', 'hazard'];
 const SOLID_FAMILIES = ['actor', 'obstacle'];
@@ -249,6 +249,7 @@ export class RoomEditorShell {
     const initialDraftId = new URLSearchParams(window.location.search).get('draft_id');
     const initialRoomId = this.settings.selectedRoomId || null;
     if (initialDraftId) {
+      this._setLoadState('Loading room draft…', 'loading');
       this._runExclusive(async () => {
         const result = await this._getJson(this._urlFor('draft', initialDraftId));
         if (result.data.status !== 'active') {
@@ -259,6 +260,7 @@ export class RoomEditorShell {
     } else if (initialRoomId) {
       this.loadRoom(initialRoomId);
     } else {
+      this._setLoadState('Choose a room to begin.', 'idle');
       this._setStatus('Select a room to edit, or start a new one.', 'info');
       this._refreshGmContext();
     }
@@ -1410,20 +1412,33 @@ export class RoomEditorShell {
   // ---------------------------------------------------------------------------
 
   async createNewRoom() {
-    await this._runExclusive(async () => {
+    this._setLoadState('Creating room draft…', 'loading');
+    const loaded = await this._runExclusive(async () => {
       const result = await this._postJson(this.urls.create, { room_id: null });
       this._setDraft(result.data, 'Started a new untitled room.');
+      return result.data;
     });
+    this._setLoadState(loaded ? 'Room ready.' : 'Room creation failed.', loaded ? 'ready' : 'error');
   }
 
   async loadRoom(roomId) {
-    await this._runExclusive(async () => {
+    this._setLoadState(`Loading room ${roomId}…`, 'loading');
+    const loaded = await this._runExclusive(async () => {
       const result = await this._postJson(this.urls.create, { room_id: roomId });
       this._setDraft(result.data, `Loaded draft for "${roomId}".`);
       if (this._dom.roomSelect) {
         this._dom.roomSelect.value = roomId;
       }
+      return result.data;
     });
+    this._setLoadState(loaded ? 'Room ready.' : 'Room load failed.', loaded ? 'ready' : 'error');
+  }
+
+  _setLoadState(text, state = 'loading') {
+    const container = this.container?.querySelector('[data-room-editor-load-state]');
+    const label = this.container?.querySelector('[data-room-editor-load-label]');
+    if (label) label.textContent = text;
+    if (container) container.dataset.loadState = state;
   }
 
   async save() {
@@ -1588,6 +1603,7 @@ export class RoomEditorShell {
     const previousDraftId = this.draft?.draft_id || null;
     const previousSelection = this.selection;
     this.draft = draft;
+    this._setLoadState(draft ? 'Room ready.' : 'Choose a room to begin.', draft ? 'ready' : 'idle');
     if (previousDraftId !== (draft?.draft_id || null)) {
       this._history = [];
       this._redoStack = [];

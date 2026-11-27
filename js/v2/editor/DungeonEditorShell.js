@@ -28,9 +28,9 @@
  * Publication is available only through the server readiness and publish routes.
  */
 
-import { GameEventBus } from '../GameEventBus.js?v=20261127-room-large-zoom-1';
-import { HexCanvas } from '../canvas/HexCanvas.js?v=20261127-room-large-zoom-1';
-import './placementTransform.js?v=20261127-room-large-zoom-1';
+import { GameEventBus } from '../GameEventBus.js?v=20261127-editor-loading-1';
+import { HexCanvas } from '../canvas/HexCanvas.js?v=20261127-editor-loading-1';
+import './placementTransform.js?v=20261127-editor-loading-1';
 import {
   appendEditorGmMessage,
   bindEditorGmPrompts,
@@ -44,8 +44,8 @@ import {
   restoreEditorGmConversation,
   selectEditorGmTool,
   shouldSubmitEditorGmKey,
-} from './EditorGmChatClient.js?v=20261127-room-large-zoom-1';
-import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261127-room-large-zoom-1';
+} from './EditorGmChatClient.js?v=20261127-editor-loading-1';
+import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261127-editor-loading-1';
 
 const transform = globalThis.DungeonCrawlerPlacementTransform;
 if (!transform) {
@@ -217,10 +217,12 @@ export class DungeonEditorShell {
     const initialDungeonId = this.settings.selectedDungeonId || null;
     const initialDraftId = new URLSearchParams(window.location.search).get('draft_id');
     if (initialDraftId) {
+      this._setLoadState('Loading dungeon draft…', 'loading');
       this._createOrLoadDraft(null, initialDraftId);
     } else if (initialDungeonId) {
       this.loadDungeon(initialDungeonId);
     } else {
+      this._setLoadState('Choose a dungeon to begin.', 'idle');
       this._setStatus('Select a dungeon to view, or start a new one.', 'info');
       this._syncDungeonLoadState();
     }
@@ -1213,6 +1215,7 @@ export class DungeonEditorShell {
       return;
     }
     this._setBusy(true);
+    this._setLoadState(draftId ? 'Loading dungeon draft…' : dungeonId ? `Loading dungeon ${dungeonId}…` : 'Creating dungeon draft…', 'loading');
     this._setStatus(draftId ? 'Loading dungeon draft...' : dungeonId ? `Loading ${dungeonId}...` : 'Creating a new dungeon draft...', 'info');
     try {
       const response = draftId
@@ -1227,12 +1230,21 @@ export class DungeonEditorShell {
         `${this.model.name} - revision ${this.model.revision}, ${this.model.placements.length} placement(s).`,
         'info',
       );
+      this._setLoadState('Dungeon ready.', 'ready');
     } catch (err) {
+      this._setLoadState('Dungeon load failed.', 'error');
       this._showError(err, draftId ? 'Could not load dungeon draft' : dungeonId ? `Could not load ${dungeonId}` : 'Could not create draft');
       this._syncDungeonLoadState();
     } finally {
       this._setBusy(false);
     }
+  }
+
+  _setLoadState(text, state = 'loading') {
+    const container = this.container?.querySelector('[data-dungeon-editor-load-state]');
+    const label = this.container?.querySelector('[data-dungeon-editor-load-label]');
+    if (label) label.textContent = text;
+    if (container) container.dataset.loadState = state;
   }
 
   async _refreshPlaceImage(generate = false) {

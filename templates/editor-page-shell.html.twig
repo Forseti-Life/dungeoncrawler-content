@@ -45,6 +45,13 @@
     <p class="character-setup-page__eyebrow">{{ eyebrow|default('Game master workspace'|t) }}</p>
     <h1 class="character-setup-page__title">{{ title }}</h1>
     <p class="character-setup-page__intro">{{ intro }}</p>
+    {% if surface %}
+      <div class="editor-page__load-state" data-{{ surface }}-load-state data-load-state="loading" role="status" aria-live="polite">
+        <span class="editor-page__load-spinner" aria-hidden="true"></span>
+        <span data-{{ surface }}-load-label>{{ 'Loading @thing…'|t({'@thing': thing}) }}</span>
+        <progress data-{{ surface }}-load-progress aria-label="{{ 'Loading @thing'|t({'@thing': thing}) }}"></progress>
+      </div>
+    {% endif %}
     <a class="btn btn-secondary character-setup-page__back" href="{{ back_url }}">{{ back_label }}</a>
   </div>
 

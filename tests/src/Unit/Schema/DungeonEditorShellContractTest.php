@@ -316,6 +316,9 @@ class DungeonEditorShellContractTest extends TestCase {
     $this->assertStringContainsString('storyline_draft_id=${encodeURIComponent(draftId)}', $storyline_links);
     $this->assertStringContainsString('Room Agent is working on this request', $shell);
     $this->assertStringContainsString('data-dungeon-editor-action="open-publication"', $template);
+    $shell_template = $this->source('templates/editor-page-shell.html.twig');
+    $this->assertStringContainsString('data-{{ surface }}-load-state', $shell_template);
+    $this->assertStringContainsString('aria-live="polite"', $shell_template);
     $this->assertStringContainsString('suggested_version', $shell);
     $this->assertStringContainsString("dungeon_entries: { label: 'Dungeon', name: ['dungeon_id'] }", $storyline_links);
     $this->assertStringContainsString("room_entries: { label: 'Room', name: ['room_id'] }", $storyline_links);

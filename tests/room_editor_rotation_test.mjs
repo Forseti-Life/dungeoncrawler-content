@@ -64,3 +64,21 @@ test('room canvas allows district-scale fit zoom', () => {
   const source = String(RoomEditorShell.toString());
   assert.match(source, /minZoom:\s*0\.01/);
 });
+
+test('room loading state reports loading and ready states', () => {
+  const editor = shell(null);
+  const state = { dataset: {} };
+  const label = { textContent: '' };
+  editor.container = {
+    querySelector(selector) {
+      if (selector.includes('load-label')) return label;
+      if (selector.includes('load-state')) return state;
+      return null;
+    },
+  };
+  editor._setLoadState('Loading room…', 'loading');
+  assert.equal(state.dataset.loadState, 'loading');
+  assert.equal(label.textContent, 'Loading room…');
+  editor._setLoadState('Room ready.', 'ready');
+  assert.equal(state.dataset.loadState, 'ready');
+});

@@ -123,6 +123,22 @@ test('viewport buttons use shared canvas zoom, pan and fit actions', () => {
   ]);
 });
 
+test('dungeon loading state reports failures clearly', () => {
+  const editor = Object.create(DungeonEditorShell.prototype);
+  const state = { dataset: {} };
+  const label = { textContent: '' };
+  editor.container = {
+    querySelector(selector) {
+      if (selector.includes('load-label')) return label;
+      if (selector.includes('load-state')) return state;
+      return null;
+    },
+  };
+  editor._setLoadState('Dungeon load failed.', 'error');
+  assert.equal(state.dataset.loadState, 'error');
+  assert.equal(label.textContent, 'Dungeon load failed.');
+});
+
 test('rooms that are far apart can be connected from either end', () => {
   const editor = shell();
   editor._handlePortClick({ placementId: 'b', portId: 'west', button: 0 });
