@@ -14,9 +14,13 @@ const actorTemplate = read('templates/character-sheet.html.twig');
 const storylineController = read('src/Controller/GmStorylineBuilderController.php');
 const storylineJs = read('js/gm-storyline-builder.js');
 const objectImageJs = read('js/object-image-panel.js');
+const objectImageService = read('src/Service/ObjectImageService.php');
 
 assert(definitionForm.includes('data-object-image-panel'), 'canonical definitions expose the shared image panel');
 assert(definitionForm.includes('dungeoncrawler_content.object_image'), 'canonical definitions call the generic object image API');
+for (const family of ['item', 'obstacle', 'trap', 'hazard']) {
+  assert(objectImageService.includes(`'${family}'`), `${family} definitions use the generic image service`);
+}
 assert(definitionForm.match(/'generate' => \[[\s\S]*?'#tag' => 'button'[\s\S]*?'type' => 'button'/), 'generate does not submit the definition form');
 assert(definitionForm.match(/'promote' => \[[\s\S]*?'#tag' => 'button'[\s\S]*?'type' => 'button'/), 'promotion does not submit the definition form');
 assert(objectImageJs.match(/event\.preventDefault\(\);[\s\S]*?request\(panel, true\)/), 'generation cancels any enclosing form submission');
