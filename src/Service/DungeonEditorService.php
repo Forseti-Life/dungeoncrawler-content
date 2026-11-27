@@ -20,8 +20,8 @@ use Drupal\dungeoncrawler_content\Service\EditorGm\EditorWarningReview;
  * A dungeon is a level: published room versions placed on one axial hex
  * lattice and joined by port links. It stores placements by reference and
  * never inlines room content; reproducibility comes from the pinned
- * `version_id` on every placement. This service is deliberately independent of
- * RoomEditorService (see 02-target-architecture.md, "Explicitly not reused").
+ * `version_id` on every placement. Room validation remains owned by
+ * RoomEditorService and is consumed rather than reimplemented here.
  */
 class DungeonEditorService {
 
@@ -92,6 +92,7 @@ class DungeonEditorService {
     'district_building_near_street_edge' => 'draft_command',
     'district_building_no_street_access' => 'draft_command',
     'placement_version_unresolved' => 'room_editor',
+    'room_validation_failed' => 'room_editor',
     'port_link_endpoint_missing' => 'draft_command',
     'port_link_direction_invalid' => 'draft_command',
     'port_already_linked' => 'draft_command',
@@ -142,6 +143,18 @@ class DungeonEditorService {
   ) {
     $this->schemaDirectory ??= dirname(__DIR__, 2) . '/config/schemas';
     $this->connectorProjection ??= new ConnectorProjectionService($database);
+  }
+
+  /**
+   * A read-only room-validation authority without a reciprocal Dungeon link.
+   */
+  private function roomEditor(): RoomEditorService {
+    return new RoomEditorService(
+      $this->database,
+      $this->currentUser,
+      $this->uuid,
+      $this->definitions,
+    );
   }
 
   /**
@@ -854,6 +867,7 @@ class DungeonEditorService {
     $resolved = 0;
     $with_contents = 0;
     $with_encounter = 0;
+    $room_statuses = [];
     foreach ($placements as $placement) {
       $room = $this->roomVersion((string) $placement['version_id']);
       if ($room === NULL) {
@@ -866,6 +880,10 @@ class DungeonEditorService {
       );
       $with_contents += $families !== [] ? 1 : 0;
       $with_encounter += in_array('actor', $families, TRUE) ? 1 : 0;
+      $status = $this->roomPublicationStatus((string) $placement['version_id']);
+      if ($status !== NULL) {
+        $room_statuses[(string) $placement['placement_id']] = $status;
+      }
     }
     $entrances = count(array_filter($placements, static fn(array $placement): bool => $placement['is_level_entrance']));
     $finding_codes = array_count_values(array_column($validation['findings'], 'code'));
@@ -952,12 +970,26 @@ class DungeonEditorService {
     $rooms = [];
     foreach ($placements as $placement) {
       $room_id = (string) $placement['room_id'];
+      $room_status = $room_statuses[(string) $placement['placement_id']] ?? NULL;
       $rooms[$room_id] ??= [
         'room_id' => $room_id,
         'name' => (string) ($this->roomVersion((string) $placement['version_id'])['name'] ?? $room_id),
+        'completion_percent' => (int) ($room_status['completion_percent'] ?? 0),
+        'valid' => ($room_status['canonical_valid'] ?? FALSE) === TRUE,
       ];
     }
     $result['rooms'] = array_values($rooms);
+    $room_completion = $room_statuses === []
+      ? 0
+      : (int) round(array_sum(array_map(
+        static fn(array $status): int => (int) ($status['completion_percent'] ?? 0),
+        $room_statuses,
+      )) / count($room_statuses));
+    $result['room_completion_percent'] = $room_completion;
+    $result['completion_percent'] = EditorDraftStatusProjection::cappedByChildCompletion(
+      (int) $result['completion_percent'],
+      $room_completion,
+    );
     $result['next_steps'] = self::recommendNextAuthoringAction($result);
     return $result;
   }
@@ -2115,6 +2147,31 @@ class DungeonEditorService {
     $level_ports = $geometry['level_ports'];
     $placement_rooms = $geometry['placement_rooms'];
     $resolved = $geometry['resolved'];
+    foreach ($placement_rooms as $placement_id => $room) {
+      $placement = array_values(array_filter(
+        (array) $dungeon['room_placements'],
+        static fn(array $candidate): bool => ($candidate['placement_id'] ?? '') === $placement_id,
+      ))[0] ?? NULL;
+      $version_id = (string) ($placement['version_id'] ?? '');
+      $room_status = $version_id !== '' ? $this->roomPublicationStatus($version_id) : NULL;
+      if ($room_status !== NULL && ($room_status['canonical_valid'] ?? FALSE) !== TRUE) {
+        $findings[] = $this->finding(
+          'error',
+          'room_validation_failed',
+          sprintf(
+            'Placed room "%s" fails publication validation: %d error(s). Fix it in the Room Editor before validating the dungeon.',
+            (string) ($room['name'] ?? $placement_id),
+            (int) ($room_status['error_count'] ?? 0),
+          ),
+          [[
+            'placement_id' => $placement_id,
+            'room_id' => (string) ($placement['room_id'] ?? ''),
+            'version_id' => $version_id,
+            'completion_percent' => (int) ($room_status['completion_percent'] ?? 0),
+          ]],
+        );
+      }
+    }
 
     $reported = [];
     // In a district a building overlays the street and its entry port on a
@@ -2310,6 +2367,22 @@ class DungeonEditorService {
         : NULL;
     }
     return $this->roomVersionCache[$version_id];
+  }
+
+  protected function roomPublicationStatus(string $version_id): ?array {
+    $room = $this->roomVersion($version_id);
+    if ($room === NULL) {
+      return NULL;
+    }
+    $validation = $this->roomEditor()->validateAggregate($room, 'publication');
+    $validation['profile'] = 'publication';
+    return $this->roomEditor()->summarizeDraftState([
+      'draft_id' => $version_id,
+      'revision' => 0,
+      'status' => 'published',
+      'published_version_id' => $version_id,
+      'room' => $room,
+    ], $validation);
   }
 
   /**

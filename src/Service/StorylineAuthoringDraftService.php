@@ -27,6 +27,7 @@ class StorylineAuthoringDraftService {
     'task_contracts',
     'authored_room_dungeon_bindings',
     'actor_character_sheets',
+    'dungeon_room_validation',
   ];
   public const ACTOR_SHEET_LINK_FIELDS = ['character_id', 'character_sheet_revision', 'character_sheet_spec_hash'];
   private const STAGE_FIX_ROUTES = [
@@ -45,11 +46,16 @@ class StorylineAuthoringDraftService {
     'authored_room_dungeon_bindings' => 'dungeon_editor',
     'authored_questline_edges' => 'draft_operation',
     'actor_character_sheets' => 'actor_sheet_build',
+    'dungeon_room_validation' => 'dungeon_editor',
   ];
   /**
    * Findings whose fix differs from the rest of their stage.
    */
   private const FINDING_FIX_ROUTES = [
+    'storyline_dungeon_invalid' => 'dungeon_editor',
+    'storyline_room_invalid' => 'room_editor',
+    'actor_sheet_missing' => 'actor_sheet_build',
+    'actor_sheet_outdated' => 'actor_sheet_build',
     'actor_duplicates_library_actor' => 'draft_operation',
     'actor_placement_missing' => 'draft_operation',
     'actor_placement_unknown' => 'draft_operation',
@@ -1269,6 +1275,14 @@ class StorylineAuthoringDraftService {
       'warnings' => array_merge($this->questGiverWarnings($draft), $this->actorTieWarnings($draft['payload'] ?? [])),
       'findings' => array_merge($sheet_findings, $home_findings),
     ];
+    $hierarchy = $this->draftHierarchyStatus($draft);
+    $hierarchy_findings = (array) ($hierarchy['findings'] ?? []);
+    $stages['dungeon_room_validation'] = [
+      'valid' => $hierarchy_findings === [],
+      'errors' => array_column($hierarchy_findings, 'message'),
+      'warnings' => [],
+      'findings' => $hierarchy_findings,
+    ];
     $stages['authored_questline_edges'] = [
       'valid' => TRUE,
       'errors' => [],
@@ -1319,6 +1333,7 @@ class StorylineAuthoringDraftService {
       'stage_count' => count($stage_summaries),
       'stages' => $stage_summaries,
       'analysis' => is_array($validation['analysis'] ?? NULL) ? $validation['analysis'] : [],
+      'hierarchy' => $hierarchy,
       'definition' => $definition,
     ];
   }
@@ -2175,10 +2190,270 @@ class StorylineAuthoringDraftService {
   }
 
   /**
+   * Child-object validation and completion used as the Storyline ceiling.
+   *
+   * @return array<string, mixed>
+   */
+  private function draftHierarchyStatus(array $draft): array {
+    $payload = is_array($draft['payload'] ?? NULL) ? $draft['payload'] : [];
+    $objects = is_array($payload['objects'] ?? NULL) ? $payload['objects'] : [];
+    $findings = [];
+    $groups = [];
+    $dungeons = [];
+    foreach (array_filter((array) ($objects['dungeons']['generation_specs'] ?? []), 'is_array') as $spec) {
+      $id = trim((string) ($spec['dungeon_id'] ?? ''));
+      if ($id === '') {
+        continue;
+      }
+      $status = $this->dungeonHierarchyStatus($id);
+      $dungeons[] = $status;
+      $groups['dungeons'][] = (int) $status['completion_percent'];
+      if (($status['valid'] ?? FALSE) !== TRUE) {
+        $findings[] = [
+          'severity' => 'error',
+          'code' => 'storyline_dungeon_invalid',
+          'entity_type' => 'dungeon',
+          'entity_id' => $id,
+          'completion_percent' => (int) $status['completion_percent'],
+          'message' => sprintf(
+            'Dungeon "%s" is not validation-clean and is %d%% complete.',
+            $id,
+            (int) $status['completion_percent'],
+          ),
+        ];
+      }
+    }
+    $rooms = [];
+    foreach (array_filter((array) ($objects['rooms']['generation_specs'] ?? []), 'is_array') as $spec) {
+      $id = trim((string) ($spec['room_id'] ?? ''));
+      if ($id === '') {
+        continue;
+      }
+      $status = $this->roomHierarchyStatus($id);
+      $rooms[] = $status;
+      $groups['rooms'][] = (int) $status['completion_percent'];
+      if (($status['valid'] ?? FALSE) !== TRUE) {
+        $findings[] = [
+          'severity' => 'error',
+          'code' => 'storyline_room_invalid',
+          'entity_type' => 'room',
+          'entity_id' => $id,
+          'completion_percent' => (int) $status['completion_percent'],
+          'message' => sprintf(
+            'Room "%s" is not validation-clean and is %d%% complete.',
+            $id,
+            (int) $status['completion_percent'],
+          ),
+        ];
+      }
+    }
+    $actors = [];
+    foreach (array_filter((array) ($objects['actors']['generation_specs'] ?? []), 'is_array') as $spec) {
+      $status = $this->actorHierarchyStatus($spec);
+      $actors[] = $status;
+      $groups['actors'][] = (int) $status['completion_percent'];
+      if (($status['valid'] ?? FALSE) !== TRUE) {
+        $findings[] = [
+          'severity' => 'error',
+          'code' => (string) ($status['code'] ?? 'storyline_actor_invalid'),
+          'entity_type' => 'actor',
+          'entity_id' => (string) ($spec['actor_id'] ?? ''),
+          'completion_percent' => (int) $status['completion_percent'],
+          'message' => (string) ($status['message'] ?? 'Actor sheet is incomplete.'),
+        ];
+      }
+    }
+    foreach (['items' => (array) ($objects['items']['generation_specs'] ?? []),
+      'institutions' => (array) ($objects['institutions'] ?? [])] as $type => $entries) {
+      foreach (array_filter($entries, 'is_array') as $entry) {
+        $fields = $type === 'items' ? ['item_id', 'purpose'] : ['institution_id', 'domain', 'name', 'description'];
+        $complete = count(array_filter(
+          $fields,
+          static fn(string $field): bool => trim((string) ($entry[$field] ?? '')) !== '',
+        )) === count($fields);
+        $groups[$type][] = $complete ? 100 : 0;
+      }
+    }
+    $group_percentages = [];
+    foreach ($groups as $group => $percentages) {
+      $group_percentages[$group] = $percentages === []
+        ? 0
+        : (int) round(array_sum($percentages) / count($percentages));
+    }
+    return [
+      'completion_percent' => $group_percentages === []
+        ? 0
+        : (int) round(array_sum($group_percentages) / count($group_percentages)),
+      'group_completion_percent' => $group_percentages,
+      'valid' => $findings === [],
+      'dungeons' => $dungeons,
+      'rooms' => $rooms,
+      'actors' => $actors,
+      'findings' => $findings,
+    ];
+  }
+
+  private function roomHierarchyStatus(string $room_id): array {
+    $room_editor = new RoomEditorService(
+      $this->database,
+      $this->currentUser,
+      $this->uuid,
+      $this->definitions ?? throw new \LogicException('storyline_room_validation_definitions_unavailable'),
+    );
+    $draft_id = $this->database->select('dungeoncrawler_content_room_editor_drafts', 'd')
+      ->fields('d', ['draft_id'])
+      ->condition('room_id', $room_id)
+      ->condition('status', 'active')
+      ->orderBy('updated_at', 'DESC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+    if (is_string($draft_id) && $draft_id !== '') {
+      $draft = $room_editor->getDraft($draft_id);
+      $validation = $room_editor->validateAggregate($draft['room'], 'publication');
+      $validation['profile'] = 'publication';
+      return $room_editor->summarizeDraftState($draft, $validation)
+        + ['room_id' => $room_id, 'valid' => $validation['is_valid']];
+    }
+    $room = $room_editor->publishedRoom($room_id);
+    if ($room === NULL) {
+      return [
+        'room_id' => $room_id,
+        'valid' => FALSE,
+        'completion_percent' => 0,
+        'canonical_valid' => FALSE,
+        'error_count' => 1,
+      ];
+    }
+    $validation = $room_editor->validateAggregate($room, 'publication');
+    $validation['profile'] = 'publication';
+    return $room_editor->summarizeDraftState([
+      'draft_id' => 'published-' . $room_id,
+      'revision' => 0,
+      'status' => 'published',
+      'published_version_id' => 'published',
+      'room' => $room,
+    ], $validation) + ['room_id' => $room_id, 'valid' => $validation['is_valid']];
+  }
+
+  private function dungeonHierarchyStatus(string $dungeon_id): array {
+    if ($this->draftValidator === NULL || $this->definitions === NULL) {
+      throw new \LogicException('storyline_dungeon_validation_dependencies_unavailable');
+    }
+    $dungeon_editor = new DungeonEditorService(
+      $this->database,
+      $this->currentUser,
+      $this->uuid,
+      $this->draftValidator,
+      $this->definitions,
+      NULL,
+      NULL,
+      NULL,
+      isset($this->warningReview) ? $this->warningReview : NULL,
+    );
+    $draft_id = $this->database->select('dungeoncrawler_content_dungeon_editor_drafts', 'd')
+      ->fields('d', ['draft_id'])
+      ->condition('dungeon_id', $dungeon_id)
+      ->condition('status', 'active')
+      ->orderBy('updated_at', 'DESC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+    if (is_string($draft_id) && $draft_id !== '') {
+      $draft = $dungeon_editor->getDraft($draft_id);
+    }
+    else {
+      $row = $this->database->select('dungeoncrawler_content_dungeons', 'd')
+        ->fields('d', ['published_version_id'])
+        ->condition('dungeon_id', $dungeon_id)
+        ->execute()
+        ->fetchAssoc();
+      $version_id = is_array($row) ? (string) ($row['published_version_id'] ?? '') : '';
+      $payload = $version_id === ''
+        ? FALSE
+        : $this->database->select('dungeoncrawler_content_dungeon_versions', 'v')
+          ->fields('v', ['dungeon_payload'])
+          ->condition('version_id', $version_id)
+          ->execute()
+          ->fetchField();
+      if (!is_string($payload) || $payload === '') {
+        return [
+          'dungeon_id' => $dungeon_id,
+          'valid' => FALSE,
+          'completion_percent' => 0,
+          'canonical_valid' => FALSE,
+          'error_count' => 1,
+        ];
+      }
+      $draft = [
+        'draft_id' => 'published-' . $dungeon_id,
+        'dungeon_id' => $dungeon_id,
+        'revision' => 0,
+        'status' => 'published',
+        'published_version_id' => $version_id,
+        'dungeon' => json_decode($payload, TRUE, 512, JSON_THROW_ON_ERROR),
+      ];
+    }
+    try {
+      $validation = $dungeon_editor->validateAggregate($draft, 'publication');
+      $validation['profile'] = 'publication';
+      return $dungeon_editor->summarizeDraftState($draft, $validation)
+        + ['dungeon_id' => $dungeon_id, 'valid' => $validation['is_valid']];
+    }
+    catch (\DomainException $exception) {
+      return [
+        'dungeon_id' => $dungeon_id,
+        'valid' => FALSE,
+        'completion_percent' => 0,
+        'canonical_valid' => FALSE,
+        'error_count' => 1,
+        'message' => $exception->getMessage(),
+      ];
+    }
+  }
+
+  private function actorHierarchyStatus(array $spec): array {
+    $actor_id = trim((string) ($spec['actor_id'] ?? ''));
+    $character_id = (int) ($spec['character_id'] ?? 0);
+    if ($character_id < 1 || $this->characters === NULL) {
+      return [
+        'actor_id' => $actor_id,
+        'valid' => FALSE,
+        'completion_percent' => 0,
+        'code' => 'actor_sheet_missing',
+        'message' => sprintf('Actor "%s" has no linked character sheet.', $actor_id),
+      ];
+    }
+    try {
+      $draft = $this->characters->getDraft($character_id);
+      $validation = $this->characters->validateData($draft['payload'], $draft['campaign_id']);
+    }
+    catch (\OutOfBoundsException | \UnexpectedValueException) {
+      return [
+        'actor_id' => $actor_id,
+        'valid' => FALSE,
+        'completion_percent' => 0,
+        'code' => 'actor_sheet_missing',
+        'message' => sprintf('Actor "%s" links to a missing or inaccessible character sheet.', $actor_id),
+      ];
+    }
+    return [
+      'actor_id' => $actor_id,
+      'character_id' => $character_id,
+      'valid' => $validation['valid'] === TRUE && $validation['ready'] === TRUE,
+      'completion_percent' => (int) ($validation['percent_complete'] ?? 0),
+      'error_count' => count((array) ($validation['errors'] ?? [])),
+      'warning_count' => count((array) ($validation['warnings'] ?? [])),
+    ];
+  }
+
+  /**
    * Builds one status projection shared by the GM and Storyline Builder UI.
    */
   public function summarizeDraftState(array $draft, array $validation): array {
-    $review = $this->warningReview?->summary('storyline', $draft, $validation) ?? [];
+    $review = isset($this->warningReview)
+      ? $this->warningReview?->summary('storyline', $draft, $validation) ?? []
+      : [];
       $payload = is_array($draft['payload'] ?? NULL) ? $draft['payload'] : [];
       $process_flow = is_array($payload['process_flow'] ?? NULL) ? $payload['process_flow'] : [];
       $objects = is_array($payload['objects'] ?? NULL) ? $payload['objects'] : [];
@@ -2326,10 +2601,13 @@ class StorylineAuthoringDraftService {
           $counts['actors'] > 0,
           $all_have($rows($objects['actors']['generation_specs'] ?? []), ['contact_id', 'actor_id', 'role', 'display_name']),
           $sheets_complete,
+          ((int) ($hierarchy['group_completion_percent']['actors'] ?? 0)) / 100,
         ],
         5 => [
           $counts['dungeons'] > 0 && $counts['rooms'] > 0,
           $all_have($rows($objects['rooms']['generation_specs'] ?? []), ['room_id', 'dungeon_id', 'scene_id']),
+          ($hierarchy['valid'] ?? FALSE) === TRUE,
+          ((int) ($hierarchy['completion_percent'] ?? 0)) / 100,
         ],
         6 => [
           $counts['items'] > 0,
@@ -2389,6 +2667,13 @@ class StorylineAuthoringDraftService {
       }
       $completed = count(array_filter($checklist, static fn(array $item): bool => $item['complete']));
       $completion_percent = (int) round(array_sum(array_column($stages, 'completion_percent')) / count($stages));
+      $hierarchy = is_array($validation['hierarchy'] ?? NULL)
+        ? $validation['hierarchy']
+        : $this->draftHierarchyStatus($draft);
+      $completion_percent = EditorDraftStatusProjection::cappedByChildCompletion(
+        $completion_percent,
+        (int) ($hierarchy['completion_percent'] ?? 0),
+      );
       $missing_content = array_values(array_map(
         static fn(array $item): string => $item['label'],
         array_filter($checklist, static fn(array $item): bool => $item['group'] === 'minimum_content' && !$item['complete']),
@@ -2418,6 +2703,7 @@ class StorylineAuthoringDraftService {
         'stages' => $stages,
         'missing_content' => $missing_content,
         'checklist' => $checklist,
+        'hierarchy' => $hierarchy,
     ];
     $result += $review;
     $result['next_steps'] = self::recommendNextAuthoringAction($result);

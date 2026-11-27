@@ -36,6 +36,7 @@
           "enum": [
             "placement_overlap",
             "placement_version_unresolved",
+            "room_validation_failed",
             "port_link_endpoint_missing",
             "port_link_direction_invalid",
             "port_already_linked",
@@ -67,7 +68,10 @@
               "link_id": {"type": "string", "format": "uuid"},
               "storyline_draft_id": {"type": "string", "format": "uuid"},
               "region_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,99}$"},
-              "port_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,99}$"}
+              "port_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,99}$"},
+              "room_id": {"type": "string", "minLength": 1, "maxLength": 100},
+              "version_id": {"type": "string", "format": "uuid"},
+              "completion_percent": {"type": "integer", "minimum": 0, "maximum": 100}
             }
           }
         },

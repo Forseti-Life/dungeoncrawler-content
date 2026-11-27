@@ -78,4 +78,8 @@ final class EditorDraftStatusProjection {
     return isset($review['warning_review_fraction']) ? [$valid, $review['warning_review_fraction']] : [$valid];
   }
 
+  public static function cappedByChildCompletion(int $completion, int $child_completion): int {
+    return min(max(0, $completion), max(0, min(100, $child_completion)));
+  }
+
 }

@@ -9,6 +9,7 @@ use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService;
 use Drupal\dungeoncrawler_content\Service\Definition\DefinitionSchemaValidator;
 use Drupal\dungeoncrawler_content\Service\DungeonEditorService;
+use Drupal\dungeoncrawler_content\Service\EditorGm\EditorDraftStatusProjection;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -48,6 +49,15 @@ class DungeonEditorStatusTest extends TestCase {
 
       public function roomVersion(string $version_id): ?array {
         return $this->rooms[$version_id] ?? NULL;
+      }
+
+      protected function roomPublicationStatus(string $version_id): ?array {
+        $room = $this->roomVersion($version_id);
+        return $room === NULL ? NULL : [
+          'canonical_valid' => !array_key_exists('test_valid', $room) || $room['test_valid'] === TRUE,
+          'completion_percent' => (int) ($room['test_completion'] ?? 100),
+          'error_count' => !array_key_exists('test_valid', $room) || $room['test_valid'] === TRUE ? 0 : 1,
+        ];
       }
 
     };
@@ -210,7 +220,8 @@ class DungeonEditorStatusTest extends TestCase {
       'At least one placed room has contents',
     ], $status['missing_content']);
     $this->assertSame([0, 0, 0, 0, 100, 50], array_column($status['stages'], 'completion_percent'));
-    $this->assertSame(25, $status['completion_percent']);
+    $this->assertSame(0, $status['completion_percent']);
+    $this->assertSame(0, $status['room_completion_percent']);
     $this->assertSame(['Choose a name for this dungeon.'], $status['next_steps']);
   }
 
@@ -226,10 +237,45 @@ class DungeonEditorStatusTest extends TestCase {
     $this->assertSame([], $status['missing_content']);
     $this->assertSame(6, $status['current_stage']);
     $this->assertSame(92, $status['completion_percent']);
+    $this->assertSame(100, $status['room_completion_percent']);
     $this->assertSame(11, $status['completed_checks']);
     $this->assertSame(1, $status['counts']['rooms_with_encounter']);
     $this->assertSame(0, $status['error_count']);
     $this->assertSame(['Review the dungeon and check its publication readiness.'], $status['next_steps']);
+  }
+
+  public function testDungeonCompletionCannotExceedItsRoomCompletion(): void {
+    $room = $this->room([['definition_ref' => ['family' => 'actor', 'definition_id' => 'skeleton', 'version' => '1.0.0']]]);
+    $room['test_completion'] = 90;
+    $service = $this->service([self::VERSION => $room]);
+    $draft = $this->draft(['name' => 'Barrow', 'description' => 'A barrow.', 'theme' => 'undead'], [
+      $this->placement(1, self::VERSION, 0, TRUE),
+    ]);
+
+    $status = $service->summarizeDraftState($draft, $service->validateAggregate($draft));
+
+    $this->assertSame(90, $status['room_completion_percent']);
+    $this->assertSame(90, $status['completion_percent']);
+  }
+
+  public function testDungeonValidationFailsWhenAnyPinnedRoomFails(): void {
+    $room = $this->room([]);
+    $room['test_valid'] = FALSE;
+    $room['test_completion'] = 80;
+    $service = $this->service([self::VERSION => $room]);
+    $draft = $this->draft(['name' => 'Barrow', 'description' => 'A barrow.', 'theme' => 'undead'], [
+      $this->placement(1, self::VERSION, 0, TRUE),
+    ]);
+
+    $validation = $service->validateAggregate($draft);
+
+    $this->assertContains('room_validation_failed', array_column($validation['findings'], 'code'));
+    $this->assertFalse($validation['is_valid']);
+  }
+
+  public function testHierarchicalCompletionUsesTheChildCeiling(): void {
+    $this->assertSame(90, EditorDraftStatusProjection::cappedByChildCompletion(98, 90));
+    $this->assertSame(72, EditorDraftStatusProjection::cappedByChildCompletion(72, 90));
   }
 
 }
