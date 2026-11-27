@@ -1394,9 +1394,20 @@ export class DungeonEditorShell {
       // Hidden without leaving the layout, so selecting never moves the map.
       link.style.visibility = placement ? 'visible' : 'hidden';
       link.href = placement
-        ? String(this.urls.roomEditor || '#').replace('{room_id}', encodeURIComponent(placement.room_id))
+        ? this._roomEditorHref(placement.room_id)
         : '#';
     }
+  }
+
+  _roomEditorHref(roomId) {
+    const base = String(this.urls.roomEditor || '#').replace('{room_id}', encodeURIComponent(roomId));
+    const dungeonId = String(this.model?.dungeon_id || this.settings.selectedDungeonId || '').trim();
+    if (!dungeonId || base === '#') {
+      return base;
+    }
+    const separator = base.includes('?') ? '&' : '?';
+    const storylineDraftId = String(this.settings.selectedStorylineDraftId || '').trim();
+    return `${base}${separator}dungeon_id=${encodeURIComponent(dungeonId)}${storylineDraftId ? `&storyline_draft_id=${encodeURIComponent(storylineDraftId)}` : ''}`;
   }
 
   _placementName(placement) {
@@ -1746,7 +1757,7 @@ export class DungeonEditorShell {
       swatch.style.background = '#475569';
       const label = makeEl('span');
       const link = makeEl('a', 'dungeon-editor__item-link', room.name);
-      link.href = String(this.urls.roomEditor || '#').replace('{room_id}', encodeURIComponent(room.room_id));
+      link.href = this._roomEditorHref(room.room_id);
       link.target = '_blank';
       link.rel = 'noopener';
       label.appendChild(link);

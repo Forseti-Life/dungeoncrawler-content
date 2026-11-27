@@ -57,6 +57,22 @@ test('new links default to open bidirectional travel', () => {
   });
 });
 
+test('room editor links carry their dungeon parent', () => {
+  const editor = Object.create(DungeonEditorShell.prototype);
+  editor.urls = { roomEditor: '/room-editor/{room_id}' };
+  editor.model = { dungeon_id: 'sunken-cistern' };
+  editor.settings = {};
+  assert.equal(
+    editor._roomEditorHref('flooded-room'),
+    '/room-editor/flooded-room?dungeon_id=sunken-cistern',
+  );
+  editor.settings.selectedStorylineDraftId = 'storyline-123';
+  assert.equal(
+    editor._roomEditorHref('flooded-room'),
+    '/room-editor/flooded-room?dungeon_id=sunken-cistern&storyline_draft_id=storyline-123',
+  );
+});
+
 test('rooms that are far apart can be connected from either end', () => {
   const editor = shell();
   editor._handlePortClick({ placementId: 'b', portId: 'west', button: 0 });

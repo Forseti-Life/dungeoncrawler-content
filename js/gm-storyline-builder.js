@@ -315,6 +315,13 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
         let draftTemplateId = '';
         let draftDirty = false;
         let draftCanEdit = false;
+        const dungeonEditorHref = (template, id) => {
+          const href = String(template || '').replace('{object_id}', encodeURIComponent(String(id || '')));
+          if (!href || !draftId) {
+            return href;
+          }
+          return `${href}${href.includes('?') ? '&' : '?'}storyline_draft_id=${encodeURIComponent(draftId)}`;
+        };
         function refreshStorylineImagePanel() {
           const panel = wizard.querySelector('[data-storyline-image-panel]');
           if (!panel || !draftId || !objectImageUrlTemplate) return;
@@ -862,7 +869,9 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
             row.insertBefore(media, row.querySelector(':scope > .gm-storyline-wizard__row-headline')?.nextSibling || null);
           }
           const template = String(objectEditorTemplates[kind] || '');
-          const href = id && template ? template.replace('{object_id}', encodeURIComponent(id)) : '';
+          const href = id && template
+            ? (kind === 'dungeon' ? dungeonEditorHref(template, id) : template.replace('{object_id}', encodeURIComponent(id)))
+            : '';
           const source = rowSource.get(row) || {};
           const preview = media.querySelector('.gm-storyline-wizard__object-preview');
           const label = preview.querySelector('.gm-storyline-wizard__object-preview-label');
@@ -1401,7 +1410,9 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
           unique.forEach((object) => {
             const item = document.createElement('li');
             const link = document.createElement('a');
-            const href = String(objectEditorTemplates[object.kind]).replace('{object_id}', encodeURIComponent(object.id));
+            const href = object.kind === 'dungeon'
+              ? dungeonEditorHref(objectEditorTemplates[object.kind], object.id)
+              : String(objectEditorTemplates[object.kind]).replace('{object_id}', encodeURIComponent(object.id));
             link.href = href;
             link.target = '_blank';
             link.rel = 'noopener';

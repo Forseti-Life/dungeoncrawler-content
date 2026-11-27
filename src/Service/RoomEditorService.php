@@ -149,6 +149,15 @@ class RoomEditorService {
       ->execute()
       ->fetchAll());
   }
+
+  /**
+   * Published dungeons that place this room.
+   *
+   * @return array<int, array{dungeon_id: string, name: string}>
+   */
+  public function parentDungeons(string $room_id): array {
+    return $this->dungeons?->parentDungeonsForRoom($room_id) ?? [];
+  }
   /**
    * Active drafts, optionally limited to those the given author created.
    *

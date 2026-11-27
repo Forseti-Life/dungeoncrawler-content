@@ -275,6 +275,20 @@ class DungeonEditorShellContractTest extends TestCase {
     $this->assertMatchesRegularExpression("/import \\{ HexCanvas \\} from '\\.\\.\\/canvas\\/HexCanvas\\.js(?:\\?v=[^']+)?'/", $shell);
   }
 
+  public function testDungeonBackLinkAndRoomLinksCarryParentContext(): void {
+    $controller = $this->source('src/Controller/DungeonEditorController.php');
+    $template = $this->source('templates/dungeon-editor.html.twig');
+    $shell = $this->source('js/v2/editor/DungeonEditorShell.js');
+    $storyline_links = $this->source('js/gm-storyline-builder.js');
+
+    $this->assertStringContainsString('storylineParents', $controller);
+    $this->assertStringContainsString('storyline_draft_id', $controller);
+    $this->assertStringContainsString("back_label = 'Back to Storyline Editor'", $controller);
+    $this->assertStringContainsString('back_url: back_url', $template);
+    $this->assertStringContainsString('dungeon_id=${encodeURIComponent(dungeonId)}', $shell);
+    $this->assertStringContainsString('storyline_draft_id=${encodeURIComponent(draftId)}', $storyline_links);
+  }
+
   /**
    * Writes exist only for draft creation, command mutation, and publication.
    *

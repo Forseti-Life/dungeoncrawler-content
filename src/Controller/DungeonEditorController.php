@@ -40,14 +40,36 @@ class DungeonEditorController extends ControllerBase {
   /**
    * Renders the editor shell.
    */
-  public function page(?string $dungeon_id = NULL): array {
+  public function page(Request $request, ?string $dungeon_id = NULL): array {
     $dungeons = $this->dungeonEditor->listDungeons();
+    $back_url = Url::fromRoute('dungeoncrawler_content.dungeon_management')->toString();
+    $back_label = 'Back to Dungeon Manager';
+    $selected_storyline_draft_id = trim((string) $request->query->get('storyline_draft_id', ''));
+    if ($dungeon_id !== NULL) {
+      $storylines = $this->dungeonEditor->storylineParents($dungeon_id);
+      $requested = $selected_storyline_draft_id;
+      $parent = $requested !== ''
+        ? array_values(array_filter($storylines, static fn(array $story): bool => (string) ($story['draft_id'] ?? '') === $requested))
+        : [];
+      if ($parent === []) {
+        $editing = array_values(array_filter($storylines, static fn(array $story): bool => (string) ($story['status'] ?? '') === 'editing'));
+        $parent = $editing !== [] ? [$editing[0]] : ($storylines !== [] ? [$storylines[0]] : []);
+      }
+      if (count($parent) === 1) {
+        $back_url = Url::fromRoute('dungeoncrawler_content.gm_storyline_builder', [], [
+          'query' => ['draft_id' => (string) $parent[0]['draft_id']],
+        ])->toString();
+        $back_label = 'Back to Storyline Editor';
+      }
+    }
     return [
       '#theme' => 'dungeon_editor',
       // Carries a session-bound CSRF token, so it must never be cached.
       '#cache' => ['max-age' => 0],
       '#dungeons' => $dungeons,
       '#selected_dungeon_id' => $dungeon_id,
+      '#back_url' => $back_url,
+      '#back_label' => $back_label,
       '#attached' => [
         'library' => ['dungeoncrawler_content/dungeon-editor'],
         'drupalSettings' => [
@@ -55,6 +77,7 @@ class DungeonEditorController extends ControllerBase {
             'dungeonEditor' => [
               'dungeons' => $dungeons,
               'selectedDungeonId' => $dungeon_id,
+              'selectedStorylineDraftId' => $selected_storyline_draft_id,
               'csrfToken' => $this->csrfToken->get(CsrfRequestHeaderAccessCheck::TOKEN_KEY),
               'urls' => [
                 'create' => Url::fromRoute('dungeoncrawler_content.dungeon_editor_draft_create')->toString(),

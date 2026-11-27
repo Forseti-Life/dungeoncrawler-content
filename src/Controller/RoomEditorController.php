@@ -37,11 +37,29 @@ class RoomEditorController extends ControllerBase {
   /**
    * Renders the editor shell.
    */
-  public function page(?string $room_id = NULL): array {
+  public function page(Request $request, ?string $room_id = NULL): array {
     // The bare /room-editor path (no {room_id} segment) has no natural
     // default room to show; land on "The Gilded Tankard" (tavern_entrance)
     // since it's the primary canonical room this team edits day-to-day.
     $room_id = $room_id ?? 'tavern_entrance';
+    $parents = $this->roomEditor->parentDungeons($room_id);
+    $requested = trim((string) $request->query->get('dungeon_id', ''));
+    $parent = $requested !== ''
+      ? array_values(array_filter($parents, static fn(array $dungeon): bool => (string) ($dungeon['dungeon_id'] ?? '') === $requested))
+      : [];
+    if ($parent === [] && $parents !== []) {
+      $parent = [$parents[0]];
+    }
+    $back_url = count($parent) === 1
+      ? Url::fromRoute('dungeoncrawler_content.dungeon_editor_edit', [
+          'dungeon_id' => (string) $parent[0]['dungeon_id'],
+        ], [
+          'query' => array_filter([
+            'storyline_draft_id' => trim((string) $request->query->get('storyline_draft_id', '')),
+          ]),
+        ])->toString()
+      : Url::fromRoute('dungeoncrawler_content.room_management')->toString();
+    $back_label = count($parent) === 1 ? 'Back to Dungeon Editor' : 'Back to Room Manager';
     $placeholder = '00000000-0000-4000-8000-000000000000';
     // Route "family" is constrained to a fixed enum, so the placeholder must
     // be one of the valid values for Url::fromRoute() to generate a path.
@@ -53,6 +71,8 @@ class RoomEditorController extends ControllerBase {
       '#cache' => ['max-age' => 0],
       '#rooms' => $this->roomEditor->listRooms(),
       '#selected_room_id' => $room_id,
+      '#back_url' => $back_url,
+      '#back_label' => $back_label,
       '#attached' => [
         'library' => ['dungeoncrawler_content/room-editor'],
         'drupalSettings' => [

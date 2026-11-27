@@ -18,6 +18,17 @@ use Symfony\Component\Yaml\Yaml;
  */
 class RoomEditorContractTest extends UnitTestCase {
 
+  public function testRoomBackLinkUsesItsDungeonParent(): void {
+    $root = dirname(__DIR__, 4);
+    $controller = (string) file_get_contents($root . '/src/Controller/RoomEditorController.php');
+    $template = (string) file_get_contents($root . '/templates/room-editor.html.twig');
+
+    $this->assertStringContainsString('parentDungeons', $controller);
+    $this->assertStringContainsString("query->get('dungeon_id'", $controller);
+    $this->assertStringContainsString("back_label = count(\$parent) === 1 ? 'Back to Dungeon Editor'", $controller);
+    $this->assertStringContainsString('back_url: back_url', $template);
+  }
+
   /**
    * Verifies every registered Room Editor schema is strict and readable.
    */

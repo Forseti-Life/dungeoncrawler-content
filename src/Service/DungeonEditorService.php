@@ -1005,6 +1005,23 @@ class DungeonEditorService {
   }
 
   /**
+   * Storyline drafts that reference this dungeon, for parent navigation.
+   *
+   * @return array<int, array{draft_id: string, title: string, status: string, revision: int}>
+   */
+  public function storylineParents(string $dungeon_id): array {
+    return array_map(
+      static fn(array $story): array => array_intersect_key($story, array_flip([
+        'draft_id',
+        'title',
+        'status',
+        'revision',
+      ])),
+      $this->storiesUsing($dungeon_id),
+    );
+  }
+
+  /**
    * Published dungeons no storyline names.
    *
    * @return array<int, array{dungeon_id: string, name: string, campaigns: int}>
@@ -1042,7 +1059,41 @@ class DungeonEditorService {
         $index[(string) $room_id][] = ['dungeon_id' => (string) $row->dungeon_id, 'name' => (string) $row->name];
       }
     }
+    $draft_query = $this->database->select('dungeoncrawler_content_dungeon_editor_drafts', 'd');
+    $draft_query->leftJoin('dungeoncrawler_content_dungeons', 'canonical', 'canonical.dungeon_id = d.dungeon_id');
+    $draft_rows = $draft_query
+      ->fields('d', ['dungeon_id', 'dungeon_payload'])
+      ->fields('canonical', ['name'])
+      ->condition('d.status', 'active')
+      ->condition('d.created_by', (int) $this->currentUser->id())
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+    foreach ($draft_rows as $row) {
+      $dungeon = json_decode((string) $row['dungeon_payload'], TRUE, 512, JSON_THROW_ON_ERROR);
+      foreach (array_unique(array_column((array) ($dungeon['room_placements'] ?? []), 'room_id')) as $room_id) {
+        $room_id = (string) $room_id;
+        $candidate = [
+          'dungeon_id' => (string) $row['dungeon_id'],
+          'name' => trim((string) ($row['name'] ?? $dungeon['name'] ?? $row['dungeon_id'])),
+        ];
+        foreach ($index[$room_id] ?? [] as $existing) {
+          if ($existing['dungeon_id'] === $candidate['dungeon_id']) {
+            continue 2;
+          }
+        }
+        $index[$room_id][] = $candidate;
+      }
+    }
     return $index;
+  }
+
+  /**
+   * Published dungeons that place a room, for parent navigation.
+   *
+   * @return array<int, array{dungeon_id: string, name: string}>
+   */
+  public function parentDungeonsForRoom(string $room_id): array {
+    return $this->roomPlacementIndex()[$room_id] ?? [];
   }
 
   /**
