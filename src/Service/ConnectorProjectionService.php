@@ -4,6 +4,7 @@ namespace Drupal\dungeoncrawler_content\Service;
 
 use Drupal\Core\Database\Connection;
 use Drupal\dungeoncrawler_content\Geometry\RoomPlacementTransformer;
+use Drupal\dungeoncrawler_content\Geometry\RoomPlacementContainment;
 use Drupal\dungeoncrawler_content\Support\H3SpatialHelper;
 
 /**
@@ -33,6 +34,7 @@ final class ConnectorProjectionService {
     $this->assertConnectionSchema();
 
     $placements = [];
+    $placement_hexes = [];
     $ports = [];
     $street_placement = NULL;
     $street_hexes = [];
@@ -43,6 +45,7 @@ final class ConnectorProjectionService {
         throw new DungeonCommandRejectedException('connector_projection_failed', [$this->finding('placement_version_unresolved', sprintf('Placement %s has no resolvable published room version.', $placement_id !== '' ? $placement_id : 'unknown'), [['placement_id' => $placement_id]])]);
       }
       $placements[$placement_id] = $placement;
+      $placement_hexes[$placement_id] = RoomPlacementContainment::hexes($room, $placement);
       if (($aggregate['kind'] ?? 'dungeon') === 'district' && ($room['room_type'] ?? '') === 'street') {
         if ($street_placement !== NULL) {
           throw new DungeonCommandRejectedException('connector_projection_failed', [$this->finding('district_street_ambiguous', 'District connector projection requires exactly one street placement.', [])]);
@@ -141,7 +144,71 @@ final class ConnectorProjectionService {
       }
       $rows = array_merge($rows, $this->districtStreetContactRows($dungeon_id, $street_placement, $street_hexes, $ports));
     }
+    else {
+      $rows = array_merge($rows, $this->nestedRoomContactRows($dungeon_id, $placement_hexes, $ports, $placements));
+    }
 
+    return $rows;
+  }
+
+  /**
+   * Projects a smaller room placed wholly inside a larger room.
+   *
+   * @return array<int, array<string, mixed>>
+   */
+  private function nestedRoomContactRows(string $dungeon_id, array $placement_hexes, array $ports, array $placements): array {
+    $rows = [];
+    foreach ($ports as $port) {
+      if (($port['kind'] ?? '') !== 'entry') {
+        continue;
+      }
+      $child_id = (string) ($port['placement_id'] ?? '');
+      $child = $placement_hexes[$child_id] ?? [];
+      if ($child === []) {
+        continue;
+      }
+      $parent_id = '';
+      $parent_size = PHP_INT_MAX;
+      foreach ($placement_hexes as $candidate_id => $candidate) {
+        if ($candidate_id === $child_id || count($candidate) >= $parent_size) {
+          continue;
+        }
+        if (RoomPlacementContainment::strictlyContains($candidate, $child)) {
+          $parent_id = $candidate_id;
+          $parent_size = count($candidate);
+        }
+      }
+      if ($parent_id === '') {
+        continue;
+      }
+      $identity = implode('|', [
+        $dungeon_id,
+        $parent_id,
+        $child_id,
+        (string) $port['port_id'],
+      ]);
+      $rows[] = [
+        'connection_id' => 'contained-entry-' . hash('sha256', $identity),
+        'dungeon_id' => $dungeon_id,
+        'from_room_id' => (string) ($placements[$parent_id]['room_id'] ?? ''),
+        'to_room_id' => (string) $port['room_id'],
+        'from_hex_q' => (int) $port['q'],
+        'from_hex_r' => (int) $port['r'],
+        'to_hex_q' => (int) $port['q'],
+        'to_hex_r' => (int) $port['r'],
+        'from_h3_index_res14' => (string) $port['h3_index_res14'],
+        'to_h3_index_res14' => (string) $port['h3_index_res14'],
+        'direction' => 'bidirectional',
+        'kind' => 'door',
+        'default_state' => 'open',
+        'trap_data' => NULL,
+        'lock_data' => NULL,
+        'requirements_data' => NULL,
+        'description' => 'Implicit entry from a containing room into a wholly nested room.',
+        'travel_cost' => 0,
+        'is_discovered_default' => 1,
+      ];
+    }
     return $rows;
   }
 

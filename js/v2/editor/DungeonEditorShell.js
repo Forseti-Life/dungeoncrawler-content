@@ -811,13 +811,37 @@ export class DungeonEditorShell {
   _ghostFor(drag, origin) {
     const spec = { origin, rotation_steps: drag.rotation };
     const hexes = drag.footprint.map((hex) => transform.toLevel(hex, spec));
+    const candidateHexes = new Set(hexes.map((hex) => transform.hexKey(hex)));
     const occupancy = this.model?.occupancy || {};
     const own = drag.kind === 'move' ? drag.placementId : null;
     const valid = hexes.every((hex) => {
       const claimants = occupancy[transform.hexKey(hex)];
-      return !Array.isArray(claimants) || claimants.every((id) => id === own || this._isDistrictStreet(id));
+      return !Array.isArray(claimants) || claimants.every((id) => (
+        id === own || this._isNestedWithPlacement(candidateHexes, id)
+      ));
     });
     return { hexes, valid };
+  }
+
+  _placementHexes(placementId) {
+    const placement = (this.model?.placements || []).find((candidate) => candidate.placement_id === placementId);
+    if (!placement?.resolved) {
+      return new Set();
+    }
+    return new Set((placement.room?.hexes || []).map((hex) => transform.hexKey(
+      transform.toLevel(hex, placement),
+    )));
+  }
+
+  _isNestedWithPlacement(candidateHexes, placementId) {
+    const other = this._placementHexes(placementId);
+    if (!candidateHexes.size || !other.size || candidateHexes.size === other.size) {
+      return false;
+    }
+    const [smaller, larger] = candidateHexes.size < other.size
+      ? [candidateHexes, other]
+      : [other, candidateHexes];
+    return [...smaller].every((key) => larger.has(key));
   }
 
   _onDragMove(event) {
@@ -993,10 +1017,12 @@ export class DungeonEditorShell {
     if (!Array.isArray(claimants) || !claimants.length) {
       return;
     }
-    // A district street lies under its buildings: a click picks the building
-    // on top, and the street only when nothing else covers the hex.
-    const buildings = claimants.filter((id) => !this._isDistrictStreet(id));
-    const pickable = buildings.length ? buildings : claimants;
+    // Pick the smallest nested room on top, and only select its ground
+    // container when no room covers the hex.
+    const nested = claimants.filter((id) => !this._isDistrictStreet(id));
+    const pickable = (nested.length ? nested : claimants)
+      .slice()
+      .sort((a, b) => this._placementHexes(a).size - this._placementHexes(b).size);
     const placementId = pickable.includes(this.selectedPlacementId) ? this.selectedPlacementId : pickable[0];
     this._selectPlacement(placementId);
     const placement = this._selectedPlacement();
@@ -1105,12 +1131,11 @@ export class DungeonEditorShell {
    */
   _conflictOccupancy() {
     const occupancy = this.model.occupancy || {};
-    if (this.model.kind !== 'district') {
-      return occupancy;
-    }
     const out = {};
     Object.entries(occupancy).forEach(([key, ids]) => {
-      out[key] = ids.filter((id) => !this._isDistrictStreet(id));
+      out[key] = ids.filter((id, index) => ids.some((other, otherIndex) => (
+        otherIndex !== index && !this._isNestedWithPlacement(this._placementHexes(id), other)
+      )));
     });
     return out;
   }

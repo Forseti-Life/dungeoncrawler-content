@@ -58,6 +58,9 @@ final class DistrictBuildingCandidates {
           $own[RoomPlacementTransformer::hexKey($level)] = $level;
         }
         foreach ($own as $key => $level) {
+          if (!in_array($street_id, (array) ($occupied[$key] ?? []), TRUE)) {
+            $problems['outside_container'] = TRUE;
+          }
           if (array_diff((array) ($occupied[$key] ?? []), [$street_id]) !== []) {
             $problems['overlaps'][] = $level;
           }

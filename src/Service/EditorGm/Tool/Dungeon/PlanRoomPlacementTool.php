@@ -3,6 +3,7 @@
 namespace Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon;
 
 use Drupal\dungeoncrawler_content\Geometry\RoomPlacementTransformer;
+use Drupal\dungeoncrawler_content\Geometry\RoomPlacementContainment;
 use Drupal\dungeoncrawler_content\Service\DungeonEditorService;
 use Drupal\dungeoncrawler_content\Service\EditorGm\DungeonEditorGmToolContext;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolContext;
@@ -126,6 +127,16 @@ final class PlanRoomPlacementTool implements EditorGmToolInterface {
     foreach ((array) ($model['occupancy'] ?? []) as $key => $ids) {
       $occupied[$key] = $ids;
     }
+    $existing_footprints = [];
+    foreach ((array) ($model['placements'] ?? []) as $existing) {
+      if (!($existing['resolved'] ?? FALSE)) {
+        continue;
+      }
+      $existing_footprints[(string) $existing['placement_id']] = RoomPlacementContainment::hexes(
+        (array) ($existing['room'] ?? []),
+        (array) $existing,
+      );
+    }
 
     $entries = array_values(array_filter((array) $library['ports'], static fn(array $p): bool => $p['kind'] === 'entry'));
     if ($entry_filter !== '') {
@@ -152,14 +163,27 @@ final class PlanRoomPlacementTool implements EditorGmToolInterface {
         ];
         $overlaps = [];
         $out_of_bounds = FALSE;
+        $candidate_hexes = [];
+        $levels = [];
         foreach ((array) $library['footprint'] as $hex) {
           $level = RoomPlacementTransformer::toLevel($hex, $placement);
           if (abs($level['q']) > DungeonEditorService::AXIAL_BOUND || abs($level['r']) > DungeonEditorService::AXIAL_BOUND) {
             $out_of_bounds = TRUE;
           }
           $key = RoomPlacementTransformer::hexKey($level);
+          $candidate_hexes[$key] = TRUE;
+          $levels[$key] = $level;
+        }
+        foreach ($candidate_hexes as $key => $_) {
           if (isset($occupied[$key])) {
-            $overlaps[] = ['hex' => $level, 'placement_ids' => $occupied[$key]];
+            $invalid = array_values(array_filter(
+              (array) $occupied[$key],
+              static fn(string $id): bool => !isset($existing_footprints[$id])
+                || !RoomPlacementContainment::nested($candidate_hexes, $existing_footprints[$id]),
+            ));
+            if ($invalid !== []) {
+              $overlaps[] = ['hex' => $levels[$key], 'placement_ids' => $invalid];
+            }
           }
         }
         $candidate = [
@@ -271,16 +295,33 @@ final class PlanRoomPlacementTool implements EditorGmToolInterface {
         ['q' => $center_q - (int) floor(($min_q + $max_q) / 2), 'r' => (int) $bounds['max_r'] + 1 - $min_r],
         ['q' => $center_q - (int) floor(($min_q + $max_q) / 2), 'r' => (int) $bounds['min_r'] - 1 - $max_r],
       ];
+      $existing_footprints = [];
+      foreach ((array) ($model['placements'] ?? []) as $existing) {
+        if (!($existing['resolved'] ?? FALSE)) {
+          continue;
+        }
+        $existing_footprints[(string) $existing['placement_id']] = RoomPlacementContainment::hexes(
+          (array) ($existing['room'] ?? []),
+          (array) $existing,
+        );
+      }
       foreach ($origins as $origin) {
         $overlaps = FALSE;
+        $candidate_hexes = [];
         foreach ($rotated as $point) {
-          $key = RoomPlacementTransformer::hexKey([
+          $level = [
             'q' => $origin['q'] + $point['q'],
             'r' => $origin['r'] + $point['r'],
-          ]);
-          if (isset($occupied[$key])) {
-            $overlaps = TRUE;
-            break;
+          ];
+          $candidate_hexes[RoomPlacementTransformer::hexKey($level)] = TRUE;
+        }
+        foreach ($candidate_hexes as $key => $_) {
+          foreach ((array) ($occupied[$key] ?? []) as $id) {
+            if (!isset($existing_footprints[$id])
+              || !RoomPlacementContainment::nested($candidate_hexes, $existing_footprints[$id])) {
+              $overlaps = TRUE;
+              break 2;
+            }
           }
         }
         if (!$overlaps) {

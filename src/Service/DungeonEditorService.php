@@ -6,6 +6,7 @@ use Drupal\Component\Uuid\UuidInterface;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\dungeoncrawler_content\Geometry\RoomPlacementTransformer;
+use Drupal\dungeoncrawler_content\Geometry\RoomPlacementContainment;
 use Drupal\dungeoncrawler_content\Service\Definition\DefinitionSchemaValidator;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorDraftStatusProjection;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorWarningReview;
@@ -1816,12 +1817,20 @@ class DungeonEditorService {
    * Placements that genuinely compete for one hex. In a district a building
    * overlays the street and overrides its hex, so the street never competes.
    */
-  private function competingClaims(array $ids, bool $district, array $placement_rooms): array {
+  private function competingClaims(array $ids, bool $district, array $placement_rooms, array $placement_hexes = []): array {
     $ids = array_values(array_unique($ids));
-    if (!$district) {
+    if ($district) {
+      $ids = array_values(array_filter($ids, static fn(string $id): bool => ($placement_rooms[$id]['room_type'] ?? NULL) !== 'street'));
+    }
+    if ($placement_hexes === []) {
       return $ids;
     }
-    return array_values(array_filter($ids, static fn(string $id): bool => ($placement_rooms[$id]['room_type'] ?? NULL) !== 'street'));
+    $competing = [];
+    foreach (RoomPlacementContainment::invalidPairs($ids, $placement_hexes) as $pair) {
+      $competing[$pair[0]] = TRUE;
+      $competing[$pair[1]] = TRUE;
+    }
+    return array_values(array_keys($competing));
   }
 
   /**
@@ -2014,6 +2023,7 @@ class DungeonEditorService {
     $level_ports = [];
     $placement_rooms = [];
     $resolved = [];
+    $placement_hexes = [];
     foreach ($dungeon['room_placements'] as $placement) {
       $placement_id = $placement['placement_id'];
       $resolved[$placement_id] = FALSE;
@@ -2031,6 +2041,7 @@ class DungeonEditorService {
       }
       $resolved[$placement_id] = TRUE;
       $placement_rooms[$placement_id] = $room;
+      $placement_hexes[$placement_id] = RoomPlacementContainment::hexes($room, $placement);
       $claim = [$placement_id];
       foreach ($this->roomFootprint($room) as $hex) {
         $level = RoomPlacementTransformer::toLevel($hex, $placement);
@@ -2061,6 +2072,7 @@ class DungeonEditorService {
       'level_ports' => $level_ports,
       'placement_rooms' => $placement_rooms,
       'resolved' => $resolved,
+      'placement_hexes' => $placement_hexes,
     ];
   }
 
@@ -2084,7 +2096,7 @@ class DungeonEditorService {
 
     $overlaps = [];
     foreach ($geometry['occupancy'] as $key => $ids) {
-      $ids = $this->competingClaims($ids, ($dungeon['kind'] ?? 'dungeon') === 'district', $geometry['placement_rooms']);
+      $ids = $this->competingClaims($ids, ($dungeon['kind'] ?? 'dungeon') === 'district', $geometry['placement_rooms'], $geometry['placement_hexes']);
       sort($ids);
       for ($i = 0; $i < count($ids); $i++) {
         for ($j = $i + 1; $j < count($ids); $j++) {
@@ -2229,12 +2241,17 @@ class DungeonEditorService {
     // street hex is the way in; rooms themselves never share a hex.
     $district = ($dungeon['kind'] ?? 'dungeon') === 'district';
     foreach ($occupancy as $key => $ids) {
-      $ids = $this->competingClaims($ids, $district, $placement_rooms);
-      if (count($ids) < 2) {
+      $pairs = RoomPlacementContainment::invalidPairs(
+        $district
+          ? array_values(array_filter($ids, static fn(string $id): bool => ($placement_rooms[$id]['room_type'] ?? NULL) !== 'street'))
+          : $ids,
+        $geometry['placement_hexes'],
+      );
+      if ($pairs === []) {
         continue;
       }
       sort($ids);
-      $pair = implode('|', $ids);
+      $pair = implode('|', $pairs[0]);
       if (isset($reported[$pair])) {
         continue;
       }
@@ -2242,10 +2259,10 @@ class DungeonEditorService {
       $reported[$pair] = TRUE;
       $findings[] = $this->finding('error', 'placement_overlap', sprintf(
         'Placements %s claim the same level hex, first at (%d, %d).',
-        implode(' and ', $ids),
+        implode(' and ', $pairs[0]),
         $q,
         $r
-      ), array_map(static fn(string $id): array => ['placement_id' => $id], $ids), ['q' => $q, 'r' => $r]);
+      ), array_map(static fn(string $id): array => ['placement_id' => $id], $pairs[0]), ['q' => $q, 'r' => $r]);
     }
 
     if ($district) {
@@ -2318,6 +2335,25 @@ class DungeonEditorService {
       $edges[$from_id][] = $to_id;
       if ($link['direction'] === 'bidirectional') {
         $edges[$to_id][] = $from_id;
+      }
+    }
+    if (!$district) {
+      foreach ($geometry['placement_hexes'] as $child_id => $child_hexes) {
+        $parent_id = '';
+        $parent_size = PHP_INT_MAX;
+        foreach ($geometry['placement_hexes'] as $candidate_id => $candidate_hexes) {
+          if ($candidate_id === $child_id || count($candidate_hexes) >= $parent_size) {
+            continue;
+          }
+          if (RoomPlacementContainment::strictlyContains($candidate_hexes, $child_hexes)) {
+            $parent_id = $candidate_id;
+            $parent_size = count($candidate_hexes);
+          }
+        }
+        if ($parent_id !== '') {
+          $edges[$parent_id][] = $child_id;
+          $edges[$child_id][] = $parent_id;
+        }
       }
     }
     foreach ($street_contacts ?? [] as $building_id => $_) {

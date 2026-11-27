@@ -73,6 +73,36 @@ test('room editor links carry their dungeon parent', () => {
   );
 });
 
+test('smaller room may be placed fully inside a larger room', () => {
+  const editor = Object.create(DungeonEditorShell.prototype);
+  editor.model = {
+    placements: [{
+      placement_id: 'outer',
+      resolved: true,
+      origin: { q: 0, r: 0 },
+      rotation_steps: 0,
+      room: { hexes: [{ q: 0, r: 0 }, { q: 1, r: 0 }, { q: 0, r: 1 }] },
+    }],
+    occupancy: {
+      '0:0': ['outer'],
+      '1:0': ['outer'],
+      '0:1': ['outer'],
+    },
+  };
+  const nested = editor._ghostFor({
+    kind: 'place',
+    footprint: [{ q: 0, r: 0 }, { q: 1, r: 0 }],
+    rotation: 0,
+  }, { q: 0, r: 0 });
+  const partial = editor._ghostFor({
+    kind: 'place',
+    footprint: [{ q: 1, r: 0 }, { q: 2, r: 0 }],
+    rotation: 0,
+  }, { q: 0, r: 0 });
+  assert.equal(nested.valid, true);
+  assert.equal(partial.valid, false);
+});
+
 test('rooms that are far apart can be connected from either end', () => {
   const editor = shell();
   editor._handlePortClick({ placementId: 'b', portId: 'west', button: 0 });

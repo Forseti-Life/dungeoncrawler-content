@@ -159,6 +159,22 @@ class DungeonEditorShellContractTest extends TestCase {
     }
   }
 
+  public function testSmallerRoomMayBeWhollyContainedByLargerRoom(): void {
+    $outer_version = self::uuid(1);
+    $inner_version = self::uuid(2);
+    $service = $this->service([
+      $outer_version => $this->room('outer', [['q' => 0, 'r' => 0], ['q' => 1, 'r' => 0]]),
+      $inner_version => $this->room('inner', [['q' => 0, 'r' => 0]]),
+    ]);
+    $dungeon = $this->aggregate([
+      $this->placement(1, 'outer', $outer_version, ['q' => 0, 'r' => 0], 0, TRUE),
+      $this->placement(2, 'inner', $inner_version, ['q' => 0, 'r' => 0], 0),
+    ]);
+
+    $result = $service->validateAggregate($this->draft($dungeon));
+    $this->assertNotContains('placement_overlap', array_column($result['findings'], 'code'));
+  }
+
   /**
    * Findings use only the closed code list and conform to the contract.
    */
