@@ -654,6 +654,24 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         $author_message,
       );
     }
+    if (
+      in_array($surface->id(), [DungeonEditorGmSurface::ID, RoomEditorGmSurface::ID], TRUE)
+      && $definition->mutating
+      && $this->isDirectEditorMutationDirective($author_message)
+    ) {
+      return $this->executeTool(
+        $surface,
+        $draft_id,
+        $profile,
+        $definition->name,
+        $intent['arguments'],
+        FALSE,
+        $intent['reasoning'],
+        $scope,
+        array_values((array) ($intent['next_steps'] ?? [])),
+        $author_message,
+      );
+    }
     if ($surface->id() === StorylineBuilderGmSurface::ID) {
       if (!in_array($definition->name, self::STORYLINE_DIRECT_MUTATIONS, TRUE)) {
         throw new \LogicException('storyline_gm_direct_mutation_tool_forbidden');

@@ -164,6 +164,7 @@ class DungeonEditorGmContractTest extends TestCase {
     $source = $this->source('src/Service/EditorGm/EditorGmHarnessService.php');
     $this->assertStringContainsString("'apply_dungeon_commands'", $source);
     $this->assertStringContainsString('editor_execution_command_plan_invalid', $source);
+    $this->assertStringContainsString('$definition->mutating' . "\n" . '      && $this->isDirectEditorMutationDirective($author_message)', $source);
     $this->assertStringContainsString('isDirectEditorMutationDirective($utterance)', $source);
     $harness = $this->source('src/Service/EditorGm/EditorGmHarnessService.php');
     $this->assertStringContainsString('$delegated_room_batch', $harness);
