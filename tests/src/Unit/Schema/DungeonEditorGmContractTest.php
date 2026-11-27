@@ -154,6 +154,17 @@ class DungeonEditorGmContractTest extends TestCase {
     $this->assertArrayHasKey('resize_room', $by_name, 'The GM can grow district ground for future rooms.');
     $this->assertArrayHasKey('prepare_district_navigation', $by_name, 'The GM can carve district access and block remaining ground in one operation.');
     $this->assertStringContainsString('never return only the last room as a proposal', $this->source('src/Service/EditorGm/EditorGmIntentParser.php'));
+  }
+
+  public function testWarningResolutionMutatesAndAppliesReturnedDungeonPlan(): void {
+    $harness = $this->harness();
+    $method = new \ReflectionMethod($harness, 'isDirectEditorMutationDirective');
+    $this->assertTrue($method->invoke($harness, "Let's work through the warnings."));
+
+    $source = $this->source('src/Service/EditorGm/EditorGmHarnessService.php');
+    $this->assertStringContainsString("'apply_dungeon_commands'", $source);
+    $this->assertStringContainsString('editor_execution_command_plan_invalid', $source);
+    $this->assertStringContainsString('isDirectEditorMutationDirective($utterance)', $source);
     $harness = $this->source('src/Service/EditorGm/EditorGmHarnessService.php');
     $this->assertStringContainsString('$delegated_room_batch', $harness);
     $this->assertStringContainsString('task_queue_status', $harness);

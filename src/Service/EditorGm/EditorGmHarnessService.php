@@ -859,9 +859,10 @@ class EditorGmHarnessService implements AgentHarnessInterface {
       return FALSE;
     }
     return preg_match(
-      '/\\b(?:fix|move|place|put|add|remove|delete|rotate|set|update|change|create|generate|build|furnish|apply|go ahead|do it|select|choose|option\\s+\\d+)\\b/u',
+      '/\\b(?:fix|resolve|address|move|place|put|add|remove|delete|rotate|set|update|change|create|generate|build|furnish|apply|go ahead|do it|select|choose|option\\s+\\d+)\\b/u',
       $message,
-    ) === 1;
+    ) === 1
+      || preg_match('/\\bwork\\s+(?:through|on)\\s+(?:the\\s+)?warnings?\\b/u', $message) === 1;
   }
 
   private function storylineRequestMode(string $message, array $scope): string {
@@ -2527,6 +2528,62 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         $tool_calls,
       );
     }
+    $command_plan = is_array($result['command_plan'] ?? NULL)
+      ? $result['command_plan']
+      : NULL;
+    if (
+      $surface->id() === DungeonEditorGmSurface::ID
+      && !$dry_run
+      && $definition->mutating
+      && $command_plan !== NULL
+      && $this->isDirectEditorMutationDirective($utterance)
+    ) {
+      $commands = array_map(
+        static fn(array $step): array => [
+          'type' => (string) ($step['command_type'] ?? ''),
+          'payload' => (array) ($step['payload'] ?? []),
+        ],
+        array_values((array) ($command_plan['steps'] ?? [])),
+      );
+      if ($commands === [] || !is_int($command_plan['base_revision'] ?? NULL)) {
+        throw new LogicException('editor_execution_command_plan_invalid:' . $definition->name);
+      }
+      $applied = $this->executeTool(
+        $surface,
+        $draft_id,
+        $profile,
+        'apply_dungeon_commands',
+        [
+          'expected_revision' => $command_plan['base_revision'],
+          'commands' => $commands,
+        ],
+        FALSE,
+        'Apply the exact repin/reflow plan returned by the completed dungeon mutation.',
+        $scope,
+        [],
+        $utterance,
+        $tool_calls,
+      );
+      $result['applied_command_plan'] = $applied['tool_result'] ?? [];
+      $result['final_revision'] = $applied['tool_result']['final_revision'] ?? NULL;
+      $result['assistant_response'] = sprintf(
+        '%s completed and its %d dungeon command%s were applied.',
+        $definition->name,
+        count($commands),
+        count($commands) === 1 ? '' : 's',
+      );
+      $result['next_steps'] = ['Validate the dungeon and review the remaining findings.'];
+      return $this->envelope(
+        $surface,
+        'editor_command_execution',
+        $applied['context_snapshot'] ?? $snapshot,
+        $result,
+        $applied['validation'] ?? $context->validation(),
+        [['level' => 'success', 'text' => $result['assistant_response']]],
+        [],
+        $applied['tool_calls'] ?? $tool_calls,
+      );
+    }
     if ($definition->name === 'plan_storyline_remediation'
       && ($result['has_changes'] ?? NULL) === FALSE && $utterance !== ''
       && ($scope['storyline_draft_write_intent'] ?? NULL) === TRUE) {
@@ -2684,7 +2741,11 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         $snapshot['conversation_context'] = $conversation_context;
       }
     }
-    if (empty($scope['delegated_authorization']) && ($utterance !== '' || $definition->name === 'apply_storyline_work')) {
+    if (empty($scope['delegated_authorization']) && !(
+      $surface->id() === DungeonEditorGmSurface::ID
+      && $definition->mutating
+      && $this->isDirectEditorMutationDirective($utterance)
+    ) && ($utterance !== '' || $definition->name === 'apply_storyline_work')) {
       $response = $this->synthesizeGroundedResponse(
         $utterance,
         $definition->name,
@@ -2694,6 +2755,14 @@ class EditorGmHarnessService implements AgentHarnessInterface {
       );
       $result['assistant_response'] = $response['answer'];
       $result['next_steps'] = $response['next_steps'];
+    }
+    elseif (
+      $surface->id() === DungeonEditorGmSurface::ID
+      && $definition->mutating
+      && $this->isDirectEditorMutationDirective($utterance)
+    ) {
+      $result['assistant_response'] = sprintf('%s completed.', $definition->name);
+      $result['next_steps'] ??= ['Validate the dungeon.'];
     }
     elseif (!empty($scope['delegated_authorization'])) {
       $result['assistant_response'] = sprintf(
