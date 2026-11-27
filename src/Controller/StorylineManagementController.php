@@ -75,10 +75,10 @@ class StorylineManagementController extends ControllerBase {
           $completeness = is_array($snapshot)
             ? $this->completenessFromDraftStatus($snapshot)
             : NULL;
-          $cover_versions = $this->objectImages?->versions(
-            'storyline',
-            (string) $latest_status_draft['draft_id'],
-          ) ?? [];
+        }
+        $cover_draft_id = (string) (($latest_draft['draft_id'] ?? $latest_status_draft['draft_id'] ?? ''));
+        if ($cover_draft_id !== '') {
+          $cover_versions = $this->objectImages?->versions('storyline', $cover_draft_id) ?? [];
           $cover_url = (string) ($cover_versions[0]['url'] ?? '');
         }
         $is_mine = $this->isTemplateAuthoredByCurrentUser($template, $uid);

@@ -34,7 +34,7 @@ character-sheet:
     - core/once
 
 storyline-management:
-  version: 20261024-storyline-completeness-1
+  version: 20261127-cover-backgrounds-1
   css:
     theme:
       css/storyline-management.css: {}
@@ -132,7 +132,7 @@ gm-storyline-scene-review:
       css/gm-storyline-scene-review.css: {}
 
 gm-storyline-builder:
-  version: 20261127-readable-object-headlines-1
+  version: 20261127-cover-images-1
   js:
     js/gm-storyline-builder.js: { attributes: { type: module } }
   dependencies:
@@ -141,6 +141,7 @@ gm-storyline-builder:
     - core/drupal
     - core/once
     - core/drupalSettings
+    - dungeoncrawler_content/object-image-panel
 
 # Pathbuilder-style ability score boost selector
 ability-boost-selector:

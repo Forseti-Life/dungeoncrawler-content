@@ -25,6 +25,25 @@
   font-size: 0.82rem;
 }
 
+.dc-character-card--has-cover {
+  min-height: 12rem;
+  background-color: #080c14;
+  background-image:
+    linear-gradient(90deg, rgba(8, 12, 20, 0.35), rgba(8, 12, 20, 0.94)),
+    var(--storyline-cover-image);
+  background-position: center;
+  background-size: cover;
+}
+
+.dc-character-card--has-cover .dc-character-card__portrait {
+  background: transparent;
+}
+
+.dc-character-card--has-cover .dc-character-card__info {
+  background: linear-gradient(90deg, transparent, rgba(8, 12, 20, 0.45));
+  text-shadow: 0 1px 3px #000;
+}
+
 .storyline-drafts details + details {
   margin-top: 0.75rem;
 }

@@ -331,7 +331,8 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
             .replace('{object_id}', encodeURIComponent(draftId));
           if (!csrfToken) {
             fetchCsrfToken()
-              .then(() => {
+              .then((token) => {
+                csrfToken = token;
                 panel.dataset.csrfToken = csrfToken;
                 Drupal.dungeoncrawlerObjectImagePanel?.refresh(panel);
               })

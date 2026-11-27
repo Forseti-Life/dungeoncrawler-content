@@ -38,15 +38,13 @@
     {% if storylines|length > 0 %}
       <div class="dc-character-grid">
         {% for storyline in storylines %}
-          <div class="dc-character-card dc-character-card--{{ storyline.status }}">
+          <div class="dc-character-card dc-character-card--{{ storyline.status }}{% if storyline.cover_url %} dc-character-card--has-cover{% endif %}"{% if storyline.cover_url %} style="--storyline-cover-image: url('{{ storyline.cover_url|e('html_attr') }}');"{% endif %}>
             {% if storyline.archive_url %}
               <a href="{{ storyline.archive_url }}" class="dc-character-card__archive-btn" title="Archive {{ storyline.name }}">Archive</a>
             {% endif %}
             <a href="{{ storyline.edit_url }}" class="dc-character-card__main-link">
               <div class="dc-character-card__portrait">
-                {% if storyline.cover_url %}
-                  <img src="{{ storyline.cover_url }}" alt="{{ storyline.name }} cover">
-                {% else %}
+                {% if not storyline.cover_url %}
                   <div class="dc-character-card__portrait-placeholder">
                     <span class="dc-character-card__initial">{{ storyline.name|first|upper }}</span>
                   </div>

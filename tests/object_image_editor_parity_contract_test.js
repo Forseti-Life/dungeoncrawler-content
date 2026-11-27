@@ -15,6 +15,10 @@ const storylineController = read('src/Controller/GmStorylineBuilderController.ph
 const storylineJs = read('js/gm-storyline-builder.js');
 const objectImageJs = read('js/object-image-panel.js');
 const objectImageService = read('src/Service/ObjectImageService.php');
+const storylineTemplate = read('templates/storyline-management-list.html.twig');
+const storylineCss = read('css/storyline-management.css');
+const libraries = read('dungeoncrawler_content.libraries.yml');
+const storylineManagementController = read('src/Controller/StorylineManagementController.php');
 
 assert(definitionForm.includes('data-object-image-panel'), 'canonical definitions expose the shared image panel');
 assert(definitionForm.includes('dungeoncrawler_content.object_image'), 'canonical definitions call the generic object image API');
@@ -32,6 +36,11 @@ assert(roomTemplate.includes('data-room-editor-place-promote'), 'room editor can
 assert(dungeonTemplate.includes('data-dungeon-editor-place-promote'), 'dungeon editor can roll an older image forward');
 assert(storylineController.includes('data-storyline-image-panel'), 'storyline builder exposes a cover image panel');
 assert(storylineJs.includes("replace('{kind}', 'storyline')"), 'storyline covers use the generic object image endpoint');
+assert(storylineJs.match(/fetchCsrfToken\(\)\s*\.then\(\(token\) => \{\s*csrfToken = token;/), 'storyline cover generation retains the CSRF token');
 assert(storylineJs.includes('[data-institution-image-version]'), 'institution rows expose image version history');
+assert(/gm-storyline-builder:[\s\S]*?dungeoncrawler_content\/object-image-panel/.test(libraries), 'storyline builder loads the shared cover image behavior');
+assert(storylineTemplate.includes('dc-character-card--has-cover'), 'storyline manager cards apply cover backgrounds');
+assert(storylineCss.includes('var(--storyline-cover-image)'), 'storyline manager cards render cover images as backgrounds');
+assert(storylineManagementController.includes("$latest_draft['draft_id'] ?? $latest_status_draft['draft_id']"), 'storyline cards load the cover from the draft their edit action opens');
 
 console.log('=== Object image editor parity ===\nAll object image editor parity assertions passed.');
