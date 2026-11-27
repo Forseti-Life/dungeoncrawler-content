@@ -216,6 +216,16 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     [$utterance, $author_message] = $this->operativeAuthorDirective($utterance, $author_message);
     $context = $this->createContext($surface, $draft_id, $profile, $scope);
     $snapshot = $surface->assembler()->assemble($context);
+    $district_navigation = $this->roomDistrictNavigationBridge(
+      $surface,
+      $profile,
+      $author_message,
+      $context,
+      $scope,
+    );
+    if ($district_navigation !== NULL) {
+      return $district_navigation;
+    }
     if ($surface->id() === StorylineBuilderGmSurface::ID) {
       $scope['storyline_draft_write_intent'] = $snapshot['storyline_draft_write_intent'] = $this->storylineDraftWriteIntent($author_message);
       $scope['storyline_request_mode'] = $snapshot['storyline_request_mode'] = $this->storylineRequestMode($author_message, $scope);
@@ -876,11 +886,73 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     if ($message === '') {
       return FALSE;
     }
+
     return preg_match(
       '/\\b(?:fix|resolve|address|move|place|put|add|remove|delete|rotate|set|update|change|create|generate|build|furnish|apply|go ahead|do it|select|choose|option\\s+\\d+)\\b/u',
       $message,
     ) === 1
       || preg_match('/\\bwork\\s+(?:through|on)\\s+(?:the\\s+)?warnings?\\b/u', $message) === 1;
+  }
+
+  private function roomDistrictNavigationBridge(
+    EditorGmSurfaceInterface $surface,
+    string $profile,
+    string $author_message,
+    EditorGmToolContext $context,
+    array $scope,
+  ): ?array {
+    if ($surface->id() !== RoomEditorGmSurface::ID
+      || !$this->isDirectEditorMutationDirective($author_message)
+      || !preg_match('/\\b(?:flood|waterlog|waterlogged|shallow-water|cistern)\\b/iu', $author_message)) {
+      return NULL;
+    }
+    $room_context = RoomEditorGmToolContext::of($context);
+    $room = $room_context->room();
+    if (($room['room_type'] ?? '') !== 'street') {
+      return NULL;
+    }
+    $parents = $room_context->roomEditor->parentDungeons($room_context->roomId());
+    if (count($parents) !== 1) {
+      throw new DomainException('district_navigation_parent_ambiguous');
+    }
+    $dungeon_surface = $this->surface(DungeonEditorGmSurface::ID);
+    $dungeon_draft = $room_context->roomEditor->parentDungeonDraft($room_context->roomId());
+    $dungeon_context = DungeonEditorGmToolContext::of($dungeon_surface->createContext(
+      (string) $dungeon_draft['draft_id'],
+      $profile,
+    ));
+    $model = $dungeon_context->model();
+    $street = array_values(array_filter(
+      (array) ($model['placements'] ?? []),
+      static fn(array $placement): bool => ($placement['room_id'] ?? '') === $room_context->roomId(),
+    ))[0] ?? NULL;
+    $first_room = array_values(array_filter(
+      (array) ($model['placements'] ?? []),
+      static fn(array $placement): bool => !empty($placement['is_level_entrance'])
+        && ($placement['room']['room_type'] ?? '') !== 'street',
+    ))[0] ?? NULL;
+    if (!is_array($street) || !is_array($first_room)) {
+      throw new DomainException('district_navigation_endpoints_unresolved');
+    }
+    return $this->executeTool(
+      $dungeon_surface,
+      (string) $dungeon_draft['draft_id'],
+      $profile,
+      'prepare_district_navigation',
+      [
+        'street_placement_id' => (string) $street['placement_id'],
+        'first_room_placement_id' => (string) $first_room['placement_id'],
+        'width' => 3,
+        'path_terrain' => 'water_shallow',
+        'blocked_terrain' => 'wall',
+        'reason' => 'Flood the district service lane from the external entry to the first room, retaining wall ground elsewhere.',
+      ],
+      FALSE,
+      'Prepare flooded district navigation through the Dungeon Editor authority.',
+      $scope + ['delegated_authorization' => TRUE, 'delegated_from_surface' => RoomEditorGmSurface::ID],
+      [],
+      $author_message,
+    );
   }
 
   private function storylineRequestMode(string $message, array $scope): string {

@@ -263,6 +263,7 @@ class RoomEditorStatusTest extends TestCase {
     $this->assertNotContains('room_geometry_scale_mismatch', $codes);
     $this->assertNotContains('room_geometry_shape_mismatch', $codes);
     $this->assertNotContains('room_empty_description_missing', $codes);
+    $this->assertNotContains('street_has_no_doors', $codes, 'District room entries connect implicitly to the street ground.');
   }
 
   public function testStatusOfANewRoomStartsAtIdentity(): void {

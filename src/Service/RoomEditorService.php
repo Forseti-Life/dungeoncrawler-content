@@ -158,6 +158,17 @@ class RoomEditorService {
   public function parentDungeons(string $room_id): array {
     return $this->dungeons?->parentDungeonsForRoom($room_id) ?? [];
   }
+
+  public function parentDungeonDraft(string $room_id): array {
+    if ($this->dungeons === NULL) {
+      throw new \LogicException('room_dungeon_parent_authority_unavailable');
+    }
+    $parents = $this->parentDungeons($room_id);
+    if (count($parents) !== 1) {
+      throw new \DomainException('district_navigation_parent_ambiguous');
+    }
+    return $this->dungeons->createDraft((string) $parents[0]['dungeon_id']);
+  }
   /**
    * Active drafts, optionally limited to those the given author created.
    *
@@ -1919,9 +1930,6 @@ class RoomEditorService {
     if (($room['room_type'] ?? NULL) === 'street') {
       if ($background === NULL) {
         $errors[] = $this->finding('street_background_missing', '/metadata/background', 'A street room needs background art in metadata.background.', $profile === 'publication' ? 'error' : 'warning');
-      }
-      if ((array) ($room['exit_ports'] ?? []) === []) {
-        $warnings[] = $this->finding('street_has_no_doors', '/exit_ports', 'A street room has no door ports, so no building can open onto it.', 'warning');
       }
     }
     if ($profile === 'publication' && count($defaults) !== 1) {

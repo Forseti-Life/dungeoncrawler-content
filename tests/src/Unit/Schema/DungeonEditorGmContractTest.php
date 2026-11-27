@@ -166,6 +166,9 @@ class DungeonEditorGmContractTest extends TestCase {
     $this->assertStringContainsString('editor_execution_command_plan_invalid', $source);
     $this->assertStringContainsString('$definition->mutating' . "\n" . '      && $this->isDirectEditorMutationDirective($author_message)', $source);
     $this->assertStringContainsString('isDirectEditorMutationDirective($utterance)', $source);
+    $this->assertStringContainsString('roomDistrictNavigationBridge', $source);
+    $this->assertStringContainsString("'path_terrain' => 'water_shallow'", $source);
+    $this->assertStringContainsString("'blocked_terrain' => 'wall'", $source);
     $harness = $this->source('src/Service/EditorGm/EditorGmHarnessService.php');
     $this->assertStringContainsString('$delegated_room_batch', $harness);
     $this->assertStringContainsString('task_queue_status', $harness);
