@@ -298,6 +298,9 @@ class DungeonEditorShellContractTest extends TestCase {
     $this->assertStringContainsString('back_url: back_url', $template);
     $this->assertStringContainsString('dungeon_id=${encodeURIComponent(dungeonId)}', $shell);
     $this->assertStringContainsString('storyline_draft_id=${encodeURIComponent(draftId)}', $storyline_links);
+    $this->assertStringContainsString("dungeon_entries: { label: 'Dungeon', name: ['dungeon_id'] }", $storyline_links);
+    $this->assertStringContainsString("room_entries: { label: 'Room', name: ['room_id'] }", $storyline_links);
+    $this->assertStringContainsString('Object.hasOwn(objectLabels[kind]', $storyline_links);
     $module = $this->source('dungeoncrawler_content.module');
     $this->assertMatchesRegularExpression("/'dungeon_editor'\\s*=>\\s*\\[.*?'back_url'\\s*=>\\s*NULL.*?'back_label'\\s*=>\\s*NULL/s", $module);
   }

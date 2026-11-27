@@ -677,8 +677,8 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
           objective_entries: { label: 'Objective', name: ['description', 'objective_id'], category: 'type' },
           institution_entries: { label: 'Institution', name: ['name', 'institution_id'], category: 'domain' },
           actor_entries: { label: 'Actor', name: ['display_name', 'actor_id', 'contact_id'], category: 'role' },
-          dungeon_entries: { label: 'Dungeon', name: ['dungeon_id'], category: 'purpose' },
-          room_entries: { label: 'Room', name: ['room_id'], category: 'scene_id' },
+          dungeon_entries: { label: 'Dungeon', name: ['dungeon_id'] },
+          room_entries: { label: 'Room', name: ['room_id'] },
           item_entries: { label: 'Item', name: ['item_id'], category: 'purpose' },
         };
 
@@ -717,7 +717,13 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
           }
           const siblings = Array.from(row.parentElement?.children || []);
           const fallback = `${contract.label} ${Math.max(1, siblings.indexOf(row) + 1)}`;
-          const name = collectionHeadlineValue(row, contract.name, contract.separator);
+          const id = collectionHeadlineValue(row, contract.name, contract.separator);
+          const kind = collection === 'dungeon_entries'
+            ? 'dungeon'
+            : (collection === 'room_entries' ? 'room' : '');
+          const name = kind && Object.hasOwn(objectLabels[kind] || {}, id)
+            ? String(objectLabels[kind][id] || '').trim()
+            : id;
           const category = collectionCategoryValue(row, contract.category);
           headline.querySelector('.gm-storyline-wizard__row-category').textContent = category
             ? `${contract.label} · ${category}`
