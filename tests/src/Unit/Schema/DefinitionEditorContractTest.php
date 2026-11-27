@@ -310,6 +310,10 @@ class DefinitionEditorContractTest extends TestCase {
     $this->assertStringContainsString("family === 'actor'", $controller);
     $this->assertStringContainsString("dungeoncrawler_content.actor_view", $controller);
     $this->assertStringContainsString('buildCharacterSheetRenderArray', $this->source('src/Controller/CharacterViewController.php'));
+    $this->assertMatchesRegularExpression(
+      "/dungeoncrawler_content\\.actor_view:.*?methods:\\s*\\[GET, POST\\]/s",
+      $routing,
+    );
   }
 
   /**

@@ -1586,7 +1586,7 @@ dungeoncrawler_content.actor_view:
   defaults:
     _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterViewController::viewRuntimeActor'
     _title: 'Actor'
-  methods: [GET]
+  methods: [GET, POST]
   requirements:
     _user_is_logged_in: 'TRUE'
     actor_id: '[A-Za-z0-9:_-]+'
