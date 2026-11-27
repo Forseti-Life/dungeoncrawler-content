@@ -1682,7 +1682,10 @@ class RoomEditorService {
     }
     $size_category = (string) ($room['size_category'] ?? '');
     $size_range = self::SIZE_HEX_RANGES[$size_category] ?? NULL;
+    $is_street = ($room['room_type'] ?? NULL) === 'street';
     if (
+      !$is_street
+      &&
       $size_range !== NULL
       && (count($hexes) < $size_range[0] || count($hexes) > $size_range[1])
     ) {
@@ -1701,7 +1704,8 @@ class RoomEditorService {
     $room_text = mb_strtolower(trim(
       (string) ($room['name'] ?? '') . ' ' . $description . ' ' . (string) ($room['room_type'] ?? ''),
     ));
-    $wants_linear = preg_match('/\b(corridor|hallway|passage|tunnel|street|alley|bridge)\b/u', $room_text) === 1;
+    $wants_linear = !$is_street
+      && preg_match('/\b(corridor|hallway|passage|tunnel|street|alley|bridge)\b/u', $room_text) === 1;
     if ($wants_linear && count($hexes) >= 7) {
       $qs = array_values(array_map(static fn(array $hex): int => (int) ($hex['q'] ?? 0), array_filter($hexes, 'is_array')));
       $rs = array_values(array_map(static fn(array $hex): int => (int) ($hex['r'] ?? 0), array_filter($hexes, 'is_array')));
@@ -1723,6 +1727,8 @@ class RoomEditorService {
       $errors[] = $this->finding('room_placement_count_invalid', '/placements', 'Rooms support at most ' . self::MAX_PLACEMENTS . ' placements.');
     }
     if (
+      !$is_street
+      &&
       count((array) ($room['placements'] ?? [])) === 0
       && preg_match('/\b(empty|bare|unfurnished|no (?:objects|contents|furnishings)|without (?:objects|contents|furnishings))\b/iu', $description) !== 1
     ) {

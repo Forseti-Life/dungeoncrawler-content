@@ -98,7 +98,13 @@ final class DistrictBuildingCandidates {
         $street[$key] = ['q' => $q, 'r' => $r];
       }
     }
+    if ($street === []) {
+      return [];
+    }
     $margin = DungeonEditorService::STREET_EDGE_MARGIN;
+    $street_hex_values = array_values($street);
+    $center_q = (int) round((min(array_column($street_hex_values, 'q')) + max(array_column($street_hex_values, 'q'))) / 2);
+    $center_r = (int) round((min(array_column($street_hex_values, 'r')) + max(array_column($street_hex_values, 'r'))) / 2);
     $hexes = [];
     foreach ($street as $hex) {
       $clear = TRUE;
@@ -111,7 +117,9 @@ final class DistrictBuildingCandidates {
         }
       }
       if ($clear) {
-        $hexes[] = $hex + ['distance' => intdiv(abs($hex['q']) + abs($hex['q'] + $hex['r']) + abs($hex['r']), 2)];
+        $q = (int) $hex['q'] - $center_q;
+        $r = (int) $hex['r'] - $center_r;
+        $hexes[] = $hex + ['distance' => intdiv(abs($q) + abs($q + $r) + abs($r), 2)];
       }
     }
     usort($hexes, static fn(array $a, array $b): int => [$a['distance'], $a['q'], $a['r']] <=> [$b['distance'], $b['q'], $b['r']]);

@@ -23,7 +23,7 @@ final class ResizeRoomTool implements EditorGmToolInterface {
     return new EditorGmToolDefinition(
       'resize_room',
       EditorGmToolDefinition::FAMILY_EXECUTION,
-      'Make a room bigger or smaller, for example "twice the size" or "half the size": publishes a new version of the room with about area_percent of its hexes (200 = double, 50 = half). Growing adds hexes outward; shrinking removes free outer hexes and never one that holds a port or a placed object. Everything already placed stays where it is. Returns a command plan that repins every placement of that room in this dungeon to the new version. Rooms are not definitions: use this, never the definition tools, to change a room size. Apply the returned plan with apply_dungeon_commands, then validate; a bigger room may overlap its neighbours and need moving.',
+      'Make a room bigger or smaller, for example "twice the size" or "half the size": publishes a new version with about area_percent of its hexes (200 = double, 50 = half). For a district-level ground room, use this before adding rooms so the container grows to hold future placements, then apply the returned repin plan and reflow buildings with plan_district_buildings. Growing adds hexes outward; shrinking protects ports and placed objects. Rooms are not definitions: use this, never the definition tools, to change room size.',
       TRUE,
       'CanonicalRoomBuildService::resizeRoom()',
       [

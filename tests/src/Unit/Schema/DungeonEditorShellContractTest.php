@@ -238,6 +238,17 @@ class DungeonEditorShellContractTest extends TestCase {
     $this->assertFalse($publication['is_valid']);
   }
 
+  public function testDistrictWithoutContainerGroundIsInvalid(): void {
+    $service = $this->service([]);
+    $dungeon = $this->aggregate([]);
+    $dungeon['kind'] = 'district';
+
+    $result = $service->validateAggregate($this->draft($dungeon));
+
+    $this->assertContains('district_street_missing', array_column($result['findings'], 'code'));
+    $this->assertFalse($result['is_valid']);
+  }
+
   /**
    * A stored aggregate that fails its schema is a hard failure, never a
    * finding.

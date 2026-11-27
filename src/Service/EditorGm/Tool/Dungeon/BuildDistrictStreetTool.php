@@ -30,7 +30,7 @@ final class BuildDistrictStreetTool implements EditorGmToolInterface {
     return new EditorGmToolDefinition(
       'build_district_street',
       EditorGmToolDefinition::FAMILY_EXECUTION,
-      'Create and publish the street room of a district (room_type street): an open hex disc with no door ports, sized from the building count, and its background art. The doors belong to the building rooms. Rooms are not definitions: use this, not the definition tools, to make a street. Afterwards set the dungeon kind to district, place the street, then use plan_district_buildings to put the buildings on it.',
+      'Create and publish the district-level ground room (room_type street): an open hex disc that contains the other dungeon rooms, sized from the building count, with generated neutral background art unless an authored URL is supplied. The doors belong to the overlaid rooms. Afterwards place the ground and use plan_district_buildings with reflow=true to arrange every room on it.',
       TRUE,
       'CanonicalRoomBuildService::buildStreet()',
       [
@@ -38,7 +38,7 @@ final class BuildDistrictStreetTool implements EditorGmToolInterface {
         EditorGmToolDefinition::argument('name', 'string', TRUE, 'Display name of the street.'),
         EditorGmToolDefinition::argument('description', 'string', TRUE, 'What the street looks like.'),
         EditorGmToolDefinition::argument('building_count', 'integer', TRUE, 'How many buildings the street must hold; sizes the disc.'),
-        EditorGmToolDefinition::argument('background_url', 'string', TRUE, 'URL of the street background art the party walks on.'),
+        EditorGmToolDefinition::argument('background_url', 'string', FALSE, 'URL of street background art. Omit to generate an original neutral district-ground SVG.'),
         EditorGmToolDefinition::argument('background_width', 'integer', FALSE, 'Art width in pixels.'),
         EditorGmToolDefinition::argument('background_height', 'integer', FALSE, 'Art height in pixels.'),
         EditorGmToolDefinition::argument('spacing', 'integer', FALSE, 'Hexes between neighbouring buildings (default 10, minimum 6).'),
@@ -57,7 +57,14 @@ final class BuildDistrictStreetTool implements EditorGmToolInterface {
     if ($spacing < 6) {
       throw new \InvalidArgumentException('district_street_spacing_too_small');
     }
-    $background = ['url' => EditorGmToolContext::requireString($arguments, 'background_url')];
+    $name = EditorGmToolContext::requireString($arguments, 'name');
+    $background = [
+      'url' => isset($arguments['background_url'])
+        ? EditorGmToolContext::requireString($arguments, 'background_url')
+        : self::defaultBackgroundUrl($name),
+      'width' => 1024,
+      'height' => 1024,
+    ];
     foreach (['width', 'height'] as $dimension) {
       if (isset($arguments['background_' . $dimension])) {
         $background[$dimension] = EditorGmToolContext::requireInt($arguments, 'background_' . $dimension);
@@ -81,7 +88,7 @@ final class BuildDistrictStreetTool implements EditorGmToolInterface {
 
     $built = $this->rooms->buildStreet(
       $room_id,
-      EditorGmToolContext::requireString($arguments, 'name'),
+      $name,
       mb_substr(EditorGmToolContext::requireString($arguments, 'description'), 0, 2000),
       $radius,
       $background,
@@ -94,8 +101,16 @@ final class BuildDistrictStreetTool implements EditorGmToolInterface {
       'version' => $built['version'],
       'radius' => $radius,
       'hexes' => count($built['room']['hexes'] ?? []),
-      'next_step' => 'Set the dungeon kind to district, place this street room, then call plan_district_buildings.',
+      'next_step' => 'Set the dungeon kind to district, place this ground room, then call plan_district_buildings with reflow=true. Use resize_room on this ground when future rooms need more space.',
     ];
+  }
+
+  private static function defaultBackgroundUrl(string $name): string {
+    $svg = sprintf(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024"><rect width="1024" height="1024" fill="#17252a"/><defs><pattern id="hex" width="64" height="56" patternUnits="userSpaceOnUse"><path d="M16 0h32l16 28-16 28H16L0 28z" fill="none" stroke="#36535a" stroke-width="2"/></pattern></defs><rect width="1024" height="1024" fill="url(#hex)"/><title>%s district ground</title></svg>',
+      htmlspecialchars($name, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+    );
+    return 'data:image/svg+xml,' . rawurlencode($svg);
   }
 
 }

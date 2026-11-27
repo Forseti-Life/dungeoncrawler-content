@@ -238,6 +238,33 @@ class RoomEditorStatusTest extends TestCase {
     $this->assertContains('room_geometry_shape_mismatch', $codes);
   }
 
+  public function testDistrictGroundUsesItsOwnScaleAndShapeContract(): void {
+    $hexes = [];
+    for ($q = -16; $q <= 16; $q++) {
+      for ($r = max(-16, -$q - 16); $r <= min(16, -$q + 16); $r++) {
+        $hexes[] = [
+          'q' => $q,
+          'r' => $r,
+          'terrain_type' => 'dirt',
+          'elevation_ft' => 0,
+        ];
+      }
+    }
+    $room = $this->draft([
+      'name' => 'Sunken Cistern District Ground',
+      'description' => 'Flooded district ground containing every room of the Sunken Cistern tutorial site.',
+      'room_type' => 'street',
+      'size_category' => 'gargantuan',
+      'hexes' => $hexes,
+      'metadata' => ['background' => ['url' => 'data:image/svg+xml,%3Csvg%3E%3C/svg%3E']],
+    ])['room'];
+
+    $codes = array_column($this->service()->validateAggregate($room, 'publication')['findings'], 'code');
+    $this->assertNotContains('room_geometry_scale_mismatch', $codes);
+    $this->assertNotContains('room_geometry_shape_mismatch', $codes);
+    $this->assertNotContains('room_empty_description_missing', $codes);
+  }
+
   public function testStatusOfANewRoomStartsAtIdentity(): void {
     $service = $this->service();
     $draft = $this->draft(['description' => '']);

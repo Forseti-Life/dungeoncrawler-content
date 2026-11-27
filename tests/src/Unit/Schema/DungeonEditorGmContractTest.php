@@ -18,6 +18,7 @@ use Drupal\dungeoncrawler_content\Service\EditorSuite\EditorSuiteService;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmIntentParser;
 use Drupal\dungeoncrawler_content\Service\EditorGm\RoomEditorGmSurface;
 use Drupal\dungeoncrawler_content\Service\EditorGm\RoomEditorGmToolContext;
+use Drupal\dungeoncrawler_content\Service\Generation\CanonicalRoomBuildService;
 use Drupal\dungeoncrawler_content\Service\RoomEditorService;
 use PHPUnit\Framework\TestCase;
 
@@ -128,12 +129,29 @@ class DungeonEditorGmContractTest extends TestCase {
     $this->assertArrayHasKey('route_to_editor', $by_name);
     $delegated = array_column($by_name['delegate_room_editor_task']['arguments'], NULL, 'name');
     $this->assertFalse($delegated['room_id']['required'], 'The Dungeon GM may delegate a newly named room without inventing its ID.');
-
     $harness = $this->source('src/Service/EditorGm/EditorGmHarnessService.php');
     $this->assertStringContainsString('$child = $this->handle(', $harness, 'Dungeon delegation must invoke the Room Editor GM.');
     $this->assertStringNotContainsString('deterministic_brief_task', $harness, 'Dungeon delegation must not replace the Room Editor GM with a metadata shortcut.');
     $this->assertStringNotContainsString("&& \$room_draft['base_version_id'] === NULL", $harness, 'Existing rooms must also be publishable through delegated Room Editor work.');
     $this->assertStringContainsString('delegated_room_publication_validation_failed:', $harness, 'Invalid delegated room work must not fall back to a stale published version.');
+  }
+
+  public function testDungeonGmCanGenerateAndResizeDistrictGround(): void {
+    $surface = new DungeonEditorGmSurface(
+      $this->createMock(DungeonEditorService::class),
+      $this->createMock(CanonicalDefinitionService::class),
+      $this->parser(),
+      new Php(),
+      NULL,
+      NULL,
+      $this->createMock(CanonicalRoomBuildService::class),
+    );
+    $tools = array_merge(...array_values($surface->registry()->manifest()['families']));
+    $by_name = array_column($tools, NULL, 'name');
+    $street = array_column($by_name['build_district_street']['arguments'], NULL, 'name');
+
+    $this->assertFalse($street['background_url']['required'], 'The GM may generate original district ground artwork.');
+    $this->assertArrayHasKey('resize_room', $by_name, 'The GM can grow district ground for future rooms.');
   }
 
   /**
