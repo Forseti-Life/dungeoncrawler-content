@@ -1908,18 +1908,21 @@ class EditorGmHarnessService implements AgentHarnessInterface {
       $room_context = $room_surface->createContext($room_draft_id, 'publication');
       $room_draft = $room_context->draft();
       $validation = $room_context->validation();
+      if (($room_draft['status'] ?? '') === 'active'
+        && !($validation['valid'] ?? $validation['is_valid'] ?? FALSE)) {
+        throw new DomainException('delegated_room_publication_validation_failed:' . $room_id);
+      }
       if (($validation['valid'] ?? $validation['is_valid'] ?? FALSE) === TRUE
-        && ($room_draft['status'] ?? '') === 'active'
-        && $room_draft['base_version_id'] === NULL) {
+        && ($room_draft['status'] ?? '') === 'active') {
         $publication = $this->executeTool(
           $room_surface,
           $room_draft_id,
           'publication',
           'publish_room_version',
           [
-            'version' => $room_draft['base_version_id'] === NULL ? '1.0.0' : '1.0.1',
+            'version' => '1.0.0',
             'expected_revision' => (int) $room_draft['revision'],
-            'publication_note' => 'Delegated from Dungeon Editor storyline placement.',
+            'publication_note' => 'Published by the Room Editor GM for Dungeon Editor placement.',
           ],
           FALSE,
           'Publish the delegated room so the Dungeon Editor can place it.',
@@ -1930,6 +1933,10 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         );
         $tool_calls = array_values((array) ($publication['tool_calls'] ?? $tool_calls));
         $child_result = (array) ($publication['tool_result'] ?? []);
+        $room_draft = $room_surface->createContext($room_draft_id, 'publication')->draft();
+      }
+      if (($room_draft['status'] ?? '') === 'active') {
+        throw new LogicException('delegated_room_publication_not_recorded:' . $room_id);
       }
       $room_seed_context = RoomEditorGmToolContext::of($room_surface->createContext(NULL, 'editing'));
       if ($room_seed_context->roomEditor->publishedRoom($room_id) !== NULL) {

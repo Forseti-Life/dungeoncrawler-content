@@ -132,6 +132,8 @@ class DungeonEditorGmContractTest extends TestCase {
     $harness = $this->source('src/Service/EditorGm/EditorGmHarnessService.php');
     $this->assertStringContainsString('$child = $this->handle(', $harness, 'Dungeon delegation must invoke the Room Editor GM.');
     $this->assertStringNotContainsString('deterministic_brief_task', $harness, 'Dungeon delegation must not replace the Room Editor GM with a metadata shortcut.');
+    $this->assertStringNotContainsString("&& \$room_draft['base_version_id'] === NULL", $harness, 'Existing rooms must also be publishable through delegated Room Editor work.');
+    $this->assertStringContainsString('delegated_room_publication_validation_failed:', $harness, 'Invalid delegated room work must not fall back to a stale published version.');
   }
 
   /**

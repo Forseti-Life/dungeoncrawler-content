@@ -16,7 +16,7 @@ final class DelegateRoomEditorTaskTool implements EditorGmToolInterface {
     return new EditorGmToolDefinition(
       'delegate_room_editor_task',
       EditorGmToolDefinition::FAMILY_EXECUTION,
-      'Delegate one authorized room creation or edit to the Room Editor GM. The Dungeon GM receives the room result; it does not edit room data.',
+      'Delegate one authorized room creation, edit and publication to the Room Editor GM. The Dungeon GM receives the published room result; it does not edit room data.',
       TRUE,
       'EditorGmHarnessService cross-surface delegation to RoomEditorGmService',
       [
