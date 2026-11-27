@@ -78,6 +78,10 @@ final class DefinitionEditorGmToolContext extends EditorGmToolContext {
           $counts['warning']++;
           $findings[] = $finding + ['severity' => 'warning'];
         }
+        foreach ($this->definitions->imageValidationWarnings($this->family, $payload) as $finding) {
+          $counts['warning']++;
+          $findings[] = $finding;
+        }
       }
       $this->validationByProfile[$profile] = [
         'profile' => $profile,

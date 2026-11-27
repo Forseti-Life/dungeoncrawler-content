@@ -583,7 +583,11 @@ services:
 
   dungeoncrawler_content.canonical_definitions:
     class: Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService
-    arguments: ['@database', '@dungeoncrawler_content.definition_schema_validator']
+    arguments:
+      - '@database'
+      - '@dungeoncrawler_content.definition_schema_validator'
+      - ~
+      - '@dungeoncrawler_content.object_image_validation'
 
   dungeoncrawler_content.editor_warning_review:
     class: Drupal\dungeoncrawler_content\Service\EditorGm\EditorWarningReview
@@ -599,6 +603,7 @@ services:
       - '@dungeoncrawler_content.storyline_authoring_drafts'
       - '@dungeoncrawler_content.dungeon_editor'
       - '@dungeoncrawler_content.editor_warning_review'
+      - '@dungeoncrawler_content.object_image_validation'
 
   dungeoncrawler_content.connector_projection:
     class: Drupal\dungeoncrawler_content\Service\ConnectorProjectionService
@@ -620,6 +625,7 @@ services:
       - '@dungeoncrawler_content.connector_projection'
       - '@dungeoncrawler_content.storyline_authoring_drafts'
       - '@dungeoncrawler_content.editor_warning_review'
+      - '@dungeoncrawler_content.object_image_validation'
 
   dungeoncrawler_content.agent_harness_management:
     class: Drupal\dungeoncrawler_content\Service\AgentHarness\AgentHarnessManagementService
@@ -895,6 +901,10 @@ services:
   dungeoncrawler_content.generated_image_repository:
     class: Drupal\dungeoncrawler_content\Service\GeneratedImageRepository
     arguments: ['@database', '@file_url_generator', '@file_system', '@uuid', '@datetime.time', '@logger.factory', '@dungeoncrawler_content.generated_image_optimizer']
+
+  dungeoncrawler_content.object_image_validation:
+    class: Drupal\dungeoncrawler_content\Service\ObjectImageValidationService
+    arguments: ['@dungeoncrawler_content.generated_image_repository']
 
   dungeoncrawler_content.object_image:
     class: Drupal\dungeoncrawler_content\Service\ObjectImageService

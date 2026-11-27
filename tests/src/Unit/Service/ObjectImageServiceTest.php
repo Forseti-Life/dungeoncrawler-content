@@ -8,6 +8,7 @@ use Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService;
 use Drupal\dungeoncrawler_content\Service\GeneratedImageRepository;
 use Drupal\dungeoncrawler_content\Service\ImageGenerationIntegrationService;
 use Drupal\dungeoncrawler_content\Service\ObjectImageService;
+use Drupal\dungeoncrawler_content\Service\ObjectImageValidationService;
 use Drupal\Tests\UnitTestCase;
 
 /**
@@ -133,6 +134,36 @@ class ObjectImageServiceTest extends UnitTestCase {
 
     $this->assertSame(3, $result['version_number']);
     $this->assertSame('old-image-uuid', $result['image_uuid']);
+  }
+
+  public function testMissingDefinitionImageIsAWarning(): void {
+    $repository = $this->createMock(GeneratedImageRepository::class);
+    $repository->expects($this->once())
+      ->method('loadImagesForObject')
+      ->with('dc_dungeon_sprites', 'item_healers_tools', NULL, 'sprite', 'original')
+      ->willReturn([]);
+    $validation = new ObjectImageValidationService($repository);
+
+    $warnings = $validation->warnings('item', 'healers_tools', [
+      'item_id' => 'healers_tools',
+      'name' => 'Healer\'s Tools',
+    ]);
+
+    $this->assertCount(1, $warnings);
+    $this->assertSame('warning', $warnings[0]['severity']);
+    $this->assertSame('generated_image_missing', $warnings[0]['code']);
+  }
+
+  public function testLinkedDefinitionImageHasNoMissingImageWarning(): void {
+    $repository = $this->createMock(GeneratedImageRepository::class);
+    $repository->method('loadImagesForObject')->willReturn([['file_uri' => 'public://tools.png']]);
+    $repository->method('resolveClientUrl')->willReturn('/sites/default/files/tools.png');
+    $validation = new ObjectImageValidationService($repository);
+
+    $this->assertSame([], $validation->warnings('item', 'healers_tools', [
+      'item_id' => 'healers_tools',
+      'name' => 'Healer\'s Tools',
+    ]));
   }
 
 }

@@ -132,6 +132,7 @@ class RoomEditorService {
     protected ?StorylineAuthoringDraftService $storylines = NULL,
     protected ?DungeonEditorService $dungeons = NULL,
     protected ?EditorWarningReview $warningReview = NULL,
+    protected ?ObjectImageValidationService $imageValidation = NULL,
   ) {}
 
   /**
@@ -1943,6 +1944,12 @@ class RoomEditorService {
         'warning',
         $this->emptyRoomRecommendations($room),
       );
+    }
+    if ($this->imageValidation !== NULL) {
+      $warnings = [
+        ...$warnings,
+        ...$this->imageValidation->warnings('room', (string) ($room['room_id'] ?? '')),
+      ];
     }
     return self::validationResult(array_merge($errors, $warnings));
   }

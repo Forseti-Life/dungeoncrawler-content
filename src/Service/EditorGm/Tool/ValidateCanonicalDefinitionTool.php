@@ -29,11 +29,18 @@ final class ValidateCanonicalDefinitionTool implements EditorGmToolInterface {
   public function execute(array $arguments, EditorGmToolContext $context): array {
     $family = EditorGmToolContext::requireString($arguments, 'family');
     $payload = EditorGmToolContext::requireArray($arguments, 'payload');
-    $findings = $context->definitions->validateDefinition($family, $payload);
+    $schema_findings = $context->definitions->validateDefinition($family, $payload);
+    $warnings = $context->definitions->imageValidationWarnings($family, $payload);
+    $findings = [
+      ...$schema_findings,
+      ...$warnings,
+    ];
     return [
       'family' => $family,
-      'valid' => $findings === [],
+      'valid' => $schema_findings === [],
       'findings' => $findings,
+      'warning_count' => count($warnings),
+      'error_count' => count($schema_findings),
       'affected_published_rooms' => isset($arguments['definition_id']) && trim((string) $arguments['definition_id']) !== ''
         ? $context->definitions->publishedRoomsReferencing($family, EditorGmToolContext::requireString($arguments, 'definition_id'))
         : [],

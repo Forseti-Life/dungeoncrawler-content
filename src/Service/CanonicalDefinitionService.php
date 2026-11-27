@@ -110,6 +110,7 @@ class CanonicalDefinitionService {
     protected Connection $database,
     protected DefinitionSchemaValidator $validator,
     protected ?string $schemaDirectory = NULL,
+    protected ?ObjectImageValidationService $imageValidation = NULL,
   ) {
     $this->schemaDirectory ??= dirname(__DIR__, 2) . '/config/schemas';
   }
@@ -388,6 +389,21 @@ class CanonicalDefinitionService {
    */
   public function validateDefinition(string $family, array $payload): array {
     return $this->validator->validate($this->schemaForFamily($family), $payload);
+  }
+
+  /**
+   * Returns non-blocking image warnings for a complete definition payload.
+   *
+   * @return array<int, array<string, mixed>>
+   */
+  public function imageValidationWarnings(string $family, array $payload): array {
+    if ($this->imageValidation === NULL) {
+      return [];
+    }
+    $definition_id = trim((string) ($payload[$this->idProperty($family)] ?? ''));
+    return $definition_id === ''
+      ? []
+      : $this->imageValidation->warnings($family, $definition_id, $payload);
   }
 
   /**

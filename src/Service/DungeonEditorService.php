@@ -141,6 +141,7 @@ class DungeonEditorService {
     protected ?ConnectorProjectionService $connectorProjection = NULL,
     protected ?StorylineAuthoringDraftService $storylines = NULL,
     protected ?EditorWarningReview $warningReview = NULL,
+    protected ?ObjectImageValidationService $imageValidation = NULL,
   ) {
     $this->schemaDirectory ??= dirname(__DIR__, 2) . '/config/schemas';
     $this->connectorProjection ??= new ConnectorProjectionService($database);
@@ -2437,6 +2438,12 @@ class DungeonEditorService {
     }
 
     $findings = [...$findings, ...$this->storyFindings($dungeon)];
+    if ($this->imageValidation !== NULL) {
+      $findings = [
+        ...$findings,
+        ...$this->imageValidation->warnings('dungeon', (string) ($dungeon['dungeon_id'] ?? '')),
+      ];
+    }
 
     $counts = ['error' => 0, 'warning' => 0, 'info' => 0];
     foreach ($findings as $finding) {

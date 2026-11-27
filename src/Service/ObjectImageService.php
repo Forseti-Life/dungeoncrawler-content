@@ -169,12 +169,14 @@ final class ObjectImageService {
   }
 
   /**
+   * Resolves storage targets that depend only on the object identity and payload.
+   *
    * @return array{string,string,string,string}
    */
-  private function target(string $type, string $object_id): array {
+  public static function deterministicTarget(string $type, string $object_id, array $payload = []): array {
     $type = strtolower(trim($type));
     $object_id = trim($object_id);
-    if (!in_array($type, self::TARGET_TYPES, TRUE) || $object_id === '') {
+    if ($object_id === '') {
       throw new \InvalidArgumentException('object_image_target_invalid');
     }
     if ($type === 'room') {
@@ -184,16 +186,37 @@ final class ObjectImageService {
       return ['dungeoncrawler_content_dungeons', $object_id, 'preview', 'original'];
     }
     if ($type === 'actor') {
-      $this->definitions->definitionPayload('actor', $object_id);
       return ['dc_canonical_actors', $object_id, 'portrait', 'original'];
     }
     if (in_array($type, ['item', 'obstacle', 'trap', 'hazard'], TRUE)) {
-      $payload = $this->definitions->definitionPayload($type, $object_id);
       $existing = trim((string) ($payload['visual']['sprite_id'] ?? ''));
       $sprite_id = $existing !== '' && !str_starts_with($existing, 'generic_')
         ? $existing
         : CanonicalDefinitionService::defaultSpriteId($type, $object_id);
       return ['dc_dungeon_sprites', $sprite_id, 'sprite', 'original'];
+    }
+    if ($type === 'terrain') {
+      return ['dungeoncrawler_content_terrain_images', $object_id, 'tile', 'original'];
+    }
+    throw new \InvalidArgumentException('object_image_target_invalid');
+  }
+
+  /**
+   * @return array{string,string,string,string}
+   */
+  private function target(string $type, string $object_id): array {
+    $type = strtolower(trim($type));
+    $object_id = trim($object_id);
+    if (!in_array($type, self::TARGET_TYPES, TRUE) || $object_id === '') {
+      throw new \InvalidArgumentException('object_image_target_invalid');
+    }
+    if (in_array($type, ['item', 'obstacle', 'trap', 'hazard'], TRUE)) {
+      $payload = $this->definitions->definitionPayload($type, $object_id);
+      return self::deterministicTarget($type, $object_id, $payload);
+    }
+    if ($type === 'actor') {
+      $payload = $this->definitions->definitionPayload('actor', $object_id);
+      return self::deterministicTarget($type, $object_id, $payload);
     }
     if ($type === 'institution') {
       $row = $this->institutions?->loadRow($object_id);
@@ -207,7 +230,7 @@ final class ObjectImageService {
         ?? throw new \OutOfBoundsException('storyline_image_target_missing');
       return ['dungeoncrawler_content_storyline_authoring_drafts', $object_id, 'cover', 'original'];
     }
-    return ['dungeoncrawler_content_terrain_images', $object_id, 'tile', 'original'];
+    return self::deterministicTarget($type, $object_id);
   }
 
 }
