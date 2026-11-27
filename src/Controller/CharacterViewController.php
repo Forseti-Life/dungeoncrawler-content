@@ -765,7 +765,7 @@ class CharacterViewController extends ControllerBase {
       NULL,
       array_map(fn(string $gap): string => (string) $this->t('A @gap for this actor', ['@gap' => $gap]), $gaps),
       [
-        ['label' => $this->t('Definition fields'), 'url' => Url::fromRoute('dungeoncrawler_content.definition_edit', ['family' => 'actor', 'definition_id' => $definition_id])->toString()],
+        ['label' => $this->t('Definition fields'), 'url' => Url::fromRoute('dungeoncrawler_content.definition_edit_form', ['family' => 'actor', 'definition_id' => $definition_id])->toString()],
         ['label' => $this->t('All actors'), 'url' => Url::fromRoute('dungeoncrawler_content.definition_family', ['family' => 'actor'])->toString()],
       ],
     );

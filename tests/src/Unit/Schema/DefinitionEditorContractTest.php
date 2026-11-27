@@ -296,6 +296,7 @@ class DefinitionEditorContractTest extends TestCase {
       'definition_family',
       'definition_create',
       'definition_edit',
+      'definition_edit_form',
       'definition_api_list',
       'definition_api_create',
       'definition_api_schema',
@@ -305,6 +306,10 @@ class DefinitionEditorContractTest extends TestCase {
       $this->assertStringContainsString('dungeoncrawler_content.' . $route . ':', $routing);
     }
     $this->assertStringNotContainsString('saveCanonicalEntry', $this->source('src/Service/CanonicalDefinitionService.php'));
+    $controller = $this->source('src/Controller/DefinitionEditorController.php');
+    $this->assertStringContainsString("family === 'actor'", $controller);
+    $this->assertStringContainsString("dungeoncrawler_content.actor_view", $controller);
+    $this->assertStringContainsString('buildCharacterSheetRenderArray', $this->source('src/Controller/CharacterViewController.php'));
   }
 
   /**

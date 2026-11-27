@@ -608,12 +608,34 @@ dungeoncrawler_content.definition_create:
 dungeoncrawler_content.definition_edit:
   path: '/dungeoncrawler/canonical-library/{family}/{definition_id}'
   defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\DefinitionEditorController::show'
+    _title_callback: '\Drupal\dungeoncrawler_content\Form\SchemaDrivenDefinitionForm::title'
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    family: 'actor|item|obstacle|trap|hazard'
+    definition_id: '(?!new$)[a-zA-Z0-9][a-zA-Z0-9_-]{0,149}'
+
+dungeoncrawler_content.definition_edit_form:
+  path: '/dungeoncrawler/canonical-library/{family}/{definition_id}/edit'
+  defaults:
     _form: '\Drupal\dungeoncrawler_content\Form\SchemaDrivenDefinitionForm'
     _title_callback: '\Drupal\dungeoncrawler_content\Form\SchemaDrivenDefinitionForm::title'
   methods: [GET, POST]
   requirements:
     _user_is_logged_in: 'TRUE'
     family: 'actor|item|obstacle|trap|hazard'
+    definition_id: '(?!new$)[a-zA-Z0-9][a-zA-Z0-9_-]{0,149}'
+
+dungeoncrawler_content.definition_edit.post:
+  path: '/dungeoncrawler/canonical-library/{family}/{definition_id}'
+  defaults:
+    _form: '\Drupal\dungeoncrawler_content\Form\SchemaDrivenDefinitionForm'
+    _title_callback: '\Drupal\dungeoncrawler_content\Form\SchemaDrivenDefinitionForm::title'
+  methods: [POST]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    family: 'item|obstacle|trap|hazard'
     definition_id: '(?!new$)[a-zA-Z0-9][a-zA-Z0-9_-]{0,149}'
 
 dungeoncrawler_content.definition_api_list:

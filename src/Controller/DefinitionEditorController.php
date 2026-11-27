@@ -43,6 +43,23 @@ final class DefinitionEditorController extends ControllerBase {
   }
 
   /**
+   * Actor definitions open on the shared actor character sheet.
+   */
+  public function show(string $family, string $definition_id): array|\Symfony\Component\HttpFoundation\RedirectResponse {
+    $this->definitions->definitionPayload($family, $definition_id);
+    if ($family === 'actor') {
+      return new \Symfony\Component\HttpFoundation\RedirectResponse(
+        Url::fromRoute('dungeoncrawler_content.actor_view', ['actor_id' => $definition_id])->toString(),
+      );
+    }
+    return $this->formBuilder()->getForm(
+      \Drupal\dungeoncrawler_content\Form\SchemaDrivenDefinitionForm::class,
+      $family,
+      $definition_id,
+    );
+  }
+
+  /**
    * Family index: one card per family with live conformance counts.
    */
   public function index(): array {
