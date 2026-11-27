@@ -316,30 +316,60 @@ class CanonicalRoomBuildService {
    *   or `canonical_room_build_invalid`.
    */
   public function paintRoomTerrain(string $room_id, array $hexes, string $terrain_type, string $publication_note): array {
-    if ($hexes === []) {
-      throw new \DomainException('canonical_room_terrain_hexes_empty:' . $room_id);
+    $result = $this->paintRoomTerrainMap($room_id, [
+      ['hexes' => $hexes, 'terrain_type' => $terrain_type],
+    ], $publication_note);
+    return $result + ['painted' => count($hexes), 'terrain_type' => $terrain_type];
+  }
+
+  /**
+   * Publishes several terrain regions as one immutable room version.
+   *
+   * @param array<int, array{hexes: list<array{q: int, r: int}>, terrain_type: string}> $regions
+   *
+   * @return array<string, mixed>
+   */
+  public function paintRoomTerrainMap(string $room_id, array $regions, string $publication_note): array {
+    if ($regions === []) {
+      throw new \DomainException('canonical_room_terrain_regions_empty:' . $room_id);
     }
-    $result = $this->editPublishedRoom($room_id, $publication_note, function (array $draft, callable $command) use ($room_id, $hexes, $terrain_type): void {
+    $result = $this->editPublishedRoom($room_id, $publication_note, function (array $draft, callable $command) use ($room_id, $regions): void {
       $current = [];
       foreach ($draft['room']['hexes'] as $hex) {
         $current[RoomPlacementTransformer::hexKey($hex)] = $hex['terrain_type'] ?? NULL;
       }
       $changes = 0;
-      foreach ($hexes as $hex) {
-        $key = RoomPlacementTransformer::hexKey($hex);
-        if (!array_key_exists($key, $current)) {
-          throw new \DomainException(sprintf('canonical_room_hex_not_in_room:%s:%d,%d', $room_id, $hex['q'], $hex['r']));
+      foreach ($regions as $region) {
+        if (!is_array($region) || (array) ($region['hexes'] ?? []) === []) {
+          throw new \InvalidArgumentException('canonical_room_terrain_region_invalid:' . $room_id);
         }
-        $changes += $current[$key] === $terrain_type ? 0 : 1;
+        $terrain_type = trim((string) ($region['terrain_type'] ?? ''));
+        if ($terrain_type === '') {
+          throw new \InvalidArgumentException('canonical_room_terrain_type_invalid:' . $room_id);
+        }
+        foreach ((array) $region['hexes'] as $hex) {
+          $key = RoomPlacementTransformer::hexKey($hex);
+          if (!array_key_exists($key, $current)) {
+            throw new \DomainException(sprintf('canonical_room_hex_not_in_room:%s:%d,%d', $room_id, $hex['q'], $hex['r']));
+          }
+          $changes += $current[$key] === $terrain_type ? 0 : 1;
+        }
       }
       if ($changes === 0) {
-        throw new \DomainException(sprintf('canonical_room_terrain_unchanged:%s: all %d hexes are already %s', $room_id, count($hexes), $terrain_type));
+        throw new \DomainException('canonical_room_terrain_unchanged:' . $room_id);
       }
-      foreach (array_chunk(array_values($hexes), 5000) as $chunk) {
-        $command('set_hexes_terrain', ['hexes' => $chunk, 'terrain_type' => $terrain_type]);
+      foreach ($regions as $region) {
+        foreach (array_chunk(array_values((array) $region['hexes']), 5000) as $chunk) {
+          $command('set_hexes_terrain', ['hexes' => $chunk, 'terrain_type' => (string) $region['terrain_type']]);
+        }
       }
     });
-    return $result + ['painted' => count($hexes), 'terrain_type' => $terrain_type];
+    return $result + [
+      'painted' => array_sum(array_map(
+        static fn(array $region): int => count((array) ($region['hexes'] ?? [])),
+        $regions,
+      )),
+    ];
   }
 
   /**

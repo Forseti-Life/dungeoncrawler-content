@@ -24,6 +24,7 @@ use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\MoveRoomPortTool
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\PaintDistrictTerrainTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\CarveDistrictCorridorTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\RingDistrictTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\PrepareDistrictNavigationTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\ResizeRoomTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\InspectDistrictTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\PlanDistrictBuildingTool;
@@ -120,6 +121,7 @@ final class DungeonEditorGmSurface implements EditorGmSurfaceInterface {
       $tools[] = new MoveRoomPortTool($roomBuild);
       $tools[] = new PaintDistrictTerrainTool($roomBuild);
       $tools[] = new CarveDistrictCorridorTool($roomBuild);
+      $tools[] = new PrepareDistrictNavigationTool($roomBuild);
       $tools[] = new RingDistrictTool($roomBuild);
     }
     if ($generation !== NULL) {

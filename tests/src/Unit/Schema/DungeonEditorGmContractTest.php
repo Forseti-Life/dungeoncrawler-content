@@ -152,6 +152,7 @@ class DungeonEditorGmContractTest extends TestCase {
 
     $this->assertFalse($street['background_url']['required'], 'The GM may generate original district ground artwork.');
     $this->assertArrayHasKey('resize_room', $by_name, 'The GM can grow district ground for future rooms.');
+    $this->assertArrayHasKey('prepare_district_navigation', $by_name, 'The GM can carve district access and block remaining ground in one operation.');
   }
 
   /**

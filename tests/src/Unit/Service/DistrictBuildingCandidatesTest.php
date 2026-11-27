@@ -24,4 +24,10 @@ class DistrictBuildingCandidatesTest extends TestCase {
     $this->assertSame(['q' => 40, 'r' => 20], $hexes[0]);
   }
 
+  public function testDistrictRoomPlacementDoesNotReadGroundTerrain(): void {
+    $source = (string) file_get_contents(dirname(__DIR__, 4) . '/src/Service/EditorGm/Tool/Dungeon/DistrictBuildingCandidates.php');
+
+    $this->assertStringNotContainsString('terrain', $source, 'Impassable ground is an underlay; moving a room onto it must not be rejected.');
+  }
+
 }
