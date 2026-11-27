@@ -44,6 +44,15 @@ class EditorGmHarnessServiceTest extends UnitTestCase {
     $this->assertSame(62, $context->status()['completion_percent']);
   }
 
+  public function testPublishThisIsADirectEditorPublicationDirective(): void {
+    $harness = (new \ReflectionClass(EditorGmHarnessService::class))->newInstanceWithoutConstructor();
+    $method = new \ReflectionMethod($harness, 'isExplicitPublicationDirective');
+
+    $this->assertTrue($method->invoke($harness, 'Publish this.'));
+    $this->assertTrue($method->invoke($harness, 'publish it'));
+    $this->assertFalse($method->invoke($harness, 'What happens when a room is published?'));
+  }
+
   public function testRoomObjectCreationIsDeterministic(): void {
     $surface = $this->createMock(\Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmSurfaceInterface::class);
     $surface->method('id')->willReturn('room_editor');

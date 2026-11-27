@@ -59,7 +59,7 @@ final class PublishRoomVersionTool implements EditorGmToolInterface {
       'idempotent_replay' => (bool) ($result['idempotent_replay'] ?? FALSE),
       'changed' => empty($result['idempotent_replay']),
       'requested_version' => EditorGmToolContext::requireString($arguments, 'version'),
-      'published_version' => $version,
+      'published_version' => (string) ($result['version'] ?? $version),
     ];
   }
 

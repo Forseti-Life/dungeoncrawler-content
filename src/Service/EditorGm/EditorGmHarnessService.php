@@ -786,7 +786,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
       return FALSE;
     }
     return preg_match(
-      '/(?:^|\\b)(?:publish it|publish (?:the |this )?(?:room|dungeon|draft|version)|review and (?:publish|create)|finalize (?:the )?(?:room|dungeon)|publish now)(?:\\b|$)/u',
+      '/(?:^|\\b)(?:publish (?:it|this)|publish (?:the |this )?(?:room|dungeon|draft|version)|review and (?:publish|create)|finalize (?:the )?(?:room|dungeon)|publish now)(?:\\b|$)/u',
       $message,
     ) === 1;
   }
