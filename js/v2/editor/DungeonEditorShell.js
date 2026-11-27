@@ -28,9 +28,9 @@
  * Publication is available only through the server readiness and publish routes.
  */
 
-import { GameEventBus } from '../GameEventBus.js?v=20261127-shared-images-1';
-import { HexCanvas } from '../canvas/HexCanvas.js?v=20261127-shared-images-1';
-import './placementTransform.js?v=20260908g1';
+import { GameEventBus } from '../GameEventBus.js?v=20261127-editor-viewport-1';
+import { HexCanvas } from '../canvas/HexCanvas.js?v=20261127-editor-viewport-1';
+import './placementTransform.js?v=20261127-editor-viewport-1';
 import {
   appendEditorGmMessage,
   bindEditorGmPrompts,
@@ -44,8 +44,8 @@ import {
   restoreEditorGmConversation,
   selectEditorGmTool,
   shouldSubmitEditorGmKey,
-} from './EditorGmChatClient.js?v=20261127-shared-images-1';
-import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261127-shared-images-1';
+} from './EditorGmChatClient.js?v=20261127-editor-viewport-1';
+import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261127-editor-viewport-1';
 
 const transform = globalThis.DungeonCrawlerPlacementTransform;
 if (!transform) {
@@ -211,6 +211,7 @@ export class DungeonEditorShell {
     );
     this._bindAuthoringEvents();
     this._initCanvas();
+    this._bindViewportControls();
     this._loadRoomLibrary();
 
     const initialDungeonId = this.settings.selectedDungeonId || null;
@@ -477,6 +478,26 @@ export class DungeonEditorShell {
       gmInput: q('[data-dungeon-editor-gm-input]'),
       gmDryRun: q('[data-dungeon-editor-gm-dry-run]'),
     };
+  }
+
+  _bindViewportControls() {
+    this.container.querySelectorAll('[data-dungeon-editor-viewport]').forEach((button) => {
+      button.addEventListener('click', () => this._runViewportAction(button.dataset.dungeonEditorViewport));
+    });
+  }
+
+  _runViewportAction(action) {
+    if (!this.hexCanvas) {
+      return;
+    }
+    const pan = 72;
+    if (action === 'zoom-in') this.hexCanvas.zoomBy(1.2);
+    else if (action === 'zoom-out') this.hexCanvas.zoomBy(1 / 1.2);
+    else if (action === 'pan-left') this.hexCanvas.panBy(-pan, 0);
+    else if (action === 'pan-right') this.hexCanvas.panBy(pan, 0);
+    else if (action === 'pan-up') this.hexCanvas.panBy(0, -pan);
+    else if (action === 'pan-down') this.hexCanvas.panBy(0, pan);
+    else if (action === 'recenter') this._fitMapToView();
   }
 
   _bindHeaderEvents() {

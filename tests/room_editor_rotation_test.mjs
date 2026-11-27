@@ -39,3 +39,23 @@ test('nothing selected turns nothing', () => {
   editor._rotateSelection(1);
   assert.deepEqual(editor.commands, []);
 });
+
+test('viewport buttons pan, zoom and recenter through the shared canvas', () => {
+  const editor = shell(null);
+  const calls = [];
+  editor.hexCanvas = {
+    zoomBy(value) { calls.push(['zoom', value]); },
+    panBy(x, y) { calls.push(['pan', x, y]); },
+  };
+  editor._fitRoomToView = () => calls.push(['fit']);
+
+  editor._runViewportAction('zoom-in');
+  editor._runViewportAction('pan-left');
+  editor._runViewportAction('recenter');
+
+  assert.deepEqual(calls, [
+    ['zoom', 1.2],
+    ['pan', -72, 0],
+    ['fit'],
+  ]);
+});

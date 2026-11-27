@@ -32,9 +32,9 @@
 
 /* global PIXI */
 
-import { GameEventBus } from '../GameEventBus.js?v=20261127-shared-images-1';
-import { HexCanvas } from '../canvas/HexCanvas.js?v=20261127-shared-images-1';
-import { SpriteService } from '../../SpriteService.js?v=20261127-shared-images-1';
+import { GameEventBus } from '../GameEventBus.js?v=20261127-editor-viewport-1';
+import { HexCanvas } from '../canvas/HexCanvas.js?v=20261127-editor-viewport-1';
+import { SpriteService } from '../../SpriteService.js?v=20261127-editor-viewport-1';
 import {
   appendEditorGmMessage,
   bindEditorGmPrompts,
@@ -48,8 +48,8 @@ import {
   restoreEditorGmConversation,
   selectEditorGmTool,
   shouldSubmitEditorGmKey,
-} from './EditorGmChatClient.js?v=20261127-shared-images-1';
-import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261127-shared-images-1';
+} from './EditorGmChatClient.js?v=20261127-editor-viewport-1';
+import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261127-editor-viewport-1';
 
 const FAMILIES = ['actor', 'item', 'obstacle', 'trap', 'hazard'];
 const SOLID_FAMILIES = ['actor', 'obstacle'];
@@ -228,6 +228,7 @@ export class RoomEditorShell {
       'Welcome to the Room Editor GM. Building a playable room is hard; describe what you want to create, edit, inspect, or validate, and I will help you use the same room-authoring capabilities available in this interface.',
     );
     this._initCanvas();
+    this._bindViewportControls();
     this._setTool('select');
     this._renderInspector();
     this._loadCatalog(true);
@@ -406,6 +407,26 @@ export class RoomEditorShell {
       .replace('{object_id}', encodeURIComponent(terrainType));
     panel.dataset.csrfToken = this.settings.csrfToken || '';
     Drupal.dungeoncrawlerObjectImagePanel?.refresh(panel);
+  }
+
+  _bindViewportControls() {
+    this.container.querySelectorAll('[data-room-editor-viewport]').forEach((button) => {
+      button.addEventListener('click', () => this._runViewportAction(button.dataset.roomEditorViewport));
+    });
+  }
+
+  _runViewportAction(action) {
+    if (!this.hexCanvas) {
+      return;
+    }
+    const pan = 72;
+    if (action === 'zoom-in') this.hexCanvas.zoomBy(1.2);
+    else if (action === 'zoom-out') this.hexCanvas.zoomBy(1 / 1.2);
+    else if (action === 'pan-left') this.hexCanvas.panBy(-pan, 0);
+    else if (action === 'pan-right') this.hexCanvas.panBy(pan, 0);
+    else if (action === 'pan-up') this.hexCanvas.panBy(0, -pan);
+    else if (action === 'pan-down') this.hexCanvas.panBy(0, pan);
+    else if (action === 'recenter') this._fitRoomToView();
   }
 
   _bindHeaderEvents() {

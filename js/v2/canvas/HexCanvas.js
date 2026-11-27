@@ -244,6 +244,33 @@ export class HexCanvas {
     this._scaleMapRoomLabels(scale);
   }
 
+  getWorldScale() {
+    return Number(this.hexContainer?.scale?.x || 1);
+  }
+
+  getWorldPosition() {
+    return {
+      x: Number(this.hexContainer?.x || 0),
+      y: Number(this.hexContainer?.y || 0),
+    };
+  }
+
+  zoomBy(factor) {
+    const next = Math.min(
+      this.config.maxZoom,
+      Math.max(this.config.minZoom, this.getWorldScale() * Number(factor || 1)),
+    );
+    this.setWorldScale(next);
+    this.bus.emit('canvas:zoom-changed', { scale: next });
+    return next;
+  }
+
+  panBy(x, y) {
+    const position = this.getWorldPosition();
+    this.setWorldPosition(position.x + Number(x || 0), position.y + Number(y || 0));
+    return this.getWorldPosition();
+  }
+
   /**
    * Keeps level-map room names readable when zoomed out: a label grows as the
    * map shrinks, up to four times its drawn size.

@@ -103,6 +103,26 @@ test('smaller room may be placed fully inside a larger room', () => {
   assert.equal(partial.valid, false);
 });
 
+test('viewport buttons use shared canvas zoom, pan and fit actions', () => {
+  const editor = Object.create(DungeonEditorShell.prototype);
+  const calls = [];
+  editor.hexCanvas = {
+    zoomBy(value) { calls.push(['zoom', value]); },
+    panBy(x, y) { calls.push(['pan', x, y]); },
+  };
+  editor._fitMapToView = () => calls.push(['fit']);
+
+  editor._runViewportAction('zoom-out');
+  editor._runViewportAction('pan-down');
+  editor._runViewportAction('recenter');
+
+  assert.deepEqual(calls, [
+    ['zoom', 1 / 1.2],
+    ['pan', 0, 72],
+    ['fit'],
+  ]);
+});
+
 test('rooms that are far apart can be connected from either end', () => {
   const editor = shell();
   editor._handlePortClick({ placementId: 'b', portId: 'west', button: 0 });

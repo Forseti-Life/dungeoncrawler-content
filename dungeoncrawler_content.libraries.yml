@@ -271,7 +271,7 @@ hexmap-v2:
     - core/once
 
 room-editor:
-  version: 20261127-shared-images-1
+  version: 20261127-editor-viewport-1
   js:
     https://cdn.jsdelivr.net/npm/pixi.js@7.3.2/dist/pixi.min.js: { type: external, minified: true }
     js/room-editor.js: { attributes: { type: module } }
@@ -341,7 +341,7 @@ module-explorer:
     - core/once
 
 dungeon-editor:
-  version: 20261127-explicit-publish-1
+  version: 20261127-editor-viewport-1
   js:
     https://cdn.jsdelivr.net/npm/pixi.js@7.3.2/dist/pixi.min.js: { type: external, minified: true }
     js/dungeon-editor.js: { attributes: { type: module } }

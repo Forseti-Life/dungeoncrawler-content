@@ -294,6 +294,7 @@
           <div class="game-shell__content room-editor__center">
             <div class="hexmap-stage room-editor__stage">
               <div id="room-editor-canvas" class="hexmap-canvas-wrapper" data-room-editor-canvas></div>
+              {% include '@dungeoncrawler_content/editor-viewport-controls.html.twig' with { surface: 'room-editor' } only %}
             </div>
             {% include '@dungeoncrawler_content/editor-map-legend.html.twig' with {
               groups: [
