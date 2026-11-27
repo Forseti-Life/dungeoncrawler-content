@@ -28,9 +28,9 @@
  * Publication is available only through the server readiness and publish routes.
  */
 
-import { GameEventBus } from '../GameEventBus.js?v=20261127-editor-viewport-1';
-import { HexCanvas } from '../canvas/HexCanvas.js?v=20261127-editor-viewport-1';
-import './placementTransform.js?v=20261127-editor-viewport-1';
+import { GameEventBus } from '../GameEventBus.js?v=20261127-room-large-zoom-1';
+import { HexCanvas } from '../canvas/HexCanvas.js?v=20261127-room-large-zoom-1';
+import './placementTransform.js?v=20261127-room-large-zoom-1';
 import {
   appendEditorGmMessage,
   bindEditorGmPrompts,
@@ -44,8 +44,8 @@ import {
   restoreEditorGmConversation,
   selectEditorGmTool,
   shouldSubmitEditorGmKey,
-} from './EditorGmChatClient.js?v=20261127-editor-viewport-1';
-import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261127-editor-viewport-1';
+} from './EditorGmChatClient.js?v=20261127-room-large-zoom-1';
+import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261127-room-large-zoom-1';
 
 const transform = globalThis.DungeonCrawlerPlacementTransform;
 if (!transform) {

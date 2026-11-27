@@ -32,9 +32,9 @@
 
 /* global PIXI */
 
-import { GameEventBus } from '../GameEventBus.js?v=20261127-editor-viewport-1';
-import { HexCanvas } from '../canvas/HexCanvas.js?v=20261127-editor-viewport-1';
-import { SpriteService } from '../../SpriteService.js?v=20261127-editor-viewport-1';
+import { GameEventBus } from '../GameEventBus.js?v=20261127-room-large-zoom-1';
+import { HexCanvas } from '../canvas/HexCanvas.js?v=20261127-room-large-zoom-1';
+import { SpriteService } from '../../SpriteService.js?v=20261127-room-large-zoom-1';
 import {
   appendEditorGmMessage,
   bindEditorGmPrompts,
@@ -48,8 +48,8 @@ import {
   restoreEditorGmConversation,
   selectEditorGmTool,
   shouldSubmitEditorGmKey,
-} from './EditorGmChatClient.js?v=20261127-editor-viewport-1';
-import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261127-editor-viewport-1';
+} from './EditorGmChatClient.js?v=20261127-room-large-zoom-1';
+import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261127-room-large-zoom-1';
 
 const FAMILIES = ['actor', 'item', 'obstacle', 'trap', 'hazard'];
 const SOLID_FAMILIES = ['actor', 'obstacle'];
@@ -522,6 +522,7 @@ export class RoomEditorShell {
     }
     this.hexCanvas = new HexCanvas(this._dom.canvasContainer, this.bus, {
       hexSize: 32,
+      minZoom: 0.01,
       showGrid: true,
       showHexIndicators: true,
     });

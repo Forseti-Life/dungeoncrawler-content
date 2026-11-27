@@ -59,3 +59,8 @@ test('viewport buttons pan, zoom and recenter through the shared canvas', () => 
     ['fit'],
   ]);
 });
+
+test('room canvas allows district-scale fit zoom', () => {
+  const source = String(RoomEditorShell.toString());
+  assert.match(source, /minZoom:\s*0\.01/);
+});
