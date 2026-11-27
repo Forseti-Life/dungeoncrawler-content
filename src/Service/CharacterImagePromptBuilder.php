@@ -36,12 +36,18 @@ class CharacterImagePromptBuilder {
 
     $subject = $this->buildSubjectPhrase($base_ancestry, $class, $background, $role, $familiar_species);
     $lines = [];
-    $lines[] = 'Head-and-shoulders portrait illustration of ' . $subject . ', framed as a close portrait with clear facial detail.';
-    if ($sheet_context_lines !== []) {
+    if ($role === 'creature') {
+      $lines[] = 'Illustrative fantasy creature portrait of ' . $this->buildCreatureVisualDescriptor($character_data)
+        . ', showing the complete organism or group clearly in frame.';
+    }
+    else {
+      $lines[] = 'Head-and-shoulders portrait illustration of ' . $subject . ', framed as a close portrait with clear facial detail.';
+    }
+    if ($role !== 'creature' && $sheet_context_lines !== []) {
       $lines[] = 'Character sheet context:';
       array_push($lines, ...$sheet_context_lines);
     }
-    if ($full_sheet_context !== '') {
+    if ($role !== 'creature' && $full_sheet_context !== '') {
       $lines[] = 'Full character sheet payload (JSON): ' . $full_sheet_context;
     }
 
@@ -59,6 +65,16 @@ class CharacterImagePromptBuilder {
         $lines[] = 'Additional art direction: ' . $this->truncateValue($resolved_user_prompt, 140) . '.';
       }
 
+      return implode("\n", $lines);
+    }
+    if ($role === 'creature') {
+      $lines[] = 'Render the subject with its true non-humanoid anatomy, size relationship and movement form; for a swarm, show it as a coherent cluster of many creatures rather than a single humanoid figure.';
+      $lines[] = 'Do not depict human faces, human posture, human hands or humanoid armor unless explicitly present in the creature description.';
+      $lines[] = 'Use a clean, neutral fantasy environment with subtle depth cues and no symbolic text elements.';
+      $lines[] = 'Pure illustration only: no readable text, labels, signs, diagrams, character sheets, decorative borders, explicit injury, blood splatter or graphic gore.';
+      if ($resolved_user_prompt !== '') {
+        $lines[] = 'Additional art direction: ' . $this->truncateValue($resolved_user_prompt, 140) . '.';
+      }
       return implode("\n", $lines);
     }
 
@@ -515,12 +531,36 @@ class CharacterImagePromptBuilder {
    * Resolve the actor role used for portrait prompt specialization.
    */
   private function resolvePortraitRole(array $character_data): string {
-    return strtolower(trim((string) (
+    $explicit = strtolower(trim((string) (
       $character_data['role']
       ?? $character_data['follower_kind']
       ?? $character_data['familiar']['role']
       ?? ''
     )));
+    if ($explicit === 'familiar') {
+      return $explicit;
+    }
+    $class = strtolower(trim((string) ($character_data['class'] ?? '')));
+    $ancestry = strtolower(trim((string) ($character_data['ancestry'] ?? '')));
+    if ($class === 'creature' || $ancestry === 'creature') {
+      return 'creature';
+    }
+    return $explicit;
+  }
+
+  private function buildCreatureVisualDescriptor(array $character_data): string {
+    $name = strtolower(trim((string) ($character_data['name'] ?? $character_data['display_name'] ?? '')));
+    $description = strtolower(trim((string) ($character_data['description'] ?? '')));
+    if (str_contains($name . ' ' . $description, 'leech') || str_contains($name . ' ' . $description, 'worm')) {
+      return 'a clustered swarm of smooth, pale, harmless-looking fantasy vermin with rounded bodies and flowing shapes';
+    }
+    if (str_contains($name . ' ' . $description, 'roach') || str_contains($name . ' ' . $description, 'insect')) {
+      return 'a clustered swarm of small glossy dark fantasy insects with expressive antennae';
+    }
+    if (str_contains($name . ' ' . $description, 'rat')) {
+      return 'a small fantasy-animal swarm with expressive faces and natural proportions';
+    }
+    return 'a distinctive non-humanoid fantasy creature with clear readable anatomy';
   }
 
   /**

@@ -39,4 +39,27 @@ class CharacterImagePromptBuilderTest extends UnitTestCase {
     $this->assertStringNotContainsString('Expression and pose should feel', $prompt);
   }
 
+  public function testCreaturePortraitUsesWholeSubjectInsteadOfHumanoidFacePrompt(): void {
+    $builder = new CharacterImagePromptBuilder();
+    $prompt = $builder->buildPortraitPrompt([
+      'name' => 'Bloat Leech Swarm',
+      'class' => 'creature',
+      'role' => 'npc',
+      'ancestry' => 'creature',
+      'species' => 'animal swarm',
+      'description' => 'A writhing cluster of pale leeches in stagnant sewer runoff.',
+      'traits' => ['animal', 'swarm'],
+      'abilities' => ['strength' => 12],
+    ]);
+
+    $this->assertStringContainsString('complete organism or group clearly in frame', $prompt);
+    $this->assertStringContainsString('smooth, pale, harmless-looking fantasy vermin', $prompt);
+    $this->assertStringContainsString('true non-humanoid anatomy', $prompt);
+    $this->assertStringContainsString('Do not depict human faces', $prompt);
+    $this->assertStringNotContainsString('Head-and-shoulders portrait illustration', $prompt);
+    $this->assertStringNotContainsString('Full character sheet payload (JSON)', $prompt);
+    $this->assertStringNotContainsString('stagnant sewer runoff', $prompt);
+    $this->assertStringNotContainsString('Bloat Leech Swarm', $prompt);
+  }
+
 }

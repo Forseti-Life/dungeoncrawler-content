@@ -227,7 +227,11 @@ class VertexImageGenerationService {
         ? $this->extractGeminiOutput($decoded)
         : $this->extractOutput($decoded);
       if ($parsed_output['image_data_uri'] === NULL && $parsed_output['image_url'] === NULL) {
-        throw new \RuntimeException('Vertex API response completed without an image.');
+        $finish_reason = trim((string) ($parsed_output['finish_reason'] ?? ''));
+        throw new \RuntimeException(
+          'Vertex API response completed without an image'
+          . ($finish_reason !== '' ? ' (finish reason: ' . $finish_reason . ').' : '.'),
+        );
       }
 
       $this->storeCacheEntry($normalized_payload, $model, $decoded, $parsed_output, 'ready');
@@ -820,6 +824,7 @@ class VertexImageGenerationService {
       'text' => NULL,
       'image_data_uri' => NULL,
       'image_url' => NULL,
+      'finish_reason' => NULL,
     ];
 
     $predictions = $response['predictions'] ?? [];
@@ -859,6 +864,7 @@ class VertexImageGenerationService {
       'text' => NULL,
       'image_data_uri' => NULL,
       'image_url' => NULL,
+      'finish_reason' => NULL,
     ];
 
     $candidates = $response['candidates'] ?? [];
@@ -869,6 +875,10 @@ class VertexImageGenerationService {
     foreach ($candidates as $candidate) {
       if (!is_array($candidate)) {
         continue;
+      }
+      $finish_reason = $candidate['finishReason'] ?? $candidate['finish_reason'] ?? NULL;
+      if ($output['finish_reason'] === NULL && is_string($finish_reason) && trim($finish_reason) !== '') {
+        $output['finish_reason'] = trim($finish_reason);
       }
 
       $parts = $candidate['content']['parts'] ?? [];
