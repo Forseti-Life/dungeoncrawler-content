@@ -457,6 +457,8 @@ function dungeoncrawler_content_theme(array $existing, string $type, string $the
       'variables' => [
         'rooms' => [],
         'selected_room_id' => NULL,
+        'back_url' => NULL,
+        'back_label' => NULL,
       ],
       'template' => 'room-editor',
       'path' => $path . '/templates',
@@ -465,6 +467,8 @@ function dungeoncrawler_content_theme(array $existing, string $type, string $the
       'variables' => [
         'dungeons' => [],
         'selected_dungeon_id' => NULL,
+        'back_url' => NULL,
+        'back_label' => NULL,
       ],
       'template' => 'dungeon-editor',
       'path' => $path . '/templates',

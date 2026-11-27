@@ -27,6 +27,8 @@ class RoomEditorContractTest extends UnitTestCase {
     $this->assertStringContainsString("query->get('dungeon_id'", $controller);
     $this->assertStringContainsString("back_label = count(\$parent) === 1 ? 'Back to Dungeon Editor'", $controller);
     $this->assertStringContainsString('back_url: back_url', $template);
+    $module = (string) file_get_contents($root . '/dungeoncrawler_content.module');
+    $this->assertMatchesRegularExpression("/'room_editor'\\s*=>\\s*\\[.*?'back_url'\\s*=>\\s*NULL.*?'back_label'\\s*=>\\s*NULL/s", $module);
   }
 
   /**
