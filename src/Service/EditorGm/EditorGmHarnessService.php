@@ -1827,7 +1827,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     if ($source_surface->id() !== DungeonEditorGmSurface::ID) {
       throw new \LogicException('room_editor_delegation_requires_dungeon_surface');
     }
-    $room_id = EditorGmToolContext::requireString($arguments, 'room_id');
+    $room_id = isset($arguments['room_id']) ? EditorGmToolContext::requireString($arguments, 'room_id') : '';
     $name = EditorGmToolContext::requireString($arguments, 'name');
     $task = EditorGmToolContext::requireString($arguments, 'task');
     $source_context = $this->createContext($source_surface, $draft_id, $profile, $scope);
@@ -1850,9 +1850,12 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     $room_surface = $this->surface(RoomEditorGmSurface::ID);
     $tool_calls = array_values($prior_tool_calls);
     $tool_calls[] = $this->describeToolCall('delegate_room_editor_task', $arguments);
-    $room_seed = ['room_id' => $room_id];
+    $room_seed = [];
+    if ($room_id !== '') {
+      $room_seed['room_id'] = $room_id;
+    }
     $room_context = $room_surface->createContext(NULL, 'editing');
-    if (RoomEditorGmToolContext::of($room_context)->roomEditor->publishedRoom($room_id) === NULL) {
+    if ($room_id === '' || RoomEditorGmToolContext::of($room_context)->roomEditor->publishedRoom($room_id) === NULL) {
       $room_seed['name'] = $name;
     }
 
@@ -1873,22 +1876,12 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     if ($room_draft_id === '') {
       throw new \LogicException('room_editor_delegation_draft_missing');
     }
-    $brief = $this->executeTool(
-      $room_surface,
-      $room_draft_id,
-      'editing',
-      'load_story_brief',
-      [],
-      FALSE,
-      'Load the authoritative Storyline brief for the delegated room.',
-      ['delegated_authorization' => TRUE],
-      [],
-      '',
-      $tool_calls,
-    );
-    $deterministic_brief_task = preg_match('/\b(?:create|revise|edit|publish)\b/i', $task) === 1
-      && (array) ($brief['tool_result']['storylines'] ?? []) !== [];
-    $child = $deterministic_brief_task ? $brief : $this->handle(
+    $room_draft = RoomEditorGmToolContext::of($room_surface->createContext($room_draft_id, 'editing'))->draft();
+    $room_id = trim((string) ($room_draft['room']['room_id'] ?? $room_id));
+    if ($room_id === '') {
+      throw new \LogicException('room_editor_delegation_room_identity_missing');
+    }
+    $child = $this->handle(
       RoomEditorGmSurface::ID,
       $room_draft_id,
       [
@@ -1911,101 +1904,13 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     );
     $tool_calls = array_merge($tool_calls, (array) ($child['tool_calls'] ?? []));
     $child_result = (array) ($child['tool_result'] ?? []);
-    if (($child_result['tool'] ?? '') !== 'load_story_brief') {
-      $brief = $this->executeTool(
-        $room_surface,
-        $room_draft_id,
-        'editing',
-        'load_story_brief',
-        [],
-        FALSE,
-        'Load the authoritative Storyline brief for the delegated room.',
-        ['delegated_authorization' => TRUE],
-        [],
-        '',
-        $tool_calls,
-      );
-      $tool_calls = array_values((array) ($brief['tool_calls'] ?? $tool_calls));
-      $child_result = (array) ($brief['tool_result'] ?? []);
-    }
-    $changed_room = FALSE;
-    if (($child_result['tool'] ?? '') === 'load_story_brief') {
-      $description = '';
-      foreach ((array) ($child_result['storylines'] ?? []) as $storyline) {
-        foreach ((array) ($storyline['rooms'] ?? []) as $room) {
-          if (($room['room_id'] ?? '') === $room_id && trim((string) ($room['narrative'] ?? '')) !== '') {
-            $description = trim((string) $room['narrative']);
-            break 2;
-          }
-        }
-      }
-      $room_context = $room_surface->createContext($room_draft_id, 'editing');
-      $room_draft = $room_context->draft();
-      $commands = [];
-      $room_data = (array) ($room_draft['room'] ?? []);
-      $metadata_changes = [];
-      if ($description !== '' && trim((string) ($room_data['description'] ?? '')) !== $description) {
-        $metadata_changes += ['description' => $description];
-      }
-      if (str_contains(mb_strtolower($description), 'nook')) {
-        $metadata_changes += ['name' => $name, 'size_category' => 'small'];
-      }
-      if ($metadata_changes !== []) {
-        $commands[] = [
-          'type' => 'set_room_metadata',
-          'payload' => ['changes' => $metadata_changes],
-        ];
-      }
-      if (str_contains(mb_strtolower($description), 'nook')) {
-        $keep_hexes = [
-          '-2:0' => TRUE,
-          '-2:1' => TRUE,
-          '-1:-1' => TRUE,
-          '-1:0' => TRUE,
-          '-1:1' => TRUE,
-          '0:-1' => TRUE,
-          '0:0' => TRUE,
-        ];
-        foreach ((array) ($room_data['hexes'] ?? []) as $hex) {
-          $q = (int) ($hex['q'] ?? 0);
-          $r = (int) ($hex['r'] ?? 0);
-          if (!isset($keep_hexes[$q . ':' . $r])) {
-            $commands[] = [
-              'type' => 'remove_hex',
-              'payload' => ['hex' => ['q' => $q, 'r' => $r]],
-            ];
-          }
-        }
-      }
-      if ($commands !== []) {
-        $changed_room = TRUE;
-        $metadata = $this->executeTool(
-          $room_surface,
-          $room_draft_id,
-          'editing',
-          'apply_room_commands',
-          [
-            'expected_revision' => (int) $room_draft['revision'],
-            'commands' => $commands,
-          ],
-          FALSE,
-          'Apply the storyline brief to the delegated room metadata.',
-          ['delegated_authorization' => TRUE],
-          [],
-          '',
-          $tool_calls,
-        );
-        $tool_calls = array_values((array) ($metadata['tool_calls'] ?? $tool_calls));
-        $child_result = (array) ($metadata['tool_result'] ?? []);
-      }
-    }
-    if (preg_match('/\bpublish(?:ed|ing)?\b/i', $task) === 1) {
+    if (preg_match('/\b(?:publish(?:ed|ing)?|create|build)\b/i', $task) === 1) {
       $room_context = $room_surface->createContext($room_draft_id, 'publication');
       $room_draft = $room_context->draft();
       $validation = $room_context->validation();
       if (($validation['valid'] ?? $validation['is_valid'] ?? FALSE) === TRUE
         && ($room_draft['status'] ?? '') === 'active'
-        && ($changed_room || $room_draft['base_version_id'] === NULL)) {
+        && $room_draft['base_version_id'] === NULL) {
         $publication = $this->executeTool(
           $room_surface,
           $room_draft_id,
@@ -2037,7 +1942,61 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         $is_district = ($fresh_dungeon['kind'] ?? 'dungeon') === 'district';
         $street_placement_id = $is_district ? $this->districtStreetPlacementId($fresh_dungeon) : '';
         $anchor_room_id = $this->delegatedAnchorRoomId($fresh_source, $task);
-        if (!$already_placed && $is_district && $street_placement_id !== '') {
+        if (!$already_placed && (array) ($fresh_dungeon['placements'] ?? []) === []) {
+          $base_revision = (int) ($fresh_dungeon['revision'] ?? 0);
+          $placement_plan = $this->executeTool(
+            $source_surface,
+            $draft_id,
+            $profile,
+            'plan_dungeon_commands',
+            [
+              'goal' => 'place_rooms',
+              'parameters' => [
+                'placements' => [[
+                  'room_id' => $room_id,
+                  'origin' => ['q' => 0, 'r' => 0],
+                  'rotation_steps' => 0,
+                  'label' => $name,
+                ]],
+              ],
+            ],
+            FALSE,
+            'Plan the first published room at the dungeon origin.',
+            ['delegated_authorization' => TRUE],
+            [],
+            '',
+            $tool_calls,
+          );
+          $tool_calls = array_values((array) ($placement_plan['tool_calls'] ?? $tool_calls));
+          $command_plan = (array) ($placement_plan['tool_result']['command_plan'] ?? []);
+          $commands = array_map(
+            static fn(array $step): array => [
+              'type' => (string) ($step['command_type'] ?? ''),
+              'payload' => (array) ($step['payload'] ?? []),
+            ],
+            array_values((array) ($command_plan['steps'] ?? [])),
+          );
+          $plan_revision = $command_plan['base_revision'] ?? $base_revision;
+          if ($commands === [] || !is_int($plan_revision)) {
+            throw new LogicException('delegated_room_initial_placement_plan_invalid');
+          }
+          $placement = $this->executeTool(
+            $source_surface,
+            $draft_id,
+            $profile,
+            'apply_dungeon_commands',
+            ['expected_revision' => $plan_revision, 'commands' => $commands],
+            FALSE,
+            'Apply the first delegated room placement at the dungeon origin.',
+            ['delegated_authorization' => TRUE],
+            [],
+            '',
+            $tool_calls,
+          );
+          $tool_calls = array_values((array) ($placement['tool_calls'] ?? $tool_calls));
+          $child_result['dungeon_placement'] = $placement['tool_result'] ?? [];
+        }
+        elseif (!$already_placed && $is_district && $street_placement_id !== '') {
           $placement_plan = $this->executeTool(
             $source_surface,
             $draft_id,
@@ -2176,7 +2135,12 @@ class EditorGmHarnessService implements AgentHarnessInterface {
       }
 
     }
-    return count($candidates) === 1 ? (string) array_key_first($candidates) : '';
+    if (count($candidates) === 1) {
+      return (string) array_key_first($candidates);
+    }
+    $placements = array_values((array) ($context->dungeon()['room_placements'] ?? []));
+    $last = end($placements);
+    return is_array($last) ? trim((string) ($last['room_id'] ?? '')) : '';
   }
 
   private function districtStreetPlacementId(array $model): string {

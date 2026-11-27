@@ -126,6 +126,12 @@ class DungeonEditorGmContractTest extends TestCase {
     $by_name = array_column($tools, NULL, 'name');
     $this->assertContains('search', array_column($by_name['list_published_rooms']['arguments'], 'name'));
     $this->assertArrayHasKey('route_to_editor', $by_name);
+    $delegated = array_column($by_name['delegate_room_editor_task']['arguments'], NULL, 'name');
+    $this->assertFalse($delegated['room_id']['required'], 'The Dungeon GM may delegate a newly named room without inventing its ID.');
+
+    $harness = $this->source('src/Service/EditorGm/EditorGmHarnessService.php');
+    $this->assertStringContainsString('$child = $this->handle(', $harness, 'Dungeon delegation must invoke the Room Editor GM.');
+    $this->assertStringNotContainsString('deterministic_brief_task', $harness, 'Dungeon delegation must not replace the Room Editor GM with a metadata shortcut.');
   }
 
   /**

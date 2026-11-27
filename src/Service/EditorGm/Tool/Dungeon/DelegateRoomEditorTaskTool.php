@@ -20,7 +20,7 @@ final class DelegateRoomEditorTaskTool implements EditorGmToolInterface {
       TRUE,
       'EditorGmHarnessService cross-surface delegation to RoomEditorGmService',
       [
-        EditorGmToolDefinition::argument('room_id', 'string', TRUE, 'Existing room ID or authoritative missing room ID from a storyline/dungeon finding.'),
+        EditorGmToolDefinition::argument('room_id', 'string', FALSE, 'Existing room ID or authoritative missing room ID. Omit for a newly named room; the Room Editor GM assigns its canonical identity.'),
         EditorGmToolDefinition::argument('name', 'string', TRUE, 'Human-readable room name used only if the room does not exist.'),
         EditorGmToolDefinition::argument('task', 'string', TRUE, 'Complete authorized creation or edit request for the Room Editor GM.'),
       ],
