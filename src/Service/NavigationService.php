@@ -409,6 +409,11 @@ class NavigationService {
     }
 
     $travels_forward = $from_room === $room_id;
+    $type = trim((string) ($connection['type'] ?? 'passage')) ?: 'passage';
+    $bidirectional = array_key_exists('bidirectional', $connection) ? !empty($connection['bidirectional']) : ($type !== 'one_way');
+    if (!$travels_forward && !$bidirectional) {
+      return NULL;
+    }
     $target_room_id = $travels_forward ? $to_room : $from_room;
     $target_room_name = trim((string) (
       $travels_forward
@@ -435,10 +440,8 @@ class NavigationService {
       $origin_hex = $resolved_origin_hex;
       $target_hex = $resolved_target_hex;
     }
-    $type = trim((string) ($connection['type'] ?? 'passage')) ?: 'passage';
     $is_discovered = array_key_exists('is_discovered', $connection) ? !empty($connection['is_discovered']) : TRUE;
     $is_passable = array_key_exists('is_passable', $connection) ? !empty($connection['is_passable']) : TRUE;
-    $bidirectional = array_key_exists('bidirectional', $connection) ? !empty($connection['bidirectional']) : ($type !== 'one_way');
     $requires_interaction = self::resolveRequiresInteraction($connection);
     $destination_type = $this->resolveDestinationType($connection);
     $destination_id = $this->resolveDestinationId($connection, $target_room_id, $destination_type);

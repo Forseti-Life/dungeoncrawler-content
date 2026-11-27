@@ -188,6 +188,54 @@ class NavigationServiceTest extends UnitTestCase {
   }
 
   /**
+   * Bidirectional links traverse in both directions; one-way links do not
+   * expose a reverse navigation capability.
+   */
+  public function testConnectionDirectionControlsReverseNavigation(): void {
+    $connection = [
+      'connection_id' => 'room-a-to-room-b',
+      'dungeon_id' => 'fixture',
+      'from_room_id' => 'room-a',
+      'to_room_id' => 'room-b',
+      'from_hex_q' => 0,
+      'from_hex_r' => 0,
+      'to_hex_q' => 1,
+      'to_hex_r' => 0,
+      'kind' => 'door',
+      'direction' => 'bidirectional',
+      'default_state' => 'open',
+      'is_discovered_default' => 1,
+    ];
+    $connector_service = $this->getMockBuilder(ConnectorDefinitionService::class)
+      ->disableOriginalConstructor()
+      ->onlyMethods(['loadCanonicalConnectorsForDungeon'])
+      ->getMock();
+    $connector_service->method('loadCanonicalConnectorsForDungeon')
+      ->with('fixture')
+      ->willReturnCallback(static fn(): array => [$connection]);
+    $service = new NavigationService(NULL, $connector_service);
+
+    $forward = $service->buildNavigationCapabilities(['dungeon_id' => 'fixture'], 'room-a');
+    $reverse = $service->buildNavigationCapabilities(['dungeon_id' => 'fixture'], 'room-b');
+    $this->assertSame(['room-b'], array_column($forward, 'target_room_id'));
+    $this->assertSame(['room-a'], array_column($reverse, 'target_room_id'));
+
+    $connection['direction'] = 'one_way';
+    $connector_service = $this->getMockBuilder(ConnectorDefinitionService::class)
+      ->disableOriginalConstructor()
+      ->onlyMethods(['loadCanonicalConnectorsForDungeon'])
+      ->getMock();
+    $connector_service->method('loadCanonicalConnectorsForDungeon')
+      ->with('fixture')
+      ->willReturn([$connection]);
+    $service = new NavigationService(NULL, $connector_service);
+    $forward = $service->buildNavigationCapabilities(['dungeon_id' => 'fixture'], 'room-a');
+    $reverse = $service->buildNavigationCapabilities(['dungeon_id' => 'fixture'], 'room-b');
+    $this->assertSame(['room-b'], array_column($forward, 'target_room_id'));
+    $this->assertSame([], $reverse);
+  }
+
+  /**
    * Verifies connector-table rows are authoritative over payload fallback arrays.
    */
   public function testBuildNavigationCapabilitiesPrefersConnectorTableRows(): void {

@@ -34,6 +34,8 @@ final class ConnectorProjectionService {
 
     $placements = [];
     $ports = [];
+    $street_placement = NULL;
+    $street_hexes = [];
     foreach ($aggregate['room_placements'] ?? [] as $placement) {
       $placement_id = (string) ($placement['placement_id'] ?? '');
       $room = $this->roomVersion((string) ($placement['version_id'] ?? ''));
@@ -41,6 +43,18 @@ final class ConnectorProjectionService {
         throw new DungeonCommandRejectedException('connector_projection_failed', [$this->finding('placement_version_unresolved', sprintf('Placement %s has no resolvable published room version.', $placement_id !== '' ? $placement_id : 'unknown'), [['placement_id' => $placement_id]])]);
       }
       $placements[$placement_id] = $placement;
+      if (($aggregate['kind'] ?? 'dungeon') === 'district' && ($room['room_type'] ?? '') === 'street') {
+        if ($street_placement !== NULL) {
+          throw new DungeonCommandRejectedException('connector_projection_failed', [$this->finding('district_street_ambiguous', 'District connector projection requires exactly one street placement.', [])]);
+        }
+        $street_placement = [
+          'placement_id' => $placement_id,
+          'room_id' => (string) $placement['room_id'],
+        ];
+        foreach ($room['hexes'] ?? [] as $hex) {
+          $street_hexes[RoomPlacementTransformer::hexKey(RoomPlacementTransformer::toLevel($hex, $placement))] = TRUE;
+        }
+      }
       foreach ($this->roomPorts($room) as $port) {
         $level = RoomPlacementTransformer::toLevelPort(['q' => $port['q'], 'r' => $port['r']], $port['edge'], $placement);
         $lat_lng = H3SpatialHelper::projectAxialHexToLatLng($dungeon_id, $level['q'], $level['r']);
@@ -121,6 +135,64 @@ final class ConnectorProjectionService {
       ];
     }
 
+    if (($aggregate['kind'] ?? 'dungeon') === 'district') {
+      if ($street_placement === NULL) {
+        throw new DungeonCommandRejectedException('connector_projection_failed', [$this->finding('district_street_missing', 'District connector projection requires a street placement.', [])]);
+      }
+      $rows = array_merge($rows, $this->districtStreetContactRows($dungeon_id, $street_placement, $street_hexes, $ports));
+    }
+
+    return $rows;
+  }
+
+  /**
+   * Projects district building entry ports on street hexes as real connectors.
+   *
+   * The district street is ground underneath building rooms, not a room with
+   * authored door ports. Its building doors therefore create implicit,
+   * bidirectional street-to-room connections.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Rows ready for dungeoncrawler_content_connections insertion.
+   */
+  private function districtStreetContactRows(string $dungeon_id, array $street, array $street_hexes, array $ports): array {
+    $rows = [];
+    foreach ($ports as $port) {
+      if (($port['kind'] ?? '') !== 'entry' || ($port['placement_id'] ?? '') === ($street['placement_id'] ?? '')) {
+        continue;
+      }
+      $hex_key = RoomPlacementTransformer::hexKey(['q' => (int) $port['q'], 'r' => (int) $port['r']]);
+      if (!isset($street_hexes[$hex_key])) {
+        continue;
+      }
+      $identity = implode('|', [
+        $dungeon_id,
+        (string) $street['placement_id'],
+        (string) $port['placement_id'],
+        (string) $port['port_id'],
+      ]);
+      $rows[] = [
+        'connection_id' => 'district-entry-' . hash('sha256', $identity),
+        'dungeon_id' => $dungeon_id,
+        'from_room_id' => (string) $street['room_id'],
+        'to_room_id' => (string) $port['room_id'],
+        'from_hex_q' => (int) $port['q'],
+        'from_hex_r' => (int) $port['r'],
+        'to_hex_q' => (int) $port['q'],
+        'to_hex_r' => (int) $port['r'],
+        'from_h3_index_res14' => (string) $port['h3_index_res14'],
+        'to_h3_index_res14' => (string) $port['h3_index_res14'],
+        'direction' => 'bidirectional',
+        'kind' => 'door',
+        'default_state' => 'open',
+        'trap_data' => NULL,
+        'lock_data' => NULL,
+        'requirements_data' => NULL,
+        'description' => 'Implicit district entry from the street ground into the placed room.',
+        'travel_cost' => 0,
+        'is_discovered_default' => 1,
+      ];
+    }
     return $rows;
   }
 
