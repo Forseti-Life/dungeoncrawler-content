@@ -37,14 +37,24 @@ final class StorylineBuilderGmToolContext extends EditorGmToolContext {
   public function validation(?string $profile = NULL): array {
     $profile = $profile ?? $this->validationProfile;
     if (!array_key_exists($profile, $this->validationByProfile)) {
-      $this->validationByProfile[$profile] = $this->drafts->validateDraft($this->draftId, $profile);
+      $snapshot = $this->drafts->latestDraftValidation(
+        $this->draftId,
+        (int) ($this->draft()['revision'] ?? -1),
+      );
+      $this->validationByProfile[$profile] = $snapshot
+        ?? $this->drafts->validateDraft($this->draftId, $profile);
     }
     return $this->validationByProfile[$profile];
   }
 
   public function status(): array {
     if ($this->status === NULL) {
-      $this->status = $this->drafts->summarizeDraftState($this->draft(), $this->validation());
+      $snapshot = $this->drafts->latestDraftStatus(
+        $this->draftId,
+        (int) ($this->draft()['revision'] ?? -1),
+      );
+      $this->status = $snapshot
+        ?? $this->drafts->summarizeDraftState($this->draft(), $this->validation());
     }
     return $this->status;
   }

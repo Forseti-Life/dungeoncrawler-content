@@ -11,6 +11,39 @@ use Drupal\Tests\UnitTestCase;
  */
 class EditorGmHarnessServiceTest extends UnitTestCase {
 
+  public function testStorylineGmDescribeUsesPersistedValidationSnapshot(): void {
+    $drafts = $this->createMock(\Drupal\dungeoncrawler_content\Service\StorylineAuthoringDraftService::class);
+    $drafts->method('getDraft')->willReturn([
+      'draft_id' => 'draft-1',
+      'revision' => 7,
+      'payload' => [],
+    ]);
+    $drafts->expects($this->once())
+      ->method('latestDraftValidation')
+      ->with('draft-1', 7)
+      ->willReturn([
+        'valid' => FALSE,
+        'profile' => 'publication',
+        'errors' => ['room_invalid'],
+        'warnings' => [],
+      ]);
+    $drafts->expects($this->once())
+      ->method('latestDraftStatus')
+      ->with('draft-1', 7)
+      ->willReturn(['completion_percent' => 62]);
+    $drafts->expects($this->never())->method('validateDraft');
+    $drafts->expects($this->never())->method('summarizeDraftState');
+    $context = new \Drupal\dungeoncrawler_content\Service\EditorGm\StorylineBuilderGmToolContext(
+      'draft-1',
+      'editing',
+      $drafts,
+      $this->createMock(\Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService::class),
+    );
+
+    $this->assertSame(['room_invalid'], $context->validation()['errors']);
+    $this->assertSame(62, $context->status()['completion_percent']);
+  }
+
   public function testRoomObjectCreationIsDeterministic(): void {
     $surface = $this->createMock(\Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmSurfaceInterface::class);
     $surface->method('id')->willReturn('room_editor');

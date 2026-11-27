@@ -1354,8 +1354,9 @@ class StorylineAuthoringDraftService {
    */
   public function summarizeDraftStatus(string $draft_id): array {
     $draft = $this->getDraft($draft_id);
-    $status = $this->summarizeDraftState($draft, $this->validateDraft($draft_id));
-    $this->storeLatestDraftStatus($draft_id, (int) $draft['revision'], $status);
+    $validation = $this->validateDraft($draft_id);
+    $status = $this->summarizeDraftState($draft, $validation);
+    $this->storeLatestDraftStatus($draft_id, (int) $draft['revision'], $status, $validation);
     return $status;
   }
 
@@ -1374,6 +1375,20 @@ class StorylineAuthoringDraftService {
       return NULL;
     }
     return $snapshot['status'];
+  }
+
+  public function latestDraftValidation(string $draft_id, ?int $revision = NULL): ?array {
+    if ($this->state === NULL) {
+      return NULL;
+    }
+    $snapshot = $this->state->get($this->statusStateKey($draft_id));
+    if (!is_array($snapshot) || !is_array($snapshot['validation'] ?? NULL)) {
+      return NULL;
+    }
+    if ($revision !== NULL && (int) ($snapshot['revision'] ?? -1) !== $revision) {
+      return NULL;
+    }
+    return $snapshot['validation'];
   }
 
   /**
@@ -1406,7 +1421,7 @@ class StorylineAuthoringDraftService {
     ];
   }
 
-  private function storeLatestDraftStatus(string $draft_id, int $revision, array $status): void {
+  private function storeLatestDraftStatus(string $draft_id, int $revision, array $status, array $validation): void {
     if ($this->state === NULL) {
       return;
     }
@@ -1414,6 +1429,7 @@ class StorylineAuthoringDraftService {
       'revision' => $revision,
       'refreshed_at' => $this->time->getRequestTime(),
       'status' => $status,
+      'validation' => $validation,
     ]);
   }
 
