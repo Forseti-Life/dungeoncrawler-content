@@ -590,6 +590,45 @@ class DungeonEditorShellContractTest extends TestCase {
   }
 
   /**
+   * Runtime projection exposes both directions only when the link is marked
+   * bidirectional.
+   */
+  public function testRuntimeConnectorTraversalHonorsDirection(): void {
+    $reflection = new \ReflectionClass(\Drupal\dungeoncrawler_content\Service\RuntimeGraphAssemblerService::class);
+    $assembler = $reflection->newInstanceWithoutConstructor();
+    $build_connection = $reflection->getMethod('buildConnectionPayload');
+    $build_room_exits = $reflection->getMethod('buildRoomExitPayloadsByRoom');
+
+    $row = [
+      'connection_id' => 'link-1',
+      'dungeon_id' => 'fixture',
+      'from_room_id' => 'room-a',
+      'to_room_id' => 'room-b',
+      'from_hex_q' => 0,
+      'from_hex_r' => 0,
+      'to_hex_q' => 1,
+      'to_hex_r' => 0,
+      'direction' => 'bidirectional',
+      'is_passable' => TRUE,
+      'is_discovered' => TRUE,
+      'kind' => 'door',
+    ];
+
+    $connection = $build_connection->invoke($assembler, $row, [], [], 'fixture');
+    $this->assertTrue($connection['bidirectional']);
+    $bidirectional = $build_room_exits->invoke($assembler, [$connection], ['room-a' => 'Room A', 'room-b' => 'Room B']);
+    $this->assertSame(['room-b'], array_column($bidirectional['room-a'], 'target_room_id'));
+    $this->assertSame(['room-a'], array_column($bidirectional['room-b'], 'target_room_id'));
+
+    $row['direction'] = 'one_way';
+    $connection = $build_connection->invoke($assembler, $row, [], [], 'fixture');
+    $this->assertFalse($connection['bidirectional']);
+    $one_way = $build_room_exits->invoke($assembler, [$connection], ['room-a' => 'Room A', 'room-b' => 'Room B']);
+    $this->assertArrayHasKey('room-a', $one_way);
+    $this->assertArrayNotHasKey('room-b', $one_way);
+  }
+
+  /**
    * Regions reference placements and nothing else.
    */
   public function testRegionRules(): void {

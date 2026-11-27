@@ -189,8 +189,11 @@ export class DungeonEditorShell {
     this._windowUp = (event) => this._onDragEnd(event);
     this._keydown = (event) => this._onKeydown(event);
     this._linkMove = (event) => this._onLinkPointerMove(event);
-    /** Kind, direction and state of the last link this author created. */
-    this._lastLinkChoice = {};
+    /** Kind, direction and state for the next link; only kind stays explicit. */
+    this._lastLinkChoice = {
+      direction: 'bidirectional',
+      default_state: 'open',
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -1976,8 +1979,7 @@ export class DungeonEditorShell {
   }
 
   /**
-   * Kind, direction and default state are required by the contract and have
-   * no defaults; the form starts empty and the server refuses guesses.
+   * Kind remains explicit; ordinary links start open and bidirectional.
    */
   _renderPendingLinkInspector(body) {
     const { exit: from, entry: to } = this._linkEnds();

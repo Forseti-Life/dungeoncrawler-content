@@ -49,6 +49,14 @@ function shell() {
   return editor;
 }
 
+test('new links default to open bidirectional travel', () => {
+  const editor = new DungeonEditorShell({}, {});
+  assert.deepEqual(editor._lastLinkChoice, {
+    direction: 'bidirectional',
+    default_state: 'open',
+  });
+});
+
 test('rooms that are far apart can be connected from either end', () => {
   const editor = shell();
   editor._handlePortClick({ placementId: 'b', portId: 'west', button: 0 });

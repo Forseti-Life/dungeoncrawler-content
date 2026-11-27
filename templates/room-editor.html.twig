@@ -314,12 +314,12 @@
                   { symbol: 'token', fill: '#94a3b8', line: '#ffffff', label: 'White outline: selected'|t }
                 ] },
                 { title: 'Doorways'|t, items: [
-                  { symbol: 'triangle', fill: '#38bdf8', label: 'Entry port (a way into the room)'|t },
-                  { symbol: 'square', fill: '#2563eb', label: 'Exit port (a way out of the room)'|t }
+                  { symbol: 'triangle', fill: '#38bdf8', label: 'Entry port (destination endpoint for a new connection)'|t },
+                  { symbol: 'square', fill: '#2563eb', label: 'Exit port (source endpoint for a new connection)'|t }
                 ] }
               ],
             } only %}
-            <p class="room-editor__hint">{{ 'Select an object, then Turn left or Turn right above the map (or [ and ]) to change which way it faces; drag it to move it. Contents with artwork show their picture instead of a lettered token. The notch or white pip on a token shows which way it faces. Doorways sit on the edge of their hex; the Dungeon Editor connects an exit of one room to an entry of another.'|t }}</p>
+            <p class="room-editor__hint">{{ 'Select an object, then Turn left or Turn right above the map (or [ and ]) to change which way it faces; drag it to move it. Contents with artwork show their picture instead of a lettered token. The notch or white pip on a token shows which way it faces. Doorways sit on the edge of their hex. The Dungeon Editor connects an exit endpoint to an entry endpoint; bidirectional connections allow travel between the rooms in both directions, while one-way is a special explicit choice.'|t }}</p>
           </div>
 
 
