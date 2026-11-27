@@ -1435,11 +1435,7 @@ class HexMapController extends ControllerBase {
           $requested_or_active_room_id = $requested_room_id !== ''
             ? $requested_room_id
             : trim((string) ($decoded['active_room_id'] ?? ''));
-          if (
-            !$used_fallback_dungeon
-            && $requested_or_active_room_id !== ''
-            && !$this->dungeonPayloadContainsRoom($decoded, $requested_or_active_room_id)
-          ) {
+          if (!$used_fallback_dungeon && $requested_or_active_room_id !== '') {
             $this->eagerlyInstantiateCanonicalRoomNeighborhood((int) $campaign_id, $decoded, $requested_or_active_room_id, 1);
             $this->persistCampaignDungeonPayloadIfChanged(
               (int) ($row['id'] ?? 0),

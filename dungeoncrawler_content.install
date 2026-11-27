@@ -7172,3 +7172,111 @@ function dungeoncrawler_content_update_10236(): string {
     count($rows),
   );
 }
+
+/**
+ * Projects implicit district street-to-building connectors for existing data.
+ */
+function dungeoncrawler_content_update_10237(): string {
+  $database = \Drupal::database();
+  $projector = \Drupal::service('dungeoncrawler_content.connector_projection');
+  $navigation_runtime = \Drupal::service('dungeoncrawler_content.navigation_runtime');
+  $now = \Drupal::time()->getRequestTime();
+  $districts = 0;
+  $connectors = 0;
+
+  $rows = $database->select('dungeoncrawler_content_dungeons', 'd')
+    ->fields('d', ['dungeon_id', 'dungeon_data'])
+    ->execute();
+  foreach ($rows as $row) {
+    $aggregate = json_decode((string) $row->dungeon_data, TRUE, 512, JSON_THROW_ON_ERROR);
+    if (!is_array($aggregate) || ($aggregate['kind'] ?? 'dungeon') !== 'district') {
+      continue;
+    }
+
+    $projected = array_values(array_filter(
+      $projector->project((string) $row->dungeon_id, $aggregate),
+      static fn(array $connector): bool => str_starts_with((string) ($connector['connection_id'] ?? ''), 'district-entry-'),
+    ));
+    $transaction = $database->startTransaction();
+    try {
+      $database->delete('dungeoncrawler_content_connections')
+        ->condition('dungeon_id', (string) $row->dungeon_id)
+        ->condition('connection_id', 'district-entry-%', 'LIKE')
+        ->execute();
+      foreach ($projected as $connector) {
+        $database->insert('dungeoncrawler_content_connections')
+          ->fields($connector + ['created' => $now, 'updated' => $now])
+          ->execute();
+      }
+      unset($transaction);
+    }
+    catch (\Throwable $exception) {
+      if (isset($transaction)) {
+        $transaction->rollBack();
+      }
+      throw $exception;
+    }
+
+    $districts++;
+    $connectors += count($projected);
+  }
+
+  $district_ids = [];
+  $district_dungeon_rows = $database->select('dungeoncrawler_content_dungeons', 'd')
+    ->fields('d', ['dungeon_id', 'dungeon_data'])
+    ->execute();
+  foreach ($district_dungeon_rows as $row) {
+    $aggregate = json_decode((string) $row->dungeon_data, TRUE);
+    if (is_array($aggregate) && ($aggregate['kind'] ?? 'dungeon') === 'district') {
+      $district_ids[] = (string) $row->dungeon_id;
+    }
+  }
+
+  $district_campaigns = 0;
+  if ($district_ids !== []) {
+    $campaign_rows = $database->select('dc_campaign_dungeons', 'd')
+      ->fields('d', ['id', 'campaign_id', 'dungeon_id', 'dungeon_data'])
+      ->condition('dungeon_id', $district_ids, 'IN')
+      ->execute();
+    foreach ($campaign_rows as $row) {
+      $dungeon_data = json_decode((string) $row->dungeon_data, TRUE, 512, JSON_THROW_ON_ERROR);
+      if (!is_array($dungeon_data)) {
+        throw new \RuntimeException('district_campaign_payload_invalid:' . $row->id);
+      }
+      $before = (string) $row->dungeon_data;
+      $root_room_ids = [];
+      foreach ((array) ($dungeon_data['rooms'] ?? []) as $room) {
+        if (is_array($room) && trim((string) ($room['room_id'] ?? '')) !== '') {
+          $root_room_ids[] = trim((string) $room['room_id']);
+        }
+      }
+      $active_room_id = trim((string) ($dungeon_data['active_room_id'] ?? $dungeon_data['current_room_id'] ?? ''));
+      if ($active_room_id !== '') {
+        $root_room_ids[] = $active_room_id;
+      }
+      foreach (array_values(array_unique($root_room_ids)) as $root_room_id) {
+        $navigation_runtime->expandCanonicalRoomNeighborhood(
+          (int) $row->campaign_id,
+          $dungeon_data,
+          $root_room_id,
+          1,
+        );
+      }
+      $encoded = json_encode($dungeon_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+      if ($encoded !== $before) {
+        $database->update('dc_campaign_dungeons')
+          ->fields(['dungeon_data' => $encoded, 'updated' => $now])
+          ->condition('id', (int) $row->id)
+          ->execute();
+      }
+      $district_campaigns++;
+    }
+  }
+
+  return sprintf(
+    'Projected %d implicit bidirectional district street connectors across %d district dungeons and refreshed %d district campaign neighborhood(s).',
+    $connectors,
+    $districts,
+    $district_campaigns,
+  );
+}
