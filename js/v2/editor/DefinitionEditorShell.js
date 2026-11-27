@@ -13,7 +13,7 @@ import {
   renderEditorGmToolset,
   selectEditorGmTool,
   shouldSubmitEditorGmKey,
-} from './EditorGmChatClient.js?v=20261119-creature-fold-1';
+} from './EditorGmChatClient.js?v=20261127-shared-images-1';
 
 function makeEl(tag, className = null, text = null) {
   const el = document.createElement(tag);

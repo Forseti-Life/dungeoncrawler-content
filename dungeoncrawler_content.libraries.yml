@@ -23,6 +23,7 @@ spellcatalogue:
     - core/drupal
 
 character-sheet:
+  version: 20261127-image-versions-1
   css:
     theme:
       css/character-sheet.css: {}
@@ -131,7 +132,7 @@ gm-storyline-scene-review:
       css/gm-storyline-scene-review.css: {}
 
 gm-storyline-builder:
-  version: 20261126-institution-images-1
+  version: 20261127-shared-images-1
   js:
     js/gm-storyline-builder.js: { attributes: { type: module } }
   dependencies:
@@ -270,7 +271,7 @@ hexmap-v2:
     - core/once
 
 room-editor:
-  version: 20261126-room-metadata-1
+  version: 20261127-shared-images-1
   js:
     https://cdn.jsdelivr.net/npm/pixi.js@7.3.2/dist/pixi.min.js: { type: external, minified: true }
     js/room-editor.js: { attributes: { type: module } }
@@ -285,6 +286,7 @@ room-editor:
     - core/drupal
     - core/drupalSettings
     - core/once
+    - dungeoncrawler_content/object-image-panel
 
 editor-library:
   version: 20261118-1
@@ -339,7 +341,7 @@ module-explorer:
     - core/once
 
 dungeon-editor:
-  version: 20261126-room-metadata-1
+  version: 20261127-shared-images-1
   js:
     https://cdn.jsdelivr.net/npm/pixi.js@7.3.2/dist/pixi.min.js: { type: external, minified: true }
     js/dungeon-editor.js: { attributes: { type: module } }
@@ -357,7 +359,7 @@ dungeon-editor:
     - core/once
 
 definition-editor:
-  version: 20261119-creature-fold-1
+  version: 20261127-shared-images-1
   js:
     js/definition-editor.js: { attributes: { type: module } }
   css:
@@ -370,6 +372,18 @@ definition-editor:
     - dungeoncrawler_content/editor-gm-chat-style
     - core/drupal
     - core/drupalSettings
+    - core/once
+    - dungeoncrawler_content/object-image-panel
+
+object-image-panel:
+  version: 20261127-1
+  js:
+    js/object-image-panel.js: {}
+  css:
+    theme:
+      css/object-image-panel.css: {}
+  dependencies:
+    - core/drupal
     - core/once
 
 credits:
@@ -423,6 +437,7 @@ dungeon-analysis:
     - core/drupal
     - core/drupalSettings
     - core/once
+    - dungeoncrawler_content/object-image-panel
 
 item-explorer:
   css:

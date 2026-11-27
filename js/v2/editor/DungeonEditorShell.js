@@ -28,8 +28,8 @@
  * Publication is available only through the server readiness and publish routes.
  */
 
-import { GameEventBus } from '../GameEventBus.js?v=20261126-room-metadata-1';
-import { HexCanvas } from '../canvas/HexCanvas.js?v=20261126-room-metadata-1';
+import { GameEventBus } from '../GameEventBus.js?v=20261127-shared-images-1';
+import { HexCanvas } from '../canvas/HexCanvas.js?v=20261127-shared-images-1';
 import './placementTransform.js?v=20260908g1';
 import {
   appendEditorGmMessage,
@@ -44,8 +44,8 @@ import {
   restoreEditorGmConversation,
   selectEditorGmTool,
   shouldSubmitEditorGmKey,
-} from './EditorGmChatClient.js?v=20261126-room-metadata-1';
-import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261126-room-metadata-1';
+} from './EditorGmChatClient.js?v=20261127-shared-images-1';
+import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261127-shared-images-1';
 
 const transform = globalThis.DungeonCrawlerPlacementTransform;
 if (!transform) {
@@ -417,6 +417,7 @@ export class DungeonEditorShell {
       placeStatus: q('[data-dungeon-editor-place-status]'),
       placeVersion: q('[data-dungeon-editor-place-version]'),
       placeVersionField: q('[data-dungeon-editor-place-version-field]'),
+      placePromote: q('[data-dungeon-editor-place-promote]'),
       placeImageBtn: q('[data-dungeon-editor-action="place-image"]'),
       revision: q('[data-dungeon-editor-revision]'),
       dungeonSelect: q('[data-dungeon-editor-dungeon-select]'),
@@ -489,6 +490,7 @@ export class DungeonEditorShell {
         if (this._dom.placeStatus) this._dom.placeStatus.textContent = `Showing image ${option.textContent}.`;
       }
     });
+    this._dom.placePromote?.addEventListener('click', () => this._promotePlaceImage());
     this._dom.dungeonSelect?.addEventListener('change', () => this._syncDungeonLoadState());
     this._dom.loadBtn?.addEventListener('click', () => {
       const id = this._dom.dungeonSelect?.value || '';
@@ -1222,6 +1224,7 @@ export class DungeonEditorShell {
       const option = document.createElement('option');
       option.value = String(version.image_id || version.image_uuid || version.version_number || '');
       option.dataset.url = String(version.url);
+      option.dataset.imageUuid = String(version.image_uuid || '');
       const number = Number(version.version_number || 1);
       const created = Number(version.created || 0);
       const date = created ? new Date(created * 1000).toLocaleString() : '';
@@ -1229,10 +1232,26 @@ export class DungeonEditorShell {
       select.appendChild(option);
     }
     field.hidden = list.length < 2;
+    if (this._dom.placePromote) this._dom.placePromote.hidden = list.length < 2;
     if (list.length) {
       const match = list.find((item) => item.url === selectedUrl) || list[0];
       select.value = String(match.image_id || match.image_uuid || match.version_number || '');
     }
+  }
+
+  async _promotePlaceImage() {
+    const imageUuid = this._dom.placeVersion?.selectedOptions?.[0]?.dataset?.imageUuid;
+    const template = String(this.urls.objectImage || '');
+    const dungeonId = String(this.draft?.dungeon?.dungeon_id || this.model?.dungeon_id || '');
+    if (!imageUuid || !template || !dungeonId) return;
+    const response = await this._postJson(
+      template.replace('{kind}', 'dungeon').replace('{object_id}', encodeURIComponent(dungeonId)),
+      { action: 'promote', image_uuid: imageUuid },
+    );
+    const url = String(response?.data?.preview_url || '');
+    this._renderPlaceImageVersions(response?.data?.versions || [], url);
+    if (url && this._dom.placeImage) this._dom.placeImage.src = url;
+    if (this._dom.placeStatus) this._dom.placeStatus.textContent = 'Selected dungeon image is now current as a new version.';
   }
 
   _dungeonOption(dungeonId) {

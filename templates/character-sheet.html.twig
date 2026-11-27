@@ -71,6 +71,16 @@
         {% elseif character.status == 'dead' %}
           <div class="dc-sheet__status-dead">☠️ FALLEN</div>
         {% endif %}
+        {% if character.portrait_versions|length > 1 %}
+          <label class="dc-sheet__portrait-version">
+            Portrait version
+            <select data-dc-portrait-version>
+              {% for version in character.portrait_versions %}
+                <option value="{{ version.url }}"{% if version.is_primary %} selected{% endif %}>Version {{ version.version_number }}{% if version.is_primary %} (current){% endif %}</option>
+              {% endfor %}
+            </select>
+          </label>
+        {% endif %}
       </div>
 
       {% if portrait_upload_form or portrait_regenerate_form %}

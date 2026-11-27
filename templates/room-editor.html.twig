@@ -126,6 +126,7 @@
             <label class="room-editor__field" data-room-editor-place-version-field hidden>
               {{ 'Image version'|t }}
               <select data-room-editor-place-version aria-label="{{ 'Room image version'|t }}"></select>
+              <button type="button" class="room-editor__button" data-room-editor-place-promote hidden>{{ 'Use selected as current'|t }}</button>
             </label>
             <button type="button" class="room-editor__button room-editor__button--primary" data-room-editor-action="place-image">{{ 'Generate / Regenerate image'|t }}</button>
           </div>
@@ -260,6 +261,19 @@
               <button type="button" data-room-editor-tool="place" aria-pressed="false">{{ 'Place'|t }}</button>
               <button type="button" data-room-editor-tool="entry_port" aria-pressed="false">{{ 'Entry Port'|t }}</button>
               <button type="button" data-room-editor-tool="exit_port" aria-pressed="false">{{ 'Exit Port'|t }}</button>
+            </div>
+          </section>
+
+          <section class="room-editor__drawer-section object-image-panel" data-room-editor-terrain-image-panel data-object-image-panel>
+            <p class="room-editor__eyebrow">{{ 'Terrain image'|t }}</p>
+            <img class="object-image-panel__preview" data-object-image-preview alt="{{ 'Terrain tile preview'|t }}" hidden>
+            <p data-object-image-placeholder>{{ 'Choose a terrain and generate its shared tile image.'|t }}</p>
+            <p data-object-image-status aria-live="polite">{{ 'Loading terrain image…'|t }}</p>
+            <div class="object-image-panel__actions">
+              <textarea data-object-image-prompt rows="2" placeholder="{{ 'Optional terrain generation prompt'|t }}"></textarea>
+              <select data-object-image-version aria-label="{{ 'Terrain image version'|t }}"></select>
+              <button type="button" class="room-editor__button" data-object-image-promote>{{ 'Use selected as current'|t }}</button>
+              <button type="button" class="room-editor__button room-editor__button--primary" data-object-image-generate>{{ 'Generate / Regenerate terrain tile'|t }}</button>
             </div>
           </section>
 

@@ -32,9 +32,9 @@
 
 /* global PIXI */
 
-import { GameEventBus } from '../GameEventBus.js?v=20261126-room-metadata-1';
-import { HexCanvas } from '../canvas/HexCanvas.js?v=20261126-room-metadata-1';
-import { SpriteService } from '../../SpriteService.js?v=20261126-room-metadata-1';
+import { GameEventBus } from '../GameEventBus.js?v=20261127-shared-images-1';
+import { HexCanvas } from '../canvas/HexCanvas.js?v=20261127-shared-images-1';
+import { SpriteService } from '../../SpriteService.js?v=20261127-shared-images-1';
 import {
   appendEditorGmMessage,
   bindEditorGmPrompts,
@@ -48,8 +48,8 @@ import {
   restoreEditorGmConversation,
   selectEditorGmTool,
   shouldSubmitEditorGmKey,
-} from './EditorGmChatClient.js?v=20261126-room-metadata-1';
-import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261126-room-metadata-1';
+} from './EditorGmChatClient.js?v=20261127-shared-images-1';
+import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261127-shared-images-1';
 
 const FAMILIES = ['actor', 'item', 'obstacle', 'trap', 'hazard'];
 const SOLID_FAMILIES = ['actor', 'obstacle'];
@@ -316,6 +316,7 @@ export class RoomEditorShell {
       placeStatus: q('[data-room-editor-place-status]'),
       placeVersion: q('[data-room-editor-place-version]'),
       placeVersionField: q('[data-room-editor-place-version-field]'),
+      placePromote: q('[data-room-editor-place-promote]'),
       placeImageBtn: q('[data-room-editor-action="place-image"]'),
       metadataForm: q('[data-room-editor-metadata-form]'),
       metadataElevation: q('[data-room-editor-meta-elevation]'),
@@ -334,6 +335,7 @@ export class RoomEditorShell {
       publishNote: q('[data-room-editor-publish-note]'),
       toolbar: q('[data-room-editor-toolbar]'),
       terrainValue: q('[data-room-editor-terrain-value]'),
+      terrainImagePanel: q('[data-room-editor-terrain-image-panel]'),
       elevationValue: q('[data-room-editor-elevation-value]'),
       canvasContainer: q('[data-room-editor-canvas]'),
       catalogSearch: q('[data-room-editor-catalog-search]'),
@@ -381,6 +383,10 @@ export class RoomEditorShell {
     TERRAIN_TYPES.forEach((value) => {
       this._dom.terrainValue?.appendChild(makeOption(value, value.replace(/_/g, ' '), value === 'stone_floor'));
     });
+    this._dom.terrainValue?.addEventListener('change', () => {
+      this._syncTerrainImagePanel(this._dom.terrainValue.value);
+    });
+    this._syncTerrainImagePanel(this._dom.terrainValue?.value || 'stone_floor');
     const populate = (selector, values) => {
       const select = this._dom.metadataForm?.querySelector(selector);
       if (!select) return;
@@ -389,6 +395,17 @@ export class RoomEditorShell {
     populate('[data-room-editor-meta="room_type"]', ROOM_TYPES);
     populate('[data-room-editor-meta="size_category"]', SIZE_CATEGORIES);
     populate('[data-room-editor-meta="terrain_type"]', TERRAIN_TYPES);
+  }
+
+  _syncTerrainImagePanel(terrainType) {
+    const panel = this._dom.terrainImagePanel;
+    const template = String(this.urls.objectImage || '');
+    if (!panel || !template) return;
+    panel.dataset.endpoint = template
+      .replace('{kind}', 'terrain')
+      .replace('{object_id}', encodeURIComponent(terrainType));
+    panel.dataset.csrfToken = this.settings.csrfToken || '';
+    Drupal.dungeoncrawlerObjectImagePanel?.refresh(panel);
   }
 
   _bindHeaderEvents() {
@@ -406,6 +423,7 @@ export class RoomEditorShell {
         this._dom.placeStatus.textContent = `Showing image ${option.textContent}.`;
       }
     });
+    this._dom.placePromote?.addEventListener('click', () => this._promotePlaceImage());
     this._dom.metadataForm?.addEventListener('submit', (event) => {
       event.preventDefault();
       this._saveRoomMetadata();
@@ -1739,12 +1757,29 @@ export class RoomEditorShell {
       const date = created ? new Date(created * 1000).toLocaleString() : '';
       option.textContent = `Version ${number}${version.is_primary ? ' (current)' : ''}${date ? ` - ${date}` : ''}`;
       select.appendChild(option);
+      option.dataset.imageUuid = String(version.image_uuid || '');
     }
     field.hidden = list.length < 2;
+    if (this._dom.placePromote) this._dom.placePromote.hidden = list.length < 2;
     if (list.length) {
       const match = list.find((item) => item.url === selectedUrl) || list[0];
       select.value = String(match.image_id || match.image_uuid || match.version_number || '');
     }
+  }
+
+  async _promotePlaceImage() {
+    const imageUuid = this._dom.placeVersion?.selectedOptions?.[0]?.dataset?.imageUuid;
+    const template = String(this.urls.objectImage || '');
+    const roomId = String(this.draft?.room?.room_id || '');
+    if (!imageUuid || !template || !roomId) return;
+    const response = await this._postJson(
+      template.replace('{kind}', 'room').replace('{object_id}', encodeURIComponent(roomId)),
+      { action: 'promote', image_uuid: imageUuid },
+    );
+    const url = String(response?.data?.preview_url || '');
+    this._renderPlaceImageVersions(response?.data?.versions || [], url);
+    if (url && this._dom.placeImage) this._dom.placeImage.src = url;
+    this._dom.placeStatus.textContent = 'Selected room image is now current as a new version.';
   }
 
   // ---------------------------------------------------------------------------

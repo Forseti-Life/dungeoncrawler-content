@@ -160,6 +160,16 @@
         var trigger = sheet.querySelector('[data-dc-portrait-trigger]');
         var viewer = sheet.querySelector('[data-dc-portrait-viewer]');
         var close = viewer ? viewer.querySelector('[data-dc-portrait-close]') : null;
+        var versions = sheet.querySelector('[data-dc-portrait-version]');
+        if (versions) {
+          versions.addEventListener('change', function () {
+            var url = versions.value;
+            var preview = sheet.querySelector('.dc-sheet__portrait');
+            var full = sheet.querySelector('.dc-sheet__portrait-viewer-image');
+            if (preview) preview.src = url;
+            if (full) full.src = url;
+          });
+        }
 
         if (!trigger || !viewer || !close) {
           return;

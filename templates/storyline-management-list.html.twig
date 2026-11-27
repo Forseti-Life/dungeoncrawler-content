@@ -44,9 +44,13 @@
             {% endif %}
             <a href="{{ storyline.edit_url }}" class="dc-character-card__main-link">
               <div class="dc-character-card__portrait">
-                <div class="dc-character-card__portrait-placeholder">
-                  <span class="dc-character-card__initial">{{ storyline.name|first|upper }}</span>
-                </div>
+                {% if storyline.cover_url %}
+                  <img src="{{ storyline.cover_url }}" alt="{{ storyline.name }} cover">
+                {% else %}
+                  <div class="dc-character-card__portrait-placeholder">
+                    <span class="dc-character-card__initial">{{ storyline.name|first|upper }}</span>
+                  </div>
+                {% endif %}
                 <div class="dc-character-card__status-badge">{{ storyline.has_working_draft ? 'Published + Draft' : (storyline.status == 'draft' ? 'Draft' : 'Published') }}</div>
               </div>
               <div class="dc-character-card__info">

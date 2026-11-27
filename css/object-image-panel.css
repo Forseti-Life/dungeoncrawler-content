@@ -1,0 +1,16 @@
+.object-image-panel {
+  padding: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.object-image-panel__preview {
+  max-width: 100%;
+  max-height: 24rem;
+  object-fit: contain;
+}
+
+.object-image-panel__actions {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}

@@ -7,6 +7,7 @@ use Drupal\Core\Database\Connection;
 use Drupal\Core\Url;
 use Drupal\dungeoncrawler_content\Service\StorylineAuthoringDraftService;
 use Drupal\dungeoncrawler_content\Service\StorylineManagerService;
+use Drupal\dungeoncrawler_content\Service\ObjectImageService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
@@ -21,6 +22,7 @@ class StorylineManagementController extends ControllerBase {
     protected Connection $database,
     protected StorylineManagerService $storylineManager,
     protected StorylineAuthoringDraftService $drafts,
+    protected ?ObjectImageService $objectImages = NULL,
   ) {}
 
   /**
@@ -31,6 +33,7 @@ class StorylineManagementController extends ControllerBase {
       $container->get('database'),
       $container->get('dungeoncrawler_content.storyline_manager'),
       $container->get('dungeoncrawler_content.storyline_authoring_drafts'),
+      $container->get('dungeoncrawler_content.object_image'),
     );
   }
 
@@ -63,6 +66,7 @@ class StorylineManagementController extends ControllerBase {
           ? $this->drafts->findLatestDraftForTemplate($template_id, FALSE)
           : NULL;
         $completeness = NULL;
+        $cover_url = '';
         if ($can_edit_storylines && $latest_status_draft !== NULL && !empty($latest_status_draft['draft_id'])) {
           $snapshot = $this->drafts->latestDraftStatus(
             (string) $latest_status_draft['draft_id'],
@@ -71,6 +75,11 @@ class StorylineManagementController extends ControllerBase {
           $completeness = is_array($snapshot)
             ? $this->completenessFromDraftStatus($snapshot)
             : NULL;
+          $cover_versions = $this->objectImages?->versions(
+            'storyline',
+            (string) $latest_status_draft['draft_id'],
+          ) ?? [];
+          $cover_url = (string) ($cover_versions[0]['url'] ?? '');
         }
         $is_mine = $this->isTemplateAuthoredByCurrentUser($template, $uid);
         $can_manage_template = $is_mine || $can_admin_storylines;
@@ -89,6 +98,7 @@ class StorylineManagementController extends ControllerBase {
           'source' => (string) ($template['source'] ?? ''),
           'based_on' => (string) ($template_names[$template['template_data']['metadata']['source_template_id'] ?? ''] ?? ''),
           'goal' => (string) ($template['synopsis'] ?? ''),
+          'cover_url' => $cover_url,
           'updated' => !empty($latest_draft['updated_at'])
             ? date('M j, Y g:i a', (int) $latest_draft['updated_at'])
             : (!empty($template['updated_at']) ? date('M j, Y', (int) $template['updated_at']) : ''),
@@ -149,6 +159,7 @@ class StorylineManagementController extends ControllerBase {
           'revision_count' => (int) ($draft['revision_count'] ?? 1),
           'status' => (string) ($draft['status'] ?? 'editing'),
           'updated' => !empty($draft['updated_at']) ? date('M j, Y g:i a', (int) $draft['updated_at']) : '',
+          'cover_url' => (string) (($this->objectImages?->versions('storyline', $draft_id)[0]['url'] ?? '') ?: ''),
           'current_state' => is_array($draft['current_state'] ?? NULL) ? $draft['current_state'] : NULL,
           'edit_url' => Url::fromRoute('dungeoncrawler_content.gm_storyline_builder', [], [
             'query' => ['draft_id' => $draft_id],
@@ -191,6 +202,7 @@ class StorylineManagementController extends ControllerBase {
         'draft_status' => $draft['status'],
         'template_id' => '',
         'goal' => '',
+        'cover_url' => $draft['cover_url'],
         'source' => '',
         'based_on' => $draft['based_on'],
         'updated_by_name' => $draft['updated_by_name'],

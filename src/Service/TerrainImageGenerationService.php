@@ -77,7 +77,7 @@ class TerrainImageGenerationService {
         $linkContext['slot'] ?? NULL,
         $linkContext['variant'] ?? NULL
       );
-      if (!empty($existing)) {
+      if (!empty($existing) && empty($options['force_regenerate'])) {
         $url = $this->generatedImageRepository->resolveClientUrl($existing[0]);
         $this->logger->info('Terrain image already exists for @table/@id (slot=@slot), skipping generation.', [
           '@table' => $linkContext['table_name'],

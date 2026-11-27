@@ -8,6 +8,7 @@ use Drupal\Core\File\FileUrlGeneratorInterface;
 use Drupal\Core\File\FileSystemInterface;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\Component\Uuid\UuidInterface;
+use Drupal\file\FileInterface;
 
 /**
  * Repository for generated image records and object links.
@@ -219,6 +220,168 @@ class GeneratedImageRepository {
         'file_uri' => $resolved['file_uri'] ?? '',
       ]),
     ] + ($link_result ?? []);
+  }
+
+  /**
+   * Persists an uploaded image through the same versioned object-link path.
+   */
+  public function persistUploadedImage(FileInterface $file, array $link_context = []): array {
+    $uri = trim((string) $file->getFileUri());
+    if ($uri === '') {
+      return ['stored' => FALSE, 'reason' => 'uploaded_file_unreadable'];
+    }
+    $binary = file_get_contents($uri);
+    if (!is_string($binary) || $binary === '') {
+      return ['stored' => FALSE, 'reason' => 'uploaded_file_empty'];
+    }
+    $mime_type = trim((string) ($file->getMimeType() ?? ''));
+    if (!in_array($mime_type, ['image/png', 'image/jpeg', 'image/webp', 'image/gif'], TRUE)) {
+      return ['stored' => FALSE, 'reason' => 'uploaded_image_type_invalid'];
+    }
+    return $this->persistGeneratedImage([
+      'success' => TRUE,
+      'provider' => 'upload',
+      'provider_model' => 'user-upload',
+      'mode' => 'upload',
+      'payload' => [
+        'requested_by_uid' => (int) ($link_context['owner_uid'] ?? 0),
+        'prompt' => 'Uploaded image: ' . (string) $file->getFilename(),
+        'campaign_context' => 'user_upload',
+      ],
+      'output' => [
+        'image_data_uri' => 'data:' . $mime_type . ';base64,' . base64_encode($binary),
+        'mime_type' => $mime_type,
+      ],
+    ], $link_context);
+  }
+
+  /**
+   * Ensures one forward-moving primary after a version is selected.
+   */
+  public function archiveObjectImages(
+    string $table_name,
+    string $object_id,
+    ?int $campaign_id,
+    string $slot,
+    string $variant,
+    ?int $except_image_id = NULL,
+  ): int {
+    $query = $this->database->update('dc_generated_image_links')
+      ->fields(['is_primary' => 0, 'updated' => $this->time->getCurrentTime()])
+      ->condition('table_name', $table_name)
+      ->condition('object_id', $object_id)
+      ->condition('slot', $slot)
+      ->condition('variant', $variant);
+    if ($campaign_id === NULL) {
+      $query->condition('campaign_id', NULL, 'IS NULL');
+    }
+    else {
+      $query->condition('campaign_id', $campaign_id);
+    }
+    if ($except_image_id !== NULL) {
+      $query->condition('image_id', $except_image_id, '<>');
+    }
+    return (int) $query->execute();
+  }
+
+  /**
+   * Rolls an existing immutable image forward as a new primary link version.
+   */
+  public function promoteImageVersion(
+    string $table_name,
+    string $object_id,
+    ?int $campaign_id,
+    string $slot,
+    string $variant,
+    string $image_uuid,
+    string $scope_type = 'global',
+    string $visibility = 'owner',
+  ): array {
+    $image = $this->loadImageByUuid($image_uuid);
+    if ($image === NULL) {
+      throw new \OutOfBoundsException('image_not_found');
+    }
+    $links = $this->loadLinksForImageId((int) $image['id']);
+    $source_link = NULL;
+    foreach ($links as $link) {
+      if ((string) ($link['table_name'] ?? '') === $table_name
+        && (string) ($link['object_id'] ?? '') === $object_id
+        && (string) ($link['slot'] ?? '') === $slot
+        && (string) ($link['variant'] ?? '') === $variant
+        && ((int) ($link['campaign_id'] ?? 0) ?: NULL) === $campaign_id) {
+        $source_link = $link;
+        break;
+      }
+    }
+    if ($source_link === NULL) {
+      throw new \DomainException('image_version_not_linked_to_object');
+    }
+    $scope_type = (string) ($source_link['scope_type'] ?? $scope_type);
+    $visibility = (string) ($source_link['visibility'] ?? $visibility);
+    $now = $this->time->getCurrentTime();
+    $transaction = $this->database->startTransaction();
+    try {
+      $latest = $this->database->select('dc_generated_image_links', 'l')
+        ->fields('l', ['version_number'])
+        ->condition('table_name', $table_name)
+        ->condition('object_id', $object_id)
+        ->condition('slot', $slot)
+        ->condition('variant', $variant);
+      if ($campaign_id === NULL) {
+        $latest->condition('campaign_id', NULL, 'IS NULL');
+      }
+      else {
+        $latest->condition('campaign_id', $campaign_id);
+      }
+      $version_number = (int) ($latest
+        ->orderBy('version_number', 'DESC')
+        ->range(0, 1)
+        ->forUpdate()
+        ->execute()
+        ->fetchField() ?: 0) + 1;
+      $demote = $this->database->update('dc_generated_image_links')
+        ->fields(['is_primary' => 0, 'updated' => $now])
+        ->condition('table_name', $table_name)
+        ->condition('object_id', $object_id)
+        ->condition('slot', $slot)
+        ->condition('variant', $variant);
+      if ($campaign_id === NULL) {
+        $demote->condition('campaign_id', NULL, 'IS NULL');
+      }
+      else {
+        $demote->condition('campaign_id', $campaign_id);
+      }
+      $demote->execute();
+      $link_id = $this->database->insert('dc_generated_image_links')
+        ->fields([
+          'image_id' => (int) $image['id'],
+          'scope_type' => $scope_type,
+          'campaign_id' => $campaign_id,
+          'table_name' => $table_name,
+          'object_id' => $object_id,
+          'slot' => $slot,
+          'variant' => $variant,
+          'version_number' => $version_number,
+          'is_primary' => 1,
+          'sort_weight' => 0,
+          'visibility' => $visibility,
+          'created' => $now,
+          'updated' => $now,
+        ])
+        ->execute();
+    }
+    catch (\Throwable $exception) {
+      $transaction->rollBack();
+      throw $exception;
+    }
+    return [
+      'stored' => TRUE,
+      'image_id' => (int) $image['id'],
+      'image_uuid' => $image_uuid,
+      'link_id' => (int) $link_id,
+      'version_number' => $version_number,
+      'url' => $this->resolveClientUrl($image),
+    ];
   }
 
   /**

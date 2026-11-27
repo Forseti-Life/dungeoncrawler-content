@@ -315,6 +315,28 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
         let draftTemplateId = '';
         let draftDirty = false;
         let draftCanEdit = false;
+        function refreshStorylineImagePanel() {
+          const panel = wizard.querySelector('[data-storyline-image-panel]');
+          if (!panel || !draftId || !objectImageUrlTemplate) return;
+          panel.dataset.endpoint = objectImageUrlTemplate
+            .replace('{draft_id}', encodeURIComponent(draftId))
+            .replace('{kind}', 'storyline')
+            .replace('{object_id}', encodeURIComponent(draftId));
+          if (!csrfToken) {
+            fetchCsrfToken()
+              .then(() => {
+                panel.dataset.csrfToken = csrfToken;
+                Drupal.dungeoncrawlerObjectImagePanel?.refresh(panel);
+              })
+              .catch(() => {
+                const status = panel.querySelector('[data-object-image-status]');
+                if (status) status.textContent = 'CSRF token unavailable.';
+              });
+            return;
+          }
+          panel.dataset.csrfToken = csrfToken;
+          Drupal.dungeoncrawlerObjectImagePanel?.refresh(panel);
+        }
         // Actor relationships are managed on the actor graph page; this form
         // carries them through a save untouched.
         let actorRelationships = [];
@@ -793,6 +815,7 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
                   }
                   const source = rowSource.get(row) || {};
                   source.preview_url = body.data.preview_url;
+                  source.image_versions = body.data.versions || [];
                   rowSource.set(row, source);
                   label.textContent = 'Institution image generated.';
                   generate.textContent = 'Regenerate image';
@@ -817,6 +840,18 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
                 : (kind === 'dungeon'
                   ? 'Generate / Regenerate in Dungeon Editor'
                   : 'Generate / Regenerate in Room Editor'));
+            if (kind === 'institution') {
+              const versionSelect = document.createElement('select');
+              versionSelect.className = 'form-select';
+              versionSelect.setAttribute('aria-label', 'Institution image version');
+              versionSelect.dataset.institutionImageVersion = '';
+              versionSelect.hidden = true;
+              versionSelect.addEventListener('change', () => {
+                const image = preview.querySelector('img');
+                if (image) image.src = versionSelect.value;
+              });
+              actions.appendChild(versionSelect);
+            }
             const open = document.createElement('a');
             open.className = 'btn btn-secondary btn-sm';
             open.target = '_blank';
@@ -844,6 +879,36 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
             label.textContent = kind === 'actor'
               ? `Portrait not generated · ${fallbackLabel}`
               : `${kind === 'institution' ? 'Institution' : (kind === 'dungeon' ? 'Dungeon' : 'Room')} preview · ${fallbackLabel}`;
+          }
+          if (kind === 'institution') {
+            const versionSelect = media.querySelector('[data-institution-image-version]');
+            const versions = Array.isArray(source.image_versions) ? source.image_versions : [];
+            versionSelect.replaceChildren();
+            versions.forEach((version) => {
+              const option = document.createElement('option');
+              option.value = version.url;
+              option.textContent = `Version ${version.version_number}${version.is_primary ? ' (current)' : ''}`;
+              versionSelect.appendChild(option);
+            });
+            versionSelect.hidden = versions.length < 2;
+            if (id && !source.image_versions_loaded) {
+              source.image_versions_loaded = true;
+              rowSource.set(row, source);
+              const historyUrl = objectImageUrlTemplate
+                .replace('{draft_id}', encodeURIComponent(draftId))
+                .replace('{kind}', 'institution')
+                .replace('{object_id}', encodeURIComponent(id));
+              fetch(historyUrl, { credentials: 'same-origin' })
+                .then((response) => response.json().catch(() => ({})))
+                .then((body) => {
+                  const latest = rowSource.get(row) || source;
+                  latest.preview_url = body?.data?.preview_url || latest.preview_url || '';
+                  latest.image_versions = body?.data?.versions || [];
+                  rowSource.set(row, latest);
+                  updateCollectionObjectMedia(collection, row, fallbackLabel);
+                })
+                .catch(() => {});
+            }
           }
           media.querySelectorAll('a').forEach((link) => {
             link.href = href || '#';
@@ -1563,6 +1628,7 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
             draftDirty = preserveFields;
             applyDraftOwnershipState();
             updateDraftUrl();
+            refreshStorylineImagePanel();
             if (!preserveFields && queryTemplateId !== '') {
               hydrateFromPayload(draft.payload || {});
             }
@@ -1600,6 +1666,7 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
             draftDirty = false;
             applyDraftOwnershipState();
             updateDraftUrl();
+            refreshStorylineImagePanel();
             hydrateFromPayload(draft.payload || {});
             renderCurrentState(draft.current_state, storylineStatusElements);
             refreshPreview();

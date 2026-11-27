@@ -1168,7 +1168,7 @@ class CanonicalDefinitionService {
       'tags' => array_values(array_filter((array) ($data['tags'] ?? $data['traits'] ?? []), 'is_string')),
       'footprint' => [['q' => 0, 'r' => 0]],
       'visual' => [
-        'sprite_id' => (string) ($visual['sprite_id'] ?? 'generic_' . $family),
+        'sprite_id' => (string) ($visual['sprite_id'] ?? self::defaultSpriteId($family, $id)),
         'color' => (string) ($visual['color'] ?? ''),
       ],
       'placement_constraints' => [
@@ -1183,6 +1183,18 @@ class CanonicalDefinitionService {
         'source_hash' => hash('sha256', $this->encode($data)),
       ],
     ];
+  }
+
+  public static function defaultSpriteId(string $family, string $definition_id): string {
+    $family = strtolower(trim($family));
+    $definition_id = strtolower(trim($definition_id));
+    $raw = trim((string) preg_replace('/[^a-z0-9_-]+/', '_', $family . '_' . $definition_id), '_');
+    if ($raw === '' || strlen($raw) > 99) {
+      $hash = substr(hash('sha256', $family . ':' . $definition_id), 0, 12);
+      $prefix = substr($raw, 0, 86);
+      $raw = trim($prefix, '_') . '_' . $hash;
+    }
+    return $raw !== '' ? $raw : 'generic_' . $family;
   }
 
   /**

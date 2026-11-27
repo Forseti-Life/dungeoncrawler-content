@@ -68,6 +68,14 @@ class RoomEditorController extends ControllerBase {
                 'validate' => str_replace($placeholder, '{draft_id}', Url::fromRoute('dungeoncrawler_content.room_editor_validate', ['draft_id' => $placeholder])->toString()),
                 'publish' => str_replace($placeholder, '{draft_id}', Url::fromRoute('dungeoncrawler_content.room_editor_publish', ['draft_id' => $placeholder])->toString()),
                 'placeImage' => str_replace($placeholder, '{draft_id}', Url::fromRoute('dungeoncrawler_content.room_editor_place_image', ['draft_id' => $placeholder])->toString()),
+                'objectImage' => str_replace(
+                  ['terrain', $definition_placeholder],
+                  ['{kind}', '{object_id}'],
+                  Url::fromRoute('dungeoncrawler_content.object_image', [
+                    'kind' => 'terrain',
+                    'object_id' => $definition_placeholder,
+                  ])->toString(),
+                ),
                 'gm' => str_replace($placeholder, '{draft_id}', Url::fromRoute('dungeoncrawler_content.room_editor_gm_describe', ['draft_id' => $placeholder])->toString()),
                 'gmBootstrap' => Url::fromRoute('dungeoncrawler_content.room_editor_gm_bootstrap_describe')->toString(),
                 'catalog' => Url::fromRoute('dungeoncrawler_content.room_editor_catalog')->toString(),

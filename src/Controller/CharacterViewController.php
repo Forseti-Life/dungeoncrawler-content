@@ -286,6 +286,34 @@ class CharacterViewController extends ControllerBase {
       (string) ($record->portrait ?? ''),
       (string) ($record->instance_id ?? '')
     );
+    $portrait_rows = $this->imageRepository->loadImagesForObject(
+      'dc_campaign_characters',
+      (string) $record->id,
+      $campaign_id > 0 ? $campaign_id : NULL,
+      'portrait',
+      'original',
+    );
+    if ($portrait_rows === []) {
+      $portrait_rows = $this->imageRepository->loadImagesForObject(
+        'dc_campaign_characters',
+        (string) $record->id,
+        NULL,
+        'portrait',
+        'original',
+      );
+    }
+    $portrait_versions = array_values(array_map(
+      fn(array $row): array => [
+        'version_number' => (int) ($row['version_number'] ?? 1),
+        'is_primary' => !empty($row['is_primary']),
+        'url' => (string) ($this->imageRepository->resolveClientUrl($row) ?? ''),
+      ],
+      $portrait_rows,
+    ));
+    $portrait_versions = array_values(array_filter(
+      $portrait_versions,
+      static fn(array $version): bool => $version['url'] !== '',
+    ));
 
     $alignment = (string) ($state_basic_info['alignment'] ?? $char_data['alignment'] ?? '');
     $deity = (string) ($state_basic_info['deity'] ?? $char_data['deity'] ?? '');
@@ -392,6 +420,7 @@ class CharacterViewController extends ControllerBase {
         'hero_points' => $char_data['hero_points'] ?? 1,
         'status' => $record->status ? 'active' : 'incomplete',
         'portrait' => $portrait_url,
+        'portrait_versions' => $portrait_versions,
         'step' => $char_data['step'] ?? 1,
       ],
       '#char_data' => $char_data,

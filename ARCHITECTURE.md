@@ -33,6 +33,35 @@ The numeric actor disposition subsystem is resolver-centric. Institutional effec
 
 Yes — the architecture includes a content generation system, and this section is the authoritative subsystem contract for it.
 
+### Generated image contract
+
+`ImageGenerationIntegrationService` is the single provider boundary and
+`GeneratedImageRepository` is the single persistence/version authority for all
+object images. Generated and uploaded files are immutable image rows; every
+object/slot link carries a monotonically increasing `version_number`, and only
+the newest selected link is primary. Selecting an older image means creating a
+new version from that source, never mutating or deleting history.
+
+The shared `ObjectImageService` maps canonical Actor, Item, Obstacle, Trap,
+Hazard, Terrain, Institution, and Storyline targets onto stable link identities.
+The same contract supports previews, generation, regeneration, upload parity,
+and old-version browsing through `object-image-panel.js`. Room and Dungeon
+editor previews retain their specialized context builders but use the same
+repository/version behavior.
+
+Canonical Item, Obstacle, Trap, and Hazard definitions do not store arbitrary
+new image fields. Their catalog projection uses a deterministic
+`family_definition-id` sprite identity when no explicit schema-supported
+`visual.sprite_id` exists. This lets runtime sprite resolution find the
+versioned image without changing those definitions or incrementing their
+canonical definition version merely because art was generated.
+
+Storyline draft creation and save refresh a persisted latest-status snapshot
+after the draft transaction completes. Management pages and normal draft loads
+read that snapshot and never run the complete Dungeon/Room/Actor hierarchy
+validation on an initial page request. Explicit validation and the one-time
+`warmAllDraftStatuses()` maintenance run recompute the snapshot.
+
 ### Subsystem Definition
 
 | Field | Value |

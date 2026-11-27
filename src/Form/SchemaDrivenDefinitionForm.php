@@ -184,6 +184,72 @@ final class SchemaDrivenDefinitionForm extends FormBase {
     $form['definition']['#attributes']['class'][] = 'dc-sheet__section';
     $form['definition']['#attributes']['class'][] = 'dc-definition-form__section';
 
+    if ($definition_id !== NULL) {
+      $form['object_image'] = [
+        '#type' => 'container',
+        '#attributes' => [
+          'class' => ['dc-sheet__section', 'object-image-panel'],
+          'data-object-image-panel' => '',
+          'data-kind' => $family,
+          'data-object-id' => $definition_id,
+          'data-endpoint' => Url::fromRoute('dungeoncrawler_content.object_image', [
+            'kind' => $family,
+            'object_id' => $definition_id,
+          ])->toString(),
+          'data-csrf-token' => $this->csrfToken->get(CsrfRequestHeaderAccessCheck::TOKEN_KEY),
+        ],
+        'title' => ['#markup' => '<h2>' . $this->t('Definition image') . '</h2>'],
+        'preview' => [
+          '#type' => 'html_tag',
+          '#tag' => 'img',
+          '#attributes' => [
+            'data-object-image-preview' => '',
+            'class' => ['object-image-panel__preview'],
+            'alt' => $this->t('@label image', ['@label' => $label]),
+            'hidden' => TRUE,
+          ],
+        ],
+        'placeholder' => [
+          '#markup' => '<p data-object-image-placeholder>' . $this->t('No generated image exists for this definition yet.') . '</p>',
+        ],
+        'status' => [
+          '#markup' => '<p data-object-image-status aria-live="polite">' . $this->t('Loading image history…') . '</p>',
+        ],
+        'actions' => [
+          '#type' => 'container',
+          '#attributes' => ['class' => ['object-image-panel__actions']],
+          'prompt' => [
+            '#type' => 'textarea',
+            '#title' => $this->t('Generation prompt override'),
+            '#attributes' => ['data-object-image-prompt' => ''],
+            '#description' => $this->t('Leave blank to generate from the canonical definition.'),
+            '#rows' => 3,
+          ],
+          'version' => [
+            '#type' => 'select',
+            '#title' => $this->t('Image version'),
+            '#attributes' => ['data-object-image-version' => ''],
+          ],
+          'generate' => [
+            '#type' => 'button',
+            '#value' => $this->t('Generate / Regenerate'),
+            '#attributes' => [
+              'data-object-image-generate' => '',
+              'class' => ['dc-btn', 'dc-btn-primary'],
+            ],
+          ],
+          'promote' => [
+            '#type' => 'button',
+            '#value' => $this->t('Use selected as current'),
+            '#attributes' => [
+              'data-object-image-promote' => '',
+              'class' => ['dc-btn', 'dc-btn-secondary'],
+            ],
+          ],
+        ],
+      ];
+    }
+
     $form['actions'] = [
       '#type' => 'actions',
       '#attributes' => ['class' => ['dc-sheet__section', 'dc-definition-form__actions']],

@@ -15,7 +15,7 @@
  *   detach  — call shell.destroy() to unsubscribe listeners and destroy PIXI
  */
 
-import { RoomEditorShell } from './v2/editor/RoomEditorShell.js?v=20261126-room-metadata-1';
+import { RoomEditorShell } from './v2/editor/RoomEditorShell.js?v=20261127-shared-images-1';
 
 (function (Drupal, drupalSettings, once) {
   'use strict';

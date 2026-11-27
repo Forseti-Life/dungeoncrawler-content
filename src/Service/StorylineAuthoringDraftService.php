@@ -1161,7 +1161,10 @@ class StorylineAuthoringDraftService {
       ])
       ->execute();
     $this->insertRevisionSnapshot($draft_id, 1, $uid, $payload_json, $payload_hash, $now);
-    return $this->getDraft($draft_id);
+    unset($transaction);
+    $draft = $this->getDraft($draft_id);
+    $draft['current_state'] = $this->summarizeDraftStatus($draft_id);
+    return $draft;
   }
 
   /**
@@ -2888,7 +2891,10 @@ class StorylineAuthoringDraftService {
       $payload_hash,
       $updated_at,
     );
-    return $this->getDraft($draft_id);
+    unset($transaction);
+    $saved = $this->getDraft($draft_id);
+    $saved['current_state'] = $this->summarizeDraftStatus($draft_id);
+    return $saved;
   }
 
   /** What a storyline says about a cast member that its sheet repeats. */

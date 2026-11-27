@@ -67,6 +67,14 @@ class DungeonEditorController extends ControllerBase {
                 'publishReadiness' => $this->draftUrl('dungeoncrawler_content.dungeon_editor_draft_publish_readiness'),
                 'publish' => $this->draftUrl('dungeoncrawler_content.dungeon_editor_draft_publish'),
                 'placeImage' => $this->draftUrl('dungeoncrawler_content.dungeon_editor_place_image'),
+                'objectImage' => str_replace(
+                  ['dungeon', 'placeholder-image-object'],
+                  ['{kind}', '{object_id}'],
+                  Url::fromRoute('dungeoncrawler_content.object_image', [
+                    'kind' => 'dungeon',
+                    'object_id' => 'placeholder-image-object',
+                  ])->toString(),
+                ),
                 'gm' => $this->draftUrl('dungeoncrawler_content.dungeon_editor_gm_describe'),
                 'roomEditor' => str_replace('placeholder-room', '{room_id}', Url::fromRoute('dungeoncrawler_content.room_editor_edit', ['room_id' => 'placeholder-room'])->toString()),
               ],

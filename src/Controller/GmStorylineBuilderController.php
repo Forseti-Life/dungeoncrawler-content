@@ -624,13 +624,12 @@ TWIG,
               )->toString(),
             ),
             'objectImageUrlTemplate' => str_replace(
-              ['00000000-0000-4000-8000-000000000000', '/room/', 'OBJECTID'],
-              ['{draft_id}', '/{kind}/', '{object_id}'],
+              ['/actor/', 'OBJECTID'],
+              ['/{kind}/', '{object_id}'],
               Url::fromRoute(
-                'dungeoncrawler_content.gm_storyline_object_image',
+                'dungeoncrawler_content.object_image',
                 [
-                  'draft_id' => '00000000-0000-4000-8000-000000000000',
-                  'kind' => 'room',
+                  'kind' => 'actor',
                   'object_id' => 'OBJECTID',
                 ],
               )->toString(),
@@ -1034,6 +1033,18 @@ HTML;
           <button type="button" class="btn btn-danger" data-gm-draft-delete disabled>Delete draft</button>
           <span class="gm-storyline-wizard__draft-status" data-gm-draft-status role="status" aria-live="polite">No draft loaded</span>
         </div>
+        <section class="object-image-panel" data-object-image-panel data-storyline-image-panel>
+          <h3>Storyline cover image</h3>
+          <img class="object-image-panel__preview" data-object-image-preview alt="Storyline cover preview" hidden>
+          <p data-object-image-placeholder>No cover image has been generated for this storyline draft.</p>
+          <p data-object-image-status aria-live="polite">Load a saved draft to generate its cover.</p>
+          <div class="object-image-panel__actions">
+            <label>Prompt override<textarea data-object-image-prompt rows="2" placeholder="Leave blank to use the storyline title, description, and premise"></textarea></label>
+            <select data-object-image-version aria-label="Storyline cover image version"></select>
+            <button type="button" class="btn btn-secondary btn-sm" data-object-image-promote>Use selected as current</button>
+            <button type="button" class="btn btn-primary btn-sm" data-object-image-generate>Generate / Regenerate</button>
+          </div>
+        </section>
         <div class="gm-storyline-wizard__structured-header">
           <div>
             <p class="gm-storyline-wizard__structured-eyebrow">Structured authoring, validation, and review</p>
