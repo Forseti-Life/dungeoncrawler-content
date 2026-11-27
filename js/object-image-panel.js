@@ -108,8 +108,14 @@
           const url = select.selectedOptions?.[0]?.dataset?.url;
           if (url) panel.querySelector('[data-object-image-preview]').src = url;
         });
-        panel.querySelector('[data-object-image-generate]')?.addEventListener('click', () => request(panel, true));
-        panel.querySelector('[data-object-image-promote]')?.addEventListener('click', () => promote(panel));
+        panel.querySelector('[data-object-image-generate]')?.addEventListener('click', (event) => {
+          event.preventDefault();
+          request(panel, true);
+        });
+        panel.querySelector('[data-object-image-promote]')?.addEventListener('click', (event) => {
+          event.preventDefault();
+          promote(panel);
+        });
         request(panel, false);
       });
     },

@@ -376,7 +376,7 @@ definition-editor:
     - dungeoncrawler_content/object-image-panel
 
 object-image-panel:
-  version: 20261127-1
+  version: 20261127-2
   js:
     js/object-image-panel.js: {}
   css:

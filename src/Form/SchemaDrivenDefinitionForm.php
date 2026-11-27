@@ -231,19 +231,23 @@ final class SchemaDrivenDefinitionForm extends FormBase {
             '#attributes' => ['data-object-image-version' => ''],
           ],
           'generate' => [
-            '#type' => 'button',
+            '#type' => 'html_tag',
+            '#tag' => 'button',
             '#value' => $this->t('Generate / Regenerate'),
             '#attributes' => [
               'data-object-image-generate' => '',
               'class' => ['dc-btn', 'dc-btn-primary'],
+              'type' => 'button',
             ],
           ],
           'promote' => [
-            '#type' => 'button',
+            '#type' => 'html_tag',
+            '#tag' => 'button',
             '#value' => $this->t('Use selected as current'),
             '#attributes' => [
               'data-object-image-promote' => '',
               'class' => ['dc-btn', 'dc-btn-secondary'],
+              'type' => 'button',
             ],
           ],
         ],
