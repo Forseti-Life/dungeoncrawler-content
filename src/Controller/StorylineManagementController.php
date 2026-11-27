@@ -59,16 +59,18 @@ class StorylineManagementController extends ControllerBase {
         $latest_draft = $can_edit_storylines
           ? $this->drafts->findLatestDraftForTemplate($template_id, TRUE)
           : NULL;
+        $latest_status_draft = $can_edit_storylines
+          ? $this->drafts->findLatestDraftForTemplate($template_id, FALSE)
+          : NULL;
         $completeness = NULL;
-        if ($can_edit_storylines && $latest_draft !== NULL && !empty($latest_draft['draft_id'])) {
-          try {
-            $completeness = $this->completenessFromDraftStatus(
-              $this->drafts->summarizeDraftStatus((string) $latest_draft['draft_id'])
-            );
-          }
-          catch (\Throwable) {
-            $completeness = NULL;
-          }
+        if ($can_edit_storylines && $latest_status_draft !== NULL && !empty($latest_status_draft['draft_id'])) {
+          $snapshot = $this->drafts->latestDraftStatus(
+            (string) $latest_status_draft['draft_id'],
+            (int) $latest_status_draft['revision'],
+          );
+          $completeness = is_array($snapshot)
+            ? $this->completenessFromDraftStatus($snapshot)
+            : NULL;
         }
         $is_mine = $this->isTemplateAuthoredByCurrentUser($template, $uid);
         $can_manage_template = $is_mine || $can_admin_storylines;
@@ -147,6 +149,7 @@ class StorylineManagementController extends ControllerBase {
           'revision_count' => (int) ($draft['revision_count'] ?? 1),
           'status' => (string) ($draft['status'] ?? 'editing'),
           'updated' => !empty($draft['updated_at']) ? date('M j, Y g:i a', (int) $draft['updated_at']) : '',
+          'current_state' => is_array($draft['current_state'] ?? NULL) ? $draft['current_state'] : NULL,
           'edit_url' => Url::fromRoute('dungeoncrawler_content.gm_storyline_builder', [], [
             'query' => ['draft_id' => $draft_id],
           ])->toString(),
@@ -179,6 +182,9 @@ class StorylineManagementController extends ControllerBase {
       if (isset($listed_draft_ids[$draft['draft_id']])) {
         continue;
       }
+      $completeness = is_array($draft['current_state'] ?? NULL)
+        ? $this->completenessFromDraftStatus($draft['current_state'])
+        : NULL;
       $storylines[] = [
         'name' => $draft['title'],
         'status' => 'draft',
@@ -190,9 +196,9 @@ class StorylineManagementController extends ControllerBase {
         'updated_by_name' => $draft['updated_by_name'],
         'updated' => $draft['updated'],
         'latest_revision' => $draft['revision'],
-        'narrative_completeness' => NULL,
-        'structure_object_completeness' => NULL,
-        'overall_completeness' => NULL,
+        'narrative_completeness' => is_array($completeness) ? $completeness['narrative'] : NULL,
+        'structure_object_completeness' => is_array($completeness) ? $completeness['structure_object'] : NULL,
+        'overall_completeness' => is_array($completeness) ? $completeness['overall'] : NULL,
         'edit_url' => $draft['edit_url'],
         'archive_url' => $draft['archive_url'],
         'action_label' => 'Continue Draft',

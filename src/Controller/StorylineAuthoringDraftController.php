@@ -54,7 +54,8 @@ class StorylineAuthoringDraftController extends ControllerBase {
   public function getDraft(string $draft_id): JsonResponse {
     try {
       $draft = $this->drafts->getDraftForViewing($draft_id);
-      $draft['current_state'] = $this->drafts->summarizeDraftStatus((string) $draft['draft_id']);
+      $draft['current_state'] = $draft['current_state']
+        ?? $this->drafts->latestDraftStatus((string) $draft['draft_id'], (int) $draft['revision']);
       return new JsonResponse(['data' => $draft]);
     }
     catch (\Throwable $exception) {

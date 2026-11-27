@@ -9,6 +9,7 @@ use Drupal\Component\Uuid\UuidInterface;
 use Drupal\dungeoncrawler_content\Service\Actor\ActorDefinitionMirror;
 use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\Core\Database\Connection;
+use Drupal\Core\State\StateInterface;
 use Drupal\dungeoncrawler_content\Exception\StorylineDraftValidationException;
 use Drupal\dungeoncrawler_content\Service\Definition\DefinitionSchemaValidator;
 
@@ -133,6 +134,7 @@ class StorylineAuthoringDraftService {
     protected ?CharacterCreationGmService $characters = NULL,
     protected ?EditorWarningReview $warningReview = NULL,
     protected ?ActorDefinitionMirror $actorMirror = NULL,
+    protected ?StateInterface $state = NULL,
   ) {}
 
   /**
@@ -790,6 +792,7 @@ class StorylineAuthoringDraftService {
         'revision' => (int) $row['revision'],
         'revision_count' => $revision_counts[(string) $row['draft_id']] ?? 0,
         'status' => (string) $row['status'],
+        'current_state' => $this->latestDraftStatus((string) $row['draft_id'], (int) $row['revision']),
         'title' => (string) ($payload['title'] ?? $payload['storyline_id'] ?? 'Untitled storyline'),
         'storyline_id' => (string) ($payload['storyline_id'] ?? ''),
         'created_at' => (int) $row['created_at'],
@@ -932,7 +935,12 @@ class StorylineAuthoringDraftService {
     if ($requested_draft_id !== $draft_id) {
       $draft['redirected_from_draft_id'] = $requested_draft_id;
     }
-    return $this->projectOwnership($draft);
+    $projected = $this->projectOwnership($draft);
+    $projected['current_state'] = $this->latestDraftStatus(
+      (string) $projected['draft_id'],
+      (int) $projected['revision'],
+    );
+    return $projected;
   }
 
   /**
@@ -1343,7 +1351,71 @@ class StorylineAuthoringDraftService {
    */
   public function summarizeDraftStatus(string $draft_id): array {
     $draft = $this->getDraft($draft_id);
-    return $this->summarizeDraftState($draft, $this->validateDraft($draft_id));
+    $status = $this->summarizeDraftState($draft, $this->validateDraft($draft_id));
+    $this->storeLatestDraftStatus($draft_id, (int) $draft['revision'], $status);
+    return $status;
+  }
+
+  /**
+   * Reads the last explicit status run without revalidating child objects.
+   */
+  public function latestDraftStatus(string $draft_id, ?int $revision = NULL): ?array {
+    if ($this->state === NULL) {
+      return NULL;
+    }
+    $snapshot = $this->state->get($this->statusStateKey($draft_id));
+    if (!is_array($snapshot) || !is_array($snapshot['status'] ?? NULL)) {
+      return NULL;
+    }
+    if ($revision !== NULL && (int) ($snapshot['revision'] ?? -1) !== $revision) {
+      return NULL;
+    }
+    return $snapshot['status'];
+  }
+
+  /**
+   * Precomputes current status for every visible draft.
+   *
+   * @return array{completed: int, failed: int, elapsed: float, failures: array}
+   */
+  public function warmAllDraftStatuses(): array {
+    $start = microtime(TRUE);
+    $completed = 0;
+    $failures = [];
+    foreach ($this->listDrafts() as $draft) {
+      $draft_id = (string) ($draft['draft_id'] ?? '');
+      try {
+        $this->summarizeDraftStatus($draft_id);
+        $completed++;
+      }
+      catch (\Throwable $exception) {
+        $failures[] = [
+          'draft_id' => $draft_id,
+          'error' => $exception->getMessage(),
+        ];
+      }
+    }
+    return [
+      'completed' => $completed,
+      'failed' => count($failures),
+      'elapsed' => round(microtime(TRUE) - $start, 3),
+      'failures' => $failures,
+    ];
+  }
+
+  private function storeLatestDraftStatus(string $draft_id, int $revision, array $status): void {
+    if ($this->state === NULL) {
+      return;
+    }
+    $this->state->set($this->statusStateKey($draft_id), [
+      'revision' => $revision,
+      'refreshed_at' => $this->time->getRequestTime(),
+      'status' => $status,
+    ]);
+  }
+
+  private function statusStateKey(string $draft_id): string {
+    return 'dungeoncrawler.storyline_draft_status.' . $draft_id;
   }
 
   /**
