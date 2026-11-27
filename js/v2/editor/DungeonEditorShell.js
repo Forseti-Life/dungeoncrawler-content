@@ -457,6 +457,7 @@ export class DungeonEditorShell {
       publishVersion: q('[data-dungeon-editor-publish-version]'),
       publishNote: q('[data-dungeon-editor-publish-note]'),
       publishButton: q('[data-dungeon-editor-action="publish"]'),
+      publishShortcutButton: q('[data-dungeon-editor-action="open-publication"]'),
       publishReadiness: q('[data-dungeon-editor-publish-readiness]'),
       publishedVersion: q('[data-dungeon-editor-published-version]'),
       gmPanel: q('[data-dungeon-editor-gm-panel]'),
@@ -504,6 +505,11 @@ export class DungeonEditorShell {
       this.loadDungeon(id);
     });
     this._dom.newBtn?.addEventListener('click', () => this.newDungeon());
+    this._dom.publishShortcutButton?.addEventListener('click', () => {
+      this._setAuthorDrawerOpen(true);
+      this._dom.publishForm?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      this._dom.publishVersion?.focus({ preventScroll: true });
+    });
     this._dom.recenterBtn?.addEventListener('click', () => {
       if (!this.model) {
         this._setStatus('Load a dungeon before recentering the map.', 'warning');
@@ -2160,6 +2166,9 @@ export class DungeonEditorShell {
       list.appendChild(makeEl('li', 'room-editor__validation-item', 'Checking publication readiness...'));
     } else if (this.publicationReadiness.ready) {
       list.appendChild(makeEl('li', 'room-editor__validation-item room-editor__validation-item--ok', 'Ready to publish.'));
+      if (this._dom.publishVersion && !this._dom.publishVersion.value) {
+        this._dom.publishVersion.value = this.publicationReadiness.suggested_version || '1.0.0';
+      }
     } else {
       (this.publicationReadiness.blockers || []).forEach((finding) => {
         const where = finding.hex ? ` @ (${finding.hex.q}, ${finding.hex.r})` : (finding.pointer ? ` at ${finding.pointer}` : '');
@@ -2172,6 +2181,12 @@ export class DungeonEditorShell {
     }
     if (this._dom.publishButton) {
       this._dom.publishButton.disabled = this._busy || !this.publicationReadiness?.ready || !this.model;
+    }
+    if (this._dom.publishShortcutButton) {
+      this._dom.publishShortcutButton.disabled = this._busy || !this.model;
+      this._dom.publishShortcutButton.title = this.publicationReadiness?.ready
+        ? `Ready to publish as ${this.publicationReadiness.suggested_version || '1.0.0'}.`
+        : 'Open publication readiness and resolve blockers.';
     }
   }
 
@@ -2264,7 +2279,7 @@ export class DungeonEditorShell {
   }
 
   _appendGmMessage(kind, text, detail) {
-    appendEditorGmMessage(this._dom.gmTranscript, kind, text, detail);
+    return appendEditorGmMessage(this._dom.gmTranscript, kind, text, detail);
   }
 
   /**
@@ -2384,6 +2399,12 @@ export class DungeonEditorShell {
       dryRun,
     });
 
+    const requestText = String(intent?.utterance || intent?.author_message || '').trim();
+    const roomDelegatePending = intent?.type === 'natural_language'
+      && /\b(?:rooms?|option\s+\d+|continuation|create|build)\b/i.test(requestText);
+    const progressMessage = roomDelegatePending
+      ? this._appendGmMessage('tool', 'Room Agent is working on this request…')
+      : null;
     const skipToolMessages = new Set();
     if (intent?.type === 'tool_call' && intent.tool_name) {
       const initialToolMessage = describeEditorGmToolCall(intent.tool_name, intent.arguments || {});
@@ -2398,7 +2419,12 @@ export class DungeonEditorShell {
       const result = await this._postJson(this._draftUrl('gm'), body);
       envelope = result?.data || {};
     } catch (err) {
+      progressMessage?.remove();
       this._setBusy(false);
+      if (progressMessage) {
+        progressMessage.textContent = 'Room Agent finished processing this request.';
+        progressMessage.classList.add('editor-gm-agent__message--complete');
+      }
       this._appendGmMessage('error', `${label} failed: ${err?.message || 'unknown error'}${err?.code ? ` (${err.code})` : ''}`, err?.findings || undefined);
       this._setGmState('Last request failed.', 'error');
       if (err?.status === 409) {
@@ -2531,7 +2557,7 @@ export class DungeonEditorShell {
 
   _setBusy(busy) {
     this._busy = busy;
-    [this._dom.loadBtn, this._dom.newBtn, this._dom.dungeonSelect, this._dom.publishButton, this._dom.generateBtn].forEach((el) => {
+    [this._dom.loadBtn, this._dom.newBtn, this._dom.dungeonSelect, this._dom.publishButton, this._dom.publishShortcutButton, this._dom.generateBtn].forEach((el) => {
       if (el) {
         el.disabled = busy;
       }

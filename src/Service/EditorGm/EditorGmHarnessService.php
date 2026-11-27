@@ -859,7 +859,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
       return FALSE;
     }
     return preg_match(
-      '/\\b(?:fix|move|place|put|add|remove|delete|rotate|set|update|change|create|generate|furnish|apply|go ahead|do it)\\b/u',
+      '/\\b(?:fix|move|place|put|add|remove|delete|rotate|set|update|change|create|generate|build|furnish|apply|go ahead|do it|select|choose|option\\s+\\d+)\\b/u',
       $message,
     ) === 1;
   }
@@ -1736,6 +1736,9 @@ class EditorGmHarnessService implements AgentHarnessInterface {
       : $this->harnessManagement->orderTaskQueue($tasks);
     $initial_draft_id = $draft_id;
     $started_at = microtime(TRUE);
+    $delegated_room_batch = $surface->id() === DungeonEditorGmSurface::ID
+      && $ordered !== []
+      && array_diff(array_column($ordered, 'tool_name'), ['delegate_room_editor_task']) === [];
     $accumulated_tool_calls = array_merge($prior_tool_calls, [
       [
         'tool' => 'task_queue_preprocessor',
@@ -1746,7 +1749,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     $completed_count = 0;
 
     foreach ($ordered as $index => $task) {
-      if ($index > 0 && (microtime(TRUE) - $started_at) >= AgentHarnessManagementService::DEFAULT_SERIAL_TIME_BUDGET_SECONDS) {
+      if (!$delegated_room_batch && $index > 0 && (microtime(TRUE) - $started_at) >= AgentHarnessManagementService::DEFAULT_SERIAL_TIME_BUDGET_SECONDS) {
         $remaining = count($ordered) - $index;
         $accumulated_tool_calls[] = [
           'tool' => 'task_queue_budget',
@@ -1800,6 +1803,18 @@ class EditorGmHarnessService implements AgentHarnessInterface {
 
     if ($last_envelope === NULL) {
       throw new \RuntimeException('editor_gm_task_queue_empty');
+    }
+    if ($delegated_room_batch) {
+      $last_envelope['tool_result']['task_queue_status'] = [
+        'completed' => $completed_count,
+        'total' => count($ordered),
+        'complete' => $completed_count === count($ordered),
+      ];
+      $last_envelope['tool_result']['assistant_response'] = sprintf(
+        'Room Agent completed %d of %d rooms in the selected continuation.',
+        $completed_count,
+        count($ordered),
+      );
     }
     if ($surface->id() === RoomEditorGmSurface::ID && $draft_id !== $initial_draft_id) {
       $last_envelope['tool_result']['active_draft_id'] = $draft_id;
@@ -1881,29 +1896,96 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     if ($room_id === '') {
       throw new \LogicException('room_editor_delegation_room_identity_missing');
     }
-    $child = $this->handle(
-      RoomEditorGmSurface::ID,
-      $room_draft_id,
-      [
-        'schema_version' => self::REQUEST_CONTRACT_VERSION,
-        'tool_context' => [
-          'tool_id' => RoomEditorGmSurface::ID,
-          'draft_id' => $room_draft_id,
-          'validation_profile' => 'editing',
+    if (($room_draft['base_version_id'] ?? NULL) === NULL) {
+      $generated = $this->executeTool(
+        $room_surface,
+        $room_draft_id,
+        'editing',
+        'generate_room_layout',
+        [
+          'prompt' => sprintf('%s Room name: %s.', $task, $name),
+          'theme' => 'water_ruins',
+          'size_category' => 'medium',
+          // The room generator validates metadata commands against the blank
+          // footprint before it applies generated geometry. Linear room types
+          // can therefore fail on a compact blank draft. Generate as chamber,
+          // then the layout command still owns the requested semantics.
+          'room_type' => 'chamber',
+          'min_hexes' => 16,
+          'max_hexes' => 45,
+          'placeable_families' => ['actor', 'item', 'obstacle', 'trap', 'hazard'],
         ],
-        'intent' => [
-          'type' => 'natural_language',
-          'utterance' => $task,
-          'author_message' => $author_message !== '' ? $author_message : $task,
+        FALSE,
+        'Generate the delegated new room through the Room Editor GM.',
+        ['delegated_authorization' => TRUE],
+        [],
+        '',
+        $tool_calls,
+      );
+      $tool_calls = array_values((array) ($generated['tool_calls'] ?? $tool_calls));
+      $plan = (array) ($generated['tool_result']['command_plan'] ?? []);
+      $steps = array_values((array) ($plan['steps'] ?? []));
+      if (preg_match('/\b(?:terminal|final|no onward exit|no exit)\b/iu', $task) === 1) {
+        $steps = array_values(array_filter(
+          $steps,
+          static fn(array $step): bool => ($step['command_type'] ?? '') !== 'add_exit_port',
+        ));
+      }
+      $commands = array_map(
+        static fn(array $step): array => [
+          'type' => (string) ($step['command_type'] ?? ''),
+          'payload' => (array) ($step['payload'] ?? []),
         ],
-      ],
-      [
-        'delegated_authorization' => TRUE,
-        'delegated_from_surface' => DungeonEditorGmSurface::ID,
-      ],
-    );
-    $tool_calls = array_merge($tool_calls, (array) ($child['tool_calls'] ?? []));
-    $child_result = (array) ($child['tool_result'] ?? []);
+        $steps,
+      );
+      if ($commands === [] || !is_int($plan['base_revision'] ?? NULL)) {
+        throw new LogicException('delegated_room_generation_plan_invalid:' . $room_id);
+      }
+      $applied = $this->executeTool(
+        $room_surface,
+        $room_draft_id,
+        'editing',
+        'apply_room_commands',
+        [
+          'expected_revision' => $plan['base_revision'],
+          'commands' => $commands,
+        ],
+        FALSE,
+        'Apply the generated Room Editor command plan.',
+        ['delegated_authorization' => TRUE],
+        [],
+        '',
+        $tool_calls,
+      );
+      $tool_calls = array_values((array) ($applied['tool_calls'] ?? $tool_calls));
+      $child_result = (array) ($applied['tool_result'] ?? []);
+      $child_result['assistant_response'] = sprintf('Room Agent generated %s for dungeon placement.', $name);
+    }
+    else {
+      $child = $this->handle(
+        RoomEditorGmSurface::ID,
+        $room_draft_id,
+        [
+          'schema_version' => self::REQUEST_CONTRACT_VERSION,
+          'tool_context' => [
+            'tool_id' => RoomEditorGmSurface::ID,
+            'draft_id' => $room_draft_id,
+            'validation_profile' => 'editing',
+          ],
+          'intent' => [
+            'type' => 'natural_language',
+            'utterance' => $task,
+            'author_message' => $author_message !== '' ? $author_message : $task,
+          ],
+        ],
+        [
+          'delegated_authorization' => TRUE,
+          'delegated_from_surface' => DungeonEditorGmSurface::ID,
+        ],
+      );
+      $tool_calls = array_merge($tool_calls, (array) ($child['tool_calls'] ?? []));
+      $child_result = (array) ($child['tool_result'] ?? []);
+    }
     if (preg_match('/\b(?:publish(?:ed|ing)?|create|build)\b/i', $task) === 1) {
       $room_context = $room_surface->createContext($room_draft_id, 'publication');
       $room_draft = $room_context->draft();
@@ -2098,6 +2180,68 @@ class EditorGmHarnessService implements AgentHarnessInterface {
           );
           $tool_calls = array_values((array) ($placement['tool_calls'] ?? $tool_calls));
           $child_result['dungeon_placement'] = $placement['tool_result'] ?? [];
+          if (!$is_district && $anchor_room_id !== '') {
+            $linked_source = $this->createContext($source_surface, $draft_id, $profile, []);
+            $linked_model = DungeonEditorGmToolContext::of($linked_source)->model();
+            $from_placement = array_values(array_filter(
+              (array) ($linked_model['placements'] ?? []),
+              static fn(array $candidate): bool => ($candidate['room_id'] ?? '') === $anchor_room_id,
+            ))[0] ?? NULL;
+            $to_placement = array_values(array_filter(
+              (array) ($linked_model['placements'] ?? []),
+              static fn(array $candidate): bool => ($candidate['room_id'] ?? '') === $room_id,
+            ))[0] ?? NULL;
+            if (is_array($from_placement) && is_array($to_placement)) {
+              $link_plan = $this->executeTool(
+                $source_surface,
+                $draft_id,
+                $profile,
+                'plan_port_links',
+                [
+                  'kind' => 'door',
+                  'direction' => 'bidirectional',
+                  'default_state' => 'open',
+                  'placement_id' => (string) $from_placement['placement_id'],
+                  'to_placement_id' => (string) $to_placement['placement_id'],
+                ],
+                FALSE,
+                'Link the delegated room to its predecessor.',
+                ['delegated_authorization' => TRUE],
+                [],
+                '',
+                $tool_calls,
+              );
+              $tool_calls = array_values((array) ($link_plan['tool_calls'] ?? $tool_calls));
+              $link_command_plan = (array) ($link_plan['tool_result']['command_plan'] ?? []);
+              $link_commands = array_map(
+                static fn(array $step): array => [
+                  'type' => (string) ($step['command_type'] ?? ''),
+                  'payload' => (array) ($step['payload'] ?? []),
+                ],
+                array_values((array) ($link_command_plan['steps'] ?? [])),
+              );
+              if ($link_commands !== [] && is_int($link_command_plan['base_revision'] ?? NULL)) {
+                $linked = $this->executeTool(
+                  $source_surface,
+                  $draft_id,
+                  $profile,
+                  'apply_dungeon_commands',
+                  [
+                    'expected_revision' => $link_command_plan['base_revision'],
+                    'commands' => $link_commands,
+                  ],
+                  FALSE,
+                  'Apply the predecessor link for the delegated room.',
+                  ['delegated_authorization' => TRUE],
+                  [],
+                  '',
+                  $tool_calls,
+                );
+                $tool_calls = array_values((array) ($linked['tool_calls'] ?? $tool_calls));
+                $child_result['dungeon_link'] = $linked['tool_result'] ?? [];
+              }
+            }
+          }
         }
       }
     }
@@ -2540,7 +2684,7 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         $snapshot['conversation_context'] = $conversation_context;
       }
     }
-    if ($utterance !== '' || $definition->name === 'apply_storyline_work') {
+    if (empty($scope['delegated_authorization']) && ($utterance !== '' || $definition->name === 'apply_storyline_work')) {
       $response = $this->synthesizeGroundedResponse(
         $utterance,
         $definition->name,
@@ -2550,6 +2694,14 @@ class EditorGmHarnessService implements AgentHarnessInterface {
       );
       $result['assistant_response'] = $response['answer'];
       $result['next_steps'] = $response['next_steps'];
+    }
+    elseif (!empty($scope['delegated_authorization'])) {
+      $result['assistant_response'] = sprintf(
+        '%s completed through the delegated %s authority.',
+        $definition->name,
+        $surface->label(),
+      );
+      $result['next_steps'] = $next_steps;
     }
 
     return $this->envelope(

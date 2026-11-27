@@ -314,6 +314,9 @@ class DungeonEditorShellContractTest extends TestCase {
     $this->assertStringContainsString('back_url: back_url', $template);
     $this->assertStringContainsString('dungeon_id=${encodeURIComponent(dungeonId)}', $shell);
     $this->assertStringContainsString('storyline_draft_id=${encodeURIComponent(draftId)}', $storyline_links);
+    $this->assertStringContainsString('Room Agent is working on this request', $shell);
+    $this->assertStringContainsString('data-dungeon-editor-action="open-publication"', $template);
+    $this->assertStringContainsString('suggested_version', $shell);
     $this->assertStringContainsString("dungeon_entries: { label: 'Dungeon', name: ['dungeon_id'] }", $storyline_links);
     $this->assertStringContainsString("room_entries: { label: 'Room', name: ['room_id'] }", $storyline_links);
     $this->assertStringContainsString('Object.hasOwn(objectLabels[kind]', $storyline_links);

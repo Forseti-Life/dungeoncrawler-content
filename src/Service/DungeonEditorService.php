@@ -1224,11 +1224,29 @@ class DungeonEditorService {
       $campaign_blockers
     ));
 
+    $latest_version = '';
+    if ($dungeon_id !== '') {
+      $latest = $this->database->select('dungeoncrawler_content_dungeon_versions', 'v')
+        ->fields('v', ['version'])
+        ->condition('dungeon_id', $dungeon_id)
+        ->orderBy('published_at', 'DESC')
+        ->range(0, 1)
+        ->execute()
+        ->fetchField();
+      $latest_version = $latest === FALSE ? '' : (string) $latest;
+    }
+    $suggested_version = '1.0.0';
+    if ($latest_version !== '' && preg_match('/^(\\d+)\\.(\\d+)\\.(\\d+)$/', $latest_version, $match) === 1) {
+      $suggested_version = sprintf('%d.%d.%d', (int) $match[1], (int) $match[2], (int) $match[3] + 1);
+    }
+
     return [
       'schema_version' => 'dungeon-editor-publication-readiness-v1',
       'draft_id' => $draft['draft_id'],
       'dungeon_id' => $dungeon_id,
       'revision' => (int) $draft['revision'],
+      'published_version' => $latest_version,
+      'suggested_version' => $suggested_version,
       'ready' => $blockers === [],
       'blockers' => $blockers,
       'validation' => $validation,

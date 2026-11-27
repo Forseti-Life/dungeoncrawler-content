@@ -11,7 +11,7 @@
  * placement transform via ES modules. It does not fork the renderer.
  */
 
-import { DungeonEditorShell } from './v2/editor/DungeonEditorShell.js?v=20261127-nested-rooms-1';
+import { DungeonEditorShell } from './v2/editor/DungeonEditorShell.js?v=20261127-explicit-publish-1';
 
 (function (Drupal, drupalSettings, once) {
   'use strict';

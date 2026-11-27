@@ -288,16 +288,6 @@ class EditorCanonicalGenerationPlanService {
     $plan_room['hexes'] = $this->mergeProjectedHexes((array) ($current['hexes'] ?? []), $hexes, $terrain, $lighting);
 
     $steps = [];
-    $steps[] = $this->step(count($steps) + 1, 'set_room_metadata', [
-      'changes' => [
-        'name' => $this->requiredString($decoded, 'name', 1, 200),
-        'description' => $this->requiredString($decoded, 'description', 1, 2000),
-        'room_type' => $room_type,
-        'size_category' => $size,
-        'metadata' => ['generated_by' => $provenance],
-      ],
-    ], 'Record generated room metadata and provenance.');
-
     foreach (['entry_ports' => 'remove_entry_port', 'exit_ports' => 'remove_exit_port'] as $bucket => $type) {
       foreach ((array) ($current[$bucket] ?? []) as $port) {
         if ($bucket === 'entry_ports' && !empty($port['is_default'])) {
@@ -334,6 +324,15 @@ class EditorCanonicalGenerationPlanService {
     foreach ($placements as $placement) {
       $steps[] = $this->step(count($steps) + 1, 'place_object', $placement, sprintf('Place generated %s/%s.', $placement['definition_ref']['family'], $placement['definition_ref']['definition_id']));
     }
+    $steps[] = $this->step(count($steps) + 1, 'set_room_metadata', [
+      'changes' => [
+        'name' => $this->requiredString($decoded, 'name', 1, 200),
+        'description' => $this->requiredString($decoded, 'description', 1, 2000),
+        'room_type' => $room_type,
+        'size_category' => $size,
+        'metadata' => ['generated_by' => $provenance],
+      ],
+    ], 'Record generated room metadata and provenance after the matching footprint exists.');
 
     if (count($placements) > self::ROOM_MAX_PLACEMENTS || count($steps) > self::ROOM_MAX_COMMANDS) {
       throw $this->exception('generation_size_limit_exceeded', [$this->finding('generation_size_limit_exceeded', '/command_plan/steps', 'Generated room plan exceeds command or placement caps.')]);
