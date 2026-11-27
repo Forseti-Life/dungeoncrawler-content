@@ -73,6 +73,9 @@ class CharacterSetupController extends ControllerBase {
     $max_accessible_step = $character_id ? max(1, min(8, (int) ($character_data['step'] ?? 1))) : 1;
     $requested_step = max(1, min(8, (int) $request->query->get('step', $max_accessible_step)));
     $active_step = $character_id ? min($requested_step, $max_accessible_step) : 1;
+    if ($character_id && \Drupal\dungeoncrawler_content\Service\CharacterCreationValidationService::isCreatureCharacter($character_data)) {
+      $active_step = 8;
+    }
     $show_quick_play = $campaign_id !== NULL
       && $campaign_id !== ''
       && $active_step === 1

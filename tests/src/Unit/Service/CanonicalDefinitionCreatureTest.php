@@ -7,6 +7,7 @@ use Drupal\Core\Database\Query\SelectInterface;
 use Drupal\Core\DependencyInjection\ContainerBuilder;
 use Drupal\dungeoncrawler_content\Service\Actor\ActorDefinitionMirror;
 use Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService;
+use Drupal\dungeoncrawler_content\Service\CharacterCreationValidationService;
 use Drupal\dungeoncrawler_content\Service\Definition\DefinitionSchemaValidator;
 use PHPUnit\Framework\TestCase;
 
@@ -49,6 +50,22 @@ final class CanonicalDefinitionCreatureTest extends TestCase {
     $this->expectException(\InvalidArgumentException::class);
     $this->expectExceptionMessage('definition_family_unsupported');
     $definitions->publishedDefinitions('creature', []);
+  }
+
+  public function testCreatureClassUsesCreatureAncestryAndSkipsPcAncestryRules(): void {
+    $this->assertTrue(CharacterCreationValidationService::isCreatureCharacter([
+      'class' => 'creature',
+      'ancestry' => '',
+    ]));
+    $source = (string) file_get_contents(dirname(__DIR__, 4) . '/src/Service/CharacterCreationValidationService.php');
+    $this->assertStringContainsString("if (\$is_creature && \$step >= 2 && \$step <= 7)", $source);
+    $this->assertStringContainsString("'skipped' => 'creature_ancestry'", $source);
+    $form_source = (string) file_get_contents(dirname(__DIR__, 4) . '/src/Form/CharacterCreationStepForm.php');
+    $this->assertStringContainsString('$next_step = 8;', $form_source);
+    $mirror_source = (string) file_get_contents(dirname(__DIR__, 4) . '/src/Service/Actor/ActorDefinitionMirror.php');
+    $this->assertStringContainsString("\$stored['step'] = 8;", $mirror_source);
+    $controller_source = (string) file_get_contents(dirname(__DIR__, 4) . '/src/Controller/CharacterSetupController.php');
+    $this->assertStringContainsString('$active_step = 8;', $controller_source);
   }
 
   public function testPublishedActorDefinitionsSelectByClassLevelAndTags(): void {

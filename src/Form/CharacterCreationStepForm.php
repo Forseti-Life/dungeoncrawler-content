@@ -1436,7 +1436,13 @@ class CharacterCreationStepForm extends FormBase {
     int $next_version, bool $setup_shell, array $selected_items,
   ): void {
     $character_data = $this->characterManager->canonicalizeCharacterData($this->wizardHardening->syncWizardDraftFromCharacterData($character_data));
-    $next_step = min(8, (int) $step + 1);
+    if (CharacterCreationValidationService::isCreatureCharacter($character_data)) {
+      $character_data['ancestry'] = 'creature';
+      $next_step = 8;
+    }
+    else {
+      $next_step = min(8, (int) $step + 1);
+    }
     $pending_completion_grants = $this->collectPendingCreationSelectionGrants($character_data);
     $readiness = $this->validateDraft($character_data, (int) $campaign_id);
     $character_data = $this->wizardHardening->advanceProgress($character_data, (int) $step, $pending_completion_grants !== [] || !$readiness['ready']);

@@ -121,6 +121,12 @@ class CharacterCreationValidationService {
     return array_key_exists($candidate, (array) ($element['#options'] ?? [])) ? $candidate : '';
   }
 
+  public static function isCreatureCharacter(array $character_data): bool {
+    $class = strtolower(trim((string) ($character_data['class'] ?? '')));
+    $ancestry = strtolower(trim((string) ($character_data['ancestry'] ?? '')));
+    return $class === 'creature' || $ancestry === 'creature';
+  }
+
   /**
    * Apply the moved step rules to inspected values, never a loaded form.
    */
@@ -133,6 +139,12 @@ class CharacterCreationValidationService {
         break;
 
       case 2:
+        if (self::isCreatureCharacter($form_state->characterData())) {
+          if ($form_state->getValue('ancestry', '') === '') {
+            $form_state->setValue('ancestry', 'creature');
+          }
+          break;
+        }
         if (trim((string) $form_state->getValue('ancestry', '')) === '') {
           $form_state->setErrorByName('ancestry', $this->t('Ancestry selection is required.'));
         }
@@ -598,6 +610,20 @@ class CharacterCreationValidationService {
   }
 
   public function buildStep2Fields(array &$form, FormStateInterface|CharacterCreationInput $form_state, array $character_data, array $schema_fields): void {
+    if (self::isCreatureCharacter($character_data)) {
+      $character_data['ancestry'] = 'creature';
+      $form['creature_ancestry_notice'] = [
+        '#type' => 'markup',
+        '#markup' => '<div class="messages messages--status">' . $this->t(
+          'Creature ancestry is applied automatically. Standard player-character heritage and ancestry feat choices do not apply.',
+        ) . '</div>',
+      ];
+      $form['ancestry'] = [
+        '#type' => 'hidden',
+        '#value' => 'creature',
+      ];
+      return;
+    }
     // Step 2: Ancestry → Heritage → Ancestry Feat.
     // AJAX on ancestry select refreshes #heritage-path-wrapper (heritage + feat).
     // Validation is in validateForm() case 2 (not #required, to avoid :invalid).
@@ -5797,6 +5823,10 @@ class CharacterCreationValidationService {
    * Inspect the complete character with shared rules, without Form API execution.
    */
   public function validate(array $character_data, ?int $campaign_id = NULL, bool $include_option_details = FALSE): array {
+    $is_creature = self::isCreatureCharacter($character_data);
+    if ($is_creature) {
+      $character_data['ancestry'] = 'creature';
+    }
     foreach (['ancestry_boosts', 'background_boosts', 'free_boosts', 'trained_skills'] as $field) {
       $character_data[$field] = self::normalizeList($character_data[$field] ?? []);
     }
@@ -5815,6 +5845,19 @@ class CharacterCreationValidationService {
     }
     $report = ['valid' => TRUE, 'ready' => TRUE, 'errors' => [], 'warnings' => [], 'steps' => []];
     for ($step = 1; $step <= 8; $step++) {
+      if ($is_creature && $step >= 2 && $step <= 7) {
+        $schema = $this->schemaLoader->loadStepSchema($step);
+        $report['steps'][] = [
+          'number' => $step,
+          'name' => $schema['properties']['step_name']['const'] ?? 'Step ' . $step,
+          'complete' => TRUE,
+          'issues' => [],
+          'choices' => [],
+          'cards' => [],
+          'skipped' => 'creature_ancestry',
+        ];
+        continue;
+      }
       $input = (new CharacterCreationInput($character_data))->set('step', $step)->set('campaign_id', $campaign_id ?? 0);
       $definition = [];
       $method = 'buildStep' . $step . 'Fields';

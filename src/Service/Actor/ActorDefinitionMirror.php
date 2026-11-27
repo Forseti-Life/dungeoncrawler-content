@@ -256,13 +256,28 @@ class ActorDefinitionMirror {
         $stored = array_intersect_key($stored, array_flip(CanonicalDefinitionService::LIBRARY_ROW_KEYS)) + $native;
       }
     }
+    $ancestry = (string) ($state['ancestry'] ?? $state['species'] ?? '');
+    if (strtolower(trim((string) $state['class'])) === 'creature' && trim($ancestry) === '') {
+      $ancestry = 'creature';
+    }
+    if (strtolower(trim((string) $state['class'])) === 'creature') {
+      $stored['step'] = 8;
+    }
+    $stored['ancestry'] = $stored['basicInfo']['ancestry'] = $ancestry;
+    if (is_array($stored['wizard'] ?? NULL)) {
+      $stored['wizard']['ancestry'] = $ancestry;
+      if (!is_array($stored['wizard']['basicInfo'] ?? NULL)) {
+        $stored['wizard']['basicInfo'] = [];
+      }
+      $stored['wizard']['basicInfo']['ancestry'] = $ancestry;
+    }
     $max_hp = (int) ($state['max_hp'] ?? 0);
     $values = [
       'type' => $definition['actor_type'],
       'role' => (string) ($state['role'] ?? $definition['actor_type']),
       'name' => (string) $definition['display_name'],
       'level' => (int) $state['level'],
-      'ancestry' => (string) ($state['ancestry'] ?? $state['species'] ?? ''),
+      'ancestry' => $ancestry,
       'class' => (string) $state['class'],
       'hp_max' => $max_hp,
       'hp_current' => $max_hp,
