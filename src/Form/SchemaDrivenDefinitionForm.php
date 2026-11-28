@@ -179,13 +179,47 @@ final class SchemaDrivenDefinitionForm extends FormBase {
       ];
     }
 
+    $description = trim((string) (
+      $payload['description']
+      ?? $payload['summary']
+      ?? $payload['appearance']
+      ?? ''
+    ));
+    $form['primary'] = [
+      '#type' => 'container',
+      '#weight' => -100,
+      '#attributes' => ['class' => ['dc-sheet__section', 'dc-definition-hero']],
+      'identity' => [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['dc-definition-hero__identity']],
+        'family' => [
+          '#type' => 'html_tag',
+          '#tag' => 'p',
+          '#value' => ucfirst($family),
+          '#attributes' => ['class' => ['dc-definition-hero__eyebrow']],
+        ],
+        'name' => [
+          '#type' => 'html_tag',
+          '#tag' => 'h2',
+          '#value' => $label,
+          '#attributes' => ['class' => ['dc-definition-hero__name']],
+        ],
+        'description' => [
+          '#type' => 'html_tag',
+          '#tag' => 'p',
+          '#value' => $description !== '' ? $description : $this->t('No description has been saved for this definition yet.'),
+          '#attributes' => ['class' => ['dc-definition-hero__description']],
+        ],
+      ],
+    ];
+
     $form['definition'] = $this->mapper->build($schema, $payload === [] ? NULL : $payload, 'definition');
     $form['definition']['#title'] = (string) ($schema['title'] ?? ucfirst($family));
     $form['definition']['#attributes']['class'][] = 'dc-sheet__section';
     $form['definition']['#attributes']['class'][] = 'dc-definition-form__section';
 
     if ($definition_id !== NULL) {
-      $form['object_image'] = [
+      $form['primary']['object_image'] = [
         '#type' => 'container',
         '#attributes' => [
           'class' => ['dc-sheet__section', 'object-image-panel'],

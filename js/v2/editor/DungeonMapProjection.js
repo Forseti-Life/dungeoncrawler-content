@@ -1,4 +1,4 @@
-import './placementTransform.js?v=20261128-district-composition-1';
+import './placementTransform.js?v=20261128-canonical-hero-1';
 
 const transform = globalThis.DungeonCrawlerPlacementTransform;
 if (!transform) {

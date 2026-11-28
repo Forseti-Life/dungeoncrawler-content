@@ -21,6 +21,8 @@ const libraries = read('dungeoncrawler_content.libraries.yml');
 const storylineManagementController = read('src/Controller/StorylineManagementController.php');
 
 assert(definitionForm.includes('data-object-image-panel'), 'canonical definitions expose the shared image panel');
+assert(definitionForm.indexOf("$form['primary']") < definitionForm.indexOf("$form['definition']"), 'canonical name, description and image identity appear before schema fields');
+assert(definitionForm.includes('dc-definition-hero'), 'canonical definitions expose a shared top identity block');
 assert(definitionForm.includes('dungeoncrawler_content.object_image'), 'canonical definitions call the generic object image API');
 for (const family of ['item', 'obstacle', 'trap', 'hazard']) {
   assert(objectImageService.includes(`'${family}'`), `${family} definitions use the generic image service`);

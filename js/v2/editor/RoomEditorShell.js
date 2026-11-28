@@ -32,11 +32,11 @@
 
 /* global PIXI */
 
-import { GameEventBus } from '../GameEventBus.js?v=20261128-district-composition-1';
-import { HexCanvas } from '../canvas/HexCanvas.js?v=20261128-district-composition-1';
-import { SpriteService } from '../../SpriteService.js?v=20261128-district-composition-1';
-import './placementTransform.js?v=20261128-district-composition-1';
-import { projectDungeonMap } from './DungeonMapProjection.js?v=20261128-district-composition-1';
+import { GameEventBus } from '../GameEventBus.js?v=20261128-canonical-hero-1';
+import { HexCanvas } from '../canvas/HexCanvas.js?v=20261128-canonical-hero-1';
+import { SpriteService } from '../../SpriteService.js?v=20261128-canonical-hero-1';
+import './placementTransform.js?v=20261128-canonical-hero-1';
+import { projectDungeonMap } from './DungeonMapProjection.js?v=20261128-canonical-hero-1';
 import {
   appendEditorGmMessage,
   bindEditorGmPrompts,
@@ -50,8 +50,8 @@ import {
   restoreEditorGmConversation,
   selectEditorGmTool,
   shouldSubmitEditorGmKey,
-} from './EditorGmChatClient.js?v=20261128-district-composition-1';
-import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261128-district-composition-1';
+} from './EditorGmChatClient.js?v=20261128-canonical-hero-1';
+import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261128-canonical-hero-1';
 
 const transform = globalThis.DungeonCrawlerPlacementTransform;
 if (!transform) {
@@ -354,6 +354,8 @@ export class RoomEditorShell {
       toolbar: q('[data-room-editor-toolbar]'),
       terrainValue: q('[data-room-editor-terrain-value]'),
       terrainImagePanel: q('[data-room-editor-terrain-image-panel]'),
+      terrainImageName: q('[data-room-editor-terrain-image-name]'),
+      terrainImageDescription: q('[data-room-editor-terrain-image-description]'),
       elevationValue: q('[data-room-editor-elevation-value]'),
       canvasContainer: q('[data-room-editor-canvas]'),
       catalogSearch: q('[data-room-editor-catalog-search]'),
@@ -418,6 +420,14 @@ export class RoomEditorShell {
   _syncTerrainImagePanel(terrainType) {
     const panel = this._dom.terrainImagePanel;
     const template = String(this.urls.objectImage || '');
+    const label = String(terrainType || '').replace(/_/g, ' ');
+    const displayName = label ? label[0].toUpperCase() + label.slice(1) : 'Terrain tile';
+    if (this._dom.terrainImageName) {
+      this._dom.terrainImageName.textContent = displayName;
+    }
+    if (this._dom.terrainImageDescription) {
+      this._dom.terrainImageDescription.textContent = `Shared generated terrain tile for canonical ${displayName.toLowerCase()} hexes.`;
+    }
     if (!panel || !template) return;
     panel.dataset.endpoint = template
       .replace('{kind}', 'terrain')
