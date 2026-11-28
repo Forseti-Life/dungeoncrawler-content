@@ -343,6 +343,33 @@ class EditorGmHarnessService implements AgentHarnessInterface {
       }
     }
     if (
+      $surface->id() === 'definition_editor'
+      && $this->isExplicitApplyDirective($author_message)
+      && is_array($scope['pending_definition_execution'] ?? NULL)
+    ) {
+      $proposal = $scope['pending_definition_execution'];
+      $tool_name = trim((string) ($proposal['tool_name'] ?? ''));
+      $arguments = is_array($proposal['arguments'] ?? NULL) ? $proposal['arguments'] : [];
+      if ($tool_name === '' || !$surface->registry()->has($tool_name) || $arguments === []) {
+        throw new \LogicException('editor_gm_pending_definition_execution_invalid');
+      }
+      if (!$surface->registry()->get($tool_name)->definition()->mutating) {
+        throw new \LogicException('editor_gm_pending_definition_execution_nonmutating');
+      }
+      return $this->executeTool(
+        $surface,
+        $draft_id,
+        $profile,
+        $tool_name,
+        $arguments,
+        $dry_run,
+        'Applied the explicitly approved pending definition proposal.',
+        $scope,
+        [],
+        $author_message,
+      );
+    }
+    if (
       in_array($surface->id(), [RoomEditorGmSurface::ID, DungeonEditorGmSurface::ID], TRUE)
       && $this->isExplicitApplyDirective($author_message)
       && is_array($scope['pending_editor_execution'] ?? NULL)

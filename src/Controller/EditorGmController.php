@@ -53,9 +53,16 @@ class EditorGmController extends ControllerBase {
   public function describe(string $_surface, Request $request, ?string $draft_id = NULL): JsonResponse {
     try {
       $profile = trim((string) $request->query->get('profile', 'editing')) ?: 'editing';
-      $data = $this->harness->describe($_surface, $draft_id, $profile, $this->definitionScopeFromQuery($request));
-      if ($session = $this->conversationSession($_surface, $draft_id)) {
+      $definition_scope = $this->definitionScopeFromQuery($request);
+      $data = $this->harness->describe($_surface, $draft_id, $profile, $definition_scope);
+      if ($session = $this->conversationSession($_surface, $draft_id, TRUE, $definition_scope)) {
         $data['conversation'] = $this->chatSessions->getRecentMessagesChronological((int) $session['id'], ChatSessionManager::MAX_QUERY_MESSAGES);
+        if ($_surface === 'definition_editor') {
+          $last_result = $this->latestEditorAssistantResult((int) $session['id']);
+          if (!empty($last_result['proposed_execution'])) {
+            $data['pending_editor_proposal'] = $last_result;
+          }
+        }
       }
       return new JsonResponse(['data' => $data]);
     }
@@ -73,7 +80,10 @@ class EditorGmController extends ControllerBase {
     }
     try {
       $body = $this->decodeBody($request);
-      $session = $this->conversationSession($_surface, $draft_id, FALSE);
+      $definition_scope = is_array($body['tool_context']['scope'] ?? NULL)
+        ? $body['tool_context']['scope']
+        : [];
+      $session = $this->conversationSession($_surface, $draft_id, FALSE, $definition_scope);
       $scope = $session
         ? ['conversation_context' => $this->chatSessions->buildSessionContext((int) $session['id'], 20)]
         : [];
@@ -98,8 +108,15 @@ class EditorGmController extends ControllerBase {
         ) {
           $scope['pending_editor_execution'] = $proposal;
         }
+        elseif (
+          $_surface === 'definition_editor'
+          && !empty($last_result['requires_approval'])
+          && is_array($proposal)
+        ) {
+          $scope['pending_definition_execution'] = $proposal;
+        }
       }
-      $session ??= $this->conversationSession($_surface, $draft_id);
+      $session ??= $this->conversationSession($_surface, $draft_id, TRUE, $definition_scope);
       if ($session) {
         $this->persistAuthorTurn($session, $body);
       }
@@ -162,8 +179,18 @@ class EditorGmController extends ControllerBase {
   /**
    * Resolves persistent conversation storage for draft-scoped Editor GM surfaces.
    */
-  private function conversationSession(string $surface, ?string $draft_id, bool $create = TRUE): ?array {
-    if (!in_array($surface, ['storyline_builder', 'dungeon_editor', 'room_editor', 'character_creation'], TRUE) || $draft_id === NULL || trim($draft_id) === '') {
+  private function conversationSession(string $surface, ?string $draft_id, bool $create = TRUE, array $definition_scope = []): ?array {
+    if ($surface === 'definition_editor') {
+      $this->harness->surface($surface)->createContext(NULL, 'editing', $definition_scope);
+      $family = trim((string) ($definition_scope['family'] ?? ''));
+      $definition_id = trim((string) ($definition_scope['definition_id'] ?? ''));
+      $draft_id = $family . ':' . ($definition_id !== '' ? $definition_id : 'new');
+    }
+    if (
+      !in_array($surface, ['definition_editor', 'storyline_builder', 'dungeon_editor', 'room_editor', 'character_creation'], TRUE)
+      || $draft_id === NULL
+      || trim($draft_id) === ''
+    ) {
       return NULL;
     }
     if ($surface === 'character_creation') {
@@ -180,6 +207,7 @@ class EditorGmController extends ControllerBase {
       'dungeon_editor' => 'Dungeon Editor GM',
       'room_editor' => 'Room Editor GM',
       'character_creation' => 'Character Creation GM',
+      'definition_editor' => 'Definition Editor GM',
       default => 'Editor GM',
     };
     return $this->chatSessions->ensureEditorGmSession($surface, $draft_id, $label);

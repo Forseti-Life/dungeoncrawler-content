@@ -360,7 +360,7 @@ dungeon-editor:
     - core/once
 
 definition-editor:
-  version: 20261127-shared-images-1
+  version: 20261128-definition-context-1
   js:
     js/definition-editor.js: { attributes: { type: module } }
   css:

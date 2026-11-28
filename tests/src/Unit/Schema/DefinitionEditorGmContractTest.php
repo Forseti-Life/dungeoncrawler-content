@@ -182,6 +182,17 @@ final class DefinitionEditorGmContractTest extends TestCase {
     }
   }
 
+  public function testDefinitionConversationAndPendingProposalSurviveRefresh(): void {
+    $controller = $this->source('src/Controller/EditorGmController.php');
+    $shell = $this->source('js/v2/editor/DefinitionEditorShell.js');
+
+    $this->assertStringContainsString("'definition_editor', 'storyline_builder'", $controller);
+    $this->assertStringContainsString("family . ':'", $controller);
+    $this->assertStringContainsString('pending_definition_execution', $controller);
+    $this->assertStringContainsString('pending_editor_proposal', $shell);
+    $this->assertStringContainsString('restoreEditorGmConversation', $shell);
+  }
+
   /**
    * Natural language may propose mutating tools but cannot execute them.
    */

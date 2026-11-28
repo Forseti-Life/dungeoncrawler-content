@@ -36,6 +36,29 @@ final class PlanDefinitionPatchTool implements EditorGmToolInterface {
     $current = $context->definitions->definitionPayload($family, $definition_id);
     $proposed = array_replace($current, $patch);
     $field_changes = [];
+    $removed_fields = [];
+    foreach ($context->definitions->validateDefinition($family, $current) as $finding) {
+      $pointer = (string) ($finding['pointer'] ?? '');
+      if (($finding['code'] ?? NULL) !== 'additional_property'
+        || !preg_match('#^/([^/]+)$#', $pointer, $matches)
+      ) {
+        continue;
+      }
+      $key = str_replace(['~1', '~0'], ['/', '~'], $matches[1]);
+      if (array_key_exists($key, $patch) || !array_key_exists($key, $proposed)) {
+        continue;
+      }
+      $before = $proposed[$key];
+      unset($proposed[$key]);
+      $removed_fields[] = $key;
+      $field_changes[] = [
+        'field' => $key,
+        'before' => $before,
+        'after' => NULL,
+        'is_new_field' => FALSE,
+        'removed' => TRUE,
+      ];
+    }
     foreach ($patch as $key => $value) {
       $before = $current[$key] ?? NULL;
       if ($before !== $value) {
@@ -54,6 +77,7 @@ final class PlanDefinitionPatchTool implements EditorGmToolInterface {
       'family' => $family,
       'definition_id' => $definition_id,
       'field_changes' => $field_changes,
+      'removed_legacy_fields' => $removed_fields,
       'has_changes' => $field_changes !== [],
       'valid' => $findings === [],
       'findings' => $findings,

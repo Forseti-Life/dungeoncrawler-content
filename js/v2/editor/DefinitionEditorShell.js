@@ -9,11 +9,12 @@ import {
   describeEditorGmToolCall,
   parseEditorGmMessage,
   renderEditorGmClarification,
+  restoreEditorGmConversation,
   renderEditorGmToolCalls,
   renderEditorGmToolset,
   selectEditorGmTool,
   shouldSubmitEditorGmKey,
-} from './EditorGmChatClient.js?v=20261127-shared-images-1';
+} from './EditorGmChatClient.js?v=20261128-definition-context-1';
 
 function makeEl(tag, className = null, text = null) {
   const el = document.createElement(tag);
@@ -37,6 +38,7 @@ export class DefinitionEditorShell {
     this._busy = false;
     this._waitingOnGenerator = false;
     this._gm = { context: null, manifest: null, proposal: null };
+    this._conversationRestored = false;
   }
 
   async init() {
@@ -70,6 +72,13 @@ export class DefinitionEditorShell {
       const result = await this._getJson(url.toString());
       this._gm.context = result?.data?.context_snapshot || null;
       this._gm.manifest = this._gm.context?.tools || null;
+      if (!this._conversationRestored) {
+        restoreEditorGmConversation(this._dom.gmTranscript, result?.data?.conversation);
+        if (result?.data?.pending_editor_proposal) {
+          this._renderProposal(result.data.pending_editor_proposal);
+        }
+        this._conversationRestored = true;
+      }
       this._renderGmContext();
       this._renderGmToolset();
       this._setGmState(`Grounded on ${this._gm.context?.scope?.family || this.scope.family}.`, 'success');
@@ -134,6 +143,13 @@ export class DefinitionEditorShell {
     await this._sendGmRequest(intent, false, parsed.kind === 'natural_language' ? 'assistant' : parsed.toolName);
   }
 
+  async _submitNaturalLanguageMessage(message) {
+    if (!message) return false;
+    this._dom.gmInput.value = message;
+    await this._submitGmMessage();
+    return true;
+  }
+
   async _sendGmRequest(intent, dryRun, label, scopeOverride = null) {
     if (this._busy) {
       this._appendGmMessage('error', 'Another request is still running.');
@@ -168,7 +184,7 @@ export class DefinitionEditorShell {
       );
       if (envelope.tool_result?.intent === 'clarification') {
         renderEditorGmClarification(this._dom.gmTranscript, envelope.tool_result, {
-          onSelectOption: (selectionText) => this._submitNaturalLanguageMessage?.(selectionText),
+          onSelectOption: (selectionText) => this._submitNaturalLanguageMessage(selectionText),
         });
       } else if (typeof envelope.tool_result?.assistant_response === 'string' && envelope.tool_result.assistant_response.trim() !== '') {
         this._appendGmMessage('assistant', envelope.tool_result.assistant_response.trim(), envelope.tool_result);
