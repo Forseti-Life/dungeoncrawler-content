@@ -405,17 +405,20 @@ STEP;
       ],
     ];
     if ($surface_label !== 'Character Creation') {
+      $requires_options = $surface_label === 'Storyline Builder';
       $functions['clarification'] = [
         'description' => 'Ask the author one decision the request cannot proceed without.',
         'strict' => TRUE,
         'parameters' => [
           'type' => 'object',
           'additionalProperties' => FALSE,
-          'required' => ['question', 'options', 'reasoning'],
+          'required' => $requires_options
+            ? ['question', 'options', 'reasoning']
+            : ['question', 'reasoning'],
           'properties' => [
             'question' => $string('The decision the author must make.'),
             'reasoning' => $string('One short sentence: why the request cannot proceed without this decision.'),
-            'options' => [
+            ...($requires_options ? ['options' => [
               'type' => 'array',
               'items' => [
                 'type' => 'object',
@@ -427,7 +430,7 @@ STEP;
                   'tradeoff' => $string('Benefit and cost.'),
                 ],
               ],
-            ],
+            ]] : []),
           ],
         ],
       ];
