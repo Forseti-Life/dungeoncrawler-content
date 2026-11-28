@@ -303,7 +303,11 @@ class RoomEditorService {
       throw new \OutOfBoundsException('draft_not_found');
     }
     $this->assertDraftAccess($row);
-    return $this->decodeDraft($row);
+    $draft = $this->decodeDraft($row);
+    $draft['district_drafts'] = ($draft['room']['room_type'] ?? NULL) === 'street'
+      ? ($this->dungeons?->districtDraftsForRoom((string) $draft['room_id']) ?? [])
+      : [];
+    return $draft;
   }
 
   public function listAccessibleDrafts(): array {

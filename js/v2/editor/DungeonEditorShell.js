@@ -28,9 +28,10 @@
  * Publication is available only through the server readiness and publish routes.
  */
 
-import { GameEventBus } from '../GameEventBus.js?v=20261127-editor-loading-1';
-import { HexCanvas } from '../canvas/HexCanvas.js?v=20261127-editor-loading-1';
-import './placementTransform.js?v=20261127-editor-loading-1';
+import { GameEventBus } from '../GameEventBus.js?v=20261128-district-composition-1';
+import { HexCanvas } from '../canvas/HexCanvas.js?v=20261128-district-composition-1';
+import './placementTransform.js?v=20261128-district-composition-1';
+import { projectDungeonMap } from './DungeonMapProjection.js?v=20261128-district-composition-1';
 import {
   appendEditorGmMessage,
   bindEditorGmPrompts,
@@ -44,8 +45,8 @@ import {
   restoreEditorGmConversation,
   selectEditorGmTool,
   shouldSubmitEditorGmKey,
-} from './EditorGmChatClient.js?v=20261127-editor-loading-1';
-import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261127-editor-loading-1';
+} from './EditorGmChatClient.js?v=20261128-district-composition-1';
+import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261128-district-composition-1';
 
 const transform = globalThis.DungeonCrawlerPlacementTransform;
 if (!transform) {
@@ -1088,69 +1089,18 @@ export class DungeonEditorShell {
       this.bus.emit('map:changed', { mapId: null, placements: null });
       return;
     }
-    const placements = [];
-    const ports = [];
-    const portIndex = new Map();
-    const linkedExitPorts = new Set();
-    (this.model.port_links || []).forEach((link) => {
-      linkedExitPorts.add(`${link.from.placement_id}:${link.from.port_id}`);
+    const projection = projectDungeonMap(this.model, {
+      baseLayer: (placement) => this._isDistrictStreet(placement.placement_id),
+      tint: (index, count) => placementTint(index, count),
+      occupancy: this._conflictOccupancy(),
+      portHighlight: (key) => this._portHighlight(key),
     });
-
-    this.model.placements.forEach((placement, index) => {
-      const tint = placementTint(index, this.model.placements.length);
-      const spec = { origin: placement.origin, rotation_steps: placement.rotation_steps };
-      const roomName = placement.resolved ? String(placement?.room?.name || '').trim() : '';
-      const displayLabel = roomName || String(placement?.label || placement?.placement_id || '').trim();
-      const hexes = placement.resolved
-        ? placement.room.hexes.map((hex) => ({
-          ...hex,
-          ...transform.toLevel({ q: hex.q, r: hex.r }, spec),
-        }))
-        : [];
-      placements.push({
-        placementId: placement.placement_id,
-        baseLayer: this._isDistrictStreet(placement.placement_id),
-        label: placement.label,
-        roomName,
-        displayLabel,
-        tint,
-        hexes,
-      });
-      if (placement.resolved) {
-        placement.room.ports.forEach((port) => {
-          const level = transform.toLevelPort({ q: port.q, r: port.r }, port.edge, spec);
-          const key = `${placement.placement_id}:${port.port_id}`;
-          const entry = {
-            placementId: placement.placement_id,
-            portId: port.port_id,
-            kind: port.kind,
-            q: level.q,
-            r: level.r,
-            edge: level.edge,
-            linked: port.kind === 'exit' && linkedExitPorts.has(key),
-            highlight: this._portHighlight(key),
-          };
-          ports.push(entry);
-          portIndex.set(`${placement.placement_id}:${port.port_id}`, entry);
-        });
-      }
-    });
-
-    const links = (this.model.port_links || []).map((link) => {
-      const from = portIndex.get(`${link.from.placement_id}:${link.from.port_id}`);
-      const to = portIndex.get(`${link.to.placement_id}:${link.to.port_id}`);
-      if (!from || !to) {
-        return null;
-      }
-      return { linkId: link.link_id, kind: link.kind, direction: link.direction, from, to };
-    }).filter(Boolean);
-
     this.bus.emit('map:changed', {
       mapId: this.model.draft_id,
-      placements,
-      ports,
-      links,
-      occupancy: this._conflictOccupancy(),
+      placements: projection.placements,
+      ports: projection.ports,
+      links: projection.links,
+      occupancy: projection.occupancy,
     });
   }
 

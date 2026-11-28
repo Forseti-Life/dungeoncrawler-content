@@ -80,11 +80,14 @@ class RoomEditorController extends ControllerBase {
             'roomEditor' => [
               'rooms' => $this->roomEditor->listRooms(),
               'selectedRoomId' => $room_id,
+              'selectedDungeonId' => count($parent) === 1 ? (string) $parent[0]['dungeon_id'] : NULL,
               'csrfToken' => $this->csrfToken->get(CsrfRequestHeaderAccessCheck::TOKEN_KEY),
               'urls' => [
                 'create' => Url::fromRoute('dungeoncrawler_content.room_editor_draft_create')->toString(),
                 'draft' => str_replace($placeholder, '{draft_id}', Url::fromRoute('dungeoncrawler_content.room_editor_draft_get', ['draft_id' => $placeholder])->toString()),
                 'command' => str_replace($placeholder, '{draft_id}', Url::fromRoute('dungeoncrawler_content.room_editor_command', ['draft_id' => $placeholder])->toString()),
+                'dungeonDescribe' => str_replace($placeholder, '{draft_id}', Url::fromRoute('dungeoncrawler_content.dungeon_editor_draft_describe', ['draft_id' => $placeholder])->toString()),
+                'dungeonCommand' => str_replace($placeholder, '{draft_id}', Url::fromRoute('dungeoncrawler_content.dungeon_editor_draft_command', ['draft_id' => $placeholder])->toString()),
                 'validate' => str_replace($placeholder, '{draft_id}', Url::fromRoute('dungeoncrawler_content.room_editor_validate', ['draft_id' => $placeholder])->toString()),
                 'publish' => str_replace($placeholder, '{draft_id}', Url::fromRoute('dungeoncrawler_content.room_editor_publish', ['draft_id' => $placeholder])->toString()),
                 'placeImage' => str_replace($placeholder, '{draft_id}', Url::fromRoute('dungeoncrawler_content.room_editor_place_image', ['draft_id' => $placeholder])->toString()),

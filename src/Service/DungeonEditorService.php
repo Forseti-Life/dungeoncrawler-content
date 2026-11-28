@@ -296,6 +296,7 @@ class DungeonEditorService {
       return [
         'draft_id' => $row->draft_id,
         'dungeon_id' => $row->dungeon_id,
+        'kind' => (string) ($dungeon['kind'] ?? 'dungeon'),
         'name' => (string) ($dungeon['name'] ?? ''),
         'base_version_id' => $row->base_version_id,
         'revision' => (int) $row->revision,
@@ -306,6 +307,29 @@ class DungeonEditorService {
         'updated_at' => (int) $row->updated_at,
       ];
     }, $query->execute()->fetchAll());
+  }
+
+  /**
+   * Active district drafts the current author may edit from a street room.
+   */
+  public function districtDraftsForRoom(string $room_id): array {
+    $all = $this->currentUser->hasPermission('administer dungeoncrawler content')
+      || $this->currentUser->hasPermission('publish canonical dungeoncrawler dungeons');
+    $drafts = $this->listDrafts($all ? NULL : (int) $this->currentUser->id());
+    return array_values(array_map(
+      static fn(array $draft): array => array_intersect_key(
+        $draft,
+        array_flip(['draft_id', 'dungeon_id', 'kind', 'name', 'revision']),
+      ),
+      array_filter(
+        $drafts,
+        static fn(array $draft): bool => ($draft['kind'] ?? NULL) === 'district'
+          && array_filter(
+            $draft['placement_pins'],
+            static fn(array $placement): bool => ($placement['room_id'] ?? NULL) === $room_id,
+          ) !== [],
+      ),
+    ));
   }
 
   /**
@@ -2238,10 +2262,10 @@ class DungeonEditorService {
       $room_status = $version_id !== '' ? $this->roomPublicationStatus($version_id) : NULL;
       if ($room_status !== NULL && ($room_status['canonical_valid'] ?? FALSE) !== TRUE) {
         $findings[] = $this->finding(
-          'error',
+          $profile === 'publication' ? 'error' : 'warning',
           'room_validation_failed',
           sprintf(
-            'Placed room "%s" fails publication validation: %d error(s). Fix it in the Room Editor before validating the dungeon.',
+            'Placed room "%s" fails publication validation: %d error(s). Fix it in the Room Editor before publishing the dungeon.',
             (string) ($room['name'] ?? $placement_id),
             (int) ($room_status['error_count'] ?? 0),
           ),

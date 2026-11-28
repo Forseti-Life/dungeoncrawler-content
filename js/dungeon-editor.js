@@ -11,7 +11,7 @@
  * placement transform via ES modules. It does not fork the renderer.
  */
 
-import { DungeonEditorShell } from './v2/editor/DungeonEditorShell.js?v=20261127-editor-loading-1';
+import { DungeonEditorShell } from './v2/editor/DungeonEditorShell.js?v=20261128-district-composition-1';
 
 (function (Drupal, drupalSettings, once) {
   'use strict';

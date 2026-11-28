@@ -267,8 +267,15 @@ class DungeonEditorStatusTest extends TestCase {
       $this->placement(1, self::VERSION, 0, TRUE),
     ]);
 
-    $validation = $service->validateAggregate($draft);
+    $editing = $service->validateAggregate($draft);
+    $validation = $service->validateAggregate($draft, 'publication');
 
+    $editing_finding = array_values(array_filter(
+      $editing['findings'],
+      static fn(array $finding): bool => $finding['code'] === 'room_validation_failed',
+    ))[0] ?? NULL;
+    $this->assertSame('warning', $editing_finding['severity']);
+    $this->assertTrue($editing['is_valid']);
     $this->assertContains('room_validation_failed', array_column($validation['findings'], 'code'));
     $this->assertFalse($validation['is_valid']);
   }

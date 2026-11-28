@@ -32,9 +32,11 @@
 
 /* global PIXI */
 
-import { GameEventBus } from '../GameEventBus.js?v=20261127-editor-loading-1';
-import { HexCanvas } from '../canvas/HexCanvas.js?v=20261127-editor-loading-1';
-import { SpriteService } from '../../SpriteService.js?v=20261127-editor-loading-1';
+import { GameEventBus } from '../GameEventBus.js?v=20261128-district-composition-1';
+import { HexCanvas } from '../canvas/HexCanvas.js?v=20261128-district-composition-1';
+import { SpriteService } from '../../SpriteService.js?v=20261128-district-composition-1';
+import './placementTransform.js?v=20261128-district-composition-1';
+import { projectDungeonMap } from './DungeonMapProjection.js?v=20261128-district-composition-1';
 import {
   appendEditorGmMessage,
   bindEditorGmPrompts,
@@ -48,8 +50,13 @@ import {
   restoreEditorGmConversation,
   selectEditorGmTool,
   shouldSubmitEditorGmKey,
-} from './EditorGmChatClient.js?v=20261127-editor-loading-1';
-import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261127-editor-loading-1';
+} from './EditorGmChatClient.js?v=20261128-district-composition-1';
+import { renderEditorDraftStatus } from './EditorDraftStatusCard.js?v=20261128-district-composition-1';
+
+const transform = globalThis.DungeonCrawlerPlacementTransform;
+if (!transform) {
+  throw new Error('placement_transform_unavailable');
+}
 
 const FAMILIES = ['actor', 'item', 'obstacle', 'trap', 'hazard'];
 const SOLID_FAMILIES = ['actor', 'obstacle'];
@@ -209,6 +216,8 @@ export class RoomEditorShell {
     // command response mutates room state; this just drives the live token
     // visual while the pointer is down (see _beginPlacementDrag/_handlePlacementDragMove).
     this._dragState = null;
+    this._districtContext = null;
+    this._districtLoadSerial = 0;
   }
 
   // ---------------------------------------------------------------------------
@@ -236,7 +245,11 @@ export class RoomEditorShell {
     this._keydownHandler = (event) => this._handleKeydown(event);
     this._dom.selectionBar?.addEventListener('click', (event) => {
       const action = event.target.closest('[data-room-editor-selection-action]')?.getAttribute('data-room-editor-selection-action');
-      if (action === 'rotate-ccw' || action === 'rotate-cw') {
+      if (this.selection?.type === 'district_placement'
+        && (action === 'rotate-ccw' || action === 'rotate-cw')) {
+        this._rotateDistrictSelection(action === 'rotate-cw' ? 1 : -1);
+      }
+      else if (action === 'rotate-ccw' || action === 'rotate-cw') {
         this._rotateSelection(action === 'rotate-cw' ? 1 : -1);
       } else if (action === 'remove' && this.selection?.type === 'placement') {
         this._sendCommand('remove_object', { instance_id: this.selection.instanceId });
@@ -295,6 +308,8 @@ export class RoomEditorShell {
     this._stageUpHandler = null;
     this._canvasLeaveDragHandler = null;
     this._dragState = null;
+    this._districtLoadSerial += 1;
+    this._districtContext = null;
     if (this._catalogDragCleanup) {
       this._catalogDragCleanup();
       this._catalogDragCleanup = null;
@@ -567,6 +582,276 @@ export class RoomEditorShell {
     this._resizeObserver.observe(this._dom.canvasContainer);
   }
 
+  _clearDistrictContext() {
+    this._districtLoadSerial += 1;
+    this._districtContext = null;
+    this.bus.emit('map:changed', { mapId: null, placements: null });
+  }
+
+  async _refreshDistrictContext() {
+    const roomId = String(this.draft?.room?.room_id || '');
+    const drafts = Array.isArray(this.draft?.district_drafts) ? this.draft.district_drafts : [];
+    if (this.draft?.room?.room_type !== 'street' || drafts.length === 0 || !this.urls.dungeonDescribe) {
+      return;
+    }
+    const preferredDungeonId = String(this.settings.selectedDungeonId || '');
+    const district = drafts.find((draft) => draft.dungeon_id === preferredDungeonId) || drafts[0];
+    const serial = ++this._districtLoadSerial;
+    const url = String(this.urls.dungeonDescribe).replace('{draft_id}', encodeURIComponent(district.draft_id));
+    const response = await this._getJson(url);
+    if (serial !== this._districtLoadSerial || this.draft?.room?.room_id !== roomId) {
+      return;
+    }
+    const model = response?.data || null;
+    const streetPlacement = model?.placements?.find((placement) => placement.room_id === roomId && placement.resolved);
+    if (!model || !streetPlacement) {
+      throw new Error('district_street_projection_unavailable');
+    }
+    this._districtContext = {
+      draftId: district.draft_id,
+      dungeonId: district.dungeon_id,
+      model,
+      streetPlacement,
+      streetSpec: {
+        origin: { ...streetPlacement.origin },
+        rotation_steps: Number(streetPlacement.rotation_steps || 0),
+      },
+      streetHexes: new Set((streetPlacement.room.hexes || []).map((hex) => transform.hexKey(hex))),
+    };
+
+    if (Number(this.draft.revision) === 0 && this.draft.base_version_id !== streetPlacement.version_id) {
+      this._setStatus('Refreshing this untouched draft from the district’s pinned terrain version…', 'info');
+      await this._sendCommand('restore_published_base', { version_id: streetPlacement.version_id });
+      return;
+    }
+    if (this.draft.base_version_id !== streetPlacement.version_id
+      && !this._districtRoomMatchesPinned(streetPlacement)) {
+      this._setStatus(
+        'This district view uses the dungeon’s pinned terrain, but the room draft has local edits on an older base. Restore the published base or repin the room after publishing.',
+        'warning',
+      );
+    }
+    this._emitDistrictMap();
+  }
+
+  _districtRoomMatchesPinned(streetPlacement) {
+    const draftHexes = Array.isArray(this.draft?.room?.hexes) ? this.draft.room.hexes : [];
+    const pinnedHexes = Array.isArray(streetPlacement?.room?.hexes) ? streetPlacement.room.hexes : [];
+    if (draftHexes.length !== pinnedHexes.length) {
+      return false;
+    }
+    const draft = new Map(draftHexes.map((hex) => [
+      transform.hexKey(hex),
+      [hex.terrain_type, Number(hex.elevation_ft || 0), hex.lighting],
+    ]));
+    return pinnedHexes.every((hex) => {
+      const value = draft.get(transform.hexKey(hex));
+      return value
+        && value[0] === hex.terrain_type
+        && value[1] === Number(hex.elevation_ft || 0)
+        && value[2] === hex.lighting;
+    });
+  }
+
+  _emitDistrictMap() {
+    const context = this._districtContext;
+    if (!context?.model || !context.streetSpec) {
+      return;
+    }
+    const projection = projectDungeonMap(context.model, {
+      coordinateSpec: context.streetSpec,
+      basePlacementId: context.streetPlacement.placement_id,
+      tint: (index) => this._districtPlacementTint(index),
+    });
+    context.projectedPlacements = projection.projectedPlacements;
+    context.occupancy = projection.occupancy;
+    this.bus.emit('map:changed', {
+      mapId: context.draftId,
+      placements: projection.placements,
+      ports: projection.ports,
+      links: projection.links,
+      occupancy: projection.occupancy,
+    });
+    this._fitRoomToView();
+  }
+
+  _districtPlacementTint(index) {
+    const colors = [0x38bdf8, 0xf59e0b, 0xa855f7, 0x22c55e, 0xf97316, 0x818cf8];
+    return colors[index % colors.length];
+  }
+
+  _beginDistrictRoomInteraction(axial, event) {
+    const context = this._districtContext;
+    if (!context || this._busy || Number(event?.data?.button || 0) !== 0) {
+      return false;
+    }
+    const claimants = context.occupancy?.[transform.hexKey(axial)] || [];
+    if (claimants.length === 0) {
+      return false;
+    }
+    const placementId = claimants
+      .slice()
+      .sort((a, b) => {
+        const aCount = context.projectedPlacements.get(a)?.localHexes.length || Infinity;
+        const bCount = context.projectedPlacements.get(b)?.localHexes.length || Infinity;
+        return aCount - bCount;
+      })[0];
+    const projected = context.projectedPlacements.get(placementId);
+    if (!projected || projected.isBase) {
+      return false;
+    }
+    this.selection = { type: 'district_placement', placementId };
+    this._renderInspector();
+    const global = event?.data?.global;
+    const level = transform.toLevel(
+      { q: Number(axial.q), r: Number(axial.r) },
+      context.streetSpec,
+    );
+    this._dragState = {
+      kind: 'district_room',
+      placementId,
+      origin: { ...projected.placement.origin },
+      rotation: Number(projected.placement.rotation_steps || 0),
+      anchor: transform.toRoomLocal(level, projected.spec),
+      footprint: (projected.placement.room.hexes || []).map((hex) => ({
+        q: Number(hex.q),
+        r: Number(hex.r),
+      })),
+      currentOrigin: { ...projected.placement.origin },
+      startX: Number(global?.x || 0),
+      startY: Number(global?.y || 0),
+      moved: false,
+    };
+    this.hexCanvas.setPanEnabled(false);
+    return true;
+  }
+
+  _districtCandidateOrigin(drag, localAxial) {
+    const level = transform.toLevel(
+      { q: Number(localAxial.q), r: Number(localAxial.r) },
+      this._districtContext.streetSpec,
+    );
+    const offset = transform.rotate(Number(drag.anchor.q), Number(drag.anchor.r), Number(drag.rotation));
+    return { q: level.q - offset.q, r: level.r - offset.r };
+  }
+
+  _districtGhostHexes(drag, origin) {
+    const spec = { origin, rotation_steps: Number(drag.rotation || 0) };
+    return drag.footprint.map((hex) => transform.toRoomLocal(
+      transform.toLevel(hex, spec),
+      this._districtContext.streetSpec,
+    ));
+  }
+
+  _handleDistrictRoomDragMove(event) {
+    const drag = this._dragState;
+    const global = event?.data?.global;
+    if (!drag || !global || !this.hexCanvas || !this._districtContext) {
+      return;
+    }
+    const axial = this.hexCanvas.globalToAxial(global.x, global.y);
+    if (!axial) {
+      return;
+    }
+    drag.currentOrigin = this._districtCandidateOrigin(drag, {
+      q: Math.round(axial.q),
+      r: Math.round(axial.r),
+    });
+    drag.moved = true;
+    const hexes = this._districtGhostHexes(drag, drag.currentOrigin);
+    const valid = hexes.length > 0
+      && hexes.every((hex) => this._districtContext.streetHexes.has(transform.hexKey(hex)));
+    this.bus.emit('map:ghost', { hexes, valid });
+  }
+
+  _handleDistrictRoomDragEnd(event) {
+    const drag = this._dragState;
+    if (!drag) {
+      return;
+    }
+    this._dragState = null;
+    this.hexCanvas?.setPanEnabled(this.tool === 'select');
+    this.bus.emit('map:ghost', null);
+    const global = event?.data?.global;
+    const clicked = global
+      && Math.hypot(global.x - drag.startX, global.y - drag.startY) < 6;
+    if (clicked || !drag.moved
+      || (drag.currentOrigin.q === drag.origin.q && drag.currentOrigin.r === drag.origin.r)) {
+      return;
+    }
+    this._moveDistrictRoom(drag.placementId, drag.currentOrigin);
+  }
+
+  _cancelDistrictRoomDrag() {
+    this._dragState = null;
+    this.hexCanvas?.setPanEnabled(this.tool === 'select');
+    this.bus.emit('map:ghost', null);
+    this._emitDistrictMap();
+  }
+
+  async _sendDistrictCommand(type, payload, successMessage) {
+    const context = this._districtContext;
+    if (!context?.draftId || !this.urls.dungeonCommand) {
+      this._setStatus('No editable district draft is available for this room.', 'error');
+      return null;
+    }
+    const url = String(this.urls.dungeonCommand).replace('{draft_id}', encodeURIComponent(context.draftId));
+    return this._runExclusive(async () => {
+      let result;
+      try {
+        result = await this._postJson(url, {
+          command_id: uuidv4(),
+          expected_revision: Number(context.model.revision),
+          type,
+          payload,
+          issued_at: new Date().toISOString(),
+        });
+      }
+      catch (error) {
+        if (error?.status === 409) {
+          const describeUrl = String(this.urls.dungeonDescribe)
+            .replace('{draft_id}', encodeURIComponent(context.draftId));
+          const refreshed = await this._getJson(describeUrl);
+          this._districtContext.model = refreshed.data;
+          this._emitDistrictMap();
+          this._renderInspector();
+        }
+        throw error;
+      }
+      this._districtContext.model = result.data.model;
+      this._emitDistrictMap();
+      this._renderInspector();
+      this._setStatus(successMessage, 'success');
+      return result.data;
+    });
+  }
+
+  async _moveDistrictRoom(placementId, origin) {
+    return this._sendDistrictCommand(
+      'move_room_placement',
+      { placement_id: placementId, origin },
+      'Moved the room in the district.',
+    );
+  }
+
+  async _rotateDistrictSelection(direction) {
+    const placementId = this.selection?.type === 'district_placement'
+      ? this.selection.placementId
+      : null;
+    const placement = this._districtContext?.model?.placements?.find(
+      (candidate) => candidate.placement_id === placementId,
+    );
+    if (!placement) {
+      return null;
+    }
+    const rotation = (Number(placement.rotation_steps || 0) + direction + 6) % 6;
+    return this._sendDistrictCommand(
+      'rotate_room_placement',
+      { placement_id: placementId, rotation_steps: rotation },
+      `Rotated the room 60° ${direction > 0 ? 'clockwise' : 'counter-clockwise'} in the district.`,
+    );
+  }
+
   _fitRoomToView() {
     const hexes = Array.isArray(this.draft?.room?.hexes) ? this.draft.room.hexes : [];
     if (!this.hexCanvas?.app || hexes.length === 0) {
@@ -647,6 +932,9 @@ export class RoomEditorShell {
     }
     const axial = this.hexCanvas?.globalToAxial(global.x, global.y);
     if (!axial || !Number.isFinite(axial.q) || !Number.isFinite(axial.r)) {
+      return;
+    }
+    if (this.tool === 'select' && this._beginDistrictRoomInteraction(axial, event)) {
       return;
     }
     this._handleHexInteraction(axial.q, axial.r);
@@ -1146,7 +1434,10 @@ export class RoomEditorShell {
     if (global && this.hexCanvas) {
       this._lastHoverAxial = this.hexCanvas.globalToAxial(global.x, global.y);
     }
-    if (this._dragState?.kind === 'port') {
+    if (this._dragState?.kind === 'district_room') {
+      this._handleDistrictRoomDragMove(event);
+    }
+    else if (this._dragState?.kind === 'port') {
       this._handlePortDragMove(event);
     }
     else if (this._dragState) {
@@ -1155,7 +1446,10 @@ export class RoomEditorShell {
   }
 
   _handleStageDragEnd(event) {
-    if (this._dragState?.kind === 'port') {
+    if (this._dragState?.kind === 'district_room') {
+      this._handleDistrictRoomDragEnd(event);
+    }
+    else if (this._dragState?.kind === 'port') {
       this._handlePortDragEnd(event);
     }
     else if (this._dragState) {
@@ -1164,7 +1458,10 @@ export class RoomEditorShell {
   }
 
   _cancelStageDrag() {
-    if (this._dragState?.kind === 'port') {
+    if (this._dragState?.kind === 'district_room') {
+      this._cancelDistrictRoomDrag();
+    }
+    else if (this._dragState?.kind === 'port') {
       this._cancelPortDrag();
     }
     else if (this._dragState) {
@@ -1603,6 +1900,7 @@ export class RoomEditorShell {
     const previousDraftId = this.draft?.draft_id || null;
     const previousSelection = this.selection;
     this.draft = draft;
+    this._clearDistrictContext();
     this._setLoadState(draft ? 'Room ready.' : 'Choose a room to begin.', draft ? 'ready' : 'idle');
     if (previousDraftId !== (draft?.draft_id || null)) {
       this._history = [];
@@ -1650,6 +1948,11 @@ export class RoomEditorShell {
     }
     this._syncRoomMetadataForm();
     this._renderInspector();
+    window.setTimeout(() => {
+      this._refreshDistrictContext().catch((error) => {
+        this._showError(error, 'District composition could not be loaded');
+      });
+    }, 0);
     if (statusMessage) {
       this._setStatus(statusMessage, 'success');
     }
@@ -2235,12 +2538,23 @@ export class RoomEditorShell {
         text = `Selected: ${this.selection.family} port "${port.port_id}" · side ${Number(port.edge || 0) + 1} of 6`;
         selected = true;
       }
+    } else if (this.selection?.type === 'district_placement') {
+      const placement = this._districtContext?.model?.placements?.find(
+        (candidate) => candidate.placement_id === this.selection.placementId,
+      );
+      if (placement) {
+        text = `Selected district room: ${placement.room?.name || placement.label} · rotation ${Number(placement.rotation_steps || 0) * 60}° · drag to move`;
+      }
     }
     if (this._dom.selectionName) {
       this._dom.selectionName.textContent = text;
     }
     bar.querySelectorAll('button').forEach((button) => {
-      button.disabled = !selected || this._busy || !this.draft;
+      const districtSelection = this.selection?.type === 'district_placement';
+      const action = button.dataset.roomEditorSelectionAction;
+      button.disabled = districtSelection
+        ? (action === 'remove' || this._busy || !this._districtContext)
+        : (!selected || this._busy || !this.draft);
     });
   }
 
@@ -2280,6 +2594,27 @@ export class RoomEditorShell {
         return;
       }
       body.appendChild(this._buildPlacementInspector(placement));
+      return;
+    }
+    if (this.selection.type === 'district_placement') {
+      const placement = this._districtContext?.model?.placements?.find(
+        (candidate) => candidate.placement_id === this.selection.placementId,
+      );
+      if (!placement) {
+        body.appendChild(this._buildRoomInspector());
+        return;
+      }
+      const section = document.createElement('section');
+      section.className = 'room-editor__inspector-empty';
+      const heading = document.createElement('h3');
+      heading.textContent = placement.room?.name || placement.label || 'District room';
+      const detail = document.createElement('p');
+      detail.textContent = `Placed in ${this._districtContext.dungeonId}. Drag on the map to move it, or use the rotation controls above.`;
+      const note = document.createElement('p');
+      note.className = 'room-editor__hint';
+      note.textContent = 'Movement and rotation are saved to the parent dungeon draft, not to this street room.';
+      section.append(heading, detail, note);
+      body.appendChild(section);
       return;
     }
     if (this.selection.type === 'port') {
@@ -2794,7 +3129,11 @@ export class RoomEditorShell {
       return;
     }
     if (event.key === '[' || event.key === ']') {
-      if (this.selection?.type === 'placement' || this.selection?.type === 'port') {
+      if (this.selection?.type === 'district_placement') {
+        event.preventDefault();
+        this._rotateDistrictSelection(event.key === ']' ? 1 : -1);
+      }
+      else if (this.selection?.type === 'placement' || this.selection?.type === 'port') {
         event.preventDefault();
         this._rotateSelection(event.key === ']' ? 1 : -1);
       }
