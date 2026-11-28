@@ -278,7 +278,7 @@ class RoomEditorStatusTest extends TestCase {
     // An empty room is not missing anything: placing objects is optional.
     $this->assertSame(['Room name', 'Room description'], $status['missing_content']);
     $this->assertSame([0, 100, 100, 100, 0, 0], array_column($status['stages'], 'completion_percent'));
-    $this->assertSame(50, $status['completion_percent']);
+    $this->assertSame(60, $status['completion_percent']);
     $this->assertSame(['Choose a name for this room.'], $status['next_steps']);
   }
 

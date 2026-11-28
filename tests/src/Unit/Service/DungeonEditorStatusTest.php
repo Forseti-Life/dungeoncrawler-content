@@ -236,7 +236,7 @@ class DungeonEditorStatusTest extends TestCase {
 
     $this->assertSame([], $status['missing_content']);
     $this->assertSame(6, $status['current_stage']);
-    $this->assertSame(92, $status['completion_percent']);
+    $this->assertSame(100, $status['completion_percent']);
     $this->assertSame(100, $status['room_completion_percent']);
     $this->assertSame(11, $status['completed_checks']);
     $this->assertSame(1, $status['counts']['rooms_with_encounter']);

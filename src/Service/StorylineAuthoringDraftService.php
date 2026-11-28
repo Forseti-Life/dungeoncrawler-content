@@ -2757,7 +2757,7 @@ class StorylineAuthoringDraftService {
         ];
       }
       $completed = count(array_filter($checklist, static fn(array $item): bool => $item['complete']));
-      $completion_percent = (int) round(array_sum(array_column($stages, 'completion_percent')) / count($stages));
+      $completion_percent = EditorDraftStatusProjection::authoringCompletionPercent($stages, 8);
       $hierarchy = is_array($validation['hierarchy'] ?? NULL)
         ? $validation['hierarchy']
         : $this->draftHierarchyStatus($draft);

@@ -48,7 +48,7 @@ final class EditorDraftStatusProjection {
       'revision' => (int) $draft['revision'],
       'status' => (string) $draft['status'],
       'validation_profile' => (string) $validation['profile'],
-      'completion_percent' => (int) round(array_sum(array_column($stage_rows, 'completion_percent')) / count($stage_rows)),
+      'completion_percent' => self::authoringCompletionPercent($stage_rows, $last_stage),
       'completed_checks' => count(array_filter($checklist, static fn(array $item): bool => $item['complete'])),
       'total_checks' => count($checklist),
       'canonical_valid' => $validation['is_valid'],
@@ -76,6 +76,20 @@ final class EditorDraftStatusProjection {
 
   public static function validationChecks(bool $valid, array $review): array {
     return isset($review['warning_review_fraction']) ? [$valid, $review['warning_review_fraction']] : [$valid];
+  }
+
+  public static function authoringCompletionPercent(array $stage_rows, int $publication_stage): int {
+    $authoring_percentages = array_values(array_map(
+      static fn(array $stage): int => (int) $stage['completion_percent'],
+      array_filter(
+        $stage_rows,
+        static fn(array $stage): bool => (int) $stage['stage'] !== $publication_stage,
+      ),
+    ));
+    if ($authoring_percentages === []) {
+      throw new \LogicException('authoring_stages_missing');
+    }
+    return (int) round(array_sum($authoring_percentages) / count($authoring_percentages));
   }
 
   public static function cappedByChildCompletion(int $completion, int $child_completion): int {
