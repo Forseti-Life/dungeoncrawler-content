@@ -889,6 +889,24 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         'rooms' => $rows,
         'tool' => $definition->name,
       ];
+      $invalid = array_values(array_filter($rows, static fn(array $row): bool => empty($row['valid'])));
+      $valid_count = count($rows) - count($invalid);
+      $result['assistant_response'] = sprintf(
+        "Room validation complete.\n%d of %d room%s %s valid for %s. %d error%s and %d warning%s were found.%s",
+        $valid_count,
+        count($rows),
+        count($rows) === 1 ? '' : 's',
+        $valid_count === 1 ? 'is' : 'are',
+        $profile,
+        (int) $result['error_count'],
+        (int) $result['error_count'] === 1 ? '' : 's',
+        (int) $result['warning_count'],
+        (int) $result['warning_count'] === 1 ? '' : 's',
+        $invalid === [] ? '' : "\nInvalid rooms: " . implode(', ', array_column($invalid, 'name')) . '.',
+      );
+      $result['next_steps'] = $invalid === []
+        ? ['Review warnings if any remain, then continue dungeon authoring.']
+        : ['Open each invalid room in the Room Editor and address its first validation error.'];
     }
     else {
       $child = $this->surface(DungeonEditorGmSurface::ID);
@@ -909,7 +927,26 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         'dungeons' => $rows,
         'tool' => $definition->name,
       ];
+      $invalid = array_values(array_filter($rows, static fn(array $row): bool => empty($row['valid'])));
+      $valid_count = count($rows) - count($invalid);
+      $result['assistant_response'] = sprintf(
+        "Dungeon validation complete.\n%d of %d dungeon%s %s valid for %s. %d error%s and %d warning%s were found.%s",
+        $valid_count,
+        count($rows),
+        count($rows) === 1 ? '' : 's',
+        $valid_count === 1 ? 'is' : 'are',
+        $profile,
+        (int) $result['error_count'],
+        (int) $result['error_count'] === 1 ? '' : 's',
+        (int) $result['warning_count'],
+        (int) $result['warning_count'] === 1 ? '' : 's',
+        $invalid === [] ? '' : "\nInvalid dungeons: " . implode(', ', array_column($invalid, 'name')) . '.',
+      );
+      $result['next_steps'] = $invalid === []
+        ? ['Review warnings if any remain, then continue storyline authoring.']
+        : ['Open each invalid dungeon in the Dungeon Editor and address its first validation error.'];
     }
+    $result['revalidated_at'] = gmdate(DATE_RFC3339);
     return $this->envelope(
       $surface,
       'deterministic_editor_tool',

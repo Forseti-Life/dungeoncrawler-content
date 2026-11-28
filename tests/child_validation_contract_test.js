@@ -23,5 +23,7 @@ assert(storyline.includes('Validating…'), 'Storyline revalidation has visible 
 assert(!roomChildTool.includes('RoomEditorService'), 'Dungeon tool delegates validation instead of reaching the Room authority');
 assert(harness.includes('executeChildValidation'), 'Harness executes lower-tier validation through the child surface');
 assert(harness.includes('validationForRoom') && harness.includes('validationForDungeon'), 'Harness calls each owning child agent surface');
+assert(harness.includes('assistant_response') && harness.includes('Invalid rooms:'), 'room validation returns an author-facing confirmation summary');
+assert(harness.includes('Invalid dungeons:'), 'dungeon validation returns an author-facing confirmation summary');
 
 console.log('=== Child validation controls ===\nAll child validation contract assertions passed.');
