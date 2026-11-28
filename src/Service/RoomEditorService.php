@@ -317,6 +317,66 @@ class RoomEditorService {
   }
 
   /**
+   * Revalidates one room using its newest accessible draft or publication.
+   */
+  public function validationStatus(string $room_id, string $profile = 'publication'): array {
+    if (!preg_match('/^[a-z0-9][a-z0-9_-]{0,99}$/', $room_id)) {
+      throw new \InvalidArgumentException('room_id_invalid');
+    }
+    if (!in_array($profile, ['editing', 'preview', 'publication'], TRUE)) {
+      throw new \InvalidArgumentException('validation_profile_invalid');
+    }
+    foreach ($this->listAccessibleDrafts() as $candidate) {
+      if (($candidate['room_id'] ?? NULL) !== $room_id) {
+        continue;
+      }
+      $draft = $this->getDraft((string) $candidate['draft_id']);
+      $validation = $this->validateDraft((string) $candidate['draft_id'], $profile);
+      return [
+        'room_id' => $room_id,
+        'name' => (string) ($draft['room']['name'] ?? $room_id),
+        'completion_percent' => $validation['is_valid'] ? 100 : 0,
+        'valid' => $validation['is_valid'],
+        'source' => 'active_draft',
+        'draft_id' => (string) $candidate['draft_id'],
+        'canonical_valid' => $validation['is_valid'],
+        'error_count' => (int) $validation['counts']['error'],
+        'warning_count' => (int) $validation['counts']['warning'],
+        'findings' => $validation['findings'],
+      ];
+    }
+    $room = $this->publishedRoom($room_id);
+    if ($room === NULL) {
+      return [
+        'room_id' => $room_id,
+        'valid' => FALSE,
+        'canonical_valid' => FALSE,
+        'completion_percent' => 0,
+        'error_count' => 1,
+        'warning_count' => 0,
+        'source' => 'missing',
+        'findings' => [[
+          'severity' => 'error',
+          'code' => 'room_not_found',
+          'message' => sprintf('Room "%s" has no active draft or published version.', $room_id),
+        ]],
+      ];
+    }
+    $validation = ['profile' => $profile] + $this->validateAggregate($room, $profile);
+    return [
+      'room_id' => $room_id,
+      'name' => (string) ($room['name'] ?? $room_id),
+      'completion_percent' => $validation['is_valid'] ? 100 : 0,
+      'valid' => $validation['is_valid'],
+      'source' => 'published',
+      'canonical_valid' => $validation['is_valid'],
+      'error_count' => (int) $validation['counts']['error'],
+      'warning_count' => (int) $validation['counts']['warning'],
+      'findings' => $validation['findings'],
+    ];
+  }
+
+  /**
    * Preserve an abandoned draft and its command log for audit.
    */
   public function abandonDraft(string $draft_id, int $expected_revision): array {

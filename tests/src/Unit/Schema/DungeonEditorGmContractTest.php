@@ -46,6 +46,7 @@ class DungeonEditorGmContractTest extends TestCase {
     'validate_dungeon',
     'describe_publication_readiness',
     'explain_validation_findings',
+    'revalidate_child_rooms',
     'load_canonical_definition',
     'update_canonical_definition',
     'generate_dungeon_layout',

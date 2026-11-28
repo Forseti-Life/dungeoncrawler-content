@@ -35,6 +35,7 @@ use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\PreviewDungeonCo
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\PublishDungeonVersionTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\SummarizeLevelTopologyTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\ValidateDungeonTool;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Dungeon\RevalidateChildRoomsTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\InspectCatalogEntryTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\ListCatalogDefinitionsTool;
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\LoadCanonicalDefinitionTool;
@@ -93,6 +94,7 @@ final class DungeonEditorGmSurface implements EditorGmSurfaceInterface {
       new ValidateDungeonTool(),
       new DescribePublicationReadinessTool(),
       new ExplainDungeonValidationFindingsTool(),
+      new RevalidateChildRoomsTool(),
       new LoadCanonicalDefinitionTool(),
       new UpdateCanonicalDefinitionTool(),
       new PlanDungeonCommandsTool(),
@@ -137,6 +139,10 @@ final class DungeonEditorGmSurface implements EditorGmSurfaceInterface {
 
   public function label(): string {
     return 'Dungeon Editor';
+  }
+
+  public function validationForDungeon(string $dungeon_id, string $profile): array {
+    return $this->dungeonEditor->validationStatus($dungeon_id, $profile);
   }
 
   public function registry(): EditorGmToolRegistry {

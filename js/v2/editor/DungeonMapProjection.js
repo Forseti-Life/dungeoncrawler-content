@@ -1,4 +1,4 @@
-import './placementTransform.js?v=20261128-canonical-hero-1';
+import './placementTransform.js?v=20261128-child-validation-1';
 
 const transform = globalThis.DungeonCrawlerPlacementTransform;
 if (!transform) {

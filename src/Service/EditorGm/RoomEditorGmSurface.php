@@ -161,6 +161,10 @@ final class RoomEditorGmSurface implements EditorGmSurfaceInterface {
     return 'Room Editor';
   }
 
+  public function validationForRoom(string $room_id, string $profile): array {
+    return $this->roomEditor->validationStatus($room_id, $profile);
+  }
+
   public function registry(): EditorGmToolRegistry {
     return $this->registry;
   }

@@ -310,6 +310,88 @@ class DungeonEditorService {
   }
 
   /**
+   * Revalidates one dungeon using its newest accessible draft or publication.
+   */
+  public function validationStatus(string $dungeon_id, string $profile = 'publication'): array {
+    if (!preg_match(self::ID_PATTERN, $dungeon_id)) {
+      throw new \InvalidArgumentException('dungeon_id_invalid');
+    }
+    if (!in_array($profile, ['editing', 'publication'], TRUE)) {
+      throw new \InvalidArgumentException('validation_profile_invalid');
+    }
+    $all = $this->currentUser->hasPermission('administer dungeoncrawler content')
+      || $this->currentUser->hasPermission('publish canonical dungeoncrawler dungeons');
+    foreach ($this->listDrafts($all ? NULL : (int) $this->currentUser->id()) as $candidate) {
+      if (($candidate['dungeon_id'] ?? NULL) !== $dungeon_id) {
+        continue;
+      }
+      $draft = $this->getDraft((string) $candidate['draft_id']);
+      $validation = $this->validateDraft((string) $candidate['draft_id'], $profile);
+      return [
+        'dungeon_id' => $dungeon_id,
+        'name' => (string) ($draft['dungeon']['name'] ?? $dungeon_id),
+        'completion_percent' => $validation['is_valid'] ? 100 : 0,
+        'valid' => $validation['is_valid'],
+        'source' => 'active_draft',
+        'draft_id' => (string) $candidate['draft_id'],
+        'canonical_valid' => $validation['is_valid'],
+        'error_count' => (int) $validation['counts']['error'],
+        'warning_count' => (int) $validation['counts']['warning'],
+        'findings' => $validation['findings'],
+      ];
+    }
+    $row = $this->database->select('dungeoncrawler_content_dungeons', 'd')
+      ->fields('d', ['published_version_id'])
+      ->condition('dungeon_id', $dungeon_id)
+      ->execute()
+      ->fetchAssoc();
+    $version_id = is_array($row) ? (string) ($row['published_version_id'] ?? '') : '';
+    $payload = $version_id === ''
+      ? FALSE
+      : $this->database->select('dungeoncrawler_content_dungeon_versions', 'v')
+        ->fields('v', ['dungeon_payload'])
+        ->condition('version_id', $version_id)
+        ->execute()
+        ->fetchField();
+    if (!is_string($payload) || $payload === '') {
+      return [
+        'dungeon_id' => $dungeon_id,
+        'valid' => FALSE,
+        'canonical_valid' => FALSE,
+        'completion_percent' => 0,
+        'error_count' => 1,
+        'warning_count' => 0,
+        'source' => 'missing',
+        'findings' => [[
+          'severity' => 'error',
+          'code' => 'dungeon_not_found',
+          'message' => sprintf('Dungeon "%s" has no active draft or published version.', $dungeon_id),
+        ]],
+      ];
+    }
+    $draft = [
+      'draft_id' => 'published-' . $dungeon_id,
+      'dungeon_id' => $dungeon_id,
+      'revision' => 0,
+      'status' => 'published',
+      'published_version_id' => $version_id,
+      'dungeon' => json_decode($payload, TRUE, 512, JSON_THROW_ON_ERROR),
+    ];
+    $validation = $this->validateAggregate($draft, $profile);
+    return [
+      'dungeon_id' => $dungeon_id,
+      'name' => (string) ($draft['dungeon']['name'] ?? $dungeon_id),
+      'completion_percent' => $validation['is_valid'] ? 100 : 0,
+      'valid' => $validation['is_valid'],
+      'source' => 'published',
+      'canonical_valid' => $validation['is_valid'],
+      'error_count' => (int) $validation['counts']['error'],
+      'warning_count' => (int) $validation['counts']['warning'],
+      'findings' => $validation['findings'],
+    ];
+  }
+
+  /**
    * Active district drafts the current author may edit from a street room.
    */
   public function districtDraftsForRoom(string $room_id): array {

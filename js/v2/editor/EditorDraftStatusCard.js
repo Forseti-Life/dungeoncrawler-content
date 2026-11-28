@@ -51,6 +51,44 @@ function contentCard(entry) {
   return card;
 }
 
+function linkedEntity(entry, href, kind, onRevalidate) {
+  const anchor = link(href, entry.name);
+  if (!onRevalidate) {
+    return anchor;
+  }
+  const group = document.createElement('span');
+  group.className = 'editor-page__linked-entity';
+  const status = document.createElement('small');
+  status.className = 'editor-page__linked-status';
+  status.textContent = entry.valid ? 'Valid' : 'Needs validation';
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'btn btn-secondary btn-sm';
+  button.textContent = 'Revalidate';
+  button.dataset.revalidateKind = kind;
+  button.dataset.revalidateId = kind === 'room' ? entry.room_id : entry.dungeon_id;
+  button.addEventListener('click', async () => {
+    button.disabled = true;
+    button.textContent = 'Validating…';
+    try {
+      const result = await onRevalidate(kind, button.dataset.revalidateId);
+      const row = result?.rooms?.[0] || result?.dungeons?.[0] || null;
+      status.textContent = row
+        ? (row.valid ? 'Valid' : `${Number(row.error_count || 0)} error(s)`)
+        : 'Validation complete';
+    }
+    catch (error) {
+      status.textContent = `Failed: ${error.message}`;
+    }
+    finally {
+      button.disabled = false;
+      button.textContent = 'Revalidate';
+    }
+  });
+  group.append(anchor, status, button);
+  return group;
+}
+
 function stageRow(stage, current) {
   const state = stage.complete ? 'Done' : (stage.stage === current ? 'Now' : 'Open');
   const row = document.createElement('li');
@@ -91,7 +129,7 @@ export function renderWarningReview(link, status) {
   }
 }
 
-export function renderEditorDraftStatus(card, status) {
+export function renderEditorDraftStatus(card, status, options = {}) {
   if (!card) return;
   const page = card.closest('.editor-page') || card;
   const part = (name) => page.querySelector(`[data-editor-status-${name}]`);
@@ -127,8 +165,16 @@ export function renderEditorDraftStatus(card, status) {
   listItems(
     part('links'),
     status.rooms
-      ? status.rooms.map((room) => link(`/dungeoncrawler/room-editor/${encodeURIComponent(room.room_id)}`, room.name))
-      : status.dungeons.map((dungeon) => link(`/dungeoncrawler/dungeon-editor/${encodeURIComponent(dungeon.dungeon_id)}`, dungeon.name)),
+      ? status.rooms.map((room) => linkedEntity(
+          room,
+          `/dungeoncrawler/room-editor/${encodeURIComponent(room.room_id)}`,
+          'room',
+          options.onRevalidate,
+        ))
+      : status.dungeons.map((dungeon) => link(
+          `/dungeoncrawler/dungeon-editor/${encodeURIComponent(dungeon.dungeon_id)}`,
+          dungeon.name,
+        )),
     status.rooms ? 'No room is placed yet.' : 'No dungeon uses this room yet.',
   );
   // A room also lists what is placed in it; each opens in the library editor.

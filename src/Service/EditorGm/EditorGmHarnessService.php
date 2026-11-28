@@ -194,6 +194,18 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         $dry_run,
       );
     }
+    if (in_array((string) ($intent['tool_name'] ?? ''), ['revalidate_child_rooms', 'revalidate_child_dungeons'], TRUE)) {
+      $definition = $surface->registry()->get((string) $intent['tool_name'])->definition();
+      $context = $this->createContext($surface, $draft_id, $profile, $scope);
+      return $this->executeChildValidation(
+        $surface,
+        $definition,
+        (array) $intent['arguments'],
+        $context,
+        $surface->assembler()->assemble($context),
+        $this->describeToolCall($definition->name, (array) $intent['arguments']),
+      );
+    }
 
     return $this->executeTool($surface, $draft_id, $profile, $intent['tool_name'], $intent['arguments'], $dry_run, '', $scope);
   }
@@ -624,6 +636,16 @@ class EditorGmHarnessService implements AgentHarnessInterface {
       );
     }
     if (!$definition->mutating) {
+      if (in_array($definition->name, ['revalidate_child_rooms', 'revalidate_child_dungeons'], TRUE)) {
+        return $this->executeChildValidation(
+          $surface,
+          $definition,
+          $intent['arguments'],
+          $context,
+          $snapshot,
+          $this->describeToolCall($definition->name, $intent['arguments']),
+        );
+      }
       return $this->executeTool(
         $surface,
         $draft_id,
@@ -833,6 +855,71 @@ class EditorGmHarnessService implements AgentHarnessInterface {
       return [$utterance, $message];
     }
     return [$directive, $directive];
+  }
+
+  /**
+   * Runs lower-tier validation through the child surface's owning authority.
+   */
+  private function executeChildValidation(
+    EditorGmSurfaceInterface $surface,
+    EditorGmToolDefinition $definition,
+    array $arguments,
+    EditorGmToolContext $context,
+    array $snapshot,
+    array $tool_call,
+  ): array {
+    $selection = $surface->registry()->get($definition->name)->execute($arguments, $context);
+    $profile = (string) ($selection['profile'] ?? 'publication');
+    if ($definition->name === 'revalidate_child_rooms') {
+      $child = $this->surface(RoomEditorGmSurface::ID);
+      if (!$child instanceof RoomEditorGmSurface) {
+        throw new \LogicException('editor_gm_room_surface_unavailable');
+      }
+      $rows = array_map(
+        fn(string $room_id): array => $child->validationForRoom($room_id, $profile),
+        (array) ($selection['room_ids'] ?? []),
+      );
+      $result = [
+        'profile' => $profile,
+        'room_count' => count($rows),
+        'valid' => $rows !== []
+          && count(array_filter($rows, static fn(array $row): bool => !empty($row['valid']))) === count($rows),
+        'error_count' => array_sum(array_column($rows, 'error_count')),
+        'warning_count' => array_sum(array_column($rows, 'warning_count')),
+        'rooms' => $rows,
+        'tool' => $definition->name,
+      ];
+    }
+    else {
+      $child = $this->surface(DungeonEditorGmSurface::ID);
+      if (!$child instanceof DungeonEditorGmSurface) {
+        throw new \LogicException('editor_gm_dungeon_surface_unavailable');
+      }
+      $rows = array_map(
+        fn(string $dungeon_id): array => $child->validationForDungeon($dungeon_id, $profile),
+        (array) ($selection['dungeon_ids'] ?? []),
+      );
+      $result = [
+        'profile' => $profile,
+        'dungeon_count' => count($rows),
+        'valid' => $rows !== []
+          && count(array_filter($rows, static fn(array $row): bool => !empty($row['valid']))) === count($rows),
+        'error_count' => array_sum(array_column($rows, 'error_count')),
+        'warning_count' => array_sum(array_column($rows, 'warning_count')),
+        'dungeons' => $rows,
+        'tool' => $definition->name,
+      ];
+    }
+    return $this->envelope(
+      $surface,
+      'deterministic_editor_tool',
+      $snapshot,
+      $result,
+      $context->validation(),
+      [],
+      [],
+      [$tool_call],
+    );
   }
 
   private function isExplicitPublicationDirective(string $author_message): bool {

@@ -241,3 +241,13 @@
 .editor-page .definition-editor__content > .dc-character-sheet {
   min-width: 0;
 }
+.editor-page__linked-entity {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.editor-page__linked-status {
+  color: rgba(255, 248, 230, 0.72);
+}

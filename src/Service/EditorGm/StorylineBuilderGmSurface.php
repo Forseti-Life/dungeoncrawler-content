@@ -49,6 +49,7 @@ use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\StorylineActor
 use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\StorylineWorkTool;
 use Drupal\dungeoncrawler_content\Service\StorylineActorSheetService;
 use Drupal\dungeoncrawler_content\Service\CanonicalQuestTemplateService;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Storyline\RevalidateChildDungeonsTool;
 
 /**
  * Storyline Builder GM surface with draft-scoped storyline authoring tools.
@@ -104,6 +105,7 @@ final class StorylineBuilderGmSurface implements EditorGmSurfaceInterface {
       new ListDungeonsTool($this->suite),
       new FindDungeonsUsingRoomTool($this->suite),
       new RouteToEditorTool($this->suite),
+      new RevalidateChildDungeonsTool(),
       new PlanStorylineDraftOperationsTool(),
       new PlanStorylineSceneRoomRemovalTool(),
       new StorylineWorkTool($work, FALSE),

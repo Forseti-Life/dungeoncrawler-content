@@ -1427,6 +1427,40 @@ import { renderWarningReview } from './v2/editor/EditorDraftStatusCard.js?v=2026
             link.title = `Open ${object.id} in the Dungeon Editor; its GM owns room creation and placement from this story's brief`;
             link.dataset.editorShortcut = `${object.kind}:${object.id}`;
             item.appendChild(link);
+            if (object.kind === 'dungeon') {
+              const validation = document.createElement('small');
+              validation.className = 'editor-page__linked-status';
+              const button = document.createElement('button');
+              button.type = 'button';
+              button.className = 'btn btn-secondary btn-sm';
+              button.textContent = 'Revalidate';
+              button.addEventListener('click', async () => {
+                button.disabled = true;
+                button.textContent = 'Validating…';
+                try {
+                  const payload = await sendAssistantIntent({
+                    type: 'tool_call',
+                    tool_name: 'revalidate_child_dungeons',
+                    arguments: { dungeon_id: object.id, profile: 'publication' },
+                  });
+                  const row = payload?.data?.tool_result?.dungeons?.[0] || null;
+                  validation.textContent = row
+                    ? (row.valid ? 'Valid' : `${Number(row.error_count || 0)} error(s)`)
+                    : 'Validation complete';
+                  if (payload?.data?.context_snapshot?.current_state) {
+                    renderCurrentState(payload.data.context_snapshot.current_state, storylineStatusElements);
+                  }
+                }
+                catch (error) {
+                  validation.textContent = `Failed: ${error.message}`;
+                }
+                finally {
+                  button.disabled = false;
+                  button.textContent = 'Revalidate';
+                }
+              });
+              item.append(validation, button);
+            }
             objectEditorLinks.appendChild(item);
           });
         }

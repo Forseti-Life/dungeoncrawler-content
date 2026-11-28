@@ -132,7 +132,7 @@ gm-storyline-scene-review:
       css/gm-storyline-scene-review.css: {}
 
 gm-storyline-builder:
-  version: 20261127-cover-images-1
+  version: 20261128-child-validation-1
   js:
     js/gm-storyline-builder.js: { attributes: { type: module } }
   dependencies:
@@ -272,7 +272,7 @@ hexmap-v2:
     - core/once
 
 room-editor:
-  version: 20261128-canonical-hero-1
+  version: 20261128-child-validation-1
   js:
     https://cdn.jsdelivr.net/npm/pixi.js@7.3.2/dist/pixi.min.js: { type: external, minified: true }
     js/room-editor.js: { attributes: { type: module } }
@@ -342,7 +342,7 @@ module-explorer:
     - core/once
 
 dungeon-editor:
-  version: 20261128-canonical-hero-1
+  version: 20261128-child-validation-1
   js:
     https://cdn.jsdelivr.net/npm/pixi.js@7.3.2/dist/pixi.min.js: { type: external, minified: true }
     js/dungeon-editor.js: { attributes: { type: module } }
