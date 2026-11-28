@@ -12,6 +12,7 @@ use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolContext;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolDefinition;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolInterface;
 use Drupal\dungeoncrawler_content\Service\EditorGm\EditorGmToolRegistry;
+use Drupal\dungeoncrawler_content\Service\EditorGm\Tool\Definition\PlanDefinitionPatchTool;
 use Drupal\Tests\UnitTestCase;
 use Psr\Log\LoggerInterface;
 
@@ -115,6 +116,30 @@ class EditorGmIntentClarificationTest extends UnitTestCase {
     $this->assertArrayHasKey('options', $storylineClarification['parameters']['properties']);
   }
 
+  public function testDefinitionMutationAuthorizationSurvivesParsing(): void {
+    $ai = $this->createMock(AIApiService::class);
+    $ai->method('invokeModelDirect')->willReturn([
+      'success' => TRUE,
+      'model_id' => 'fixture',
+      'finish_reason' => 'tool_calls',
+      'tool_call' => [
+        'name' => 'plan_definition_patch',
+        'arguments' => '{"reasoning":"Apply the author requested DC changes.","authorizes_changes":true,"patch":{"stealth_dc":8}}',
+      ],
+    ]);
+    $parser = new EditorGmIntentParser($ai, $this->loggerFactory(), $this->management());
+
+    $intent = $parser->parse(
+      'Set the stealth DC to 8.',
+      ['draft' => []],
+      $this->registry(),
+      'Definition Editor',
+    );
+
+    $this->assertSame('plan_definition_patch', $intent['tool_name']);
+    $this->assertTrue($intent['authorizes_changes']);
+  }
+
   private function loggerFactory(): LoggerChannelFactoryInterface {
     $factory = $this->createMock(LoggerChannelFactoryInterface::class);
     $factory->method('get')->willReturn($this->createMock(LoggerInterface::class));
@@ -128,7 +153,7 @@ class EditorGmIntentClarificationTest extends UnitTestCase {
       ->getMock();
     $management->method('selectIntentExecutionProfile')->willReturn(['max_tokens' => 4096]);
     $management->method('filterToolsForNaturalLanguage')->willReturnCallback(
-      static fn(array $manifest): array => $manifest['families']['context'] ?? [],
+      static fn(array $manifest): array => array_merge(...array_values($manifest['families'] ?? [])),
     );
     return $management;
   }
@@ -152,7 +177,7 @@ class EditorGmIntentClarificationTest extends UnitTestCase {
       }
 
     };
-    return new EditorGmToolRegistry([$tool], [], NULL);
+    return new EditorGmToolRegistry([$tool, new PlanDefinitionPatchTool()], [], NULL);
   }
 
 }

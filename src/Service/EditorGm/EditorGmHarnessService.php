@@ -1300,10 +1300,15 @@ class EditorGmHarnessService implements AgentHarnessInterface {
         && $definition->mutating && !in_array($name, self::STORYLINE_DIRECT_MUTATIONS, TRUE)) {
         throw new \LogicException('storyline_gm_direct_mutation_tool_forbidden');
       }
+      $authorized = $this->authorizesEditorLookupChanges($surface, $intent, $scope, $author_message);
+      $execution_scope = $scope;
+      if ($surface->id() === 'definition_editor' && $authorized) {
+        $execution_scope['definition_write_intent'] = TRUE;
+      }
       return $this->executeTool(
         $surface, $draft_id, $profile, $name, (array) $intent['arguments'],
-        $dry_run || !$this->authorizesEditorLookupChanges($surface, $intent, $scope, $author_message),
-        (string) $intent['reasoning'], $scope, (array) ($intent['next_steps'] ?? []), $author_message, $tool_calls,
+        $dry_run || !$authorized,
+        (string) $intent['reasoning'], $execution_scope, (array) ($intent['next_steps'] ?? []), $author_message, $tool_calls,
       );
     }
   }
@@ -1756,6 +1761,9 @@ class EditorGmHarnessService implements AgentHarnessInterface {
   ): bool {
     if (in_array($surface->id(), [RoomEditorGmSurface::ID, DungeonEditorGmSurface::ID], TRUE)) {
       return $this->isDirectEditorMutationDirective($author_message);
+    }
+    if ($surface->id() === 'definition_editor') {
+      return ($intent['authorizes_changes'] ?? FALSE) === TRUE;
     }
     return $this->authorizesStorylineLookupChanges($intent, $scope);
   }
@@ -2623,6 +2631,29 @@ class EditorGmHarnessService implements AgentHarnessInterface {
     $proposed_execution = is_array($result['proposed_execution'] ?? NULL)
       ? $result['proposed_execution']
       : [];
+    if (
+      $surface->id() === 'definition_editor'
+      && !$dry_run
+      && $definition->name === 'plan_definition_patch'
+      && ($scope['definition_write_intent'] ?? NULL) === TRUE
+      && ($result['valid'] ?? FALSE) === TRUE
+      && ($proposed_execution['tool_name'] ?? '') === 'update_definition'
+      && is_array($proposed_execution['arguments'] ?? NULL)
+    ) {
+      return $this->executeTool(
+        $surface,
+        $draft_id,
+        $profile,
+        'update_definition',
+        $proposed_execution['arguments'],
+        FALSE,
+        'Apply the explicitly authorized definition patch.',
+        $scope,
+        $next_steps,
+        $utterance,
+        $tool_calls,
+      );
+    }
     if (in_array($surface->id(), [RoomEditorGmSurface::ID, DungeonEditorGmSurface::ID], TRUE)
       && !empty($scope['delegated_authorization'])
       && ($proposed_execution['tool_name'] ?? '') !== ''

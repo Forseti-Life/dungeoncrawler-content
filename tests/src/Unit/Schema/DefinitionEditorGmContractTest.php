@@ -189,6 +189,9 @@ final class DefinitionEditorGmContractTest extends TestCase {
     $this->assertStringContainsString("'definition_editor', 'storyline_builder'", $controller);
     $this->assertStringContainsString("family . ':'", $controller);
     $this->assertStringContainsString('pending_definition_execution', $controller);
+    $harness = $this->source('src/Service/EditorGm/EditorGmHarnessService.php');
+    $this->assertStringContainsString("'definition_write_intent']", $harness);
+    $this->assertStringContainsString("definition->name === 'plan_definition_patch'", $harness);
     $this->assertStringContainsString('pending_editor_proposal', $shell);
     $this->assertStringContainsString('restoreEditorGmConversation', $shell);
   }
